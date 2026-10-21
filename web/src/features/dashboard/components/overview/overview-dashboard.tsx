@@ -48,6 +48,7 @@ import {
 } from '@/components/page-transition'
 import { Button } from '@/components/ui/button'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
+import { GptQuotaCard } from '@/features/gpt-quota/GptQuotaCard'
 import { fetchTokenKey, getApiKeys } from '@/features/keys/api'
 import type { ApiKey } from '@/features/keys/types'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
@@ -460,6 +461,7 @@ function CompactQuickAction(props: { action: QuickAction }) {
   )
 }
 
+/** Keep the official subscription reading separate from New API's internal balance. */
 export function OverviewDashboard() {
   const { t } = useTranslation()
   const setupGuideId = useId()
@@ -647,6 +649,7 @@ export function OverviewDashboard() {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='flex flex-col gap-4'>
+          <GptQuotaCard />
           <div id={setupGuideId} hidden={!setupGuideExpanded}>
             {setupGuideExpanded && (
               <CardStaggerContainer className='grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]'>

@@ -7318,6 +7318,25 @@
     "Zhipu": "智谱",
     "Zhipu GLM": "智谱GLM",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "GPT subscription quota": "GPT 订阅额度",
+    "GPT 5-hour window": "5 小时额度",
+    "GPT 7-day window": "7 天额度",
+    "GPT remaining {{percent}}%": "剩余 {{percent}}%",
+    "GPT used {{percent}}%": "已用 {{percent}}%",
+    "GPT window expired; awaiting a fresh reading": "窗口已到期，等待新读数",
+    "GPT upstream has not returned this window": "官方未返回此窗口数据",
+    "GPT resets at {{time}}": "重置时间：{{time}}",
+    "GPT reset time unavailable": "重置时间：暂未提供",
+    "Refresh quota display": "刷新显示",
+    "GPT quota belongs to your linked account; it is separate from the site balance.": "这里显示本人 GPT 账号的官方额度，与站内余额分别计算。",
+    "Loading GPT quota...": "正在读取 GPT 额度…",
+    "GPT quota could not be loaded": "暂时无法读取 GPT 额度",
+    "Please retry. Existing API access is unaffected.": "请稍后重试，API 调用不受此查询影响。",
+    "GPT initial synchronization is in progress": "正在首次同步官方额度，请稍候。",
+    "GPT reading may be outdated; awaiting the next successful sync": "读数可能已过期，等待下次同步成功后更新。",
+    "GPT official reading: {{time}}": "官方读数时间：{{time}}",
+    "GPT syncs every 5 minutes; displayed times use your local timezone.": "每 5 分钟同步一次；时间按你的设备时区显示。",
+    "Quota integration source code": "额度接入源码"
   }
 }

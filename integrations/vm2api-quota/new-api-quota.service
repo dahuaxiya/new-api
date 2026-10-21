@@ -1,0 +1,29 @@
+[Unit]
+Description=Personal GPT quota adapter for New API
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+LoadCredential=config.json:/etc/new-api-quota/config.json
+ExecStart=/usr/bin/python3 /opt/new-api-quota/server.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+MemoryMax=64M
+TasksMax=24
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

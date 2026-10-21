@@ -7318,6 +7318,25 @@
     "Zhipu": "智譜",
     "Zhipu GLM": "智譜GLM",
     "Zhipu V4": "智譜 V4",
-    "Zoom": "縮放"
+    "Zoom": "縮放",
+    "GPT subscription quota": "GPT subscription quota",
+    "GPT 5-hour window": "GPT 5-hour window",
+    "GPT 7-day window": "GPT 7-day window",
+    "GPT remaining {{percent}}%": "GPT remaining {{percent}}%",
+    "GPT used {{percent}}%": "GPT used {{percent}}%",
+    "GPT window expired; awaiting a fresh reading": "GPT window expired; awaiting a fresh reading",
+    "GPT upstream has not returned this window": "GPT upstream has not returned this window",
+    "GPT resets at {{time}}": "GPT resets at {{time}}",
+    "GPT reset time unavailable": "GPT reset time unavailable",
+    "Refresh quota display": "Refresh quota display",
+    "GPT quota belongs to your linked account; it is separate from the site balance.": "GPT quota belongs to your linked account; it is separate from the site balance.",
+    "Loading GPT quota...": "Loading GPT quota...",
+    "GPT quota could not be loaded": "GPT quota could not be loaded",
+    "Please retry. Existing API access is unaffected.": "Please retry. Existing API access is unaffected.",
+    "GPT initial synchronization is in progress": "GPT initial synchronization is in progress",
+    "GPT reading may be outdated; awaiting the next successful sync": "GPT reading may be outdated; awaiting the next successful sync",
+    "GPT official reading: {{time}}": "GPT official reading: {{time}}",
+    "GPT syncs every 5 minutes; displayed times use your local timezone.": "GPT syncs every 5 minutes; displayed times use your local timezone.",
+    "Quota integration source code": "Quota integration source code"
   }
 }
