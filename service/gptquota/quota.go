@@ -1,5 +1,5 @@
-// Package gptquota reads persisted vm2api subscription windows. It never probes
-// the official upstream and never changes New API billing or inference routing.
+// Package gptquota reads vm2api subscription windows and supports explicit user
+// refreshes. It never changes New API billing or inference routing.
 package gptquota
 
 import (
@@ -21,6 +21,14 @@ import (
 )
 
 var ErrUnavailable = errors.New("subscription quota unavailable")
+var ErrCooldown = errors.New("quota refresh cooldown")
+var ErrUnbound = errors.New("quota account not bound")
+
+type refreshFlight struct {
+	done chan struct{}
+	err  error
+}
+
 var slotName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 type Binding struct {
@@ -69,11 +77,13 @@ type Service struct {
 	config Config
 	client *http.Client
 	// Serialize short cached panel reads and session renewal. No official probe is
-	// performed here, so browser polling cannot amplify upstream quota requests.
-	mu         sync.Mutex
-	token      string
-	cache      map[string]cacheEntry
-	retryAfter time.Time
+	// performed while holding this lock; background refresh workers have their own client.
+	mu          sync.Mutex
+	token       string
+	cache       map[string]cacheEntry
+	retryAfter  time.Time
+	flights     map[string]*refreshFlight
+	lastRefresh map[string]time.Time
 }
 
 // Load reads only the operator-selected file; browsers cannot choose a mapping or URL.
@@ -110,7 +120,7 @@ func New(cfg Config) (*Service, error) {
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
-	return &Service{config: cfg, cache: make(map[string]cacheEntry), client: &http.Client{
+	return &Service{config: cfg, cache: make(map[string]cacheEntry), flights: make(map[string]*refreshFlight), lastRefresh: make(map[string]time.Time), client: &http.Client{
 		Transport: transport, Timeout: 8 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}, nil
@@ -195,7 +205,8 @@ func (s *Service) readVM(ctx context.Context, slot string) (persistedVM, error) 
 }
 
 // request bounds panel reads and returns generic errors, excluding credentials
-// and upstream bodies from public responses and logs. Callers hold s.mu.
+// and upstream bodies from public responses and logs. Callers either hold s.mu
+// or own an isolated worker instance so session state is never shared concurrently.
 func (s *Service) request(ctx context.Context, path string, body any, target any) (int, error) {
 	method := http.MethodGet
 	var reader io.Reader
@@ -211,7 +222,7 @@ func (s *Service) request(ctx context.Context, path string, body any, target any
 		return 0, ErrUnavailable
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if body == nil {
+	if path != "/login" {
 		req.Header.Set("Authorization", "Bearer "+s.token)
 	}
 	resp, err := s.client.Do(req)
@@ -272,4 +283,101 @@ func validTime(value string) *string {
 	}
 	normalized := t.UTC().Format(time.RFC3339Nano)
 	return &normalized
+}
+
+// Refresh starts at most one official probe per bound slot. Concurrent callers
+// share its completion; new attempts (including failures) have a 30-second gap.
+// The bounded worker survives a browser disconnect so retries cannot duplicate it.
+func (s *Service) Refresh(ctx context.Context, id int, username, group string) (View, error) {
+	b, ok := s.config.Users[strconv.Itoa(id)]
+	if !ok || b.Username != username || b.Group != group {
+		return View{}, ErrUnbound
+	}
+	s.mu.Lock()
+	flight := s.flights[b.Slot]
+	if flight == nil {
+		if time.Since(s.lastRefresh[b.Slot]) < 30*time.Second {
+			s.mu.Unlock()
+			return View{}, ErrCooldown
+		}
+		flight = &refreshFlight{done: make(chan struct{})}
+		s.flights[b.Slot], s.lastRefresh[b.Slot] = flight, time.Now()
+		go s.probeBoundSlot(b.Slot, flight)
+	}
+	s.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return View{}, ctx.Err()
+	case <-flight.done:
+		if flight.err != nil {
+			return View{}, flight.err
+		}
+		return s.Self(ctx, id, username, group)
+	}
+}
+
+// probeBoundSlot uses a short-lived panel session and separate transport so a
+// slow official probe cannot block other users' cached reads. Only operator-
+// configured slot names enter this path; no browser-supplied IDs are accepted.
+func (s *Service) probeBoundSlot(slot string, flight *refreshFlight) {
+	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+	defer cancel()
+	worker, err := New(s.config)
+	var view View
+	if err == nil {
+		worker.client.Timeout = 65 * time.Second
+		defer worker.client.CloseIdleConnections()
+		// Login/read verifies the slot before the only mutating panel request.
+		_, err = worker.readVM(ctx, slot)
+		if err == nil {
+			var result struct {
+				OK   bool `json:"ok"`
+				Data struct {
+					OK       bool   `json:"ok"`
+					ProbedAt string `json:"probed_at"`
+				} `json:"data"`
+			}
+			_, err = worker.request(ctx, "/vms/"+slot+"/probe", map[string]any{}, &result)
+			if err == nil && (!result.OK || !result.Data.OK || validTime(result.Data.ProbedAt) == nil) {
+				err = ErrUnavailable
+			}
+			if err == nil {
+				var vm persistedVM
+				vm, err = worker.readVM(ctx, slot)
+				if err == nil {
+					observed, parseErr := time.Parse(time.RFC3339Nano, vm.Usage.Snapshot.Updated)
+					probed, _ := time.Parse(time.RFC3339Nano, result.Data.ProbedAt)
+					if parseErr != nil || observed.Before(probed) {
+						err = ErrUnavailable
+					} else {
+						view = quotaView(vm, time.Now())
+					}
+				}
+			}
+		}
+		if worker.token != "" {
+			// Logout has its own deadline even if the probe timed out. Never expose the
+			// panel credential or a probe error body through the user-facing endpoint.
+			logoutCtx, logoutCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			var ignored any
+			_, _ = worker.request(logoutCtx, "/logout", map[string]any{}, &ignored)
+			logoutCancel()
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	if err == nil {
+		checked := now.UTC().Format(time.RFC3339)
+		view.Checked = &checked
+		s.cache[slot] = cacheEntry{view: view, fetched: now}
+	} else {
+		flight.err = ErrUnavailable
+		if entry, ok := s.cache[slot]; ok {
+			entry.view.Status = "error"
+			s.cache[slot] = entry
+		}
+	}
+	delete(s.flights, slot)
+	close(flight.done)
 }

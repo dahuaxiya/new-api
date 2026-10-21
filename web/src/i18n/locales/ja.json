@@ -2826,7 +2826,7 @@
     "footer.columns.related.links.oneApi": "1つのAPI",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "高度なカスタムチャネルでは、プロトコル変換を行わない /v1/responses ルートにのみ適用されます。",
     "GitHub ID is empty!": "GitHub ID が空です！",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
@@ -7425,5 +7425,10 @@
     "docs.test.logs": "Open Usage Logs on this site and find the request at the time you just sent the message. A normal Codex reply together with a successful matching log confirms that this request went through this site. A reply alone does not prove it used this API.",
     "docs.test.login": "If you see “Work browser access requires an authenticated account”, that feature requires a separate OpenAI login. This site key cannot provide it. Use a local Codex chat without browser features for the first test; do not change the key just because of this message.",
     "docs.test.help": "If it still fails, open Troubleshooting or send the exact error and request time to your administrator. Remove keys from any screenshot or configuration first."
-  }
+  },
+  "Refresh official quota": "Refresh official quota",
+  "Querying official quota...": "Querying official quota...",
+  "Please wait 30 seconds before refreshing quota again": "Please wait 30 seconds before refreshing quota again",
+  "Official quota refresh failed. Previous readings are retained; please try again later.": "Official quota refresh failed. Previous readings are retained; please try again later.",
+  "Official quota updated": "Official quota updated"
 }

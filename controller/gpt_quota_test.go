@@ -28,6 +28,7 @@ func TestGPTQuotaSelfSessionGate(t *testing.T) {
 	t.Cleanup(func() { quotaService = old })
 	router := gin.New()
 	router.GET("/api/gpt-quota/self", middleware.DisableCache(), middleware.UserAuth(), GetGPTQuotaSelf)
+	router.POST("/api/gpt-quota/self/refresh", middleware.DisableCache(), middleware.UserAuth(), RefreshGPTQuotaSelf)
 	for _, tc := range []struct {
 		name, path, token, hint string
 		status                  int
@@ -55,12 +56,34 @@ func TestGPTQuotaSelfSessionGate(t *testing.T) {
 			}
 		})
 	}
+	// The mutating route has the same session gate and rejects unbound identities.
+	for _, tc := range []struct {
+		token, suffix, hint string
+		status              int
+	}{
+		{token, "", "", 403}, {"", "", "", 401}, {"fake-token", "", "", 401},
+		{token, "?slot=other", "", 404}, {token, "", "999", 401},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/gpt-quota/self/refresh"+tc.suffix, nil)
+		if tc.token != "" {
+			req.Header.Set("Authorization", "Bearer "+tc.token)
+		}
+		req.Header.Set("New-Api-User", tc.hint)
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, req)
+		assert.Equal(t, tc.status, out.Code, out.Body.String())
+	}
 	revoked, err := model.RevokeUserSession(user.Id, identity.SessionID, "test logout")
 	require.NoError(t, err)
 	require.True(t, revoked)
 	req := httptest.NewRequest(http.MethodGet, "/api/gpt-quota/self", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	out := httptest.NewRecorder()
+	router.ServeHTTP(out, req)
+	assert.Equal(t, http.StatusUnauthorized, out.Code)
+	req = httptest.NewRequest(http.MethodPost, "/api/gpt-quota/self/refresh", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	out = httptest.NewRecorder()
 	router.ServeHTTP(out, req)
 	assert.Equal(t, http.StatusUnauthorized, out.Code)
 	// A fresh session for a disabled user must also fail before reading cached data.

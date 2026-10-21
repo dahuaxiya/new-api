@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -138,4 +139,121 @@ func TestPanelRedirectAndExpiry(t *testing.T) {
 	assert.True(t, view.Stale)
 	assert.Equal(t, 2, reads)
 	assert.Equal(t, 1, logins)
+}
+
+// TestRefreshIsolationAndCooldown proves explicit refresh uses only the bound slot,
+// preserves cached availability while probing, and lets a disconnected caller rejoin.
+func TestRefreshIsolationAndCooldown(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	var probes atomic.Int32
+	observed := time.Now().UTC().Format(time.RFC3339Nano)
+	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/panel/login" {
+			fmt.Fprint(w, `{"token":"private-panel"}`)
+			return
+		}
+		assert.Equal(t, "Bearer private-panel", r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case "/api/panel/logout":
+			fmt.Fprint(w, `{"ok":true}`)
+		case "/api/panel/vms/alice-slot/probe":
+			assert.Equal(t, http.MethodPost, r.Method)
+			probes.Add(1)
+			close(entered)
+			<-release
+			fmt.Fprintf(w, `{"ok":true,"data":{"ok":true,"probed_at":%q}}`, observed)
+		case "/api/panel/vms/alice-slot":
+			assert.Equal(t, http.MethodGet, r.Method)
+			fmt.Fprintf(w, `{"ok":true,"data":{"vm":{"id":"alice-slot","codex_usage":{"snapshot":{"updated_at":%q},"windows":[{"id":"7d","used_percent":60}]}}}}`, observed)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer panel.Close()
+	svc, err := New(Config{PanelURL: panel.URL + "/api/panel", Login: map[string]string{"username": "a", "password": "p"}, Users: map[string]Binding{"2": {Username: "alice", Group: "alice", Slot: "alice-slot"}}})
+	require.NoError(t, err)
+	for _, identity := range []struct {
+		id          int
+		name, group string
+	}{{3, "bob", "bob"}, {2, "bob", "alice"}, {2, "alice", "bob"}} {
+		_, err := svc.Refresh(context.Background(), identity.id, identity.name, identity.group)
+		require.ErrorIs(t, err, ErrUnbound)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	first := make(chan error, 1)
+	go func() { _, err := svc.Refresh(ctx, 2, "alice", "alice"); first <- err }()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("probe did not start")
+	}
+	cancel()
+	require.ErrorIs(t, <-first, context.Canceled)
+	// A cache read is independent of the long-running probe's client and mutex.
+	readCtx, readCancel := context.WithTimeout(context.Background(), time.Second)
+	defer readCancel()
+	_, err = svc.Self(readCtx, 2, "alice", "alice")
+	require.NoError(t, err)
+	// Joining the existing flight with a canceled waiter must not start another probe.
+	_, err = svc.Refresh(ctx, 2, "alice", "alice")
+	require.ErrorIs(t, err, context.Canceled)
+	svc.mu.Lock()
+	flight := svc.flights["alice-slot"]
+	svc.mu.Unlock()
+	close(release)
+	select {
+	case <-flight.done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("probe did not finish")
+	}
+	require.NoError(t, flight.err)
+	view, err := svc.Self(context.Background(), 2, "alice", "alice")
+	require.NoError(t, err)
+	require.NotNil(t, view.Windows[1].Remaining)
+	assert.Equal(t, 40.0, *view.Windows[1].Remaining)
+	assert.Equal(t, observed, *view.Observed)
+	assert.EqualValues(t, 1, probes.Load())
+	_, err = svc.Refresh(context.Background(), 2, "alice", "alice")
+	require.ErrorIs(t, err, ErrCooldown)
+}
+
+// TestRefreshRejectsFailedOrUnpersistedProbe prevents reporting stale data as a successful refresh.
+func TestRefreshRejectsFailedOrUnpersistedProbe(t *testing.T) {
+	for _, mode := range []string{"http failure", "probe failure", "old snapshot"} {
+		t.Run(mode, func(t *testing.T) {
+			old := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano)
+			panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/login"):
+					fmt.Fprint(w, `{"token":"panel"}`)
+				case strings.HasSuffix(r.URL.Path, "/logout"):
+					fmt.Fprint(w, `{"ok":true}`)
+				case strings.HasSuffix(r.URL.Path, "/probe"):
+					switch mode {
+					case "http failure":
+						w.WriteHeader(503)
+					case "probe failure":
+						fmt.Fprint(w, `{"ok":true,"data":{"ok":false}}`)
+					default:
+						fmt.Fprintf(w, `{"ok":true,"data":{"ok":true,"probed_at":%q}}`, time.Now().UTC().Format(time.RFC3339Nano))
+					}
+				default:
+					fmt.Fprintf(w, `{"ok":true,"data":{"vm":{"id":"s","codex_usage":{"snapshot":{"updated_at":%q}}}}}`, old)
+				}
+			}))
+			defer panel.Close()
+			svc, err := New(Config{PanelURL: panel.URL + "/api/panel", Login: map[string]string{"username": "a", "password": "p"}, Users: map[string]Binding{"2": {Username: "a", Group: "a", Slot: "s"}}})
+			require.NoError(t, err)
+			svc.cache["s"] = cacheEntry{view: View{Observed: &old, Status: "ok"}, fetched: time.Now()}
+			_, err = svc.Refresh(context.Background(), 2, "a", "a")
+			require.ErrorIs(t, err, ErrUnavailable)
+			view, err := svc.Self(context.Background(), 2, "a", "a")
+			require.NoError(t, err)
+			assert.Equal(t, old, *view.Observed)
+			assert.Equal(t, "error", view.Status)
+			_, err = svc.Refresh(context.Background(), 2, "a", "a")
+			require.ErrorIs(t, err, ErrCooldown)
+		})
+	}
 }

@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 
@@ -108,23 +109,57 @@ function WindowReading(props: { window: QuotaWindow; now: number }) {
 
 /** Compose the native user card with per-session caching and no slot selector. */
 export function GptQuotaCard() {
-  const { t, i18n } = useTranslation()
-  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const userId = useAuthStore((state) => state.auth.user?.id)
   const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  // Remount mutation state on account/session changes; an old in-flight refresh
+  // must never write its response into the next person's query cache.
+  if (!userId) return null
+  return (
+    <SessionQuotaCard
+      key={`${userId}:${sessionId ?? ''}`}
+      userId={userId}
+      sessionId={sessionId}
+    />
+  )
+}
+
+/** Keep refresh callbacks and feedback scoped to the session that started them. */
+function SessionQuotaCard(props: {
+  userId: number
+  sessionId: string | undefined
+}) {
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const queryClient = useQueryClient()
+  const queryKey = ['gpt-quota', props.userId, props.sessionId]
+  const refresh = useMutation({
+    mutationFn: async () => {
+      const response = await api.post(
+        '/api/gpt-quota/self/refresh',
+        {},
+        { timeout: 90_000 }
+      )
+      return quotaSchema.parse(requireServerSuccess(response.data).data)
+    },
+    // Cancel an older display read so it cannot overwrite the fresh probe result.
+    onMutate: () => queryClient.cancelQueries({ queryKey }),
+    onSuccess: (value) => queryClient.setQueryData(queryKey, value),
+    retry: false,
+    meta: { errorToast: false },
+  })
   // Never reuse one person's quota when another account logs in in the same tab.
   const query = useQuery({
-    queryKey: ['gpt-quota', userId, sessionId],
+    queryKey,
     queryFn: ({ signal }) => fetchQuota(signal),
-    enabled: Boolean(userId),
-    staleTime: 0,
+    enabled: !refresh.isPending,
+    staleTime: 15_000,
     gcTime: 0,
     refetchInterval: 30_000,
     retry: 1,
     meta: { errorToast: false },
   })
   const data = query.data
-  if (!userId || (data && !data.bound)) return null
+  if (data && !data.bound) return null
 
   return (
     <Card className='shrink-0' aria-label={t('GPT subscription quota')}>
@@ -134,10 +169,12 @@ export function GptQuotaCard() {
           <Button
             variant='outline'
             size='sm'
-            disabled={query.isFetching}
-            onClick={() => void query.refetch()}
+            disabled={query.isPending || refresh.isPending}
+            onClick={() => refresh.mutate()}
           >
-            {t('Refresh quota display')}
+            {refresh.isPending
+              ? t('Querying official quota...')
+              : t('Refresh official quota')}
           </Button>
         </div>
         <CardDescription>
@@ -147,6 +184,21 @@ export function GptQuotaCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className='space-y-3'>
+        {refresh.isError && (
+          <p role='alert' className='text-destructive text-sm'>
+            {isAxiosError(refresh.error) &&
+            refresh.error.response?.status === 429
+              ? t('Please wait 30 seconds before refreshing quota again')
+              : t(
+                  'Official quota refresh failed. Previous readings are retained; please try again later.'
+                )}
+          </p>
+        )}
+        {refresh.isSuccess && (
+          <p role='status' className='text-muted-foreground text-sm'>
+            {t('Official quota updated')}
+          </p>
+        )}
         {query.isPending && (
           <LoadingState inline message={t('Loading GPT quota...')} />
         )}
