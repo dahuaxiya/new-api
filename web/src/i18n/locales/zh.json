@@ -7404,6 +7404,26 @@
     "Use a model enabled for your key and channel. A model name in this guide is only an example; contact the administrator if the model list is empty.": "使用当前 Key 和渠道支持的模型。文档中的模型名仅为示例；模型列表为空时请联系管理员。",
     "Need help? Send the error and request time to your administrator, with the API key removed.": "需要帮助？向管理员提供报错和请求时间，请先移除 API Key。",
     "Duplicate key / duplicate table": "配置字段或分节重复",
-    "Model unavailable": "模型不可用"
+    "Model unavailable": "模型不可用",
+    "docs.windows.openFolder": "打开文件资源管理器，把下面的路径粘贴到顶部地址栏（不是搜索框），然后按回车。",
+    "docs.windows.createFolder": "如果提示找不到文件夹，先在地址栏输入 %USERPROFILE% 并回车。在空白处右键 → 新建 → 文件夹，命名为 .codex（开头是英文句点），然后打开它。",
+    "docs.file.openOrCreate": "如果文件夹里已有 config.toml，用文本编辑器打开它；没有的话，就在这个文件夹里新建一个名为 config.toml 的纯文本文件。",
+    "docs.windows.saveAs": "用记事本新建时，选择「文件 → 另存为」，将「保存类型」改为「所有文件」，文件名填写 config.toml，编码选择 UTF-8，保存到上面的 .codex 文件夹。",
+    "docs.windows.extensions": "在文件资源管理器的「查看」中勾选「文件扩展名」（Windows 11 在「查看 → 显示」中）。确认完整文件名是 config.toml；如果是 config.toml.txt，重命名时去掉最后的 .txt。",
+    "docs.file.backup": "修改已有文件前，先在同一文件夹复制一份，命名为 config.toml.bak，方便改错后恢复。",
+    "docs.config.prepare": "先从本站获取自己的 API Key，再向管理员确认账号可用的完整模型名。下面的 gpt-6.1-sol 是示例，不代表每个账号都能使用。",
+    "docs.config.baseUrl": "示例中的 base_url 已填入上方本站 API 地址，通常不用修改。保留一个 /v1，不要在后面加 /responses。",
+    "docs.config.newTitle": "首次配置：文件里还没有内容",
+    "docs.config.newFile": "把下面整段内容粘贴进去。将 YOUR_API_KEY 替换为自己的完整密钥，保留两侧的英文双引号；将 model 的值改为管理员确认的模型名，然后保存。",
+    "docs.config.existingTitle": "已有配置：文件里已经有内容",
+    "docs.config.topLevel": "先看文件开头，将 model、model_provider、model_reasoning_effort 这三项改为示例开头的值（model 使用已确认的模型名）。缺少哪项就补上，放在第一个以 [ 开头的配置段之前；这三项在这里各保留一行，不要重复追加。",
+    "docs.config.provider": "再搜索 [model_providers.my_api]。找到了，就按示例修改这一段并填入自己的 Key；这一段到下一个以 [ 开头的配置段之前结束。没找到，就把示例中从 [model_providers.my_api] 到 supports_websockets = false 的部分追加到文件末尾。",
+    "docs.config.keepOthers": "保留其他配置段，例如 [desktop]、[plugins...]、[projects...]。最后确认 [model_providers.my_api] 只出现一次。如果分不清段落范围，先移除所有密钥，再把配置副本交给管理员协助合并。",
+    "docs.config.privateKey": "这种方式会把 Key 明文保存在 config.toml 中，不要截图分享或上传这个文件。无需修改 auth.json。熟悉环境变量的用户可以改用 env_key，详见下方官方配置参考。",
+    "docs.test.restart": "保存文件，完全退出 Codex 后重新打开，新建一个在本机运行的聊天进行测试。如果旧聊天仍使用原服务商，不要用它判断本次配置是否生效。",
+    "docs.test.message": "发送「请只回复 OK」。先发这一条，等它正常回复。",
+    "docs.test.logs": "打开本站「使用日志」，找到刚才发送消息的时间。Codex 正常回复，并且本站出现对应的成功记录，才能确认这次请求走了本站 API；只有回复、没有对应日志时，还不能确认接入成功。",
+    "docs.test.login": "如果出现「Work browser access requires an authenticated account」，表示该功能另需登录 OpenAI 账号，本站 Key 不能代替它。首次测试先使用不启用浏览器功能的本地 Codex 聊天，不要仅因为这条提示就更换 Key。",
+    "docs.test.help": "仍然失败时，查看左侧「常见问题」，或把完整报错和请求时间发给管理员。截图和配置里如有密钥，先遮掉或删除。"
   }
 }

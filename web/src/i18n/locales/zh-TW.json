@@ -7404,6 +7404,26 @@
     "Use a model enabled for your key and channel. A model name in this guide is only an example; contact the administrator if the model list is empty.": "Use a model enabled for your key and channel. A model name in this guide is only an example; contact the administrator if the model list is empty.",
     "Need help? Send the error and request time to your administrator, with the API key removed.": "Need help? Send the error and request time to your administrator, with the API key removed.",
     "Duplicate key / duplicate table": "Duplicate key / duplicate table",
-    "Model unavailable": "Model unavailable"
+    "Model unavailable": "Model unavailable",
+    "docs.windows.openFolder": "Open File Explorer, paste the path below into the address bar at the top (not the search box), and press Enter.",
+    "docs.windows.createFolder": "If the folder cannot be found, enter %USERPROFILE% in the address bar. Right-click an empty area, choose New → Folder, and name it .codex, starting with an English period. Then open that folder.",
+    "docs.file.openOrCreate": "If config.toml already exists, open it with a text editor. Otherwise, create a plain-text file named config.toml in this folder.",
+    "docs.windows.saveAs": "Using Notepad: choose File → Save As, select All files as the file type, enter config.toml as the filename, choose UTF-8 encoding, and save it in the .codex folder above.",
+    "docs.windows.extensions": "In File Explorer, enable File name extensions under View (View → Show on Windows 11). Check that the full name is config.toml. If it is config.toml.txt, rename it and remove only the final .txt.",
+    "docs.file.backup": "Before editing an existing file, make a copy named config.toml.bak in the same folder so you can restore it if needed.",
+    "docs.config.prepare": "First get your personal key from this site. Ask the administrator for the exact model name available to your account; gpt-6.1-sol below is only an example.",
+    "docs.config.baseUrl": "The base_url in the example already uses this API address. Keep /v1 exactly once and do not append /responses.",
+    "docs.config.newTitle": "First setup: the file is empty",
+    "docs.config.newFile": "Paste the entire example below. Replace only YOUR_API_KEY with your full personal key, keeping the double quotes. Set model to the exact name confirmed by your administrator, then save.",
+    "docs.config.existingTitle": "Existing setup: the file already has content",
+    "docs.config.topLevel": "Find model, model_provider, and model_reasoning_effort at the start of the file and update their values to match the first three lines of the example (use your confirmed model name). Add any missing lines before the first line starting with [. Keep only one of each setting there.",
+    "docs.config.provider": "Search for [model_providers.my_api]. If it exists, update that section using the example, with your own key. The section ends just before the next line starting with [. If it does not exist, append the example from [model_providers.my_api] through supports_websockets = false to the end of the file.",
+    "docs.config.keepOthers": "Keep other sections, such as [desktop], [plugins...] and [projects...], unchanged. Make sure [model_providers.my_api] appears only once. If you cannot tell where a section ends, ask the administrator to help merge a copy with all keys removed.",
+    "docs.config.privateKey": "This method saves your key as readable text in config.toml. Do not share screenshots or upload this file. There is no need to edit auth.json. Advanced users can use env_key instead; see the official reference below.",
+    "docs.test.restart": "Save the file, fully quit Codex and reopen it. Create a new local chat to test; if an old chat still uses the previous provider, do not use it for this check.",
+    "docs.test.message": "Send: “Reply with OK only.” Start with one message and wait for a normal response.",
+    "docs.test.logs": "Open Usage Logs on this site and find the request at the time you just sent the message. A normal Codex reply together with a successful matching log confirms that this request went through this site. A reply alone does not prove it used this API.",
+    "docs.test.login": "If you see “Work browser access requires an authenticated account”, that feature requires a separate OpenAI login. This site key cannot provide it. Use a local Codex chat without browser features for the first test; do not change the key just because of this message.",
+    "docs.test.help": "If it still fails, open Troubleshooting or send the exact error and request time to your administrator. Remove keys from any screenshot or configuration first."
   }
 }
