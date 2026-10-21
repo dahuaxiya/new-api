@@ -151,6 +151,7 @@ it('renders the new quota card in Chinese using the deployed locale bundle', asy
   mount()
   expect(await screen.findByText('剩余 44%')).toBeTruthy()
   expect(screen.getByLabelText('GPT 订阅额度')).toBeTruthy()
+  expect(screen.getByRole('button', { name: '刷新官方额度' })).toBeTruthy()
 })
 
 /** Manual refresh must POST once, show progress, and replace the displayed sample. */

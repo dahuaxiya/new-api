@@ -7424,11 +7424,11 @@
     "docs.test.message": "发送「请只回复 OK」。先发这一条，等它正常回复。",
     "docs.test.logs": "打开本站「使用日志」，找到刚才发送消息的时间。Codex 正常回复，并且本站出现对应的成功记录，才能确认这次请求走了本站 API；只有回复、没有对应日志时，还不能确认接入成功。",
     "docs.test.login": "如果出现「Work browser access requires an authenticated account」，表示该功能另需登录 OpenAI 账号，本站 Key 不能代替它。首次测试先使用不启用浏览器功能的本地 Codex 聊天，不要仅因为这条提示就更换 Key。",
-    "docs.test.help": "仍然失败时，查看左侧「常见问题」，或把完整报错和请求时间发给管理员。截图和配置里如有密钥，先遮掉或删除。"
-  },
-  "Refresh official quota": "刷新官方额度",
-  "Querying official quota...": "正在查询官方额度…",
-  "Please wait 30 seconds before refreshing quota again": "刷新过于频繁，请 30 秒后重试",
-  "Official quota refresh failed. Previous readings are retained; please try again later.": "官方额度查询失败，已保留上次读数，请稍后重试。",
-  "Official quota updated": "官方额度已更新"
+    "docs.test.help": "仍然失败时，查看左侧「常见问题」，或把完整报错和请求时间发给管理员。截图和配置里如有密钥，先遮掉或删除。",
+    "Refresh official quota": "刷新官方额度",
+    "Querying official quota...": "正在查询官方额度…",
+    "Please wait 30 seconds before refreshing quota again": "刷新过于频繁，请 30 秒后重试",
+    "Official quota refresh failed. Previous readings are retained; please try again later.": "官方额度查询失败，已保留上次读数，请稍后重试。",
+    "Official quota updated": "官方额度已更新"
+  }
 }

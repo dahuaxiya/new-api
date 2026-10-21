@@ -7424,11 +7424,11 @@
     "docs.test.message": "Send: “Reply with OK only.” Start with one message and wait for a normal response.",
     "docs.test.logs": "Open Usage Logs on this site and find the request at the time you just sent the message. A normal Codex reply together with a successful matching log confirms that this request went through this site. A reply alone does not prove it used this API.",
     "docs.test.login": "If you see “Work browser access requires an authenticated account”, that feature requires a separate OpenAI login. This site key cannot provide it. Use a local Codex chat without browser features for the first test; do not change the key just because of this message.",
-    "docs.test.help": "If it still fails, open Troubleshooting or send the exact error and request time to your administrator. Remove keys from any screenshot or configuration first."
-  },
-  "Refresh official quota": "Refresh official quota",
-  "Querying official quota...": "Querying official quota...",
-  "Please wait 30 seconds before refreshing quota again": "Please wait 30 seconds before refreshing quota again",
-  "Official quota refresh failed. Previous readings are retained; please try again later.": "Official quota refresh failed. Previous readings are retained; please try again later.",
-  "Official quota updated": "Official quota updated"
+    "docs.test.help": "If it still fails, open Troubleshooting or send the exact error and request time to your administrator. Remove keys from any screenshot or configuration first.",
+    "Refresh official quota": "Refresh official quota",
+    "Querying official quota...": "Querying official quota...",
+    "Please wait 30 seconds before refreshing quota again": "Please wait 30 seconds before refreshing quota again",
+    "Official quota refresh failed. Previous readings are retained; please try again later.": "Official quota refresh failed. Previous readings are retained; please try again later.",
+    "Official quota updated": "Official quota updated"
+  }
 }
