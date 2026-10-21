@@ -107,7 +107,9 @@ function Step(props: { number: number; title: string; children: ReactNode }) {
   )
 }
 
-/** Publish a credential-free guide; authentication is required only after following console links. */
+/** Publish a credential-free guide; authentication is required only after following console links.
+ * Keep first-time and existing-file instructions together so users preserve unrelated settings.
+ */
 export function UserDocs() {
   const { t } = useTranslation()
   const { status } = useStatus()
@@ -296,7 +298,7 @@ export function UserDocs() {
                           <p>
                             {t(
                               os === 'windows'
-                                ? 'In File Explorer, paste this path into the address bar. Create the .codex folder if it does not exist.'
+                                ? 'docs.windows.openFolder'
                                 : 'Open the .codex folder in your home directory. Create it if it does not exist.'
                             )}
                           </p>
@@ -308,44 +310,51 @@ export function UserDocs() {
                                 : '~/.codex'
                             }
                           />
-                          <p>
-                            {t(
-                              'Open config.toml with a text editor. If it is missing, create it as plain text with the exact filename config.toml, not config.toml.txt.'
-                            )}
-                          </p>
-                          <p>
-                            {t(
-                              'Back up the existing file first. Update the top-level model fields before any [section], and add the provider table only once. Preserve your other settings.'
-                            )}
-                          </p>
+                          {os === 'windows' && (
+                            <p>{t('docs.windows.createFolder')}</p>
+                          )}
+                          <p>{t('docs.file.openOrCreate')}</p>
+                          {os === 'windows' && (
+                            <ol className='list-decimal space-y-2 pl-5'>
+                              <li>{t('docs.windows.saveAs')}</li>
+                              <li>{t('docs.windows.extensions')}</li>
+                            </ol>
+                          )}
+                          <p>{t('docs.file.backup')}</p>
                         </Step>
                         <Step number={3} title={t('Edit config.toml')}>
-                          <p>
-                            {t(
-                              'Copy this provider configuration and replace YOUR_API_KEY locally. The model shown is an example; use a model available to your account.'
-                            )}
-                          </p>
+                          <p>{t('docs.config.prepare')}</p>
+                          <a href='/keys'>{t('Go to API Keys')}</a>
+                          <Example title='API Base URL' value={baseUrl} />
+                          <p>{t('docs.config.baseUrl')}</p>
+                          <h4 className='text-foreground font-semibold'>
+                            {t('docs.config.newTitle')}
+                          </h4>
+                          <p>{t('docs.config.newFile')}</p>
                           <Example title='config.toml' value={config} />
-                          <p>
-                            {t(
-                              'This file-only method stores the key in plain text. You do not need to change auth.json. For managed environments, use env_key instead, as described in the official reference.'
-                            )}
+                          <h4 className='text-foreground font-semibold'>
+                            {t('docs.config.existingTitle')}
+                          </h4>
+                          <ol className='list-decimal space-y-3 pl-5'>
+                            <li>{t('docs.config.topLevel')}</li>
+                            <li>{t('docs.config.provider')}</li>
+                            <li>{t('docs.config.keepOthers')}</li>
+                          </ol>
+                          <p className='bg-muted rounded-lg px-4 py-3'>
+                            {t('docs.config.privateKey')}
                           </p>
                         </Step>
                         <Step
                           number={4}
                           title={t('Restart and send a test message')}
                         >
-                          <p>
-                            {t(
-                              'Fully quit and reopen Codex, then start a new local chat. Send a short message first and check Usage Logs for a successful request.'
-                            )}
-                          </p>
-                          <p>
-                            {t(
-                              'If an old chat still uses the previous provider, create a new chat. Browser or Work features may separately require an authenticated OpenAI account; a site API key does not provide that login.'
-                            )}
-                          </p>
+                          <ol className='list-decimal space-y-3 pl-5'>
+                            <li>{t('docs.test.restart')}</li>
+                            <li>{t('docs.test.message')}</li>
+                            <li>{t('docs.test.logs')}</li>
+                          </ol>
+                          <p>{t('docs.test.login')}</p>
+                          <p>{t('docs.test.help')}</p>
                           <a href='/usage-logs/common'>
                             {t('View usage logs')}
                           </a>
