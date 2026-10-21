@@ -14,7 +14,7 @@
 
 - 前端组件：`web/src/features/gpt-quota/`。
 - 接入页面：`web/src/features/keys/index.tsx`、`web/src/features/dashboard/components/overview/overview-dashboard.tsx`。
-- 后端适配服务、测试及部署样例：`integrations/vm2api-quota/`，详见该目录 README。
+- 原生后端：`service/gptquota`、`controller/gpt_quota.go`；定时探测由 vm2api 负责。部署样例与旧 Python 回退服务在 `integrations/vm2api-quota/`，详见该目录 README。
 - 七种界面的新增翻译键均已登记；简体中文为中文文案，其余语言当前使用英文回退文案。
 
 ## 用户使用文档
@@ -25,7 +25,7 @@
 
 在 `web/` 执行 `bun install --frozen-lockfile`、`bun run typecheck`、`bun run build`；执行 `bunx vitest run src/features/gpt-quota/__tests__/quota-card.test.tsx src/features/dashboard/components/overview/__tests__/setup-guide.test.tsx` 检查额度和概览回归。
 
-在 `integrations/vm2api-quota/` 执行 `python3 -m unittest -v test_server.py`。具体服务配置、同源反向代理和回退方式见该目录 README。nginx 示例需替换域名与证书路径后使用。
+原生模式运行 `GOTOOLCHAIN=auto go test ./service/gptquota ./controller -run 'Test(SelfIsolation|QuotaView|Panel|GPTQuotaSelf)'`。旧 Python 回退服务可在 `integrations/vm2api-quota/` 执行 `python3 -m unittest -v test_server.py`。具体服务配置、同源反向代理和回退方式见该目录 README。nginx 示例需替换域名与证书路径后使用。
 
 本次归档复用已经部署验证的业务代码；仓库推送本身不触发线上发布。今后每次发布记录 Git 提交号，并提供对应版本的源码下载包。
 

@@ -1,0 +1,7 @@
+{
+  "panel_url": "https://vm2api.example.com/api/panel",
+  "users": {
+    "2": {"username": "example", "group": "example", "slot": "vm-example", "label": "示例用户"}
+  },
+  "vm_login": {"username": "admin", "password": "REPLACE_WITH_PANEL_CREDENTIAL"}
+}
