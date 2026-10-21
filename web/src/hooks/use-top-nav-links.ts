@@ -32,7 +32,7 @@ export type TopNavLink = {
 }
 
 /**
- * Generate top navigation links based on HeaderNavModules configuration from backend /api/status
+ * Generate configured navigation and keep the local user guide reachable.
  * Backend format example (stringified JSON):
  * {
  *   home: true,
@@ -86,12 +86,13 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('Rankings'), href: '/rankings', requiresAuth })
   }
 
+  // The local guide is a user feature; preserve the separately configured upstream docs link.
+  links.push({ title: t('User guide'), href: '/docs' })
+
   // Docs (supports external links)
   if (modules?.docs !== false) {
     if (docsLink) {
       links.push({ title: t('Docs'), href: docsLink, external: true })
-    } else {
-      links.push({ title: t('Docs'), href: '/docs' })
     }
   }
 

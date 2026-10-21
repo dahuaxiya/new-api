@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   Activity,
+  BookOpen,
   Box,
   ClipboardList,
   CreditCard,
@@ -43,7 +44,7 @@ import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
 
 /**
- * Root navigation groups for the application sidebar.
+ * Root navigation groups, including the public guide for ordinary users.
  *
  * These are shown when the URL does not match any nested sidebar view
  * registered in `layout/lib/sidebar-view-registry.ts`.
@@ -111,6 +112,7 @@ export function useSidebarData(): SidebarData {
         id: 'personal',
         title: t('Personal'),
         items: [
+          { title: t('User guide'), url: '/docs', icon: BookOpen },
           {
             title: t('Wallet'),
             url: '/wallet',

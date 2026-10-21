@@ -17,6 +17,10 @@
 - 后端适配服务、测试及部署样例：`integrations/vm2api-quota/`，详见该目录 README。
 - 七种界面的新增翻译键均已登记；简体中文为中文文案，其余语言当前使用英文回退文案。
 
+## 用户使用文档
+
+公开入口 `/docs#codex-setup`，包含分平台 Codex 文件配置、API Key、其他客户端、额度说明与常见问题。页面位于 `web/src/features/user-docs/`，从站点配置读取公共 API 地址；示例仅含密钥占位符。页头和用户侧栏均提供入口，保留原有上游文档链接。
+
 ## 验证与发布
 
 在 `web/` 执行 `bun install --frozen-lockfile`、`bun run typecheck`、`bun run build`；执行 `bunx vitest run src/features/gpt-quota/__tests__/quota-card.test.tsx src/features/dashboard/components/overview/__tests__/setup-guide.test.tsx` 检查额度和概览回归。
