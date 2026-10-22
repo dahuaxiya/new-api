@@ -320,6 +320,9 @@ func (s *Service) Refresh(ctx context.Context, id int, username, group string) (
 // slow official probe cannot block other users' cached reads. Only operator-
 // configured slot names enter this path; no browser-supplied IDs are accepted.
 func (s *Service) probeBoundSlot(slot string, flight *refreshFlight) {
+	started := time.Now()
+	stage := "panel_read_before_probe"
+	probeStatus := 0
 	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 	defer cancel()
 	worker, err := New(s.config)
@@ -328,7 +331,8 @@ func (s *Service) probeBoundSlot(slot string, flight *refreshFlight) {
 		worker.client.Timeout = 65 * time.Second
 		defer worker.client.CloseIdleConnections()
 		// Login/read verifies the slot before the only mutating panel request.
-		_, err = worker.readVM(ctx, slot)
+		var before persistedVM
+		before, err = worker.readVM(ctx, slot)
 		if err == nil {
 			var result struct {
 				OK   bool `json:"ok"`
@@ -337,17 +341,25 @@ func (s *Service) probeBoundSlot(slot string, flight *refreshFlight) {
 					ProbedAt string `json:"probed_at"`
 				} `json:"data"`
 			}
-			_, err = worker.request(ctx, "/vms/"+slot+"/probe", map[string]any{}, &result)
+			stage = "official_probe"
+			probeStatus, err = worker.request(ctx, "/vms/"+slot+"/probe", map[string]any{}, &result)
 			if err == nil && (!result.OK || !result.Data.OK || validTime(result.Data.ProbedAt) == nil) {
+				stage = "invalid_probe_response"
 				err = ErrUnavailable
 			}
 			if err == nil {
+				stage = "panel_read_after_probe"
 				var vm persistedVM
 				vm, err = worker.readVM(ctx, slot)
 				if err == nil {
 					observed, parseErr := time.Parse(time.RFC3339Nano, vm.Usage.Snapshot.Updated)
-					probed, _ := time.Parse(time.RFC3339Nano, result.Data.ProbedAt)
-					if parseErr != nil || observed.Before(probed) {
+					previous, previousErr := time.Parse(time.RFC3339Nano, before.Usage.Snapshot.Updated)
+					// vm2api stamps the quota sample before its reset-credit metadata.
+					// probed_at describes that later metadata and can be milliseconds newer
+					// than a successfully persisted quota sample. Compare the same snapshot
+					// field before/after instead; this also avoids cross-host clock assumptions.
+					stage = "snapshot_not_advanced"
+					if parseErr != nil || (previousErr == nil && !observed.After(previous)) {
 						err = ErrUnavailable
 					} else {
 						view = quotaView(vm, time.Now())
@@ -373,6 +385,9 @@ func (s *Service) probeBoundSlot(slot string, flight *refreshFlight) {
 		s.cache[slot] = cacheEntry{view: view, fetched: now}
 	} else {
 		flight.err = ErrUnavailable
+		// Record only fixed stages, a validated slot name and status/timing. Raw
+		// upstream bodies and session credentials must never reach logs or users.
+		common.SysError(common.LogText("GPT quota refresh failed: slot=%s stage=%s probe_status=%d elapsed_ms=%d", slot, stage, probeStatus, time.Since(started).Milliseconds()))
 		if entry, ok := s.cache[slot]; ok {
 			entry.view.Status = "error"
 			s.cache[slot] = entry

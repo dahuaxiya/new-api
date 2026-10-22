@@ -164,7 +164,11 @@ func TestRefreshIsolationAndCooldown(t *testing.T) {
 			fmt.Fprintf(w, `{"ok":true,"data":{"ok":true,"probed_at":%q}}`, observed)
 		case "/api/panel/vms/alice-slot":
 			assert.Equal(t, http.MethodGet, r.Method)
-			fmt.Fprintf(w, `{"ok":true,"data":{"vm":{"id":"alice-slot","codex_usage":{"snapshot":{"updated_at":%q},"windows":[{"id":"7d","used_percent":60}]}}}}`, observed)
+			sample := observed
+			if probes.Load() == 0 {
+				sample = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano)
+			}
+			fmt.Fprintf(w, `{"ok":true,"data":{"vm":{"id":"alice-slot","codex_usage":{"snapshot":{"updated_at":%q},"windows":[{"id":"7d","used_percent":60}]}}}}`, sample)
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 			w.WriteHeader(404)
@@ -254,6 +258,43 @@ func TestRefreshRejectsFailedOrUnpersistedProbe(t *testing.T) {
 			assert.Equal(t, "error", view.Status)
 			_, err = svc.Refresh(context.Background(), 2, "a", "a")
 			require.ErrorIs(t, err, ErrCooldown)
+		})
+	}
+}
+
+// TestRefreshAcceptsSeparateProbeTimestamp reproduces vm2api's two clock reads:
+// quota snapshot is stamped before reset-credit metadata generates probed_at.
+// A later metadata timestamp must not turn a newly persisted sample into failure.
+func TestRefreshAcceptsSeparateProbeTimestamp(t *testing.T) {
+	for _, offset := range []time.Duration{0, time.Millisecond, 50 * time.Millisecond} {
+		t.Run(offset.String(), func(t *testing.T) {
+			fresh := time.Now().UTC()
+			old := fresh.Add(-time.Minute).Format(time.RFC3339Nano)
+			var completed atomic.Bool
+			panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/login"):
+					fmt.Fprint(w, `{"token":"panel"}`)
+				case strings.HasSuffix(r.URL.Path, "/logout"):
+					fmt.Fprint(w, `{"ok":true}`)
+				case strings.HasSuffix(r.URL.Path, "/probe"):
+					completed.Store(true)
+					fmt.Fprintf(w, `{"ok":true,"data":{"ok":true,"probed_at":%q}}`, fresh.Add(offset).Format(time.RFC3339Nano))
+				default:
+					observed := old
+					if completed.Load() {
+						observed = fresh.Format(time.RFC3339Nano)
+					}
+					fmt.Fprintf(w, `{"ok":true,"data":{"vm":{"id":"s","codex_usage":{"snapshot":{"updated_at":%q},"windows":[{"id":"7d","used_percent":71}]}}}}`, observed)
+				}
+			}))
+			defer panel.Close()
+			svc, err := New(Config{PanelURL: panel.URL + "/api/panel", Login: map[string]string{"username": "a", "password": "p"}, Users: map[string]Binding{"2": {Username: "a", Group: "a", Slot: "s"}}})
+			require.NoError(t, err)
+			view, err := svc.Refresh(context.Background(), 2, "a", "a")
+			require.NoError(t, err)
+			assert.Equal(t, fresh.Format(time.RFC3339Nano), *view.Observed)
+			assert.Equal(t, 29.0, *view.Windows[1].Remaining)
 		})
 	}
 }
