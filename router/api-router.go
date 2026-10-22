@@ -32,6 +32,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
 		// The existing dashboard auth chain checks session revocation before reading quota.
 		apiRouter.GET("/gpt-quota/self", middleware.DisableCache(), middleware.UserAuth(), controller.GetGPTQuotaSelf)
+		apiRouter.GET("/gpt-quota/users/:id", middleware.DisableCache(), middleware.AdminAuth(), controller.GetGPTQuotaUser)
 		apiRouter.POST("/gpt-quota/self/refresh", middleware.DisableCache(), middleware.UserAuth(), controller.RefreshGPTQuotaSelf)
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)
 		apiRouter.GET("/notice", controller.GetNotice)

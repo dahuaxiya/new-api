@@ -150,6 +150,11 @@ export function useSidebarData(): SidebarData {
             icon: Users,
           },
           {
+            title: t('User usage overview'),
+            url: '/user-usage',
+            icon: Users,
+          },
+          {
             title: t('Redemption Codes'),
             url: '/redemption-codes',
             icon: Ticket,
