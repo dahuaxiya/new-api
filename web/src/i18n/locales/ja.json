@@ -7453,6 +7453,7 @@
     "View user logs": "View user logs",
     "Loading site usage...": "Loading site usage...",
     "No saved usage summary for this period; check usage logs for recent requests.": "No saved usage summary for this period; check usage logs for recent requests.",
-    "Access denied": "Access denied"
+    "Access denied": "Access denied",
+    "No linked quota account": "GPT アカウント未連携"
   }
 }

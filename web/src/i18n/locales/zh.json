@@ -7453,6 +7453,7 @@
     "View user logs": "查看使用日志",
     "Loading site usage...": "正在读取本站用量…",
     "No saved usage summary for this period; check usage logs for recent requests.": "此时段暂无汇总记录，最近的请求请查看使用日志。",
-    "Access denied": "无权访问"
+    "Access denied": "无权访问",
+    "No linked quota account": "未绑定 GPT 账号"
   }
 }
