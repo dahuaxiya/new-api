@@ -85,6 +85,7 @@ export function OverviewDashboard() {
 /** 用户首页始终请求 self 接口；即使当前是管理员，也不混入全站用量。 */
 function PersonalDashboard(props: { userId: number; sessionId?: string }) {
   const { t, i18n } = useTranslation()
+  const username = useAuthStore((state) => state.auth.user?.username)
   const [days, setDays] = useState('7')
   const ranges = [
     { value: '1', label: t('Last 24 hours') },
@@ -353,12 +354,13 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
               <Button
                 variant='ghost'
                 size='sm'
-                // 汇总接口用秒，日志页的 URL 筛选用毫秒，跨页面必须显式转换。
+                // 日志筛选使用毫秒且管理员默认查看全站；同时保留当前账号和时间范围。
                 render={
                   <Link
                     to='/usage-logs/$section'
                     params={{ section: 'common' }}
                     search={{
+                      username,
                       startTime: range.start_timestamp * 1000,
                       endTime: range.end_timestamp * 1000,
                     }}

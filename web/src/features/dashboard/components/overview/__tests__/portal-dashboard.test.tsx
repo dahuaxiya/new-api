@@ -158,6 +158,7 @@ it('preserves the selected period when opening all usage logs', async () => {
     .mock.calls.find(([url]) => url === '/api/data/self')?.[1]?.params
   if (!href) throw new Error('Usage link is missing its destination')
   const url = new URL(href, 'http://localhost')
+  expect(url.searchParams.get('username')).toBe('admin')
   expect(url.searchParams.get('startTime')).toBe(
     String(params.start_timestamp * 1000)
   )
