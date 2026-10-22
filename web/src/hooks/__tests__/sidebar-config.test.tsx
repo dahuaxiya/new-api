@@ -22,6 +22,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { checkIsActive } from '@/components/layout/lib/url-utils'
+import type { NavGroup } from '@/components/layout/types'
 import {
   parseSidebarModulesAdmin,
   serializeSidebarModulesAdmin,
@@ -29,7 +30,29 @@ import {
 import { useAuthStore } from '@/stores/auth-store'
 
 import { useSidebarConfig } from '../use-sidebar-config'
-import { useSidebarData } from '../use-sidebar-data'
+
+// 独立验证菜单配置的过滤语义；门户现在将安全和审计入口放在各自的设置/后台中。
+const configTestGroups: NavGroup[] = [
+  {
+    id: 'personal',
+    title: 'Personal',
+    items: [
+      { title: 'User guide', url: '/docs' },
+      { title: 'Wallet', url: '/wallet' },
+      { title: 'Profile', url: '/profile' },
+      { title: 'Security & Access', url: '/security' },
+    ],
+  },
+  {
+    id: 'general',
+    title: 'General',
+    items: [
+      { title: 'API Keys', url: '/keys' },
+      { title: 'Usage Logs', url: '/usage-logs/common' },
+      { title: 'Audit Logs', url: '/usage-logs/audit' },
+    ],
+  },
+]
 
 beforeEach(() => {
   vi.stubGlobal('localStorage', {
@@ -66,10 +89,9 @@ function sidebarFor(admin?: object, user?: object, canConfigure = true) {
       </QueryClientProvider>
     )
   }
-  const result = renderHook(
-    () => useSidebarConfig(useSidebarData().navGroups),
-    { wrapper: Wrapper }
-  )
+  const result = renderHook(() => useSidebarConfig(configTestGroups), {
+    wrapper: Wrapper,
+  })
   return result
 }
 

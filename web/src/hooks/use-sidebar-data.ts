@@ -17,25 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
-  Activity,
   BookOpen,
-  Box,
-  ClipboardList,
-  CreditCard,
   FileText,
-  FlaskConical,
   Key,
   LayoutDashboard,
-  ListTodo,
-  MessageSquare,
-  PlugZap,
-  Radio,
-  ServerCog,
   Settings,
   ShieldCheck,
-  Ticket,
-  User,
-  Users,
   Wallet,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -43,145 +30,45 @@ import { useTranslation } from 'react-i18next'
 import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
 
-/**
- * Root navigation groups, including the public guide for ordinary users.
- *
- * These are shown when the URL does not match any nested sidebar view
- * registered in `layout/lib/sidebar-view-registry.ts`.
- */
+/** 用户导航只保留日常接入功能；管理入口另开工作区，不混排资源管理菜单。 */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
-
   return {
     navGroups: [
       {
-        id: 'chat',
-        title: t('Chat'),
-        items: [
-          {
-            title: t('Playground'),
-            url: '/playground',
-            icon: FlaskConical,
-          },
-          {
-            title: t('Chat'),
-            icon: MessageSquare,
-            type: 'chat-presets',
-          },
-        ],
-      },
-      {
         id: 'general',
-        title: t('General'),
+        title: t('User center'),
         items: [
-          {
-            title: t('Overview'),
-            url: '/dashboard/overview',
-            icon: Activity,
-          },
           {
             title: t('Dashboard'),
-            url: '/dashboard/models',
+            url: '/dashboard/overview',
             icon: LayoutDashboard,
           },
+          { title: t('API Keys'), url: '/keys', icon: Key },
+          { title: t('Usage Logs'), url: '/usage-logs/common', icon: FileText },
+          { title: t('Billing and redemption'), url: '/wallet', icon: Wallet },
           {
-            title: t('API Keys'),
-            url: '/keys',
-            icon: Key,
-          },
-          {
-            title: t('Usage Logs'),
-            url: '/usage-logs/common',
-            icon: FileText,
-          },
-          {
-            title: t('Audit Logs'),
-            url: '/usage-logs/audit',
-            icon: ClipboardList,
-          },
-          {
-            title: t('Task Logs'),
-            url: '/usage-logs/task',
-            activeUrls: ['/usage-logs/drawing'],
-            configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
-            icon: ListTodo,
+            title: t('Personal settings'),
+            url: '/profile',
+            activeUrls: ['/security'],
+            icon: Settings,
           },
         ],
       },
       {
-        id: 'personal',
-        title: t('Personal'),
-        items: [
-          { title: t('User guide'), url: '/docs', icon: BookOpen },
-          {
-            title: t('Wallet'),
-            url: '/wallet',
-            icon: Wallet,
-          },
-          {
-            title: t('Profile'),
-            url: '/profile',
-            icon: User,
-          },
-          {
-            title: t('Security & Access'),
-            url: '/security',
-            icon: ShieldCheck,
-          },
-        ],
+        id: 'help',
+        title: t('Help'),
+        items: [{ title: t('User guide'), url: '/docs', icon: BookOpen }],
       },
       {
         id: 'admin',
         title: t('Admin'),
         items: [
           {
-            title: t('Channels'),
-            url: '/channels',
-            icon: Radio,
-          },
-          {
-            title: t('Models'),
-            url: '/models/metadata',
-            icon: Box,
-          },
-          {
-            title: t('Users'),
-            url: '/users',
-            icon: Users,
-          },
-          {
-            title: t('User usage overview'),
+            title: t('Administration'),
             url: '/user-usage',
-            icon: Users,
-          },
-          {
-            title: t('Redemption Codes'),
-            url: '/redemption-codes',
-            icon: Ticket,
-          },
-          {
-            title: t('Subscriptions'),
-            url: '/subscriptions',
-            icon: CreditCard,
-          },
-          {
-            title: t('System Info'),
-            url: '/system-info',
-            icon: ServerCog,
-            requiredRole: ROLE.SUPER_ADMIN,
-          },
-          {
-            title: t('Task Plugins'),
-            url: '/task-plugins',
-            icon: PlugZap,
-            requiredRole: ROLE.SUPER_ADMIN,
-          },
-          {
-            title: t('System Settings'),
-            url: '/system-settings/site',
-            activeUrls: ['/system-settings'],
-            icon: Settings,
-            requiredRole: ROLE.SUPER_ADMIN,
+            icon: ShieldCheck,
+            requiredRole: ROLE.ADMIN,
           },
         ],
       },

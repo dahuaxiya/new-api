@@ -1,3 +1,5 @@
+import { Navigate, useLocation } from '@tanstack/react-router'
+
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -23,7 +25,9 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { LayoutProvider } from '@/context/layout-provider'
 import { SearchProvider } from '@/context/search-provider'
 import { getCookie } from '@/lib/cookies'
+import { isRetiredPortalPage } from '@/lib/portal-navigation'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { AppHeader } from './app-header'
 import { AppSidebar } from './app-sidebar'
@@ -32,7 +36,11 @@ type AuthenticatedLayoutProps = {
   children?: React.ReactNode
 }
 
+/** 使用统一的用户壳；已精简页面的旧书签回到首页，权限仍由既有路由和接口负责。 */
 export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
+  const pathname = useLocation({ select: (location) => location.pathname })
+  const role = useAuthStore((state) => state.auth.user?.role ?? 0)
+  const retired = isRetiredPortalPage(pathname, role)
   const defaultOpen = getCookie('sidebar_state') !== 'false'
 
   return (
@@ -51,7 +59,11 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                 'peer-data-[variant=inset]:h-[calc(100svh-var(--app-header-height,0px)-(var(--spacing)*4))]'
               )}
             >
-              {props.children ?? <AnimatedOutlet />}
+              {retired ? (
+                <Navigate to='/dashboard' replace />
+              ) : (
+                (props.children ?? <AnimatedOutlet />)
+              )}
             </SidebarInset>
           </div>
         </SidebarProvider>

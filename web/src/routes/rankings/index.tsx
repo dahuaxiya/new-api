@@ -1,3 +1,4 @@
+import { createFileRoute, redirect } from '@tanstack/react-router'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,39 +17,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
-import z from 'zod'
+import { z } from 'zod'
 
-import { Rankings } from '@/features/rankings'
-import { getModuleAccessForGuard } from '@/lib/nav-modules'
-import { useAuthStore } from '@/stores/auth-store'
-
-const rankingsSearchSchema = z.object({
-  period: z
-    .enum(['today', 'week', 'month', 'year'])
-    .optional()
-    .catch(undefined),
-})
-
+// 排行榜不再属于用户门户；旧链接转到仍保留的模型广场。
 export const Route = createFileRoute('/rankings/')({
-  validateSearch: rankingsSearchSchema,
-  beforeLoad: async ({ context, location }) => {
-    const access = await getModuleAccessForGuard(
-      context.queryClient,
-      'rankings'
-    )
-    if (!access.enabled) {
-      throw redirect({ to: '/' })
-    }
-    if (access.requireAuth) {
-      const { auth } = useAuthStore.getState()
-      if (!auth.user) {
-        throw redirect({
-          to: '/sign-in',
-          search: { redirect: location.href },
-        })
-      }
-    }
+  validateSearch: z.object({
+    period: z
+      .enum(['today', 'week', 'month', 'year'])
+      .optional()
+      .catch(undefined),
+  }),
+  beforeLoad: () => {
+    throw redirect({ to: '/pricing', replace: true })
   },
-  component: Rankings,
 })

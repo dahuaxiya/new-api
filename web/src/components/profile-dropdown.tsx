@@ -40,13 +40,14 @@ import { useAuthStore } from '@/stores/auth-store'
 
 const avatarFallbackClassName = 'font-semibold text-white'
 
+/** 个人菜单提供账号操作和管理员工作区入口，沿用原有退出流程。 */
 export function ProfileDropdown() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [open, setOpen] = useDialogState()
   const user = useAuthStore((state) => state.auth.user)
   const { displayName, roleLabel } = useUserDisplay(user)
-  const isSuperAdmin = user?.role === ROLE.SUPER_ADMIN
+  const isAdmin = (user?.role ?? ROLE.GUEST) >= ROLE.ADMIN
   const isWalletVisible = useIsSidebarModuleVisible('/wallet')
   const isSecurityVisible = useIsSidebarModuleVisible('/security')
   const avatarName = user?.username || displayName
@@ -122,17 +123,16 @@ export function ProfileDropdown() {
             </DropdownMenuItem>
           )}
 
-          {isSuperAdmin && (
+          {isAdmin && (
             <DropdownMenuItem
               onClick={() =>
                 navigate({
-                  to: '/system-settings/site/$section',
-                  params: { section: 'system-info' },
+                  to: '/user-usage',
                 })
               }
             >
               <Settings className='size-4' />
-              {t('System Settings')}
+              {t('Administration')}
             </DropdownMenuItem>
           )}
 

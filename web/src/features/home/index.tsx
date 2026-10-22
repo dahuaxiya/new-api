@@ -26,9 +26,10 @@ import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { CTA, Features, Hero, HowItWorks, Stats } from './components'
+import { PortalWelcome } from './components/portal-welcome'
 import { useHomePageContent } from './hooks'
 
+/** 保留站长自定义首页；默认页面采用精简的接入说明。 */
 export function Home() {
   const { i18n, t } = useTranslation()
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -122,11 +123,7 @@ export function Home() {
 
   return (
     <PublicLayout showMainContainer={false}>
-      <Hero isAuthenticated={isAuthenticated} />
-      <Stats />
-      <Features />
-      <HowItWorks />
-      <CTA isAuthenticated={isAuthenticated} />
+      <PortalWelcome isAuthenticated={isAuthenticated} />
       <Footer />
     </PublicLayout>
   )

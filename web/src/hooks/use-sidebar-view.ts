@@ -32,17 +32,8 @@ import { useSidebarData } from './use-sidebar-data'
 const ROOT_VIEW_KEY = '__root'
 
 /**
- * Resolve the active sidebar view for the current location.
- *
- * - Returns the matching nested {@link SidebarView} (with its nav
- *   groups) when the URL belongs to a registered drill-in workspace.
- * - Otherwise returns the root navigation, narrowed by:
- *     · admin-only group visibility (role-based);
- *     · `useSidebarConfig` (admin × user `sidebar_modules` overlay).
- *
- * Nested views are intentionally NOT passed through `useSidebarConfig`
- * — those filters target known dashboard URLs only, and gating is
- * already enforced at the route level (`beforeLoad` redirects).
+ * 按当前路径选择用户区或管理工作区，两类导航都应用后台配置与个人隐藏设置。
+ * 管理入口按角色过滤；具体页面和接口仍执行各自已有的权限检查。
  */
 export function useSidebarView(): ResolvedSidebarView {
   const { t } = useTranslation()
@@ -64,13 +55,25 @@ export function useSidebarView(): ResolvedSidebarView {
       })
   }, [configFilteredRoot, userRole])
 
-  const view = resolveSidebarView(pathname)
+  // 管理工作区也经过原有角色及菜单配置过滤，避免嵌套导航绕过隐藏设置。
+  const candidateView = resolveSidebarView(pathname)
+  const view = (userRole ?? ROLE.GUEST) >= ROLE.ADMIN ? candidateView : null
+  const configuredViewGroups = useSidebarConfig(view?.getNavGroups(t) ?? [])
 
   if (view) {
     return {
       key: view.id,
       view,
-      navGroups: view.getNavGroups(t),
+      navGroups: configuredViewGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter(
+            (item) =>
+              item.requiredRole === undefined ||
+              (userRole ?? ROLE.GUEST) >= item.requiredRole
+          ),
+        }))
+        .filter((group) => group.items.length > 0),
     }
   }
 
