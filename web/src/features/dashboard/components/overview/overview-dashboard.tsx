@@ -86,6 +86,11 @@ export function OverviewDashboard() {
 function PersonalDashboard(props: { userId: number; sessionId?: string }) {
   const { t, i18n } = useTranslation()
   const [days, setDays] = useState('7')
+  const ranges = [
+    { value: '1', label: t('Last 24 hours') },
+    { value: '7', label: t('Last 7 days') },
+    { value: '30', label: t('Last 30 days') },
+  ]
   const [now, setNow] = useState(() => Date.now())
   const identity = [props.userId, props.sessionId]
   const range = useMemo(
@@ -264,6 +269,7 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
               <div className='flex items-center gap-2'>
                 <Select
                   value={days}
+                  items={ranges}
                   onValueChange={(value) => {
                     if (value) {
                       setDays(value)
