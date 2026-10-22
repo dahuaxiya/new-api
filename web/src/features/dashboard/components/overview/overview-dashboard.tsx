@@ -353,10 +353,15 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
               <Button
                 variant='ghost'
                 size='sm'
+                // 汇总接口用秒，日志页的 URL 筛选用毫秒，跨页面必须显式转换。
                 render={
                   <Link
                     to='/usage-logs/$section'
                     params={{ section: 'common' }}
+                    search={{
+                      startTime: range.start_timestamp * 1000,
+                      endTime: range.end_timestamp * 1000,
+                    }}
                   />
                 }
               >

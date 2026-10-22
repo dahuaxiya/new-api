@@ -7488,6 +7488,7 @@
     "Enter user center": "Открыть личный кабинет",
     "Create and manage keys for your applications.": "Создавайте и управляйте API-ключами приложений.",
     "Track requests, token usage and your GPT subscription quota.": "Следите за запросами, токенами и квотой GPT.",
-    "Connect Codex with a short, step-by-step guide.": "Настройте Codex по пошаговой инструкции."
+    "Connect Codex with a short, step-by-step guide.": "Настройте Codex по пошаговой инструкции.",
+    "Source code": "Исходный код"
   }
 }

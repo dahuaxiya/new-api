@@ -145,3 +145,23 @@ it('never keeps the former account recent usage while a new account loads', asyn
   )
   expect(screen.queryByText('test-model')).not.toBeInTheDocument()
 })
+
+/** 从仪表盘进入日志必须保留所选时间范围，日志 URL 使用毫秒而汇总接口使用秒。 */
+it('preserves the selected period when opening all usage logs', async () => {
+  await mount()
+  await screen.findByText('test-model')
+  const href = screen
+    .getByRole('button', { name: 'View all' })
+    .getAttribute('href')
+  const params = vi
+    .mocked(api.get)
+    .mock.calls.find(([url]) => url === '/api/data/self')?.[1]?.params
+  if (!href) throw new Error('Usage link is missing its destination')
+  const url = new URL(href, 'http://localhost')
+  expect(url.searchParams.get('startTime')).toBe(
+    String(params.start_timestamp * 1000)
+  )
+  expect(url.searchParams.get('endTime')).toBe(
+    String(params.end_timestamp * 1000)
+  )
+})

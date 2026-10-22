@@ -7488,6 +7488,7 @@
     "Enter user center": "Accéder à mon espace",
     "Create and manage keys for your applications.": "Créez et gérez les clés API de vos applications.",
     "Track requests, token usage and your GPT subscription quota.": "Suivez les requêtes, les tokens et le quota GPT.",
-    "Connect Codex with a short, step-by-step guide.": "Configurez Codex étape par étape."
+    "Connect Codex with a short, step-by-step guide.": "Configurez Codex étape par étape.",
+    "Source code": "Code source"
   }
 }

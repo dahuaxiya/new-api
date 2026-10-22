@@ -7488,6 +7488,7 @@
     "Enter user center": "进入用户中心",
     "Create and manage keys for your applications.": "创建和管理应用使用的 API 密钥。",
     "Track requests, token usage and your GPT subscription quota.": "查看请求、Token 消耗和 GPT 订阅额度。",
-    "Connect Codex with a short, step-by-step guide.": "按步骤配置 Codex，开始使用。"
+    "Connect Codex with a short, step-by-step guide.": "按步骤配置 Codex，开始使用。",
+    "Source code": "源代码"
   }
 }

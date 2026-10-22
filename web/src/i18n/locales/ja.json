@@ -7488,6 +7488,7 @@
     "Enter user center": "ユーザーセンターを開く",
     "Create and manage keys for your applications.": "アプリ用の API キーを作成・管理します。",
     "Track requests, token usage and your GPT subscription quota.": "リクエスト、トークン使用量、GPT 利用枠を確認します。",
-    "Connect Codex with a short, step-by-step guide.": "手順に沿って Codex を設定します。"
+    "Connect Codex with a short, step-by-step guide.": "手順に沿って Codex を設定します。",
+    "Source code": "ソースコード"
   }
 }

@@ -137,6 +137,10 @@ function ProjectAttribution(props: { currentYear: number; inline?: boolean }) {
         {t('New API')}
       </a>
       . {t(NEW_API_FOOTER_ATTRIBUTION_KEY)}
+      {' · '}
+      <a href='/quota-source.tar.gz' className='underline underline-offset-4'>
+        {t('Source code')}
+      </a>
     </span>
   )
   if (props.inline) {

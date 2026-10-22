@@ -7488,6 +7488,7 @@
     "Enter user center": "Vào trung tâm người dùng",
     "Create and manage keys for your applications.": "Tạo và quản lý khóa API cho ứng dụng.",
     "Track requests, token usage and your GPT subscription quota.": "Theo dõi yêu cầu, token và hạn mức GPT.",
-    "Connect Codex with a short, step-by-step guide.": "Cấu hình Codex theo hướng dẫn từng bước."
+    "Connect Codex with a short, step-by-step guide.": "Cấu hình Codex theo hướng dẫn từng bước.",
+    "Source code": "Mã nguồn"
   }
 }
