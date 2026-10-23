@@ -73,6 +73,12 @@ export const ADMIN_VIEW: SidebarView = {
           icon: Users,
         },
         {
+          title: t('GPT hosting management'),
+          url: '/users/hosting',
+          icon: UserPlus,
+          requiredRole: ROLE.SUPER_ADMIN,
+        },
+        {
           title: t('Open account'),
           url: '/users/onboarding',
           icon: UserPlus,

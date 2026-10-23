@@ -35,6 +35,17 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/gpt-quota/users/:id", middleware.DisableCache(), middleware.AdminAuth(), controller.GetGPTQuotaUser)
 		// Cross-system onboarding requires the live root session and same-origin
 		// writes before accepting customer passwords or OAuth callback codes.
+		hosting := apiRouter.Group("/gpt-hosting", middleware.UserAuth(), middleware.DisableCache())
+		hosting.GET("/self", controller.GetGPTHostingSelf)
+		hosting.POST("/login", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting"), controller.StartGPTHostingLogin)
+		hosting.POST("/finish", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting"), controller.FinishGPTHostingLogin)
+		hosting.POST("/retry", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting"), controller.RetryGPTHostingLogin)
+		hosting.POST("/pause", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting"), controller.SetGPTHostingPaused)
+		hosting.POST("/unbind", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting"), controller.UnbindGPTHosting)
+		hostingAdmin := apiRouter.Group("/gpt-hosting/admin", middleware.RootAuth(), middleware.DisableCache())
+		hostingAdmin.GET("", controller.GetGPTHostingAdmin)
+		hostingAdmin.POST("/grants", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting-admin"), controller.PutGPTHostingGrant)
+		hostingAdmin.POST("/inventory", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting-admin"), controller.PutGPTHostingInventory)
 		onboarding := apiRouter.Group("/vm2api/onboarding", middleware.RootAuth(), middleware.DisableCache())
 		onboarding.GET("/options", controller.GetVM2APIOnboardingOptions)
 		onboarding.GET("/:request_id", controller.GetVM2APIAccount)

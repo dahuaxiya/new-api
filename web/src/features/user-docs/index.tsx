@@ -21,7 +21,20 @@ import { cn } from '@/lib/utils'
 
 import { codexConfig, docsApiBase } from './config'
 
+const defaultTopic = {
+  id: 'codex-setup',
+  label: 'Codex setup',
+  icon: Terminal,
+  group: 'Client setup',
+} as const
+
 const topics = [
+  {
+    id: 'gpt-hosting',
+    label: 'My GPT account',
+    icon: Gauge,
+    group: 'Get connected',
+  },
   {
     id: 'quick-start',
     label: 'Before you start',
@@ -34,12 +47,7 @@ const topics = [
     icon: FileKey,
     group: 'Get connected',
   },
-  {
-    id: 'codex-setup',
-    label: 'Codex setup',
-    icon: Terminal,
-    group: 'Client setup',
-  },
+  defaultTopic,
   {
     id: 'api-setup',
     label: 'Other API clients',
@@ -115,7 +123,7 @@ export function UserDocs() {
   const { status } = useStatus()
   const [active, setActive] = useState(currentTopic)
   const baseUrl = docsApiBase(status?.server_address, window.location.origin)
-  const topic = topics.find((item) => item.id === active) ?? topics[2]
+  const topic = topics.find((item) => item.id === active) ?? defaultTopic
   const config = codexConfig(baseUrl)
 
   useEffect(() => {
@@ -254,6 +262,65 @@ export function UserDocs() {
                     <p>
                       {t(
                         'Do not share your key or commit a configuration containing it. If exposed, revoke it on the API Keys page and create a replacement.'
+                      )}
+                    </p>
+                  </Step>
+                </>
+              )}
+              {active === 'gpt-hosting' && (
+                <>
+                  <Step number={1} title={t('One account hosting seat')}>
+                    <p>
+                      {t(
+                        'Ask the administrator to grant one hosting seat with a start and end date. You will then be able to connect your own GPT account.'
+                      )}
+                    </p>
+                    <p>
+                      {t(
+                        'Hosting does not include a GPT subscription or additional official quota.'
+                      )}
+                    </p>
+                  </Step>
+                  <Step number={2} title={t('Connect GPT account')}>
+                    <a href='/account/gpt'>{t('My GPT account')}</a>
+                    <p>
+                      {t(
+                        'Connecting or unbinding requires security verification. Manage your verification methods in Security.'
+                      )}
+                    </p>
+                    <p>
+                      {t(
+                        'Sign in on the official OpenAI page. Never enter a GPT password in this form.'
+                      )}
+                    </p>
+                    <p>
+                      {t(
+                        'If the browser opens a localhost address that cannot load, copy its full address and paste it below. Do not share that address.'
+                      )}
+                    </p>
+                    <p>
+                      {t(
+                        'One GPT account can be bound to one user. Reauthorization must use the same account.'
+                      )}
+                    </p>
+                  </Step>
+                  <Step number={3} title={t('Get your API key')}>
+                    <p>
+                      {t(
+                        'All your New API keys share this account, its official quota and hosting expiry.'
+                      )}
+                    </p>
+                    <a href='/keys'>{t('Go to API Keys')}</a>
+                  </Step>
+                  <Step number={4} title={t('Pause access')}>
+                    <p>
+                      {t(
+                        'Hosting expiry stops new requests. The account page shows the credential retention period and lets you unbind before automatic cleanup.'
+                      )}
+                    </p>
+                    <p>
+                      {t(
+                        'This stops access and removes the hosted credentials. Your service expiry does not change. This does not revoke authorization on the official GPT website.'
                       )}
                     </p>
                   </Step>

@@ -617,9 +617,22 @@ func TokenAuth() func(c *gin.Context) {
 			return
 		}
 
+		// 托管期限按实际请求校验，创建新客户端 Key 不能绕过暂停或到期。
+		hostingGroup, _, hostingErr := model.GetHostingRoute(token.UserId)
+		if hostingErr != nil {
+			abortWithOpenAiMessage(c, http.StatusForbidden, "GPT hosting is inactive or expired")
+			return
+		}
 		userCache.WriteContext(c)
 
 		userGroup := userCache.Group
+		if hostingGroup != "" {
+			// 不修改共享缓存对象；旧 Key 的分组和重试字段只在当前请求中跟随中央绑定。
+			copy := *token
+			copy.Group, copy.AutoGroups, copy.CrossGroupRetry = "", "", false
+			token = &copy
+			userGroup = hostingGroup
+		}
 		tokenGroup := token.Group
 		if tokenGroup != "" {
 			// check common.UserUsableGroups[userGroup]

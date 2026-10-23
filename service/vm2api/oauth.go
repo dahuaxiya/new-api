@@ -22,6 +22,7 @@ type oauthState struct {
 	AdminID                                                            int
 	InstanceID, SlotID, UpstreamID, State, RedirectURI, LoginSessionID string
 	ExpiresAt                                                          time.Time
+	HostedBinding                                                      string
 }
 
 // officialAuthorization 只接受当前 Codex 官方 PKCE 流程，拒绝上游给出的任意跳转链接。

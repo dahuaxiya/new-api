@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,6 +47,30 @@ var quotaService = sync.OnceValues(func() (*gptquota.Service, error) {
 // service also checks the current username/group so later administrative moves
 // cannot expose the former account's cached subscription usage.
 func linkedGPTQuota(ctx context.Context, svc *gptquota.Service, id int, username, group string, refresh bool) (gptquota.View, error) {
+	var hosted *model.GPTHostingBinding
+	hostedErr := gorm.ErrRecordNotFound
+	if os.Getenv("GPT_HOSTING_ENABLED") == "true" {
+		hosted, hostedErr = model.GetHostingBinding(id)
+	}
+	if hostedErr == nil {
+		// 托管身份在中央解绑后立即停止读取旧槽位，防止空槽被再次分配后的额度泄露。
+		if hosted.AccountHash == nil || hosted.InventoryID == nil || hosted.State == "cleaning" || hosted.State == "unbound" {
+			return gptquota.View{}, gptquota.ErrUnbound
+		}
+		grant, err := model.GetHostingGrant(id)
+		if err != nil {
+			return gptquota.View{}, gptquota.ErrUnavailable
+		}
+		binding := gptquota.Binding{InstanceID: hosted.InstanceID, Username: username, Group: grant.Group, Slot: hosted.SlotID, Label: hosted.AccountLabel}
+		if refresh {
+			return svc.RefreshFor(ctx, id, username, group, binding)
+		}
+		return svc.SelfFor(ctx, id, username, group, binding)
+	}
+	// 未启用扩展的旧测试/安装可没有此表；启用后所有读取异常都必须失败关闭。
+	if os.Getenv("GPT_HOSTING_ENABLED") == "true" && !errors.Is(hostedErr, gorm.ErrRecordNotFound) {
+		return gptquota.View{}, gptquota.ErrUnavailable
+	}
 	job, err := model.GetVM2APIEnrollmentForUser(id)
 	if err == nil {
 		binding := gptquota.Binding{InstanceID: job.InstanceID, Username: job.Username, Group: job.Group, Slot: job.SlotID, Label: job.DisplayName}

@@ -63,6 +63,40 @@
 
 安全设计参考 OWASP ASVS v5.0.0 V6/V7/V10，以及 Authentication、Session Management、Password Storage、OAuth2、CSRF Cheat Sheets。重点验证服务端权限和会话撤销、Origin 校验、PKCE/state/当前会话绑定、授权过期与重放、固定目标和禁止重定向、失败响应与 SQL 日志不泄露凭据。此记录不代表完整 ASVS 认证。
 
+## 用户自助 GPT 托管
+
+超级管理员入口为 `/users/hosting`（用户管理 → GPT 托管），用户入口为 `/account/gpt`（我的 GPT 账号）。这是独立于旧「统一开户」的流程：用户自带个人 GPT 账号，管理员手动收取服务费并发放期限；本版不接支付网关。
+
+1. 管理员在 vm2api 预先创建本机 Docker GPT 槽位、配置出口，保持未登录且不加入任何账号池。托管页按实例读取真实槽位；已登录或属于旧用户的槽位不能转入自助库存。
+2. 在托管页将空槽启用为可分配库存。后台检查出口能访问官方身份服务，停止槽位并建立永久隔离标记；库存开关关闭只阻止新分配，不改变已绑定用户。
+3. 先创建普通 New API 用户，再按用户 ID 发放一个名额，设置开始、结束和到期保留天数（0–30，页面默认 7）。页面会核对真实用户名，保存需要管理员安全验证。旧静态额度绑定或旧开户用户拒绝自动迁移。
+4. 用户在「我的 GPT 账号」经过门户二次验证后点击连接，在 OpenAI 官方页面登录，将完整本地回调地址粘回页面。New API 自动选空槽，核验官方签名身份、检查跨实例重复，然后创建专属渠道和一把上游 Key。服务端不接收 GPT 密码。
+5. 用户在 API 密钥页创建客户端 Key；多个 New API Key 共用这个账号、官方额度和上游 Key。用户看不到实例管理凭据或上游 Key。专属分组倍率为 0，月费托管不扣站内钱包；部署须保持 `quota_setting.enable_free_model_pre_consume=false`，客户端 Key 可设为不限站内额度。
+
+一个用户只有一个名额；一个官方账号及个人主体在全部登记实例中最多绑定一个用户。只支持明确的 free/plus/pro 个人身份，无法可靠识别的账号拒绝接入。重登必须是原账号；换账号需要先解绑。旧实例不可达时无法完成跨实例身份去重，新的激活会保留待重试状态。
+
+到期、停用、暂停、未完成登录和清理中都拒绝新请求；API Key、Playground、Responses WebSocket 及重试均检查当前权限。到期保留期内可以续费；保留期结束后后台每 30 秒尝试清理。请求停止按每次请求的实时时间判定，清理不是硬实时任务。首次授权未完成且超过 15 分钟也回收预约；原账号重登保留归属。管理员停用名额即刻禁止门户新请求，凭据仍按既定到期时间及保留期清理。
+
+解绑先禁用访问，再停止 Codex 内核和槽位容器，清掉授权、暂存数据及运行目录，验证成功后才释放账号和槽位；保留槽位设备身份和出口。清理失败保留占用，由后台重试。旧托管 Key 的隔离记录永久保留，即使被手工启用也不能访问后续用户或旧账号。不要从其他面板绕过托管页手工改这些槽位、账号池或 Key。
+
+### 托管部署与回滚
+
+- New API 设置 `GPT_HOSTING_ENABLED=true`，沿用 `VM2API_INSTANCES_CONFIG`。所有登记实例必须先安装扩展；实例 ID 保持稳定。
+- vm2api 扩展源在 `integrations/vm2api-hosting/`。基线为 v1.3.202 加已有原生额度补丁，执行 `python3 integrations/vm2api-hosting/install.py /path/to/vm2api-source`；安装器验证精确锚点并可重复运行，不能直接对未知上游版本部署。
+- vm2api 必须有稳定的非空 `VM2API_DB_SECRET`，用于加密暂存的 OAuth 令牌。备份 SQLite、配置和加密密钥时单独保管，不放 Git、公开源码包或日志。
+- 先备份并部署两个 vm2api，再发布 New API 二进制及静态页面。仅增加托管表，不修改原账号槽位、原 Key 或静态额度映射。
+- New API 可回滚镜像和静态页面，保留附加表以免丢失并发用量。已有托管绑定后，不能回滚到不认识托管隔离的 vm2api 代码，也不能通过关闭功能开关来解除用户的到期校验。应先停止新入口，再逐项恢复；数据库备份不是可以随意覆盖在线库的回滚手段。
+- 官方登录、同账号重登和新用户真实模型调用需要用户本人完成授权。模拟 OAuth 边界的测试不能证明某个真实新账号已可用。
+
+### 托管验证
+
+- `GOTOOLCHAIN=auto go test ./service/vm2api ./controller ./middleware ./service ./relay -count=1`。
+- `GOTOOLCHAIN=auto go test ./model -run '^TestGPTHostingDatabases$' -count=1 -v`；使用前述专用三库 DSN，覆盖 SQLite 3.50.4、MySQL 5.7.44、PostgreSQL 16.13 的新建/旧数据升级/重复迁移、并发抢槽、身份唯一、租约、期限与清理。
+- `HOSTING_VM2API_ROOT=/path/to/patched/vm2api node --experimental-test-module-mocks --test integrations/vm2api-hosting/*.test.mjs`。使用真实 SQLite、文件和 Key/池存储；Docker、OAuth 换票和外部身份服务使用受控替身。身份模块另以真实 RSA 签名验证拒绝伪造、错误受众与过期令牌。
+- `web/` 执行 `bun run typecheck`、`bun run lint`、相关文件格式检查、`bun run test src/features/gpt-hosting src/features/onboarding src/features/gpt-quota src/features/user-docs` 和 `bun run build`。
+- 页面复用了 `SectionPageLayout`、状态组件、`ConfirmDialog`、`SecureVerificationDialog`、React Hook Form、Zod、`GptQuotaCard`，新增组件只组合托管业务。七种语言的键同步登记，主要中文之外使用英文回退。
+- 安全参考沿用 OWASP ASVS v5.0.0 V6/V7/V10 和 Authentication、Session Management、OAuth2、CSRF Cheat Sheets；验证了会话/动作绑定、PKCE/state 单次消费、固定官方 OIDC 地址与签名、跨用户隔离、到期拒绝和清理失败保留。此记录不是完整 ASVS 认证。
+
 ## 用户使用文档
 
 公开入口 `/docs#codex-setup`，包含分平台 Codex 文件配置、API Key、其他客户端、额度说明与常见问题。页面位于 `web/src/features/user-docs/`，从站点配置读取公共 API 地址；示例仅含密钥占位符。页头和用户侧栏均提供入口，保留原有上游文档链接。

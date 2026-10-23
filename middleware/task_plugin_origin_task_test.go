@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -447,4 +448,82 @@ func TestDistributePinViolatingIdentityFilterErrors(t *testing.T) {
 	assert.True(t, c.IsAborted())
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), string(dto.FilterTaskPluginIdentity))
+}
+
+// TestHostingRouteIsolation 验证普通请求和直接选路的 WebSocket 都限定到本人的有效渠道。
+func TestHostingRouteIsolation(t *testing.T) {
+	t.Setenv("GPT_HOSTING_ENABLED", "true")
+	require.NoError(t, appI18n.Init())
+	setupOriginTaskDB(t)
+	previousCache := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousCache })
+	require.NoError(t, model.DB.AutoMigrate(&model.GPTHostingGrant{}, &model.GPTHostingBinding{}, &model.Ability{}))
+	now := time.Now().Unix()
+	group := "acct_hosting_test"
+	own := &model.Channel{Name: "own", Key: "test-key", Type: 1, Status: common.ChannelStatusEnabled, Models: "gpt-test", Group: group}
+	require.NoError(t, model.DB.Create(own).Error)
+	require.NoError(t, own.AddAbilities(nil))
+	model.InitChannelCache()
+	grant := model.GPTHostingGrant{UserID: 7, Group: group, StartsAt: now - 10, EndsAt: now + 3600, Enabled: true}
+	require.NoError(t, model.DB.Create(&grant).Error)
+	inventory := "inventory"
+	require.NoError(t, model.DB.Create(&model.GPTHostingBinding{UserID: 7, BindingID: "binding", State: "active", InventoryID: &inventory, ChannelID: own.Id}).Error)
+	for _, tc := range []struct {
+		name                                          string
+		direct, restricted, expired, foreign, unknown bool
+	}{
+		{name: "http own route"}, {name: "websocket own route", direct: true},
+		{name: "http token model restriction", restricted: true},
+		{name: "http foreign pin", foreign: true}, {name: "websocket foreign pin", direct: true, foreign: true},
+		{name: "websocket model outside channel", direct: true, unknown: true},
+		{name: "http expired entitlement", expired: true}, {name: "websocket expired entitlement", direct: true, expired: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			end := now + 3600
+			if tc.expired {
+				end = now - 1
+			}
+			require.NoError(t, model.DB.Model(&grant).Update("ends_at", end).Error)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-test","messages":[]}`))
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Set("id", 7)
+			common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyTokenCrossGroupRetry, true)
+			if tc.foreign {
+				service.GetChannelConstraints(c).AddPin(dto.ChannelPin{ChannelId: own.Id + 1, Source: dto.PinSourceToken, Rank: dto.PinRankToken})
+			}
+			if tc.restricted {
+				common.SetContextKey(c, constant.ContextKeyTokenModelLimitEnabled, true)
+				common.SetContextKey(c, constant.ContextKeyTokenModelLimit, map[string]bool{"other": true})
+			}
+			denied := tc.restricted || tc.expired || tc.foreign || tc.unknown
+			if tc.direct {
+				name := "gpt-test"
+				if tc.unknown {
+					name = "other"
+				}
+				ch, _, err := service.SelectChannelForRequest(c, name, &service.RetryParam{Ctx: c, TokenGroup: "default", ModelName: name})
+				if denied {
+					require.NotNil(t, err)
+					assert.Equal(t, 403, err.StatusCode)
+					return
+				}
+				require.Nil(t, err)
+				assert.Equal(t, own.Id, ch.Id)
+			} else {
+				Distribute()(c)
+				if denied {
+					assert.True(t, c.IsAborted())
+					assert.Equal(t, 403, c.Writer.Status())
+					return
+				}
+				assert.False(t, c.IsAborted())
+				assert.Equal(t, own.Id, common.GetContextKeyInt(c, constant.ContextKeyChannelId))
+			}
+			assert.Equal(t, group, common.GetContextKeyString(c, constant.ContextKeyUsingGroup))
+			assert.False(t, common.GetContextKeyBool(c, constant.ContextKeyTokenCrossGroupRetry))
+		})
+	}
 }

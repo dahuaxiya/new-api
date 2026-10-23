@@ -374,6 +374,7 @@ func InitResources() error {
 	}
 
 	service.StartAuthArtifactCleanup()
+	controller.StartGPTHostingMaintenance()
 
 	return nil
 }

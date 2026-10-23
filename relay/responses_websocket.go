@@ -544,7 +544,12 @@ func responsesWSErrorEndsRequest(event responsesWSErrorEvent, streamID, response
 	return true, len(control) > 0 && event.ResponseID == "", false
 }
 
+// restoreConnectionContext 重新校验长连接的当前授权；托管续期或换绑后不能复用另一账号的连接。
 func (s *responsesWSSession) restoreConnectionContext(c *gin.Context, model string) *types.NewAPIError {
+	group, channelID, hostingErr := appmodel.GetHostingRoute(c.GetInt("id"))
+	if hostingErr != nil || (channelID != 0 && (channelID != s.lockedChannelID || !appmodel.IsChannelEnabledForGroupModel(group, model, channelID))) {
+		return types.NewErrorWithStatusCode(errors.New("GPT hosting connection is no longer allowed"), types.ErrorCodeAccessDenied, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+	}
 	// The channel type is not rechecked: a locked channel keeps its type, and
 	// the FilterResponsesWebSocket rules were applied when it was selected.
 	channel, err := appmodel.CacheGetChannel(s.lockedChannelID)

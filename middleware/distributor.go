@@ -33,6 +33,12 @@ type ModelRequest struct {
 
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		// 所有调用每次读取当前权益和绑定。历史用户没有名额时继续走原有路径。
+		hostingGroup, hostingChannel, hostingErr := model.GetHostingRoute(c.GetInt("id"))
+		if hostingErr != nil {
+			abortWithOpenAiMessage(c, http.StatusForbidden, "GPT hosting is inactive or expired")
+			return
+		}
 		var channel *model.Channel
 		defer func() {
 			if c.Writer.Status() >= 400 {
@@ -50,8 +56,16 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, invalidRequestStatus(err), i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+		if hostingChannel != 0 {
+			// 强制专属渠道并禁止跨组重试，防止旧令牌缓存、Playground 分组或手动改组访问他人账号。
+			if pin, ok, _ := constraints.ResolvedPin(); ok && pin.ChannelId != hostingChannel {
+				abortWithOpenAiMessage(c, http.StatusForbidden, "GPT hosting channel mismatch")
+				return
+			}
+
+		}
 		_, pinned, _ := constraints.ResolvedPin()
-		if !pinned {
+		if !pinned || hostingChannel != 0 {
 			// Select a channel for the user
 			// check token model mapping
 			modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
@@ -96,6 +110,14 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 			}
+		}
+		if hostingChannel != 0 {
+			constraints.AddPin(taskdto.ChannelPin{ChannelId: hostingChannel, Source: taskdto.PinSourceToken, Rank: taskdto.PinRankToken, RetryMode: taskdto.PinRetrySameChannel})
+			common.SetContextKey(c, constant.ContextKeyUsingGroup, hostingGroup)
+			common.SetContextKey(c, constant.ContextKeyTokenGroup, hostingGroup)
+			common.SetContextKey(c, constant.ContextKeyTokenCrossGroupRetry, false)
+			common.SetContextKey(c, constant.ContextKeyTokenAutoGroups, []string{})
+			pinned = true
 		}
 		if pinned || shouldSelectChannel {
 			usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)

@@ -282,6 +282,25 @@ type ChannelSelectError struct {
 // callers. The caller still applies SetupContextForSelectedChannel.
 func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam) (*model.Channel, string, *ChannelSelectError) {
 	constraints := GetChannelConstraints(c)
+	// Responses WebSocket 在每条消息中直接调用这里，不经过 Distribute。
+	// 每次选择及重试都重新校验权益和专属渠道，不能仅依赖握手时的分组或历史 pin。
+	hostingGroup, hostingChannel, hostingErr := model.GetHostingRoute(c.GetInt("id"))
+	if hostingErr != nil {
+		return nil, "", &ChannelSelectError{StatusCode: http.StatusForbidden, Message: "GPT hosting is inactive or expired"}
+	}
+	if hostingChannel != 0 {
+		if pin, found, _ := constraints.ResolvedPin(); found && pin.ChannelId != hostingChannel {
+			return nil, "", &ChannelSelectError{StatusCode: http.StatusForbidden, Message: "GPT hosting channel mismatch"}
+		}
+		// 普通 pin 会跳过能力表；托管 pin 必须仍遵守管理员配置的模型范围。
+		if !model.IsChannelEnabledForGroupModel(hostingGroup, modelName, hostingChannel) {
+			return nil, "", &ChannelSelectError{StatusCode: http.StatusForbidden, Message: "Model is unavailable for this GPT account"}
+		}
+		constraints.AddPin(dto.ChannelPin{ChannelId: hostingChannel, Source: dto.PinSourceToken, Rank: dto.PinRankToken, RetryMode: dto.PinRetrySameChannel})
+		common.SetContextKey(c, constant.ContextKeyUsingGroup, hostingGroup)
+		common.SetContextKey(c, constant.ContextKeyTokenGroup, hostingGroup)
+		common.SetContextKey(c, constant.ContextKeyTokenCrossGroupRetry, false)
+	}
 	if pin, found, overridden := constraints.ResolvedPin(); found {
 		for _, lost := range overridden {
 			logger.LogWarn(c, common.LogText(

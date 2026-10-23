@@ -44,6 +44,11 @@ export function useSidebarData(): SidebarData {
             url: '/dashboard/overview',
             icon: LayoutDashboard,
           },
+          {
+            title: t('My GPT account'),
+            url: '/account/gpt',
+            icon: ShieldCheck,
+          },
           { title: t('API Keys'), url: '/keys', icon: Key },
           { title: t('Usage Logs'), url: '/usage-logs/common', icon: FileText },
           { title: t('Billing and redemption'), url: '/wallet', icon: Wallet },

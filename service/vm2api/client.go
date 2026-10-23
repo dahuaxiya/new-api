@@ -283,7 +283,22 @@ func (c *Client) roundTrip(ctx context.Context, method, path string, body any, t
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return res.StatusCode, &Error{Code: "upstream_rejected", HTTPStatus: res.StatusCode}
+		code := "upstream_rejected"
+		// 托管协议仅传播白名单错误码，绝不传播 OAuth/代理响应正文。
+		if strings.HasPrefix(path, "/api/panel/hosting/") {
+			var failure struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if common.DecodeJson(io.LimitReader(res.Body, 8192), &failure) == nil {
+				switch failure.Error.Code {
+				case "slot_not_empty", "slot_unavailable", "exit_unavailable", "account_changed", "personal_account_required", "identity_invalid", "identity_unavailable", "hosting_busy", "cleanup_pending", "hosting_conflict":
+					code = failure.Error.Code
+				}
+			}
+		}
+		return res.StatusCode, &Error{Code: code, HTTPStatus: res.StatusCode}
 	}
 	data, err := io.ReadAll(io.LimitReader(res.Body, (2<<20)+1))
 	if err != nil || len(data) > 2<<20 {

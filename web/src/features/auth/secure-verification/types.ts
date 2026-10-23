@@ -36,6 +36,7 @@ export type SecurityProofScope =
   | 'access_token.revoke'
   | 'account.binding.bind'
   | 'account.binding.unbind'
+  | 'gpt.hosting.manage'
   | 'account.password.set'
   | 'account.password.change'
   | 'account.delete'
@@ -57,6 +58,10 @@ export type VerificationOperation =
       context: { provider: string; email?: string; code?: string }
     }
   | { scope: 'account.binding.unbind'; context: { provider_id: number } }
+  | {
+      scope: 'gpt.hosting.manage'
+      context: { action: 'login' | 'unbind'; binding_id: string }
+    }
   | { scope: 'admin.user.create'; context: { role: number } }
   | {
       scope:
@@ -94,6 +99,7 @@ export type VerificationOperation =
         | 'channel.key.read'
         | 'account.binding.bind'
         | 'account.binding.unbind'
+        | 'gpt.hosting.manage'
         | 'access_token.generate'
         | 'access_token.update'
         | 'access_token.revoke'
