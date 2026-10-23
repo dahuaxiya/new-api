@@ -1,6 +1,7 @@
 package service
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -11,7 +12,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// 此格式由开户事务生成并保留给专属账号；普通的 acct_team 等人工分组不受影响。
+var vm2apiDedicatedGroup = regexp.MustCompile(`^acct_[0-9a-f]{32}$`)
+
+// GetUserUsableGroups 返回可信用户分组可使用的路由分组，供令牌鉴权、自动路由和控制台共同校验。
+// userGroup 必须来自已认证用户的服务端资料，不能传入客户端要求切换到的目标分组。
+// 专属账号始终只允许自身组，普通账号保留全局分组及特殊增减规则；返回值可由调用方独立修改。
 func GetUserUsableGroups(userGroup string) map[string]string {
+	if vm2apiDedicatedGroup.MatchString(userGroup) {
+		// 专属槽位是账号的权限边界，不能继承全局公开组、auto 或特殊加组配置。
+		// 必须在合并配置前返回，避免今后新增公开分组时悄悄放开共享渠道。
+		return map[string]string{userGroup: "User group"}
+	}
 	groupsCopy := setting.GetUserUsableGroupsCopy()
 	if userGroup != "" {
 		specialSettings, b := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.Get(userGroup)

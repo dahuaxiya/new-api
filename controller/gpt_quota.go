@@ -1,10 +1,12 @@
 package controller
 
 import (
+	"context"
 	"errors"
+	"maps"
 	"net/http"
-	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
@@ -15,8 +17,51 @@ import (
 )
 
 var quotaService = sync.OnceValues(func() (*gptquota.Service, error) {
-	return gptquota.Load(os.Getenv("GPT_QUOTA_CONFIG"))
+	cfg, err := configuredQuota()
+	if err != nil {
+		return nil, err
+	}
+	// Both features use the same private instance registry. A new account can
+	// read its backend's quota without rewriting a per-user file.
+	registry, registryErr := onboardingRegistry()
+	if registryErr == nil {
+		cfg.Instances = maps.Clone(cfg.Instances)
+		if cfg.Instances == nil {
+			cfg.Instances = make(map[string]gptquota.BackendConfig)
+		}
+		for _, instance := range registry.Instances() {
+			client, _ := registry.Client(instance.ID)
+			backend := client.Config()
+			panel := strings.TrimRight(backend.BaseURL, "/") + "/api/panel"
+			if previous, exists := cfg.Instances[instance.ID]; exists && strings.TrimRight(previous.PanelURL, "/") != panel {
+				return nil, gptquota.ErrUnavailable
+			}
+			cfg.Instances[instance.ID] = gptquota.BackendConfig{PanelURL: panel, Login: map[string]string{"username": backend.Username, "password": backend.Password}}
+		}
+	}
+	return gptquota.New(cfg)
 })
+
+// linkedGPTQuota reads a completed, server-owned binding on every request. The
+// service also checks the current username/group so later administrative moves
+// cannot expose the former account's cached subscription usage.
+func linkedGPTQuota(ctx context.Context, svc *gptquota.Service, id int, username, group string, refresh bool) (gptquota.View, error) {
+	job, err := model.GetVM2APIEnrollmentForUser(id)
+	if err == nil {
+		binding := gptquota.Binding{InstanceID: job.InstanceID, Username: job.Username, Group: job.Group, Slot: job.SlotID, Label: job.DisplayName}
+		if refresh {
+			return svc.RefreshFor(ctx, id, username, group, binding)
+		}
+		return svc.SelfFor(ctx, id, username, group, binding)
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return gptquota.View{}, gptquota.ErrUnavailable
+	}
+	if refresh {
+		return svc.Refresh(ctx, id, username, group)
+	}
+	return svc.Self(ctx, id, username, group)
+}
 
 // GetGPTQuotaSelf uses the identity established by UserAuth on every request.
 // Neither query parameters nor New-Api-User may select another account's slot.
@@ -62,7 +107,7 @@ func GetGPTQuotaUser(c *gin.Context) {
 	}
 	// Read the shared snapshot only: opening a page must not trigger N official
 	// probes or consume each account's manual-refresh cooldown.
-	view, err := svc.Self(c.Request.Context(), target.Id, target.Username, target.Group)
+	view, err := linkedGPTQuota(c.Request.Context(), svc, target.Id, target.Username, target.Group, false)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Subscription quota temporarily unavailable"})
 		return
@@ -87,12 +132,7 @@ func respondGPTQuota(c *gin.Context, refresh bool) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Subscription quota temporarily unavailable"})
 		return
 	}
-	var view gptquota.View
-	if refresh {
-		view, err = service.Refresh(c.Request.Context(), id, c.GetString("username"), c.GetString("group"))
-	} else {
-		view, err = service.Self(c.Request.Context(), id, c.GetString("username"), c.GetString("group"))
-	}
+	view, err := linkedGPTQuota(c.Request.Context(), service, id, c.GetString("username"), c.GetString("group"), refresh)
 	if errors.Is(err, gptquota.ErrCooldown) {
 		c.Header("Retry-After", "30")
 		c.JSON(http.StatusTooManyRequests, gin.H{"success": false, "message": "Please wait 30 seconds before refreshing quota again"})

@@ -322,6 +322,7 @@ func is64BitIntegerType(dbType common.DatabaseType, dataType string) bool {
 	}
 }
 
+// migrateDB 初始化业务表并执行可重复迁移，保留已有用户、渠道和认证记录。
 func migrateDB() error {
 	if err := migrateTokenKeyUniqueness(DB); err != nil {
 		return err
@@ -346,6 +347,8 @@ func migrateDB() error {
 		&UserSession{},
 		&AuthFlow{},
 		&ExternalIdentityClaim{},
+		&VM2APIEnrollment{},
+		&VM2APISlotDraft{},
 		&PasskeyCredential{},
 		&Option{},
 		&LoginEncryptionKey{},

@@ -28,6 +28,7 @@ import {
   Settings,
   Ticket,
   Users,
+  UserPlus,
 } from 'lucide-react'
 
 import { ROLE } from '@/lib/roles'
@@ -70,6 +71,12 @@ export const ADMIN_VIEW: SidebarView = {
           title: t('Users'),
           url: '/users',
           icon: Users,
+        },
+        {
+          title: t('Open account'),
+          url: '/users/onboarding',
+          icon: UserPlus,
+          requiredRole: ROLE.SUPER_ADMIN,
         },
         {
           title: t('User usage overview'),

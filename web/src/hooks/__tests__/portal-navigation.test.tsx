@@ -74,6 +74,7 @@ it('separates the admin workspace and filters super-admin-only functions', async
   expect(screen.getByText('User usage overview')).toBeInTheDocument()
   expect(screen.queryByText('API Keys')).toBeNull()
   expect(screen.queryByText('System Settings')).toBeNull()
+  expect(screen.queryByText('Open account')).toBeNull()
 })
 it('still applies backend navigation switches inside administration', async () => {
   await mount('/user-usage', 100, { admin: { enabled: true, channel: false } })
@@ -99,4 +100,10 @@ it('keeps old bookmarks from reopening retired user pages', async () => {
   }
   expect(isRetiredPortalPage('/keys', 1)).toBe(false)
   expect(isRetiredPortalPage('/dashboard/models', 100)).toBe(false)
+})
+
+it('shows account opening only in the super-admin workspace', async () => {
+  await mount('/users/onboarding', 100)
+  expect(screen.getByText('Open account')).toBeInTheDocument()
+  expect(screen.getByText('Back to user center')).toBeInTheDocument()
 })

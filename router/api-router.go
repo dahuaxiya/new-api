@@ -33,6 +33,16 @@ func SetApiRouter(router *gin.Engine) {
 		// The existing dashboard auth chain checks session revocation before reading quota.
 		apiRouter.GET("/gpt-quota/self", middleware.DisableCache(), middleware.UserAuth(), controller.GetGPTQuotaSelf)
 		apiRouter.GET("/gpt-quota/users/:id", middleware.DisableCache(), middleware.AdminAuth(), controller.GetGPTQuotaUser)
+		// Cross-system onboarding requires the live root session and same-origin
+		// writes before accepting customer passwords or OAuth callback codes.
+		onboarding := apiRouter.Group("/vm2api/onboarding", middleware.RootAuth(), middleware.DisableCache())
+		onboarding.GET("/options", controller.GetVM2APIOnboardingOptions)
+		onboarding.GET("/:request_id", controller.GetVM2APIAccount)
+		onboarding.POST("", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("vm2api-onboarding"), controller.CreateVM2APIAccount)
+		onboarding.POST("/:request_id/retry", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("vm2api-onboarding"), controller.RetryVM2APIAccount)
+		onboarding.POST("/slots", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("vm2api-onboarding"), controller.CreateVM2APIOnboardingSlot)
+		onboarding.POST("/oauth/start", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("vm2api-onboarding"), controller.VM2APIOnboardingOAuth)
+		onboarding.POST("/oauth/finish", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("vm2api-onboarding"), controller.VM2APIOnboardingOAuth)
 		apiRouter.POST("/gpt-quota/self/refresh", middleware.DisableCache(), middleware.UserAuth(), controller.RefreshGPTQuotaSelf)
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)
 		apiRouter.GET("/notice", controller.GetNotice)

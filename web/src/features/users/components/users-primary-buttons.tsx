@@ -16,15 +16,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useUsers } from './users-provider'
 
+/**
+ * 管理员保留原建用户入口；超级管理员可进入跨实例开户流程。
+ * @return 当前角色可用的用户管理操作。
+ */
 export function UsersPrimaryButtons() {
   const { t } = useTranslation()
+  const canOpenAccount = useAuthStore(
+    (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
   const { setOpen, setCurrentRow } = useUsers()
 
   const handleCreate = () => {
@@ -34,6 +44,15 @@ export function UsersPrimaryButtons() {
 
   return (
     <div className='flex gap-2'>
+      {canOpenAccount && (
+        <Button
+          size='sm'
+          variant='outline'
+          render={<Link to='/users/onboarding' />}
+        >
+          {t('Open account')}
+        </Button>
+      )}
       <Button size='sm' onClick={handleCreate}>
         <Plus className='h-4 w-4' />
         {t('Add User')}

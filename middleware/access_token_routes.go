@@ -41,6 +41,18 @@ func accessTokenScopeRule(scope string) accessTokenRouteRule {
 // Casbin-guarded routes declare themselves through
 // DeclareAccessTokenPermissionRoute when they are registered.
 var accessTokenRouteRules = map[string]accessTokenRouteRule{
+	// Slot OAuth and customer onboarding require a live dashboard session; PATs
+	// are intentionally excluded even when their owner is the root user.
+	"GET /api/vm2api/onboarding/options":            accessTokenSessionRule,
+	"GET /api/vm2api/onboarding/:request_id":        accessTokenSessionRule,
+	"POST /api/vm2api/onboarding":                   accessTokenSessionRule,
+	"POST /api/vm2api/onboarding/:request_id/retry": accessTokenSessionRule,
+	"POST /api/vm2api/onboarding/slots":             accessTokenSessionRule,
+	"POST /api/vm2api/onboarding/oauth/start":       accessTokenSessionRule,
+	"POST /api/vm2api/onboarding/oauth/finish":      accessTokenSessionRule,
+	"GET /api/gpt-quota/self":                       accessTokenSessionRule,
+	"POST /api/gpt-quota/self/refresh":              accessTokenSessionRule,
+	"GET /api/gpt-quota/users/:id":                  accessTokenSessionRule,
 	// router/api-router.go: top level
 	"GET /api/models":                     accessTokenScopeRule("profile:read"),
 	"GET /api/status/test":                accessTokenScopeRule("log:read"),
