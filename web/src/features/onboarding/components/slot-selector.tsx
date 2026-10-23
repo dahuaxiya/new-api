@@ -21,12 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import {
-  FieldDescription,
-  FieldGroup,
-  FieldLegend,
-  FieldSet,
-} from '@/components/ui/field'
+import { FieldDescription, FieldLegend, FieldSet } from '@/components/ui/field'
 import {
   FormControl,
   FormField,
@@ -58,7 +53,8 @@ export function SlotSelector(props: {
   return (
     <FieldSet disabled={props.disabled}>
       <FieldLegend>{t('Instance and account slot')}</FieldLegend>
-      <FieldGroup className='grid gap-4 sm:grid-cols-2'>
+      {/* 实例切换会重建槽位列表；这里无需尺寸容器隔离，使用普通网格让浏览器按内容计算高度。 */}
+      <div className='grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2'>
         <FormField
           control={props.form.control}
           name='instance_id'
@@ -127,7 +123,7 @@ export function SlotSelector(props: {
             </FormItem>
           )}
         />
-      </FieldGroup>
+      </div>
       <FieldDescription>
         {t(
           'Existing vm2api keys for the selected slot remain valid. Opening this account does not revoke their access.'
