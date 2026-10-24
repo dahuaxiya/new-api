@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import '@/styles/workspace-sidebar.css'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 
 import { Sidebar, SidebarContent, SidebarRail } from '@/components/ui/sidebar'
@@ -27,21 +28,9 @@ import { NavGroup } from './nav-group'
 import { SidebarViewHeader } from './sidebar-view-header'
 
 /**
- * Application sidebar.
- *
- * Adopts the Vercel / Cloudflare "drill-in" pattern: the URL drives
- * which sidebar *view* is rendered. Clicking a top-level entry like
- * `System Settings` swaps the sidebar to a contextual workspace —
- * with a `← Back to Dashboard` affordance — instead of stacking the
- * sub-navigation inside the root tree.
- *
- * Architecture:
- *   - View resolution + filtering: {@link useSidebarView}
- *   - View registry: `layout/lib/sidebar-view-registry.ts`
- *   - Per-view header: {@link SidebarViewHeader}
- *
- * Adding a new nested view only requires registering a {@link SidebarView}
- * in the registry; this component requires no changes.
+ * 按现有路由和权限渲染导航，并为桌面及手机抽屉提供同一套视觉样式。
+ * 样式容器必须放在 Sidebar 内部：手机导航通过 Portal 渲染，外层类名不会传入抽屉。
+ * 导航过滤、折叠状态和返回入口继续由现有组件管理。
  */
 export function AppSidebar() {
   const { collapsible, variant } = useLayout()
@@ -49,28 +38,35 @@ export function AppSidebar() {
   const shouldReduce = useReducedMotion()
 
   return (
-    <Sidebar collapsible={collapsible} variant={variant}>
-      {view && <SidebarViewHeader view={view} />}
+    <Sidebar
+      collapsible={collapsible}
+      variant={variant}
+      className='workspace-sidebar-container'
+    >
+      <div className='workspace-sidebar'>
+        {view && <SidebarViewHeader view={view} />}
 
-      <SidebarContent className='py-2'>
-        <AnimatePresence mode='wait' initial={false}>
-          <motion.div
-            key={key}
-            initial={
-              shouldReduce ? false : MOTION_VARIANTS.sidebarSlide.initial
-            }
-            animate={MOTION_VARIANTS.sidebarSlide.animate}
-            exit={shouldReduce ? undefined : MOTION_VARIANTS.sidebarSlide.exit}
-            transition={MOTION_TRANSITION.fast}
-            className='flex flex-col'
-          >
-            {navGroups.map((props) => (
-              <NavGroup key={props.id || props.title} {...props} />
-            ))}
-          </motion.div>
-        </AnimatePresence>
-      </SidebarContent>
-
+        <SidebarContent className='py-2'>
+          <AnimatePresence mode='wait' initial={false}>
+            <motion.div
+              key={key}
+              initial={
+                shouldReduce ? false : MOTION_VARIANTS.sidebarSlide.initial
+              }
+              animate={MOTION_VARIANTS.sidebarSlide.animate}
+              exit={
+                shouldReduce ? undefined : MOTION_VARIANTS.sidebarSlide.exit
+              }
+              transition={MOTION_TRANSITION.fast}
+              className='flex flex-col'
+            >
+              {navGroups.map((props) => (
+                <NavGroup key={props.id || props.title} {...props} />
+              ))}
+            </motion.div>
+          </AnimatePresence>
+        </SidebarContent>
+      </div>
       <SidebarRail />
     </Sidebar>
   )

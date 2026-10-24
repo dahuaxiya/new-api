@@ -1,0 +1,141 @@
+/* 与用户管理工作区共用配色，仅作用于应用导航，不改变全站主题偏好。 */
+.workspace-sidebar-container,
+.workspace-sidebar {
+  --sidebar: #fff;
+  --sidebar-foreground: #697384;
+  --sidebar-accent: #edf4ff;
+  --sidebar-accent-foreground: #2563eb;
+  --sidebar-border: #e7ebf0;
+  --sidebar-ring: #93b7ff;
+  --muted: #f6f8fb;
+  background: var(--sidebar);
+}
+.dark .workspace-sidebar-container,
+.dark .workspace-sidebar {
+  --sidebar: #151d2a;
+  --sidebar-foreground: #b5c1d3;
+  --sidebar-accent: #213454;
+  --sidebar-accent-foreground: #9bbdff;
+  --sidebar-border: #2b384c;
+  --sidebar-ring: #6998ec;
+  --muted: #1d293a;
+}
+.workspace-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  color: var(--sidebar-foreground);
+}
+/* 保留 floating 布局的外边距；默认 inset 导航使用完整白底和细分隔线。 */
+[data-variant='inset'] > .workspace-sidebar-container {
+  padding: 0;
+  border-inline-end: 1px solid var(--sidebar-border);
+}
+.workspace-sidebar [data-slot='sidebar-header'] {
+  padding: 16px 14px;
+  border-color: var(--sidebar-border);
+}
+.workspace-sidebar [data-slot='sidebar-content'] {
+  padding: 18px 0;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.workspace-sidebar [data-slot='sidebar-group'] {
+  padding: 0 14px 18px;
+}
+.workspace-sidebar [data-slot='sidebar-group-label'] {
+  height: 32px;
+  padding: 0 12px;
+  color: var(--sidebar-foreground);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+.workspace-sidebar [data-slot='sidebar-menu'] {
+  gap: 4px;
+}
+.workspace-sidebar
+  :is(
+    [data-slot='sidebar-menu-button'],
+    [data-slot='sidebar-menu-sub-button']
+  ) {
+  height: 42px;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: var(--sidebar-foreground);
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+.workspace-sidebar
+  :is(
+    [data-slot='sidebar-menu-button'],
+    [data-slot='sidebar-menu-sub-button']
+  ):hover {
+  background: var(--muted);
+}
+.workspace-sidebar
+  :is(
+    [data-slot='sidebar-menu-button'],
+    [data-slot='sidebar-menu-sub-button']
+  )[data-active] {
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
+  font-weight: 600;
+}
+.workspace-sidebar [data-slot='sidebar-menu-button'] > svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.75;
+}
+.workspace-sidebar [data-slot='sidebar-menu-sub-button'] > svg {
+  color: inherit;
+}
+.workspace-sidebar [data-slot='sidebar-menu-action'] {
+  top: 11px;
+}
+/* 折叠时保持图标居中且整项可点击；手机抽屉没有此祖先，不继承桌面的隐藏状态。 */
+[data-collapsible='icon'] .workspace-sidebar [data-slot='sidebar-group'],
+[data-collapsible='icon'] .workspace-sidebar [data-slot='sidebar-header'] {
+  padding: 8px 3px;
+}
+[data-collapsible='icon'] .workspace-sidebar [data-slot='sidebar-menu'] {
+  align-items: center;
+}
+[data-collapsible='icon']
+  .workspace-sidebar
+  [data-slot='sidebar-menu-button']
+  > svg {
+  width: 16px;
+  height: 16px;
+}
+@media (max-width: 767px) {
+  .workspace-sidebar [data-slot='sidebar-header'] {
+    padding-top: max(20px, env(safe-area-inset-top));
+  }
+  .workspace-sidebar [data-slot='sidebar-content'] {
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+  .workspace-sidebar
+    :is(
+      [data-slot='sidebar-menu-button'],
+      [data-slot='sidebar-menu-sub-button']
+    ) {
+    height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-sidebar
+    :is(
+      [data-slot='sidebar-menu-button'],
+      [data-slot='sidebar-menu-sub-button']
+    ) {
+    transition: none;
+  }
+}
