@@ -47,15 +47,13 @@ async function mountSidebar(
   client.setQueryData(['status'], {
     SidebarModulesAdmin: JSON.stringify(options.modules ?? {}),
   })
-  useAuthStore
-    .getState()
-    .auth.setUser({
-      id: 1,
-      username: 'test',
-      role: options.role ?? 100,
-      sidebar_modules: options.userModules,
-      permissions: { sidebar_settings: options.canConfigureSidebar ?? true },
-    })
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'test',
+    role: options.role ?? 100,
+    sidebar_modules: options.userModules,
+    permissions: { sidebar_settings: options.canConfigureSidebar ?? true },
+  })
   const root = createRootRoute({
     component: () => (
       <LayoutProvider>
@@ -163,8 +161,8 @@ it('普通用户在管理地址也只看到用户菜单，样式调整不扩大�
   expect(screen.queryByRole('link', { name: 'Administration' })).toBeNull()
 })
 
-/** 固定入口在普通用户工作区也可使用，子项导航沿用真实路由。 */
-it('普通用户点击底部个人设置后可进入安全页，菜单收起并标记当前子栏目', async () => {
+/** 用户名整行就是唯一设置入口，点击文字也必须进入真实导航菜单。 */
+it('普通用户点击底部用户名后可进入安全页，菜单收起并标记当前子栏目', async () => {
   const { user, router } = await mountSidebar({
     role: 1,
     path: '/dashboard/overview',
@@ -172,7 +170,11 @@ it('普通用户点击底部个人设置后可进入安全页，菜单收起并�
   const trigger = screen.getByRole('button', { name: 'Personal settings' })
   expect(screen.queryByRole('link', { name: 'Personal settings' })).toBeNull()
   expect(trigger.closest('[data-slot=sidebar-footer]')).toBeInTheDocument()
-  await user.click(trigger)
+  expect(within(trigger).getByText('test')).toBeVisible()
+  expect(within(trigger).queryByText('Personal settings')).toBeNull()
+  expect(screen.queryByText('Profile and account security')).toBeNull()
+  expect(screen.queryByText('My account')).toBeNull()
+  await user.click(within(trigger).getByText('test'))
   const menu = await screen.findByRole('menu', { name: 'Personal settings' })
   await user.click(
     within(menu).getByRole('menuitem', { name: 'Account security' })
@@ -243,6 +245,26 @@ it('管理员关闭安全栏目后浮层只显示资料，全部关闭时不显�
   cleanup()
   await mountSidebar({ modules: { personal: { enabled: false } } })
   expect(screen.queryByRole('button', { name: 'Personal settings' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'My account' })).toHaveTextContent(
+    'test'
+  )
+})
+
+/** 手机先收起侧栏再独立确认退出；取消后用户仍登录且能重新打开导航。 */
+it('手机账户菜单保留可取消的退出确认', async () => {
+  const { user } = await mountSidebar({ mobile: true })
+  await user.click(screen.getByRole('button', { name: 'Toggle navigation' }))
+  await user.click(screen.getByRole('button', { name: 'Personal settings' }))
+  await user.click(await screen.findByRole('menuitem', { name: 'Sign out' }))
+  const confirmation = await screen.findByRole('alertdialog')
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog', { name: 'Sidebar' })).toBeNull()
+  )
+  await user.click(within(confirmation).getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(confirmation).not.toBeInTheDocument())
+  expect(useAuthStore.getState().auth.user?.username).toBe('test')
+  await user.click(screen.getByRole('button', { name: 'Toggle navigation' }))
+  expect(await screen.findByRole('dialog', { name: 'Sidebar' })).toBeVisible()
 })
 
 /** 普通用户的隐藏偏好继续生效；不能配置侧栏的 root 忽略历史偏好。 */
