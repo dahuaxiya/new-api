@@ -40,22 +40,26 @@ function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
   return <MenuPrimitive.Trigger data-slot='dropdown-menu-trigger' {...props} />
 }
 
+/**
+ * 统一弹出菜单的定位与键盘交互；嵌套抽屉可单独设置定位层，默认调用保持原层级。
+ */
 function DropdownMenuContent({
   align = 'start',
   alignOffset = 0,
   side = 'bottom',
   sideOffset = 4,
   className,
+  positionerClassName,
   ...props
 }: MenuPrimitive.Popup.Props &
   Pick<
     MenuPrimitive.Positioner.Props,
     'align' | 'alignOffset' | 'side' | 'sideOffset'
-  >) {
+  > & { positionerClassName?: string }) {
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner
-        className='isolate z-50 outline-none'
+        className={cn('isolate z-50 outline-none', positionerClassName)}
         align={align}
         alignOffset={alignOffset}
         side={side}
