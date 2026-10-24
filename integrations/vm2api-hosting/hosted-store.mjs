@@ -10,9 +10,14 @@ export function hostedDb() {
       vm_id TEXT PRIMARY KEY, binding_id TEXT, generation INTEGER NOT NULL DEFAULT 0,
       state TEXT NOT NULL DEFAULT 'inventory', account_hash TEXT, subject_hash TEXT,
       key_id TEXT, pool_id TEXT, starts_at INTEGER NOT NULL DEFAULT 0,
-      ends_at INTEGER NOT NULL DEFAULT 0, pending TEXT, label TEXT, plan TEXT
+      ends_at INTEGER NOT NULL DEFAULT 0, pending TEXT, label TEXT, plan TEXT,
+      identity_source TEXT NOT NULL DEFAULT 'official'
     )`)
     db.exec(`CREATE TABLE IF NOT EXISTS hosted_keys (key_id TEXT PRIMARY KEY, vm_id TEXT NOT NULL, binding_id TEXT NOT NULL)`)
+    // 已上线版本的表原本没有来源字段；旧的官方验证记录维持原语义，新旧库均可重复启动。
+    if (!db.prepare('PRAGMA table_info(hosted_slots)').all().some(column => column.name === 'identity_source')) {
+      db.exec("ALTER TABLE hosted_slots ADD COLUMN identity_source TEXT NOT NULL DEFAULT 'official'")
+    }
     initialized.add(db)
   }
   return db

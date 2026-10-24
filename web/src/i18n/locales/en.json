@@ -7694,5 +7694,9 @@
     "The official account identity could not be verified. Sign in to the original GPT account again before takeover.": "The official account identity could not be verified. Sign in to the original GPT account again before takeover.",
     "This will bring the existing account under hosting expiry controls. Client New API keys are retained.": "This will bring the existing account under hosting expiry controls. Client New API keys are retained.",
     "Save profile changes": "Save profile changes"
-  }
+  },
+  "Checking existing binding...": "Checking existing binding...",
+  "Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.": "Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.",
+  "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.",
+  "The GPT sign-in could not be verified. Start a new GPT sign-in.": "The GPT sign-in could not be verified. Start a new GPT sign-in."
 }

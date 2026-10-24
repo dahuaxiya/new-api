@@ -7694,5 +7694,9 @@
     "The official account identity could not be verified. Sign in to the original GPT account again before takeover.": "Не удалось проверить официальный аккаунт. Снова войдите в исходный GPT-аккаунт перед переносом.",
     "This will bring the existing account under hosting expiry controls. Client New API keys are retained.": "К существующему аккаунту применится срок размещения. Клиентские ключи New API сохранятся.",
     "Save profile changes": "Сохранить профиль"
-  }
+  },
+  "Checking existing binding...": "Проверка существующей привязки…",
+  "Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.": "Сохранить срок для текущего аккаунта без входа в GPT. Ключи и учётные данные сохраняются.",
+  "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "Для изменения срока вход в GPT не нужен. Официальная личность проверяется при повторном входе пользователя.",
+  "The GPT sign-in could not be verified. Start a new GPT sign-in.": "Не удалось проверить вход в GPT. Начните вход заново."
 }

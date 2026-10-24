@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// checkHostingTakeover 验证中央路由、远端官方身份及所有实例的重复账号；失败不写入任何服务状态。
+// checkHostingTakeover 核对现有路由、独占 Key 与历史账号标识；期限管理不调用官方身份验签，失败不改服务。
 func checkHostingTakeover(ctx context.Context, userID int) (*model.HostingTakeover, error) {
 	user, err := model.GetUserById(userID, false)
 	if err != nil {
@@ -45,7 +45,7 @@ func checkHostingTakeover(ctx context.Context, userID int) (*model.HostingTakeov
 	if err != nil {
 		return nil, err
 	}
-	if checked.VMID != source.Slot || checked.State != "checked" {
+	if checked.VMID != source.Slot || checked.State != "checked" || checked.IdentitySource != "legacy_binding" {
 		return nil, model.ErrHostingConflict
 	}
 	for _, instance := range registry.Instances() {
@@ -76,10 +76,10 @@ func checkHostingTakeover(ctx context.Context, userID int) (*model.HostingTakeov
 			}
 		}
 	}
-	return &model.HostingTakeover{InstanceID: source.InstanceID, SlotID: source.Slot, ChannelID: channel.Id, Snapshot: snapshot, AccountHash: checked.AccountHash, SubjectHash: checked.SubjectHash, Label: checked.Label, Plan: checked.Plan, KeyID: checked.KeyID, PoolID: checked.PoolID}, nil
+	return &model.HostingTakeover{IdentitySource: checked.IdentitySource, InstanceID: source.InstanceID, SlotID: source.Slot, ChannelID: channel.Id, Snapshot: snapshot, AccountHash: checked.AccountHash, SubjectHash: checked.SubjectHash, Label: checked.Label, Plan: checked.Plan, KeyID: checked.KeyID, PoolID: checked.PoolID}, nil
 }
 
-// CheckGPTHostingTakeover 返回脱敏预览；Key 和身份哈希只在固定服务端之间传输。
+// CheckGPTHostingTakeover 只向 root 返回现有绑定预览；历史标识仅保留归属，不授予新的登录权限。
 func CheckGPTHostingTakeover(c *gin.Context) {
 	if _, ok := hostingActor(c, true); !ok {
 		return
@@ -95,10 +95,11 @@ func CheckGPTHostingTakeover(c *gin.Context) {
 		hostingError(c, err)
 		return
 	}
-	c.JSON(200, gin.H{"success": true, "data": gin.H{"account_label": result.Label, "plan": result.Plan, "instance_id": result.InstanceID, "slot_id": result.SlotID, "channel_id": result.ChannelID}})
+	c.JSON(200, gin.H{"success": true, "data": gin.H{"account_label": result.Label, "plan": result.Plan, "instance_id": result.InstanceID, "slot_id": result.SlotID, "channel_id": result.ChannelID, "identity_source": result.IdentitySource}})
 }
 
-// TakeoverGPTHosting 二次验证后重做预检再持久化；响应丢失沿用绑定重试，绝不恢复不受期限约束的旧路由。
+// TakeoverGPTHosting 验证 root 的单次操作证明并给已有绑定设置期限；不会换票或验证旧 ID token 的时效。
+// 响应丢失沿用持久化绑定重试，不能回退到不受期限约束的旧路由。
 func TakeoverGPTHosting(c *gin.Context) {
 	actor, ok := hostingActor(c, true)
 	if !ok {

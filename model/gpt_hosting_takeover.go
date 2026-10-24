@@ -11,8 +11,9 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// HostingTakeover 保存已经通过远端身份与独占检查的迁移意图，不含上游凭据。
+// HostingTakeover 保存 root 已确认的历史独占绑定及来源，不把历史标识当成新的官方登录证明。
 type HostingTakeover struct {
+	IdentitySource                                                                     string
 	InstanceID, SlotID, Snapshot, AccountHash, SubjectHash, Label, Plan, KeyID, PoolID string
 	ChannelID                                                                          int
 }
@@ -80,9 +81,9 @@ func LegacyHostingChannel(userID int) (*Channel, string, error) {
 	return legacyHostingChannel(DB.Session(&gorm.Session{Logger: logger.Discard}), userID)
 }
 
-// BeginHostingTakeover 在远端变更前持久化意图、身份唯一键和配置快照；失败重试沿用同一绑定。
+// BeginHostingTakeover 在远端变更前持久化管理员确认的历史归属与配置快照；失败重试沿用同一绑定。
 func BeginHostingTakeover(grant GPTHostingGrant, takeover HostingTakeover) (*GPTHostingGrant, error) {
-	if !validVM2APIIdentifier(takeover.InstanceID, 64) || !validVM2APIIdentifier(takeover.SlotID, 80) || len(takeover.AccountHash) != 64 || len(takeover.SubjectHash) != 64 || len(takeover.Snapshot) != 64 || takeover.KeyID == "" {
+	if takeover.IdentitySource != "legacy_binding" || !validVM2APIIdentifier(takeover.InstanceID, 64) || !validVM2APIIdentifier(takeover.SlotID, 80) || len(takeover.AccountHash) != 64 || len(takeover.SubjectHash) != 64 || len(takeover.Snapshot) != 64 || takeover.KeyID == "" {
 		return nil, ErrHostingConflict
 	}
 	return putHostingGrant(grant, &takeover)

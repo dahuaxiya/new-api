@@ -2,6 +2,7 @@
 import { test, mock, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import crypto from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -13,12 +14,12 @@ let stopOK = true
 mock.module(moduleURL('vm/slot-runtime.mjs'), { namedExports:{...runtime, stopSlot:async()=>({ok:stopOK}),startSlotReady:async()=>({ok:true})} })
 const identity = await import(moduleURL('admin/hosted-identity.mjs'))
 let identityReadHook = null
-const official = {account_hash:'a'.repeat(64),subject_hash:'b'.repeat(64),label:'a***@example.test',plan:'plus'}
+const official = {account_hash:crypto.createHash('sha256').update('openai-account\0fixture-account').digest('hex'),subject_hash:crypto.createHash('sha256').update('openai-subject\0fixture-subject').digest('hex'),label:'a***@example.test',plan:'plus'}
 mock.module(moduleURL('admin/hosted-identity.mjs'), {namedExports:{...identity,verifyHostedIdentity:async()=>{if(identityReadHook) await identityReadHook();return official},probeHostedExit:async()=>{}}})
 const oauth = await import(moduleURL('oauth/codex-oauth.mjs'))
 mock.module(moduleURL('oauth/codex-oauth.mjs'), {namedExports:{...oauth,exchangeCodexAuthCode:async()=>({access_token:'fixture-access',refresh_token:'fixture-refresh',id_token:'fixture-id'})}})
 const { handleHostedPanel } = await import(moduleURL('admin/hosted-panel.mjs'))
-const { openDatabase, closeDatabase } = await import(moduleURL('db/database.mjs'))
+const { openDatabase, closeDatabase, getDb } = await import(moduleURL('db/database.mjs'))
 const { hostedDb, hostedRecord, hostedAllows, withHostedWrite, assertHostedWrite } = await import(moduleURL('admin/hosted-store.mjs'))
 const { readCodexAccounts, writeCodexAccounts } = await import(moduleURL('vm/codex-slot.mjs'))
 const { ApiKeyStore } = await import(moduleURL('admin/api-keys.mjs'))
@@ -27,6 +28,9 @@ const { getVm } = await import(moduleURL('vm/vm-registry.mjs'))
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(),'hosting-lifecycle-'))
 process.env.VM2API_DB_SECRET = 'local-hosting-test-secret-only'
 openDatabase({dbPath:path.join(tmp,'hosting.db')})
+// 以已上线旧表启动，确认新增来源列能原位升级，原有隔离逻辑继续生效。
+getDb().exec(`CREATE TABLE hosted_slots (vm_id TEXT PRIMARY KEY,binding_id TEXT,generation INTEGER NOT NULL DEFAULT 0,state TEXT NOT NULL DEFAULT 'inventory',account_hash TEXT,subject_hash TEXT,key_id TEXT,pool_id TEXT,starts_at INTEGER NOT NULL DEFAULT 0,ends_at INTEGER NOT NULL DEFAULT 0,pending TEXT,label TEXT,plan TEXT)`)
+
 fs.mkdirSync(path.join(tmp,'vms'),{recursive:true})
 const vm = { id:'fixture-slot',name:'Fixture',platform:'openai',family:'codex',codex_kernel:true,runtime:{type:'docker'},proxy:{id:'px-local'},device_id:'fixture-device' }
 fs.writeFileSync(path.join(tmp,'vms',vm.id+'.json'),JSON.stringify(vm))
@@ -95,31 +99,38 @@ test('prepare, activate, pause, fencing and verified cleanup preserve the prebui
  assert.equal((await call('policy',{...body,generation:99,enabled:true})).status,409,'old owner cannot modify new binding')
 })
 
-test('legacy takeover validates scope before mutation and resumes one isolated key after response loss', async()=>{
+test('root can set legacy terms with an expired identity token while reauthentication still requires official verification', async()=>{
  const originalId=vm.id
  vm.id='legacy-takeover'
  fs.writeFileSync(path.join(tmp,'vms',vm.id+'.json'),JSON.stringify(vm))
  fs.mkdirSync(path.join(tmp,'vms',vm.id),{recursive:true})
- writeCodexAccounts(tmp,vm.id,[{access_token:'legacy-access',id_token:'legacy-id',refresh_token:'legacy-refresh'}])
+ // 旧凭据只提供已存在绑定的标识；管理员期限设置不应调用官方验签或旋转授权。
+ const expiredClaims={sub:'fixture-subject',email:'alice@example.test',exp:1,'https://api.openai.com/auth':{chatgpt_account_id:'fixture-account',chatgpt_plan_type:'plus'}}
+ const expiredToken=Buffer.from('{}').toString('base64url')+'.'+Buffer.from(JSON.stringify(expiredClaims)).toString('base64url')+'.fixture-signature'
+ const originalAccount={access_token:'legacy-access',id_token:expiredToken,refresh_token:'legacy-refresh'}
+ writeCodexAccounts(tmp,vm.id,[originalAccount])
+ const originalRecords=readCodexAccounts(tmp,vm.id)
  const key=keys.create({name:'legacy-specific',group_type:'openai',allowed_vms:[vm.id],max_concurrency:3})
  const original=keys.repo.getById(key.id)
  const {plainApiKey}=await import(moduleURL('admin/api-keys.mjs'))
  const secret=plainApiKey(original)
- // 验签等待期间另一个管理入口更新凭据时，必须拒绝用旧身份接管新凭据。
- identityReadHook=async()=>writeCodexAccounts(tmp,vm.id,[{access_token:'changed-access',id_token:'changed-id',refresh_token:'changed-refresh'}])
- assert.equal((await call('takeover-check',{key:secret})).status,409)
- assert.equal(hostedRecord(vm.id),null)
- identityReadHook=null
- writeCodexAccounts(tmp,vm.id,[{access_token:'legacy-access',id_token:'legacy-id',refresh_token:'legacy-refresh'}])
+ identityReadHook=async()=>{throw Object.assign(new Error('identity_invalid'),{code:'identity_invalid'})}
  const checked=await call('takeover-check',{key:secret})
  assert.equal(checked.status,200)
  assert.equal(checked.body.data.state,'checked')
+ assert.equal(checked.body.data.identity_source,'legacy_binding','existing references must not be described as officially verified')
  assert.equal(hostedRecord(vm.id),null,'preflight must not isolate the old slot')
  const duplicate=keys.create({name:'shared-explicit',group_type:'openai',allowed_vms:[vm.id]})
  assert.equal((await call('takeover-check',{key:secret})).status,409,'shared explicit keys must block takeover')
  assert.equal(hostedRecord(vm.id),null)
  keys.update(duplicate.id,{allowed_vms:['other-slot']})
  const body={key:secret,key_id:key.id,binding_id:'00000000-0000-4000-8000-000000000003',generation:1,...official}
+ // 管理员核对后若槽位已换账号，仍须拒绝把旧期限应用到新账号。
+ const changedToken=Buffer.from('{}').toString('base64url')+'.'+Buffer.from(JSON.stringify({...expiredClaims,sub:'changed-subject'})).toString('base64url')+'.signature'
+ writeCodexAccounts(tmp,vm.id,[{...originalAccount,id_token:changedToken}])
+ assert.equal((await call('takeover',body)).status,409)
+ assert.equal(hostedRecord(vm.id),null)
+ writeCodexAccounts(tmp,vm.id,[originalAccount])
  assert.equal((await call('takeover',{...body,account_hash:'c'.repeat(64)})).status,409)
  assert.equal(hostedRecord(vm.id),null,'identity changes must leave legacy service alone')
  assert.equal((await call('takeover',body)).status,200)
@@ -132,6 +143,8 @@ test('legacy takeover validates scope before mutation and resumes one isolated k
  assert.equal(active.body.data.key,secret,'exclusive existing upstream key is retained')
  assert.equal(active.body.data.key_id,key.id)
  assert.equal(hostedAllows({hosted_key_id:key.id},vm.id),true)
+ assert.equal(hostedAllows({hosted_key_id:key.id},vm.id,now+3600),false,'the original key is rejected at the exact deadline')
+ assert.deepEqual(readCodexAccounts(tmp,vm.id),originalRecords,'setting terms preserves all existing credentials')
  assert.equal(hostedAllows({hosted_key_id:key.id},'other-slot'),false)
  const scheduled=await call('activate',{...body,generation:3,starts_at:now+60,ends_at:now+3600})
  assert.equal(scheduled.status,200)
@@ -139,5 +152,14 @@ test('legacy takeover validates scope before mutation and resumes one isolated k
  assert.equal((await call('policy',{...body,generation:4,starts_at:now-1,ends_at:now+3600,enabled:true})).status,200)
  assert.equal(hostedAllows({hosted_key_id:key.id},vm.id),true,'policy reconciliation resumes the same key')
  assert.equal((await call('takeover',{...body,binding_id:binding,generation:99})).status,409)
+ const login=await call('login',{...body,generation:5})
+ assert.equal(login.status,200)
+ const auth=new URL(new URL(login.body.data.auth_url).searchParams.get('authorize_url'))
+ const callback='http://localhost:1455/auth/callback?code=fixture&state='+auth.searchParams.get('state')
+ const failed=await call('prepare',{...body,generation:6,session_id:login.body.data.session_id,callback_url:callback})
+ assert.equal(failed.status,409,'new OAuth credentials still require official verification')
+ assert.equal(failed.body.error.code,'identity_invalid')
+ assert.deepEqual(readCodexAccounts(tmp,vm.id),originalRecords)
+ identityReadHook=null
  vm.id=originalId
 })

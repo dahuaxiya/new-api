@@ -340,7 +340,8 @@ func StartGPTHostingLogin(c *gin.Context) {
 
 // finishHosting 根据远端暂存的已验证身份抢占中央唯一键，成功后才激活并创建用户专属渠道。
 func finishHosting(ctx context.Context, b *model.GPTHostingBinding, lease string, prepared vm2api.HostedState) error {
-	if prepared.BindingID != b.BindingID || prepared.VMID != b.SlotID || prepared.State != "prepared" {
+	// root 沿用的历史标识不能被登录重试接口当成新 OAuth 证明。
+	if prepared.IdentitySource != "official" || prepared.BindingID != b.BindingID || prepared.VMID != b.SlotID || prepared.State != "prepared" {
 		return model.ErrHostingConflict
 	}
 	// 对历史账号只读去重：不能把旧客户使用中的账号再次交给自助用户。

@@ -110,7 +110,7 @@ function hostingMessage(error: unknown): string {
     case 'identity_invalid':
     case 'identity_unavailable':
       return t(
-        'The official account identity could not be verified. Sign in to the original GPT account again before takeover.'
+        'The GPT sign-in could not be verified. Start a new GPT sign-in.'
       )
     case 'cleanup_pending':
       return t(

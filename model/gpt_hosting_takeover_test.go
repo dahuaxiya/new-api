@@ -18,6 +18,7 @@ func TestHostingTakeoverDatabases(t *testing.T) {
 			require.NoError(t, migrateDB())
 			// 代表上一版绑定表升级：新字段必须能追加，已有用户、余额和下游令牌保持原值。
 			require.NoError(t, db.Migrator().DropColumn(&GPTHostingBinding{}, "LegacySnapshot"))
+			require.NoError(t, db.Migrator().DropColumn(&GPTHostingBinding{}, "IdentitySource"))
 			user := User{Username: "takeover", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "old-dedicated", AffCode: "takeover", Quota: 1234}
 			require.NoError(t, db.Create(&user).Error)
 			base := "http://127.0.0.1:8787"
@@ -37,7 +38,7 @@ func TestHostingTakeoverDatabases(t *testing.T) {
 			require.NoError(t, err)
 			now := time.Now().Unix()
 			grant := GPTHostingGrant{UserID: user.Id, ActorID: 99, StartsAt: now - 1, EndsAt: now + 3600, Enabled: true, RetentionDays: 7}
-			intent := HostingTakeover{InstanceID: "cc", SlotID: "old-slot", ChannelID: ch.Id, Snapshot: fingerprint, AccountHash: strings.Repeat("a", 64), SubjectHash: strings.Repeat("b", 64), Label: "a***@test", Plan: "plus", KeyID: "old-key-id", PoolID: "old-pool"}
+			intent := HostingTakeover{IdentitySource: "legacy_binding", InstanceID: "cc", SlotID: "old-slot", ChannelID: ch.Id, Snapshot: fingerprint, AccountHash: strings.Repeat("a", 64), SubjectHash: strings.Repeat("b", 64), Label: "a***@test", Plan: "plus", KeyID: "old-key-id", PoolID: "old-pool"}
 			bad := intent
 			bad.Snapshot = strings.Repeat("0", 64)
 			_, err = BeginHostingTakeover(grant, bad)
@@ -50,6 +51,7 @@ func TestHostingTakeoverDatabases(t *testing.T) {
 			b, err := GetHostingBinding(user.Id)
 			require.NoError(t, err)
 			require.Equal(t, "takeover", b.State)
+			require.Equal(t, "legacy_binding", b.IdentitySource, "管理员沿用旧绑定不能标成新官方登录")
 			_, total, err = SearchUsersWithHosting("", "", nil, nil, 0, 1, &HostingUserFilter{Status: "takeover"})
 			require.NoError(t, err)
 			require.EqualValues(t, 1, total)

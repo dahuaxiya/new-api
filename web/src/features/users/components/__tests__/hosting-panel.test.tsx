@@ -106,6 +106,11 @@ it('legacy users show no preset end date and cancelling the preview never takes 
   })
   await renderPanel()
   expect(screen.getByLabelText('Ends at')).toHaveValue('')
+  expect(
+    screen.getByText(
+      'Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.'
+    )
+  ).toBeInTheDocument()
   await userEvent.click(
     screen.getByRole('button', { name: 'Extend by 30 days' })
   )
@@ -113,6 +118,11 @@ it('legacy users show no preset end date and cancelling the preview never takes 
     screen.getByRole('button', { name: 'Review and save hosting term' })
   )
   const confirm = await screen.findByRole('alertdialog')
+  expect(
+    within(confirm).getByText(
+      'Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.'
+    )
+  ).toBeInTheDocument()
   expect(post).toHaveBeenCalledWith(
     '/api/gpt-hosting/admin/takeover/check',
     { user_id: 2 },

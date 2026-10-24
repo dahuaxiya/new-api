@@ -176,7 +176,7 @@ export function HostingUserPanel(props: { user: User }) {
       triggerRefresh()
     },
   })
-  /** 旧绑定先执行只读身份检查；未开始接管的失败不会创建名额或改变旧客户端路由。 */
+  /** 旧绑定只核对既有用户、槽位和 Key 的对应关系，不要求刷新 GPT 登录；确认和管理员验证之后才写期限。 */
   async function reviewGrant(values: GrantValues): Promise<void> {
     setChecking(true)
     setPreflight('')
@@ -222,6 +222,14 @@ export function HostingUserPanel(props: { user: User }) {
           <p className='text-muted-foreground text-sm'>
             {t(
               'Existing service continues until an administrator sets a hosting term.'
+            )}
+          </p>
+        )}
+        {(data?.status === 'undated' ||
+          data?.binding?.identity_source === 'legacy_binding') && (
+          <p className='text-muted-foreground text-sm'>
+            {t(
+              'Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.'
             )}
           </p>
         )}
@@ -400,7 +408,7 @@ export function HostingUserPanel(props: { user: User }) {
             </div>
             <Button type='submit' disabled={save.isPending || checking}>
               {checking
-                ? t('Checking account ownership...')
+                ? t('Checking existing binding...')
                 : t('Review and save hosting term')}
             </Button>
           </form>
@@ -423,7 +431,7 @@ export function HostingUserPanel(props: { user: User }) {
             <p>
               {isTakeover
                 ? t(
-                    'This will bring the existing account under hosting expiry controls. Client New API keys are retained.'
+                    'Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.'
                   )
                 : t('Only the hosting entitlement will change.')}
             </p>

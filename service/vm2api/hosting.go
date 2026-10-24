@@ -13,17 +13,18 @@ import (
 
 // HostedState 是托管协议的受限服务端响应；Key 只能写入渠道，禁止直接返回浏览器。
 type HostedState struct {
-	VMID        string `json:"vm_id"`
-	BindingID   string `json:"binding_id"`
-	Generation  int64  `json:"generation"`
-	State       string `json:"state"`
-	AccountHash string `json:"account_hash"`
-	SubjectHash string `json:"subject_hash"`
-	Label       string `json:"label"`
-	Plan        string `json:"plan"`
-	KeyID       string `json:"key_id"`
-	PoolID      string `json:"pool_id"`
-	Key         string `json:"key"`
+	IdentitySource string `json:"identity_source"`
+	VMID           string `json:"vm_id"`
+	BindingID      string `json:"binding_id"`
+	Generation     int64  `json:"generation"`
+	State          string `json:"state"`
+	AccountHash    string `json:"account_hash"`
+	SubjectHash    string `json:"subject_hash"`
+	Label          string `json:"label"`
+	Plan           string `json:"plan"`
+	KeyID          string `json:"key_id"`
+	PoolID         string `json:"pool_id"`
+	Key            string `json:"key"`
 }
 
 // HostedSlot 提供可分配资格与已有归属，不含出口认证信息。

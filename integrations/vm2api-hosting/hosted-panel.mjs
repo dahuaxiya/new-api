@@ -23,8 +23,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** 返回受限状态，凭据和授权会话绝不混进列表。 */
 function view(row) {
   if (!row) return null
-  const { vm_id, binding_id, generation, state, account_hash, subject_hash, key_id, pool_id, starts_at, ends_at, label, plan } = row
-  return { vm_id, binding_id, generation, state, account_hash, subject_hash, key_id, pool_id, starts_at, ends_at, label, plan }
+  const { vm_id, binding_id, generation, state, account_hash, subject_hash, key_id, pool_id, starts_at, ends_at, label, plan, identity_source } = row
+  return { vm_id, binding_id, generation, state, account_hash, subject_hash, key_id, pool_id, starts_at, ends_at, label, plan, identity_source }
 }
 
 /** 仅清理与当前槽位关联的短期 OAuth 会话，避免旧页面回调覆盖新绑定。 */
@@ -68,16 +68,34 @@ function claim(row, body) {
   hostedDb().prepare('UPDATE hosted_slots SET generation = ? WHERE vm_id = ?').run(body.generation, row.vm_id)
 }
 
-/** 核验历史槽位的真实身份和独占 Key。只读失败不会隔离槽位，也不会刷新或替换官方令牌。 */
-async function inspectLegacy(ctx, vm, body) {
+/** 提取已有账号的稳定标识，仅用于保留绑定和防重复；这些字段不是新的官方登录证明。 */
+function existingAccountReference(account, vm) {
+  let claims = {}
+  // 期限管理由 root 授权，不依赖短期 ID token 的有效期或官方网络；新 OAuth 仍必须调用 verifyHostedIdentity。
+  for (const token of [account.id_token, account.access_token]) {
+    if (typeof token !== 'string' || token.length > 32768) continue
+    try {
+      const candidate = JSON.parse(Buffer.from(token.split('.')[1], 'base64url'))
+      if (candidate?.sub && candidate['https://api.openai.com/auth']?.chatgpt_account_id) { claims = candidate; break }
+    } catch { /* 无法读取时不能猜测邮箱对应的身份，下面统一拒绝不完整绑定。 */ }
+  }
+  const auth = claims['https://api.openai.com/auth'] || {}
+  const accountID = auth.chatgpt_account_id, subject = claims.sub
+  if (typeof accountID !== 'string' || !accountID || accountID.length > 256 || typeof subject !== 'string' || !subject || subject.length > 256) throw hostedError('hosting_conflict')
+  // 管理记录和令牌中已存在的账号必须一致，防止刚换号时沿用上一位用户的期限。
+  if ([account.chatgpt_account_id, vm.codex?.chatgpt_account_id].some(id => id && id !== accountID)) throw hostedError('account_changed')
+  const email = typeof claims.email === 'string' ? claims.email : ''
+  const at = email.indexOf('@')
+  const hash = value => crypto.createHash('sha256').update(value).digest('hex')
+  return { account_hash:hash('openai-account\0'+accountID),subject_hash:hash('openai-subject\0'+subject),label:(at>0?email[0]+'***'+email.slice(at):'GPT account').slice(0,160),plan:['free','plus','pro'].includes(auth.chatgpt_plan_type)?auth.chatgpt_plan_type:'unknown',identity_source:'legacy_binding' }
+}
+
+/** 同步核对旧账号、独占槽位和 Key；不重新验证登录、不访问官方服务，也不旋转任何凭据。 */
+function inspectLegacy(ctx, vm, body) {
   if (hostedRecord(vm.id)) throw hostedError('hosting_conflict')
-  const px = ctx.requireSlotProxy(vm, {})
-  if (!px.ok) throw hostedError('exit_unavailable')
   const accounts = readCodexAccounts(ctx.cfg.paths.project, vm.id)
-  if (accounts.length !== 1) throw hostedError('identity_invalid')
-  const identity = await verifyHostedIdentity(accounts[0], px.proxyUrl)
-  // 官方验签会让出事件循环；期间旧管理页或内核若更换了凭据，必须重新预检，不能接管已变化的账号。
-  if (JSON.stringify(readCodexAccounts(ctx.cfg.paths.project, vm.id)) !== JSON.stringify(accounts)) throw hostedError('account_changed')
+  if (accounts.length !== 1) throw hostedError('hosting_conflict')
+  const identity = existingAccountReference(accounts[0], vm)
   const keys = ctx.apiKeyStore.repo.list()
   const key = keys.find(k => plainApiKey(k) === body.key && body.key)
   const pools = new VmPoolsRepo(hostedDb()).list()
@@ -102,10 +120,10 @@ async function operate(ctx, vm, action, body, commit) {
   if (action === 'takeover') {
     if (!UUID.test(body.binding_id || '') || !Number.isSafeInteger(body.generation) || body.generation < 0) throw hostedError()
     if (!row) {
-      const checked = await inspectLegacy(ctx, vm, body)
+      const checked = inspectLegacy(ctx, vm, body)
       if (checked.account_hash !== body.account_hash || checked.subject_hash !== body.subject_hash || checked.key_id !== body.key_id) throw hostedError('account_changed')
-      // 中央已持久化唯一身份后才插入永久标记；崩溃只会暂停该账号，不会开放给其他 Key。
-      db.prepare("INSERT INTO hosted_slots (vm_id,binding_id,generation,state,account_hash,subject_hash,key_id,pool_id,label,plan) VALUES (?,?,?,'prepared',?,?,?,?,?,?)").run(vm.id,body.binding_id,body.generation,checked.account_hash,checked.subject_hash,checked.key_id,checked.pool_id || null,checked.label,checked.plan)
+      // root 已确认现有独占绑定，中央保存归属后才限制 Key；同步检查到写入之间没有 await，不能被换号插入。
+      db.prepare("INSERT INTO hosted_slots (vm_id,binding_id,generation,state,account_hash,subject_hash,key_id,pool_id,label,plan,identity_source) VALUES (?,?,?,'prepared',?,?,?,?,?,?,?)").run(vm.id,body.binding_id,body.generation,checked.account_hash,checked.subject_hash,checked.key_id,checked.pool_id || null,checked.label,checked.plan,checked.identity_source)
       db.prepare('INSERT OR IGNORE INTO hosted_keys (key_id,vm_id,binding_id) VALUES (?,?,?)').run(checked.key_id,vm.id,body.binding_id)
       row = hostedRecord(vm.id)
     }
@@ -170,7 +188,7 @@ async function operate(ctx, vm, action, body, commit) {
     const identity = await verifyHostedIdentity(tokens, px.proxyUrl)
     if ((row.account_hash && row.account_hash !== identity.account_hash) || (row.subject_hash && row.subject_hash !== identity.subject_hash)) throw hostedError('account_changed')
     // 只保存加密的待激活授权，不写正式凭据。中央唯一约束通过后才允许 activate。
-    db.prepare("UPDATE hosted_slots SET state = 'prepared', pending = ?, account_hash = ?, subject_hash = ?, label = ?, plan = ? WHERE vm_id = ?").run(encryptString(JSON.stringify(tokens)), identity.account_hash, identity.subject_hash, identity.label, identity.plan, vm.id)
+    db.prepare("UPDATE hosted_slots SET state = 'prepared', pending = ?, account_hash = ?, subject_hash = ?, label = ?, plan = ?, identity_source = 'official' WHERE vm_id = ?").run(encryptString(JSON.stringify(tokens)), identity.account_hash, identity.subject_hash, identity.label, identity.plan, vm.id)
     return view(hostedRecord(vm.id))
   }
   if (action === 'activate') {
@@ -220,7 +238,7 @@ async function operate(ctx, vm, action, body, commit) {
     await clearCredentials(ctx,vm)
     // 保留隔离标记，旧 Key 即使被管理员重新启用也不能访问下一位用户。
     if (row.pool_id) db.prepare('DELETE FROM vm_pool_members WHERE pool_id = ? AND vm_id = ?').run(row.pool_id,vm.id)
-    db.prepare("UPDATE hosted_slots SET binding_id = NULL, state = 'inventory', account_hash = NULL, subject_hash = NULL, key_id = NULL, pool_id = NULL, pending = NULL, label = NULL, plan = NULL, starts_at = 0, ends_at = 0 WHERE vm_id = ?").run(vm.id)
+    db.prepare("UPDATE hosted_slots SET binding_id = NULL, state = 'inventory', account_hash = NULL, subject_hash = NULL, key_id = NULL, pool_id = NULL, pending = NULL, label = NULL, plan = NULL, identity_source = 'official', starts_at = 0, ends_at = 0 WHERE vm_id = ?").run(vm.id)
     return view(hostedRecord(vm.id))
   }
   throw hostedError()

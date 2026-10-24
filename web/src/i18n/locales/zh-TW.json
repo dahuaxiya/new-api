@@ -7694,5 +7694,9 @@
     "The official account identity could not be verified. Sign in to the original GPT account again before takeover.": "無法驗證官方帳號身分。請先重新登入原 GPT 帳號，再進行接管。",
     "This will bring the existing account under hosting expiry controls. Client New API keys are retained.": "確認後，舊帳號將按託管期限管理，用戶端既有的 New API Key 保持不變。",
     "Save profile changes": "儲存使用者資料"
-  }
+  },
+  "Checking existing binding...": "正在核對現有綁定…",
+  "Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.": "為現有帳號儲存託管期限，無需重新登入 GPT；保留原有 Key 和登入憑證。",
+  "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "管理員設定期限無需重新登入 GPT；使用者重新登入帳號時才驗證官方身分。",
+  "The GPT sign-in could not be verified. Start a new GPT sign-in.": "無法驗證本次 GPT 登入，請重新發起 GPT 帳號登入。"
 }

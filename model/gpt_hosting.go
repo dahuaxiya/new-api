@@ -43,6 +43,7 @@ type GPTHostingInventory struct {
 // GPTHostingBinding 同时承担用户独占、槽位独占和官方身份独占；可空唯一列仅在清理确认后释放。
 // OperationToken 是短期工作租约，BindingID 则在整个绑定生命周期不变，跨系统重试必须沿用它。
 type GPTHostingBinding struct {
+	IdentitySource string  `json:"identity_source" gorm:"type:varchar(24)"`
 	UserID         int     `json:"-" gorm:"primaryKey;autoIncrement:false"`
 	BindingID      string  `json:"-" gorm:"type:varchar(36);uniqueIndex"`
 	InventoryID    *string `json:"-" gorm:"type:varchar(36);uniqueIndex"`
@@ -133,6 +134,7 @@ func putHostingGrant(input GPTHostingGrant, takeover *HostingTakeover) (*GPTHost
 					return ErrHostingConflict
 				}
 				binding.State, binding.InventoryID = "takeover", &inv.ID
+				binding.IdentitySource = takeover.IdentitySource
 				binding.InstanceID, binding.SlotID, binding.ChannelID = takeover.InstanceID, takeover.SlotID, ch.Id
 				binding.AccountHash, binding.SubjectHash = &takeover.AccountHash, &takeover.SubjectHash
 				binding.AccountLabel, binding.Plan = takeover.Label, takeover.Plan
@@ -307,7 +309,7 @@ func ClaimHostingIdentity(userID int, token, accountHash, subjectHash, label, pl
 	if (b.AccountHash != nil && *b.AccountHash != accountHash) || (b.SubjectHash != nil && *b.SubjectHash != subjectHash) {
 		return ErrHostingConflict
 	}
-	return UpdateHostingOperation(userID, token, map[string]any{"account_hash": accountHash, "subject_hash": subjectHash, "account_label": label, "plan": plan, "state": "prepared"})
+	return UpdateHostingOperation(userID, token, map[string]any{"account_hash": accountHash, "subject_hash": subjectHash, "account_label": label, "plan": plan, "state": "prepared", "identity_source": "official"})
 }
 
 // CompleteHostingChannel 将用户固定到自己的渠道；上游凭据仅来自受信实例，永不输出到用户响应。
@@ -379,7 +381,7 @@ func ClearHostingBinding(userID int, token string) error {
 				return err
 			}
 		}
-		return tx.Model(&GPTHostingBinding{}).Where("user_id = ?", userID).Updates(map[string]any{"inventory_id": nil, "account_hash": nil, "subject_hash": nil, "instance_id": "", "slot_id": "", "state": "unbound", "account_label": "", "plan": "", "key_id": "", "pool_id": "", "paused": false}).Error
+		return tx.Model(&GPTHostingBinding{}).Where("user_id = ?", userID).Updates(map[string]any{"inventory_id": nil, "account_hash": nil, "subject_hash": nil, "instance_id": "", "slot_id": "", "state": "unbound", "identity_source": "", "account_label": "", "plan": "", "key_id": "", "pool_id": "", "paused": false}).Error
 	})
 }
 

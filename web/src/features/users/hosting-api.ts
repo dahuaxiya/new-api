@@ -43,6 +43,7 @@ export const hostingSummarySchema = z.object({
   binding: z
     .object({
       state: z.string(),
+      identity_source: z.string().optional(),
       account_label: z.string(),
       plan: z.string(),
       paused: z.boolean(),

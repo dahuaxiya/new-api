@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -128,4 +129,11 @@ func TestUnifiedHostingAdminBoundary(t *testing.T) {
 	require.NoError(t, model.DB.Model(&target).Update("group", "moved").Error)
 	require.Contains(t, request("GET", path, "").Body.String(), `"status":"conflict"`)
 	require.Equal(t, 400, request("GET", "/users?ids=01", "").Code)
+}
+
+// TestHostingLoginRejectsLegacyReference 验证 root 保留的历史归属不能经登录恢复接口伪装成已验证的新登录。
+func TestHostingLoginRejectsLegacyReference(t *testing.T) {
+	binding := &model.GPTHostingBinding{BindingID: "binding", SlotID: "slot", State: "prepared"}
+	state := vm2api.HostedState{BindingID: "binding", VMID: "slot", State: "prepared", IdentitySource: "legacy_binding"}
+	require.ErrorIs(t, finishHosting(context.Background(), binding, "lease", state), model.ErrHostingConflict)
 }
