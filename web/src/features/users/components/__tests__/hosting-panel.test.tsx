@@ -181,22 +181,20 @@ it('ordinary administrators can read hosting details but cannot edit terms', asy
 })
 
 it('permanent hosting allows an empty end date and saves -1 only after administrator verification', async () => {
-  const post = vi
-    .spyOn(api, 'post')
-    .mockImplementation(async (url) => ({
-      data: {
-        success: true,
-        data:
-          url === '/api/verify'
-            ? {
-                proof_token: 'fixture-proof',
-                method: '2fa',
-                scope: 'admin.user.update',
-                expires_at: 4102444800,
-              }
-            : {},
-      },
-    }))
+  const post = vi.spyOn(api, 'post').mockImplementation(async (url) => ({
+    data: {
+      success: true,
+      data:
+        url === '/api/verify'
+          ? {
+              proof_token: 'fixture-proof',
+              method: '2fa',
+              scope: 'admin.user.update',
+              expires_at: 4102444800,
+            }
+          : {},
+    },
+  }))
   await renderPanel('active')
   fireEvent.change(screen.getByLabelText('Ends at'), { target: { value: '' } })
   await userEvent.click(
