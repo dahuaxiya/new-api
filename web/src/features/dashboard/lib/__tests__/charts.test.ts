@@ -154,3 +154,104 @@ describe.each(cases)('dashboard $granularity chart chronology', (scenario) => {
     }
   })
 })
+
+/** 免费模型也按真实 token_used 汇总；次数与 Token 排序不同，不能借用次数数据。 */
+test('aggregates token totals, trends and rankings independently of requests and price', () => {
+  const time = new Date('2026-10-25T12:00:00').getTime() / 1000
+  const data = [
+    {
+      created_at: time,
+      model_name: 'many-calls',
+      count: 20,
+      token_used: 7,
+      quota: 0,
+    },
+    {
+      created_at: time,
+      model_name: 'large-context',
+      count: 1,
+      token_used: 100000001,
+      quota: 0,
+    },
+    {
+      created_at: time + 3600,
+      model_name: 'large-context',
+      count: 2,
+      token_used: 12,
+      quota: 0,
+    },
+  ]
+  const original = structuredClone(data)
+  const tokens = processChartData(data, 'day', undefined, undefined, 'tokens')
+  const requests = processChartData(data)
+  expect(tokens.totalTokensDisplay).toBe('100,000,020')
+  expect(tokens.totalCountDisplay).toBe('23')
+  expect(tokens.totalQuotaDisplay).toBe(requests.totalQuotaDisplay)
+  expect(tokens.spec_rank_bar.data[0].values).toEqual([
+    { Model: 'large-context', Count: 100000013 },
+    { Model: 'many-calls', Count: 7 },
+  ])
+  expect(requests.spec_rank_bar.data[0].values[0]).toEqual({
+    Model: 'many-calls',
+    Count: 20,
+  })
+  expect(tokens.spec_pie.data[0].values[0]).toEqual({
+    type: 'large-context',
+    value: 100000013,
+  })
+  expect(
+    tokens.spec_model_line.data[0].values.filter(
+      (row: { Count: number }) => row.Count > 0
+    )
+  ).toEqual([
+    { Time: '10-25', Model: 'large-context', Count: 100000013 },
+    { Time: '10-25', Model: 'many-calls', Count: 7 },
+  ])
+  expect(
+    tokens.spec_rank_bar.tooltip.mark.content[0].value({ Count: 100000013 })
+  ).toBe('100,000,013 Tokens')
+  expect(data).toEqual(original)
+})
+
+/** 21 个模型触发 Top 20 边界，剩余 Token 必须进入 Other，且不按请求量选模型。 */
+test('keeps all tokens when the model trend and ranking overflow into Other', () => {
+  const data = Array.from({ length: 21 }, (_, index) => ({
+    created_at: 1792886400,
+    model_name: `model-${index + 1}`,
+    count: 21 - index,
+    token_used: index + 1,
+  }))
+  const result = processChartData(data, 'day', undefined, undefined, 'tokens')
+  const ranking = result.spec_rank_bar.data[0].values as Array<{
+    Model: string
+    Count: number
+  }>
+  expect(ranking[0]).toEqual({ Model: 'model-21', Count: 21 })
+  expect(ranking.at(-1)).toEqual({ Model: 'Other', Count: 1 })
+  expect(ranking.reduce((sum, row) => sum + row.Count, 0)).toBe(231)
+  expect(
+    result.spec_model_line.data[0].values.filter(
+      (row: { Model: string; Count: number }) =>
+        row.Model === 'Other' && row.Count > 0
+    )
+  ).toHaveLength(1)
+})
+
+/** 空范围和没有 Token 的记录不能拿请求次数或账单金额填充 Token 数。 */
+test('returns zero tokens for empty data and missing token counters', () => {
+  expect(
+    processChartData([], 'day', undefined, undefined, 'tokens')
+      .totalTokensDisplay
+  ).toBe('0')
+  const result = processChartData(
+    [{ created_at: 1792886400, count: 5, quota: 100 }],
+    'day',
+    undefined,
+    undefined,
+    'tokens'
+  )
+  expect(result.totalTokensDisplay).toBe('0')
+  expect(result.spec_rank_bar.data[0].values).toEqual([
+    { Model: 'Unknown', Count: 0 },
+  ])
+})
