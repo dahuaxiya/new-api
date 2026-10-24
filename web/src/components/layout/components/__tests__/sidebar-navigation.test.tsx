@@ -47,15 +47,13 @@ async function mountSidebar(
   client.setQueryData(['status'], {
     SidebarModulesAdmin: JSON.stringify(options.modules ?? {}),
   })
-  useAuthStore
-    .getState()
-    .auth.setUser({
-      id: 1,
-      username: 'test',
-      role: options.role ?? 100,
-      sidebar_modules: options.userModules,
-      permissions: { sidebar_settings: options.canConfigureSidebar ?? true },
-    })
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'test',
+    role: options.role ?? 100,
+    sidebar_modules: options.userModules,
+    permissions: { sidebar_settings: options.canConfigureSidebar ?? true },
+  })
   const root = createRootRoute({
     component: () => (
       <LayoutProvider>
@@ -229,7 +227,7 @@ it('手机个人设置先关闭子菜单，再选择资料页会关闭主抽屉'
 })
 
 /** 固定底栏必须遵守已有管理员配置，不能因迁移位置重新暴露被关闭的栏目。 */
-it('管理员关闭安全栏目后浮层只显示资料，全部关闭时不显示入口', async () => {
+it('管理员关闭安全栏目后浮层只显示资料，全部关闭时仍保留账户退出入口', async () => {
   const { user } = await mountSidebar({
     modules: { personal: { enabled: true, security: false } },
   })
@@ -243,6 +241,14 @@ it('管理员关闭安全栏目后浮层只显示资料，全部关闭时不显�
   cleanup()
   await mountSidebar({ modules: { personal: { enabled: false } } })
   expect(screen.queryByRole('button', { name: 'Personal settings' })).toBeNull()
+  await user.click(screen.getByRole('button', { name: 'My account' }))
+  expect(
+    await screen.findByRole('menuitem', { name: 'Sign out' })
+  ).toBeVisible()
+  expect(screen.queryByRole('menuitem', { name: 'Basic profile' })).toBeNull()
+  expect(
+    screen.queryByRole('menuitem', { name: 'Account security' })
+  ).toBeNull()
 })
 
 /** 普通用户的隐藏偏好继续生效；不能配置侧栏的 root 忽略历史偏好。 */
@@ -262,3 +268,45 @@ it.each([true, false])(
     ).toBe(!canConfigureSidebar)
   }
 )
+
+/** 合并后身份和设置共享一个可操作入口，避免出现第二个头像按钮。 */
+it('底部将用户名、角色和个人设置合并成唯一账户按钮', async () => {
+  await mountSidebar({ role: 1, path: '/dashboard/overview' })
+  const trigger = screen.getByRole('button', { name: 'Personal settings' })
+  const footer = trigger.closest('[data-slot=sidebar-footer]') as HTMLElement
+  expect(within(footer).getAllByRole('button')).toHaveLength(1)
+  expect(within(trigger).getByText('test')).toBeVisible()
+  expect(within(trigger).getByText('Personal settings')).toBeVisible()
+  expect(within(footer).queryByText('My account')).toBeNull()
+})
+
+/** 合并入口不能丢失原头像菜单的退出操作，也不能直接触发注销。 */
+it('合并账户菜单的退出操作仍先显示确认窗口', async () => {
+  const { user } = await mountSidebar({ role: 1 })
+  await user.click(screen.getByRole('button', { name: 'Personal settings' }))
+  await user.click(await screen.findByRole('menuitem', { name: 'Sign out' }))
+  expect(
+    await screen.findByRole('alertdialog', { name: 'Sign out' })
+  ).toBeVisible()
+  expect(useAuthStore.getState().auth.user?.username).toBe('test')
+})
+
+/** 手机抽屉关闭会卸载其内容，退出确认必须由抽屉外持有，避免随入口一起消失。 */
+it('手机账户菜单退出时关闭抽屉，退出确认仍可取消', async () => {
+  const { user } = await mountSidebar({ mobile: true, role: 1 })
+  await user.click(screen.getByRole('button', { name: 'Toggle navigation' }))
+  await user.click(
+    await screen.findByRole('button', { name: 'Personal settings' })
+  )
+  await user.click(await screen.findByRole('menuitem', { name: 'Sign out' }))
+  const confirmation = await screen.findByRole('alertdialog', {
+    name: 'Sign out',
+  })
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog', { name: 'Sidebar' })).toBeNull()
+  )
+  expect(confirmation).toBeVisible()
+  await user.click(within(confirmation).getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  expect(useAuthStore.getState().auth.user?.username).toBe('test')
+})

@@ -20,14 +20,14 @@ import { Link, useLocation } from '@tanstack/react-router'
 import {
   Check,
   ChevronRight,
-  Settings,
+  LogOut,
   ShieldCheck,
   UserRound,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { ProfileDropdown } from '@/components/profile-dropdown'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,13 +46,16 @@ import {
 } from '@/components/ui/sidebar'
 import { useIsSidebarModuleVisible } from '@/hooks/use-sidebar-config'
 import { useUserDisplay } from '@/hooks/use-user-display'
+import { getUserAvatarFallback } from '@/lib/avatar'
 import { useAuthStore } from '@/stores/auth-store'
 
 /**
- * 将个人资料和账户安全固定在侧栏底部，并复用菜单的焦点、关闭与碰撞处理。
+ * 将身份信息和个人设置合为侧栏底部唯一入口，复用菜单与退出确认组件。
  * 仅改变导航位置；各子项仍遵守管理员与用户的显示设置，目标路由继续执行原有鉴权。
+ * @param props 退出回调由抽屉外的父级持有，确保手机关闭导航后仍能显示确认框。
+ * @return 唯一账户菜单入口。
  */
-export function SidebarPersonalSettings() {
+export function SidebarPersonalSettings(props: { onSignOut: () => void }) {
   const { t } = useTranslation()
   const pathname = useLocation({ select: (location) => location.pathname })
   const { isMobile, state, setOpenMobile } = useSidebar()
@@ -80,112 +83,121 @@ export function SidebarPersonalSettings() {
     },
   ].filter((item) => item.visible)
 
+  const menuLabel = items.length > 0 ? t('Personal settings') : t('My account')
+
   return (
     <SidebarFooter
       className='personal-settings-footer'
       data-collapsed={collapsed || undefined}
     >
-      {items.length > 0 && (
-        <>
-          {!collapsed && (
-            <p className='personal-settings-label'>{t('My account')}</p>
-          )}
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
-                <DropdownMenuTrigger
-                  aria-label={t('Personal settings')}
-                  render={
-                    <SidebarMenuButton
-                      size='lg'
-                      className='personal-settings-trigger'
-                      tooltip={t('Personal settings')}
-                      isActive={items.some((item) => item.to === pathname)}
-                    />
-                  }
-                >
-                  <Settings aria-hidden='true' />
-                  {!collapsed && (
-                    <>
-                      <span className='personal-settings-trigger-copy'>
-                        <span>{t('Personal settings')}</span>
-                        <small>{t('Profile and account security')}</small>
-                      </span>
-                      <ChevronRight
-                        className='personal-settings-chevron'
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
+            <DropdownMenuTrigger
+              aria-label={menuLabel}
+              render={
+                <SidebarMenuButton
+                  size='lg'
+                  className='personal-settings-trigger'
+                  tooltip={menuLabel}
+                  isActive={items.some((item) => item.to === pathname)}
+                />
+              }
+            >
+              <Avatar size='sm' aria-hidden='true'>
+                <AvatarFallback className='bg-sidebar-accent text-sidebar-accent-foreground font-semibold'>
+                  {getUserAvatarFallback(user?.username || displayName)}
+                </AvatarFallback>
+              </Avatar>
+              {!collapsed && (
+                <>
+                  <span className='personal-settings-trigger-copy'>
+                    <span className='text-foreground truncate'>
+                      {displayName}
+                    </span>
+                    <small className='truncate'>
+                      {roleLabel && (
+                        <>
+                          {roleLabel}
+                          <span aria-hidden='true'> · </span>
+                        </>
+                      )}
+                      <span>{menuLabel}</span>
+                    </small>
+                  </span>
+                  <ChevronRight
+                    className='personal-settings-chevron'
+                    aria-hidden='true'
+                  />
+                </>
+              )}
+            </DropdownMenuTrigger>
+            {/* 手机抽屉与菜单定位层默认同级；提高定位层才能让子菜单接收点击，单改内容层无效。 */}
+            <DropdownMenuContent
+              aria-label={menuLabel}
+              className='personal-settings-flyout'
+              positionerClassName='z-[60]'
+              side={isMobile ? 'top' : 'right'}
+              align={isMobile ? 'start' : 'end'}
+              sideOffset={12}
+            >
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className='personal-settings-menu-label'>
+                  {menuLabel}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {items.map((item) => (
+                  <DropdownMenuItem
+                    key={item.to}
+                    className='personal-settings-item'
+                    aria-label={item.title}
+                    aria-current={pathname === item.to ? 'page' : undefined}
+                    label={item.title}
+                    render={
+                      <Link
+                        to={item.to}
+                        preload={isMobile ? false : undefined}
+                      />
+                    }
+                    onClick={() => {
+                      // 子菜单与手机抽屉分开关闭，避免跳转后留下覆盖新页面的导航层。
+                      setOpen(false)
+                      setOpenMobile(false)
+                    }}
+                  >
+                    <span className='personal-settings-item-icon'>
+                      <item.icon aria-hidden='true' />
+                    </span>
+                    <span className='personal-settings-item-copy'>
+                      <span>{item.title}</span>
+                      <small>{item.description}</small>
+                    </span>
+                    {pathname === item.to && (
+                      <Check
+                        className='personal-settings-check'
                         aria-hidden='true'
                       />
-                    </>
-                  )}
-                </DropdownMenuTrigger>
-                {/* 手机抽屉与菜单定位层默认同级；提高定位层才能让子菜单接收点击，单改内容层无效。 */}
-                <DropdownMenuContent
-                  aria-label={t('Personal settings')}
-                  className='personal-settings-flyout'
-                  positionerClassName='z-[60]'
-                  side={isMobile ? 'top' : 'right'}
-                  align={isMobile ? 'start' : 'end'}
-                  sideOffset={12}
-                >
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel className='personal-settings-menu-label'>
-                      {t('Personal settings')}
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {items.map((item) => (
-                      <DropdownMenuItem
-                        key={item.to}
-                        className='personal-settings-item'
-                        aria-label={item.title}
-                        aria-current={pathname === item.to ? 'page' : undefined}
-                        label={item.title}
-                        render={
-                          <Link
-                            to={item.to}
-                            preload={isMobile ? false : undefined}
-                          />
-                        }
-                        onClick={() => {
-                          // 子菜单与手机抽屉分开关闭，避免跳转后留下覆盖新页面的导航层。
-                          setOpen(false)
-                          setOpenMobile(false)
-                        }}
-                      >
-                        <span className='personal-settings-item-icon'>
-                          <item.icon aria-hidden='true' />
-                        </span>
-                        <span className='personal-settings-item-copy'>
-                          <span>{item.title}</span>
-                          <small>{item.description}</small>
-                        </span>
-                        {pathname === item.to && (
-                          <Check
-                            className='personal-settings-check'
-                            aria-hidden='true'
-                          />
-                        )}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </>
-      )}
-      <div className='personal-settings-account'>
-        <ProfileDropdown />
-        {!collapsed && (
-          <div className='min-w-0'>
-            <p className='text-foreground truncate text-xs font-medium'>
-              {displayName}
-            </p>
-            <p className='text-muted-foreground mt-1 text-[10px]'>
-              {roleLabel}
-            </p>
-          </div>
-        )}
-      </div>
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant='destructive'
+                onClick={() => {
+                  // 先收起手机导航再显示全站确认框，避免抽屉遮挡确认操作。
+                  setOpen(false)
+                  setOpenMobile(false)
+                  props.onSignOut()
+                }}
+              >
+                <LogOut aria-hidden='true' />
+                {t('Sign out')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarMenuItem>
+      </SidebarMenu>
     </SidebarFooter>
   )
 }

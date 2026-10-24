@@ -18,7 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import '@/styles/workspace-sidebar.css'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { useState } from 'react'
 
+import { SignOutDialog } from '@/components/sign-out-dialog'
 import { Sidebar, SidebarContent, SidebarRail } from '@/components/ui/sidebar'
 import { useLayout } from '@/context/layout-provider'
 import { useSidebarView } from '@/hooks/use-sidebar-view'
@@ -37,39 +39,44 @@ export function AppSidebar() {
   const { collapsible, variant } = useLayout()
   const { key, view, navGroups } = useSidebarView()
   const shouldReduce = useReducedMotion()
+  // 手机抽屉关闭后会卸载底部菜单；确认状态必须留在抽屉外，才能继续取消或退出。
+  const [signOutOpen, setSignOutOpen] = useState(false)
 
   return (
-    <Sidebar
-      collapsible={collapsible}
-      variant={variant}
-      className='workspace-sidebar-container'
-    >
-      <div className='workspace-sidebar'>
-        {view && <SidebarViewHeader view={view} />}
+    <>
+      <Sidebar
+        collapsible={collapsible}
+        variant={variant}
+        className='workspace-sidebar-container'
+      >
+        <div className='workspace-sidebar'>
+          {view && <SidebarViewHeader view={view} />}
 
-        <SidebarContent className='py-2'>
-          <AnimatePresence mode='wait' initial={false}>
-            <motion.div
-              key={key}
-              initial={
-                shouldReduce ? false : MOTION_VARIANTS.sidebarSlide.initial
-              }
-              animate={MOTION_VARIANTS.sidebarSlide.animate}
-              exit={
-                shouldReduce ? undefined : MOTION_VARIANTS.sidebarSlide.exit
-              }
-              transition={MOTION_TRANSITION.fast}
-              className='flex flex-col'
-            >
-              {navGroups.map((props) => (
-                <NavGroup key={props.id || props.title} {...props} />
-              ))}
-            </motion.div>
-          </AnimatePresence>
-        </SidebarContent>
-        <SidebarPersonalSettings />
-      </div>
-      <SidebarRail />
-    </Sidebar>
+          <SidebarContent className='py-2'>
+            <AnimatePresence mode='wait' initial={false}>
+              <motion.div
+                key={key}
+                initial={
+                  shouldReduce ? false : MOTION_VARIANTS.sidebarSlide.initial
+                }
+                animate={MOTION_VARIANTS.sidebarSlide.animate}
+                exit={
+                  shouldReduce ? undefined : MOTION_VARIANTS.sidebarSlide.exit
+                }
+                transition={MOTION_TRANSITION.fast}
+                className='flex flex-col'
+              >
+                {navGroups.map((props) => (
+                  <NavGroup key={props.id || props.title} {...props} />
+                ))}
+              </motion.div>
+            </AnimatePresence>
+          </SidebarContent>
+          <SidebarPersonalSettings onSignOut={() => setSignOutOpen(true)} />
+        </div>
+        <SidebarRail />
+      </Sidebar>
+      <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
+    </>
   )
 }
