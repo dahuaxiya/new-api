@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
+import { Progress } from '@/components/ui/progress'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatNumber } from '@/lib/format'
 
@@ -46,6 +47,7 @@ export function HostingCell(props: {
         <StatusBadge
           copyable={false}
           variant={v.status === 'active' ? 'success' : 'neutral'}
+          className={v.status === 'undated' ? 'users-undated-badge' : undefined}
           label={t(
             hostingStatusLabels[v.status] || 'Hosting status unavailable'
           )}
@@ -66,11 +68,11 @@ export function HostingCell(props: {
   }
   if (props.kind === 'account') {
     return (
-      <div className='max-w-48 space-y-1 text-xs'>
+      <div className='max-w-56 space-y-1 text-sm'>
         <p className='truncate'>
           {v.binding?.account_label || reading?.account_label || '—'}
         </p>
-        <p className='text-muted-foreground truncate'>
+        <p className='text-muted-foreground truncate text-xs'>
           {[v.binding?.plan || reading?.plan, v.instance_name]
             .filter(Boolean)
             .join(' · ')}
@@ -93,7 +95,8 @@ export function HostingCell(props: {
           w.remaining_percent !== null &&
           (!w.reset_at || Date.parse(w.reset_at) > Date.now())
         return (
-          <p
+          <div
+            className='users-quota-row'
             key={w.id}
             title={
               w.reset_at
@@ -101,11 +104,20 @@ export function HostingCell(props: {
                 : t('GPT reset time unavailable')
             }
           >
-            {w.id} ·{' '}
-            {valid
-              ? `${formatNumber(w.remaining_percent, locale)}%`
-              : t('Unknown')}
-          </p>
+            <span className='text-muted-foreground'>{w.id}</span>
+            {/* 过期或未返回的额度不画进度条，避免把未知读数误当可用容量。 */}
+            {valid && (
+              <Progress
+                value={w.remaining_percent}
+                aria-label={`${w.id} ${t('GPT remaining {{percent}}%', { percent: formatNumber(w.remaining_percent, locale) })}`}
+              />
+            )}
+            <span className='text-right'>
+              {valid
+                ? `${formatNumber(w.remaining_percent, locale)}%`
+                : t('Unknown')}
+            </span>
+          </div>
         )
       })}
       {quota.stale && (

@@ -53,8 +53,13 @@ export type SectionPageLayoutProps = {
   children: ReactNode
   fixedContent?: boolean
   stackActionsOnMobile?: boolean
+  /** 页面级视觉范围，避免覆盖其他控制台页面。 */
+  className?: string
+  /** 标题下的说明，与标题分开以保持语义和窄屏换行。 */
+  description?: ReactNode
 }
 
+/** 组合页面标题、操作区和正文；可选描述与样式不改变既有页面布局。 */
 export function SectionPageLayout(props: SectionPageLayoutProps) {
   const [footerContainer, setFooterContainer] = useState<HTMLDivElement | null>(
     null
@@ -80,7 +85,7 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
 
   return (
     <PageFooterProvider container={footerContainer}>
-      <Main>
+      <Main className={props.className}>
         <div className='shrink-0 px-3 pt-3 pb-2.5 sm:px-4 sm:pt-5 sm:pb-3'>
           {breadcrumb != null && (
             <div className='mb-2 sm:mb-3'>{breadcrumb}</div>
@@ -96,6 +101,11 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
               <h2 className='truncate text-base font-bold tracking-tight sm:text-lg'>
                 {title}
               </h2>
+              {props.description && (
+                <p className='text-muted-foreground mt-2 text-sm leading-relaxed'>
+                  {props.description}
+                </p>
+              )}
             </div>
             {actions != null && (
               <div className='flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-x-4'>

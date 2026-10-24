@@ -7698,5 +7698,10 @@
   "Checking existing binding...": "正在核对现有绑定…",
   "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "无需重新登录 GPT。现有直连 Key 和账号凭据保留，所有保留的 Key 共用这段托管期限；New API 继续使用原来的一把上游 Key。",
   "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "管理员设置期限无需重新登录 GPT；用户重新登录账号时才验证官方身份。",
-  "The GPT sign-in could not be verified. Start a new GPT sign-in.": "无法验证本次 GPT 登录，请重新发起 GPT 账号登录。"
+  "The GPT sign-in could not be verified. Start a new GPT sign-in.": "无法验证本次 GPT 登录，请重新发起 GPT 账号登录。",
+  "View accounts, renew hosting and manage quotas in one place.": "在一个地方查看账号、续期托管、管理额度。",
+  "{{count}} users have no hosting term": "{{count}} 位用户尚未设置托管期限",
+  "Existing accounts keep working until you set their hosting term.": "设置期限前保留原有服务，不会自动过期。",
+  "View and set terms": "查看并设置",
+  "Refresh data": "刷新数据"
 }

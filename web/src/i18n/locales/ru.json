@@ -7698,5 +7698,10 @@
   "Checking existing binding...": "Проверка существующей привязки…",
   "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.",
   "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "Для изменения срока вход в GPT не нужен. Официальная личность проверяется при повторном входе пользователя.",
-  "The GPT sign-in could not be verified. Start a new GPT sign-in.": "Не удалось проверить вход в GPT. Начните вход заново."
+  "The GPT sign-in could not be verified. Start a new GPT sign-in.": "Не удалось проверить вход в GPT. Начните вход заново.",
+  "View accounts, renew hosting and manage quotas in one place.": "Просмотр аккаунтов, продление размещения и управление квотами в одном месте.",
+  "{{count}} users have no hosting term": "Для {{count}} пользователей не задан срок размещения",
+  "Existing accounts keep working until you set their hosting term.": "Существующие аккаунты работают до назначения срока.",
+  "View and set terms": "Посмотреть и настроить",
+  "Refresh data": "Обновить данные"
 }

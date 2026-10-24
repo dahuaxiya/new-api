@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { OnChangeFn, SortingState } from '@tanstack/react-table'
+import { RefreshCw } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -26,8 +27,10 @@ import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
   DataTablePage,
+  DataTableCardGrid,
   useDataTable,
 } from '@/components/data-table'
+import { Button } from '@/components/ui/button'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import {
@@ -46,7 +49,9 @@ import {
 import { getHostingSummaries, hostingStatusLabels } from '../hosting-api'
 import type { User, UserSortBy } from '../types'
 import { DataTableBulkActions } from './data-table-bulk-actions'
+import { HostingTermNotice } from './hosting-term-notice'
 import { useUsersColumns } from './users-columns'
+import { UsersMobileCard } from './users-mobile-card'
 import { useUsers } from './users-provider'
 
 const route = getRouteApi('/_authenticated/users/')
@@ -60,17 +65,20 @@ const USER_SORTABLE_COLUMNS = new Set<UserSortBy>([
   'last_login_at',
 ])
 
+/** 已禁用和已删除用户保持可见，但继续使用共享禁用行样式。 */
 function isDisabledUserRow(user: User) {
   return isUserDeleted(user) || user.status === USER_STATUS.DISABLED
 }
 
+/** 服务端分页和筛选保持唯一数据源，窄屏只切换展示方式。 */
 export function UsersTable() {
   const { t } = useTranslation()
   const identity = useAuthStore(
     (s) => `${s.auth.user?.id}:${s.auth.session?.sid}`
   )
+  const navigate = route.useNavigate()
   const columns = useUsersColumns()
-  const { refreshTrigger } = useUsers()
+  const { refreshTrigger, triggerRefresh } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [sorting, setSorting] = useState<SortingState>([])
 
@@ -238,65 +246,121 @@ export function UsersTable() {
   })
 
   return (
-    <DataTablePage
-      table={table}
-      columns={columns}
-      isLoading={isLoading}
-      isFetching={isFetching}
-      emptyTitle={t('No Users Found')}
-      emptyDescription={t(
-        'No users available. Try adjusting your search or filters.'
-      )}
-      skeletonKeyPrefix='users-skeleton'
-      applyHeaderSize
-      toolbarProps={{
-        searchPlaceholder: t('Filter by username, name or email...'),
-        searchDebounceMs: 500,
-        filters: [
-          {
-            columnId: 'hosting',
-            title: t('Hosting entitlement'),
-            options: [
-              'unopened',
-              'undated',
-              'active',
-              'expiring',
-              'expired',
-              'scheduled',
-              'awaiting_login',
-              'disabled',
-              'takeover',
-            ].map((value) => ({ value, label: t(hostingStatusLabels[value]) })),
-            singleSelect: true,
-          },
-          {
-            columnId: 'status',
-            title: t('Status'),
-            options: getUserStatusOptions(t),
-            singleSelect: true,
-          },
-          {
-            columnId: 'role',
-            title: t('Role'),
-            options: getUserRoleOptions(t),
-            singleSelect: true,
-          },
-          {
-            columnId: 'group',
-            title: t('User Group'),
-            options: (groupsData?.data ?? []).map((group) => ({
-              label: group,
-              value: group,
-            })),
-            singleSelect: true,
-          },
-        ],
-      }}
-      getRowClassName={(row, { isMobile }) => {
-        if (!isDisabledUserRow(row.original)) return undefined
-        return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP
-      }}
-      bulkActions={<DataTableBulkActions table={table} />}
-    />
+    <>
+      <HostingTermNotice
+        onShowUndated={() => {
+          // 提示是全局计数，清空旧筛选后再跳到第一页，避免只展示其中一部分。
+          void navigate({
+            search: (prev) => ({
+              ...prev,
+              page: 1,
+              filter: undefined,
+              status: undefined,
+              role: undefined,
+              group: undefined,
+              hosting: ['undated'],
+            }),
+          })
+        }}
+      />
+      <DataTablePage
+        className='users-table'
+        fixedHeight={false}
+        paginationInFooter={false}
+        tableClassName='users-table-surface'
+        mobile={
+          <DataTableCardGrid
+            table={table}
+            isLoading={isLoading}
+            emptyTitle={t('No Users Found')}
+            emptyDescription={t(
+              'No users available. Try adjusting your search or filters.'
+            )}
+            gridClassName='grid grid-cols-1 gap-4'
+            getRowKey={(row) => row.original.id}
+            getRowClassName={(row) =>
+              isDisabledUserRow(row.original) ? DISABLED_ROW_MOBILE : undefined
+            }
+            renderCard={(row) => <UsersMobileCard row={row} />}
+          />
+        }
+        table={table}
+        columns={columns}
+        isLoading={isLoading}
+        isFetching={isFetching}
+        emptyTitle={t('No Users Found')}
+        emptyDescription={t(
+          'No users available. Try adjusting your search or filters.'
+        )}
+        skeletonKeyPrefix='users-skeleton'
+        applyHeaderSize
+        toolbarProps={{
+          className: 'users-toolbar',
+          collapsibleOnMobile: false,
+          preActions: (
+            <Button
+              variant='outline'
+              disabled={isFetching}
+              onClick={triggerRefresh}
+            >
+              <RefreshCw
+                aria-hidden='true'
+                className={isFetching ? 'animate-spin' : ''}
+              />
+              {t('Refresh data')}
+            </Button>
+          ),
+          searchPlaceholder: t('Filter by username, name or email...'),
+          searchDebounceMs: 500,
+          filters: [
+            {
+              columnId: 'hosting',
+              title: t('Hosting entitlement'),
+              options: [
+                'unopened',
+                'undated',
+                'active',
+                'expiring',
+                'expired',
+                'scheduled',
+                'awaiting_login',
+                'disabled',
+                'takeover',
+              ].map((value) => ({
+                value,
+                label: t(hostingStatusLabels[value]),
+              })),
+              singleSelect: true,
+            },
+            {
+              columnId: 'status',
+              title: t('Status'),
+              options: getUserStatusOptions(t),
+              singleSelect: true,
+            },
+            {
+              columnId: 'role',
+              title: t('Role'),
+              options: getUserRoleOptions(t),
+              singleSelect: true,
+            },
+            {
+              columnId: 'group',
+              title: t('User Group'),
+              options: (groupsData?.data ?? []).map((group) => ({
+                label: group,
+                value: group,
+              })),
+              singleSelect: true,
+            },
+          ],
+        }}
+        getRowClassName={(row, { isMobile }) => {
+          if (!isDisabledUserRow(row.original)) return undefined
+          return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP
+        }}
+        bulkActions={<DataTableBulkActions table={table} />}
+      />
+    </>
   )
 }

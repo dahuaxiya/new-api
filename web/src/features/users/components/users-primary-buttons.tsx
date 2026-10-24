@@ -42,7 +42,7 @@ export function UsersPrimaryButtons(props: { onResources: () => void }) {
   }
 
   return (
-    <div className='flex gap-2'>
+    <div className='users-primary-actions flex gap-2'>
       {canOpenAccount && (
         <Button size='sm' variant='outline' onClick={props.onResources}>
           {t('Slot resources')}

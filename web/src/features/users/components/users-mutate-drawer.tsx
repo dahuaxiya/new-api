@@ -106,6 +106,7 @@ type UsersMutateDrawerProps = {
   currentRow?: User
 }
 
+/** 在同一侧栏呈现账号、托管与站内余额，保留各操作原有验证和保存边界。 */
 export function UsersMutateDrawer({
   open,
   onOpenChange,
@@ -294,15 +295,19 @@ export function UsersMutateDrawer({
         }}
       >
         <SheetContent
-          className={sideDrawerContentClassName('sm:max-w-[600px]')}
+          className={sideDrawerContentClassName(
+            'users-workspace-drawer sm:max-w-[600px]'
+          )}
         >
           <SheetHeader className={sideDrawerHeaderClassName()}>
-            <SheetTitle>
+            <SheetTitle className='text-xl font-semibold'>
               {isUpdate ? currentRow.username : `${t('Create')} ${t('User')}`}
             </SheetTitle>
             <SheetDescription>
               {isUpdate
-                ? t('Update the user by providing necessary info.')
+                ? t(
+                    'View accounts, renew hosting and manage quotas in one place.'
+                  )
                 : t('Add a new user by providing necessary info.')}
             </SheetDescription>
           </SheetHeader>

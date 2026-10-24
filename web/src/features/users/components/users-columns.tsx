@@ -42,6 +42,7 @@ import { DataTableRowActions } from './data-table-row-actions'
 import { HostingCell } from './hosting-cells'
 import { UserQuotaCell } from './user-quota-cell'
 
+/** 桌面表格和手机卡片复用同一列定义，避免管理操作或额度含义分叉。 */
 export function useUsersColumns(): ColumnDef<User>[] {
   const { t } = useTranslation()
   const currencyConfig = useSystemConfigStore((state) => state.config.currency)
@@ -83,45 +84,50 @@ export function useUsersColumns(): ColumnDef<User>[] {
           const remark = row.original.remark
 
           return (
-            <div className='flex min-w-[160px] flex-col gap-1'>
-              <div className='flex items-center gap-2'>
-                <LongText className='max-w-[140px] text-sm font-normal'>
-                  {username}
-                </LongText>
-                {remark && (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <StatusBadge
-                          variant='success'
-                          copyable={false}
-                          className='font-normal'
-                        />
-                      }
-                    >
-                      <LongText className='max-w-[80px]'>{remark}</LongText>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className='text-xs'>{remark}</p>
-                    </TooltipContent>
-                  </Tooltip>
+            <div className='users-identity'>
+              <span className='users-avatar' aria-hidden='true'>
+                {username.slice(0, 1).toUpperCase()}
+              </span>
+              <div className='min-w-0 space-y-1'>
+                <div className='flex items-center gap-2'>
+                  <LongText className='max-w-[160px] text-sm font-semibold'>
+                    {username}
+                  </LongText>
+                  {remark && (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <StatusBadge
+                            variant='success'
+                            copyable={false}
+                            className='font-normal'
+                          />
+                        }
+                      >
+                        <LongText className='max-w-[80px]'>{remark}</LongText>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className='text-xs'>{remark}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+                <p className='text-muted-foreground text-xs'>
+                  #{row.original.id} ·{' '}
+                  {t(
+                    USER_ROLES[row.original.role as keyof typeof USER_ROLES]
+                      ?.labelKey || 'User'
+                  )}
+                </p>
+                {displayName && displayName !== username && (
+                  <div
+                    data-table-text='secondary'
+                    className='text-muted-foreground max-w-[180px] text-xs font-normal'
+                  >
+                    <LongText>{displayName}</LongText>
+                  </div>
                 )}
               </div>
-              <p className='text-muted-foreground text-xs'>
-                #{row.original.id} ·{' '}
-                {t(
-                  USER_ROLES[row.original.role as keyof typeof USER_ROLES]
-                    ?.labelKey || 'User'
-                )}
-              </p>
-              {displayName && displayName !== username && (
-                <div
-                  data-table-text='secondary'
-                  className='text-muted-foreground max-w-[180px] text-xs font-normal'
-                >
-                  <LongText>{displayName}</LongText>
-                </div>
-              )}
             </div>
           )
         },

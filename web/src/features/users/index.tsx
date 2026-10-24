@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import '@/styles/users-workspace.css'
 import { getRouteApi } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -67,7 +68,13 @@ function UsersContent() {
 
   return (
     <>
-      <SectionPageLayout fixedContent={tab === 'list'}>
+      <SectionPageLayout
+        className='users-workspace'
+        stackActionsOnMobile
+        description={t(
+          'View accounts, renew hosting and manage quotas in one place.'
+        )}
+      >
         <SectionPageLayout.Title>{t('Users')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           <UsersPrimaryButtons onResources={() => setResources(true)} />
@@ -108,6 +115,7 @@ function UsersContent() {
   )
 }
 
+/** 承载真实用户管理状态，页面外观与托管抽屉共用局部主题。 */
 export function Users() {
   return (
     <UsersProvider>

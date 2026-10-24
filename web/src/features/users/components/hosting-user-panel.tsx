@@ -200,8 +200,8 @@ export function HostingUserPanel(props: { user: User }) {
   }
   const quota = data?.quota?.bound ? data.quota : undefined
   return (
-    <section className='space-y-6 border-b p-6'>
-      <div className='space-y-1'>
+    <section className='users-hosting-panel space-y-6 border-b p-6'>
+      <div className='users-account-summary space-y-2'>
         <h3 className='font-semibold'>{t('GPT account and hosting')}</h3>
         <p className='text-sm'>
           {t(
@@ -303,7 +303,10 @@ export function HostingUserPanel(props: { user: User }) {
       {canWrite &&
         data &&
         !['conflict', 'unavailable', 'restricted'].includes(data.status) && (
-          <form className='space-y-4' onSubmit={form.handleSubmit(reviewGrant)}>
+          <form
+            className='users-term-form space-y-4'
+            onSubmit={form.handleSubmit(reviewGrant)}
+          >
             <div>
               <h3 className='text-sm font-semibold'>
                 {t('Hosting entitlement')} · {data.slot_id ? '1/1' : '0/1'}
