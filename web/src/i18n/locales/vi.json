@@ -7715,6 +7715,11 @@
     "Quota history could not be loaded": "Không thể tải lịch sử hạn mức",
     "No quota history in this range": "Chưa có bản ghi trong khoảng thời gian này",
     "History starts when recording is enabled. Earlier readings cannot be recovered.": "Lịch sử bắt đầu khi bật ghi nhận. Không thể khôi phục dữ liệu trước đó.",
-    "One reading recorded. A line will appear after more readings arrive.": "Đã ghi một giá trị. Đường biểu diễn sẽ xuất hiện khi có thêm dữ liệu."
+    "One reading recorded. A line will appear after more readings arrive.": "Đã ghi một giá trị. Đường biểu diễn sẽ xuất hiện khi có thêm dữ liệu.",
+    "Basic profile": "Hồ sơ cơ bản",
+    "Name, email and language": "Tên, email và ngôn ngữ",
+    "Password, verification and sessions": "Mật khẩu, xác minh và phiên đăng nhập",
+    "Profile and account security": "Hồ sơ và bảo mật tài khoản",
+    "My account": "Tài khoản của tôi"
   }
 }

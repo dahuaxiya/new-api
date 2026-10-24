@@ -30,16 +30,32 @@ let client: QueryClient
  * @return 用户交互驱动和当前路由，供断言实际导航结果。
  */
 async function mountSidebar(
-  options: { mobile?: boolean; collapsed?: boolean; role?: number } = {}
+  options: {
+    mobile?: boolean
+    collapsed?: boolean
+    role?: number
+    path?: string
+    modules?: object
+    userModules?: string
+    canConfigureSidebar?: boolean
+  } = {}
 ) {
   vi.stubGlobal('innerWidth', options.mobile ? 390 : 1440)
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
-  client.setQueryData(['status'], { SidebarModulesAdmin: '{}' })
+  client.setQueryData(['status'], {
+    SidebarModulesAdmin: JSON.stringify(options.modules ?? {}),
+  })
   useAuthStore
     .getState()
-    .auth.setUser({ id: 1, username: 'test', role: options.role ?? 100 })
+    .auth.setUser({
+      id: 1,
+      username: 'test',
+      role: options.role ?? 100,
+      sidebar_modules: options.userModules,
+      permissions: { sidebar_settings: options.canConfigureSidebar ?? true },
+    })
   const root = createRootRoute({
     component: () => (
       <LayoutProvider>
@@ -51,13 +67,15 @@ async function mountSidebar(
     ),
   })
   const routeTree = root.addChildren(
-    ['/users', '/channels', '/dashboard/overview'].map((path) =>
-      createRoute({ getParentRoute: () => root, path })
+    ['/users', '/channels', '/dashboard/overview', '/profile', '/security'].map(
+      (path) => createRoute({ getParentRoute: () => root, path })
     )
   )
   const router = createRouter({
     routeTree,
-    history: createMemoryHistory({ initialEntries: ['/users'] }),
+    history: createMemoryHistory({
+      initialEntries: [options.path ?? '/users'],
+    }),
   })
   await router.load()
   render(
@@ -144,3 +162,103 @@ it('普通用户在管理地址也只看到用户菜单，样式调整不扩大�
   expect(screen.queryByRole('link', { name: 'Users' })).toBeNull()
   expect(screen.queryByRole('link', { name: 'Administration' })).toBeNull()
 })
+
+/** 固定入口在普通用户工作区也可使用，子项导航沿用真实路由。 */
+it('普通用户点击底部个人设置后可进入安全页，菜单收起并标记当前子栏目', async () => {
+  const { user, router } = await mountSidebar({
+    role: 1,
+    path: '/dashboard/overview',
+  })
+  const trigger = screen.getByRole('button', { name: 'Personal settings' })
+  expect(screen.queryByRole('link', { name: 'Personal settings' })).toBeNull()
+  expect(trigger.closest('[data-slot=sidebar-footer]')).toBeInTheDocument()
+  await user.click(trigger)
+  const menu = await screen.findByRole('menu', { name: 'Personal settings' })
+  await user.click(
+    within(menu).getByRole('menuitem', { name: 'Account security' })
+  )
+  await waitFor(() => expect(router.state.location.pathname).toBe('/security'))
+  await waitFor(() => expect(trigger).toHaveAttribute('aria-expanded', 'false'))
+  await user.click(trigger)
+  expect(
+    await screen.findByRole('menuitem', { name: 'Account security' })
+  ).toHaveAttribute('aria-current', 'page')
+})
+
+/** 只保留图标时仍可通过键盘打开菜单，Esc 恢复到同一个入口。 */
+it('折叠侧栏的个人设置支持键盘打开、Esc关闭和资料页导航', async () => {
+  const { user, router } = await mountSidebar({ collapsed: true })
+  const trigger = screen.getByRole('button', { name: 'Personal settings' })
+  trigger.focus()
+  await user.keyboard('{Enter}')
+  const menu = await screen.findByRole('menu', { name: 'Personal settings' })
+  expect(trigger).toHaveAttribute('aria-expanded', 'true')
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(menu).not.toBeInTheDocument())
+  expect(trigger).toHaveFocus()
+  await user.keyboard('{Enter}')
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Basic profile' })
+  )
+  await waitFor(() => expect(router.state.location.pathname).toBe('/profile'))
+})
+
+/** 手机子菜单先于主抽屉处理 Esc，选择目标后两个导航层都必须关闭。 */
+it('手机个人设置先关闭子菜单，再选择资料页会关闭主抽屉', async () => {
+  const { user, router } = await mountSidebar({ mobile: true })
+  await user.click(screen.getByRole('button', { name: 'Toggle navigation' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Sidebar' })
+  const trigger = within(dialog).getByRole('button', {
+    name: 'Personal settings',
+  })
+  await user.click(trigger)
+  await screen.findByRole('menu', { name: 'Personal settings' })
+  await user.keyboard('{Escape}')
+  await waitFor(() =>
+    expect(screen.queryByRole('menu', { name: 'Personal settings' })).toBeNull()
+  )
+  expect(dialog).toBeVisible()
+  await user.click(trigger)
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Basic profile' })
+  )
+  await waitFor(() => expect(router.state.location.pathname).toBe('/profile'))
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog', { name: 'Sidebar' })).toBeNull()
+  )
+})
+
+/** 固定底栏必须遵守已有管理员配置，不能因迁移位置重新暴露被关闭的栏目。 */
+it('管理员关闭安全栏目后浮层只显示资料，全部关闭时不显示入口', async () => {
+  const { user } = await mountSidebar({
+    modules: { personal: { enabled: true, security: false } },
+  })
+  await user.click(screen.getByRole('button', { name: 'Personal settings' }))
+  expect(
+    await screen.findByRole('menuitem', { name: 'Basic profile' })
+  ).toBeVisible()
+  expect(
+    screen.queryByRole('menuitem', { name: 'Account security' })
+  ).toBeNull()
+  cleanup()
+  await mountSidebar({ modules: { personal: { enabled: false } } })
+  expect(screen.queryByRole('button', { name: 'Personal settings' })).toBeNull()
+})
+
+/** 普通用户的隐藏偏好继续生效；不能配置侧栏的 root 忽略历史偏好。 */
+it.each([true, false])(
+  '底栏按 sidebar_settings=%s 处理用户的安全栏目隐藏偏好',
+  async (canConfigureSidebar) => {
+    const { user } = await mountSidebar({
+      canConfigureSidebar,
+      userModules: JSON.stringify({
+        personal: { enabled: true, security: false },
+      }),
+    })
+    await user.click(screen.getByRole('button', { name: 'Personal settings' }))
+    await screen.findByRole('menuitem', { name: 'Basic profile' })
+    expect(
+      screen.queryByRole('menuitem', { name: 'Account security' }) !== null
+    ).toBe(!canConfigureSidebar)
+  }
+)

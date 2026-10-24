@@ -40,6 +40,7 @@ import { PasskeyCard } from './components/passkey-card'
 import { PrivacyCard } from './components/privacy-card'
 import { TwoFACard } from './components/two-fa-card'
 
+/** 账户安全复用现有会话与二次验证流程，侧栏入口不改变敏感操作约束。 */
 export function Security() {
   const { t } = useTranslation()
   const { profile, loading, refreshProfile, fetchProfile } = useProfile()
@@ -138,9 +139,7 @@ export function Security() {
 
   return (
     <SectionPageLayout>
-      <SectionPageLayout.Title>
-        {t('Security & Access')}
-      </SectionPageLayout.Title>
+      <SectionPageLayout.Title>{t('Account security')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-7xl'>{content}</div>
       </SectionPageLayout.Content>

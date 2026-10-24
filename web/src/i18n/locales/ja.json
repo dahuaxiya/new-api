@@ -7715,6 +7715,11 @@
     "Quota history could not be loaded": "利用枠の履歴を読み込めませんでした",
     "No quota history in this range": "この期間の記録はまだありません",
     "History starts when recording is enabled. Earlier readings cannot be recovered.": "記録を有効にした時点から蓄積します。それ以前の値は復元できません。",
-    "One reading recorded. A line will appear after more readings arrive.": "1件記録しました。次の読み取り後に折れ線が表示されます。"
+    "One reading recorded. A line will appear after more readings arrive.": "1件記録しました。次の読み取り後に折れ線が表示されます。",
+    "Basic profile": "基本プロフィール",
+    "Name, email and language": "名前・メール・言語",
+    "Password, verification and sessions": "パスワード・認証・セッション",
+    "Profile and account security": "プロフィールとアカウントの安全",
+    "My account": "マイアカウント"
   }
 }

@@ -7715,6 +7715,11 @@
     "Quota history could not be loaded": "Impossible de charger l’historique",
     "No quota history in this range": "Aucun relevé pour cette période",
     "History starts when recording is enabled. Earlier readings cannot be recovered.": "L’historique commence à l’activation. Les relevés antérieurs ne peuvent pas être récupérés.",
-    "One reading recorded. A line will appear after more readings arrive.": "Un relevé enregistré. La courbe apparaîtra avec les prochains relevés."
+    "One reading recorded. A line will appear after more readings arrive.": "Un relevé enregistré. La courbe apparaîtra avec les prochains relevés.",
+    "Basic profile": "Profil",
+    "Name, email and language": "Nom, e-mail et langue",
+    "Password, verification and sessions": "Mot de passe, vérification et sessions",
+    "Profile and account security": "Profil et sécurité du compte",
+    "My account": "Mon compte"
   }
 }

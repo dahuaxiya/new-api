@@ -7715,6 +7715,11 @@
     "Quota history could not be loaded": "Quota history could not be loaded",
     "No quota history in this range": "No quota history in this range",
     "History starts when recording is enabled. Earlier readings cannot be recovered.": "History starts when recording is enabled. Earlier readings cannot be recovered.",
-    "One reading recorded. A line will appear after more readings arrive.": "One reading recorded. A line will appear after more readings arrive."
+    "One reading recorded. A line will appear after more readings arrive.": "One reading recorded. A line will appear after more readings arrive.",
+    "Basic profile": "Basic profile",
+    "Name, email and language": "Name, email and language",
+    "Password, verification and sessions": "Password, verification and sessions",
+    "Profile and account security": "Profile and account security",
+    "My account": "My account"
   }
 }

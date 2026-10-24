@@ -139,3 +139,153 @@
     transition: none;
   }
 }
+
+/* 个人设置固定在可滚动菜单之外，手机抽屉和管理工作区共用这一入口。 */
+.workspace-sidebar .personal-settings-footer {
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 14px;
+  border-top: 1px solid var(--sidebar-border);
+  padding-bottom: max(14px, env(safe-area-inset-bottom));
+}
+.personal-settings-label {
+  padding: 0 12px;
+  font-size: 10px;
+  color: var(--sidebar-foreground);
+}
+.workspace-sidebar .personal-settings-trigger {
+  height: 58px;
+  border: 1px solid transparent;
+}
+.workspace-sidebar .personal-settings-trigger[data-popup-open] {
+  background: var(--sidebar-accent);
+  border-color: var(--sidebar-ring);
+}
+.personal-settings-trigger-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+.personal-settings-trigger-copy small {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.8;
+  white-space: normal;
+  line-height: 1.4;
+}
+.workspace-sidebar .personal-settings-chevron {
+  width: 14px;
+  height: 14px;
+  margin-inline-start: auto;
+}
+.personal-settings-account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 8px 0;
+  border-top: 1px solid var(--sidebar-border);
+}
+.workspace-sidebar .personal-settings-footer[data-collapsed] {
+  padding-inline: 3px;
+}
+.personal-settings-footer[data-collapsed] .personal-settings-account {
+  justify-content: center;
+  padding-inline: 0;
+}
+/* 浮层通过 Portal 渲染，需直接设置浅色与深色主题，不能依赖侧栏祖先变量。 */
+.personal-settings-flyout {
+  width: 270px;
+  max-width: calc(100vw - 32px);
+  padding: 8px;
+  border-radius: 14px;
+  background: #fff;
+  color: #17202d;
+  box-shadow:
+    0 16px 45px #233b5b20,
+    0 2px 6px #233b5b08;
+}
+.personal-settings-menu-label {
+  padding: 10px 12px;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+.personal-settings-flyout .personal-settings-item {
+  min-height: 64px;
+  gap: 11px;
+  padding: 12px 10px;
+  margin-block: 3px;
+  border-radius: 9px;
+}
+.personal-settings-item-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.personal-settings-item-copy small {
+  font-size: 10px;
+  font-weight: 400;
+  color: #697384;
+  line-height: 1.5;
+}
+.personal-settings-item-icon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: #f4f7fb;
+  color: #697384;
+}
+.personal-settings-item[aria-current='page'],
+.personal-settings-item[data-highlighted] {
+  background: #edf4ff;
+  color: #2563eb;
+}
+.personal-settings-item[aria-current='page'] .personal-settings-item-icon {
+  background: #e2ecff;
+  color: #2563eb;
+}
+.personal-settings-flyout .personal-settings-check {
+  width: 14px;
+  height: 14px;
+  color: #2563eb;
+}
+.dark .personal-settings-flyout {
+  background: #151d2a;
+  color: #e0e8f5;
+}
+.dark .personal-settings-item-copy small {
+  color: #b5c1d3;
+}
+.dark .personal-settings-item-icon {
+  background: #1d293a;
+  color: #b5c1d3;
+}
+.dark .personal-settings-item[aria-current='page'],
+.dark .personal-settings-item[data-highlighted] {
+  background: #213454;
+  color: #9bbdff;
+}
+.dark
+  .personal-settings-item[aria-current='page']
+  .personal-settings-item-icon {
+  background: #293e60;
+  color: #9bbdff;
+}
+.dark .personal-settings-flyout .personal-settings-check {
+  color: #9bbdff;
+}
+@media (prefers-reduced-motion: reduce) {
+  .personal-settings-flyout {
+    animation: none !important;
+    transition: none !important;
+  }
+}
