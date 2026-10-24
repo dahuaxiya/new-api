@@ -2,8 +2,12 @@ package controller
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +15,8 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/gptquota"
+	"github.com/QuantumNous/new-api/service/vm2api"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -64,4 +70,62 @@ func TestGPTHostingSessionBoundary(t *testing.T) {
 	denied := request("POST", "/login", token, "http://portal.test")
 	require.Contains(t, denied.Body.String(), "hosting_expired")
 	require.Equal(t, common.RoleCommonUser, user.Role)
+}
+
+// TestUnifiedHostingAdminBoundary 验证旧绑定立即可见、错误归属不会回退，以及普通用户与无证明写入均被拒绝。
+func TestUnifiedHostingAdminBoundary(t *testing.T) {
+	actor, identity := setupSecurityEnrollmentTest(t)
+	t.Setenv("GPT_HOSTING_ENABLED", "true")
+	require.NoError(t, model.DB.AutoMigrate(&model.GPTHostingGrant{}, &model.GPTHostingBinding{}, &model.GPTHostingInventory{}, &model.VM2APIEnrollment{}))
+	target := model.User{Username: "legacy-owner", AffCode: "legacy-owner", Group: "old-group", Role: common.RoleCommonUser, Status: 1, Quota: 345}
+	require.NoError(t, model.DB.Create(&target).Error)
+	cfg := gptquota.Config{PanelURL: "https://fixture.test/api/panel", Users: map[string]gptquota.Binding{strconv.Itoa(target.Id): {Username: target.Username, Group: target.Group, Slot: "slot-old"}}}
+	registry, err := vm2api.New(vm2api.Config{Instances: []vm2api.InstanceConfig{{ID: "cc", Name: "CloudCone", BaseURL: "https://fixture.test", Username: "fixture", Password: "fixture-password", Models: []string{"gpt-test"}}}})
+	require.NoError(t, err)
+	oldCfg, oldRegistry, oldSvc := configuredQuota, onboardingRegistry, quotaService
+	configuredQuota = func() (gptquota.Config, error) { return cfg, nil }
+	onboardingRegistry = func() (*vm2api.Registry, error) { return registry, nil }
+	quotaService = func() (*gptquota.Service, error) { return nil, errors.New("offline") }
+	t.Cleanup(func() { configuredQuota, onboardingRegistry, quotaService = oldCfg, oldRegistry, oldSvc })
+	token, _, err := service.IssueAccessToken(identity)
+	require.NoError(t, err)
+	r := gin.New()
+	r.GET("/users", middleware.AdminAuth(), GetGPTHostingUsers)
+	r.POST("/wallet", middleware.AdminAuth(), middleware.SessionCookieOriginGuard(), AdjustHostingUserWallet)
+	r.POST("/takeover", middleware.RootAuth(), middleware.SessionCookieOriginGuard(), TakeoverGPTHosting)
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "http://portal.test"+path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Origin", "http://portal.test")
+		req.Header.Set("Content-Type", "application/json")
+		out := httptest.NewRecorder()
+		r.ServeHTTP(out, req)
+		return out
+	}
+	path := "/users?ids=" + strconv.Itoa(target.Id)
+	require.Equal(t, 403, request("GET", path, "").Code)
+	require.NoError(t, model.DB.Model(actor).Update("role", common.RoleRootUser).Error)
+	require.NoError(t, model.PublishUserAuthCache(actor.Id))
+	out := request("GET", path, "")
+	require.Equal(t, 200, out.Code)
+	require.Contains(t, out.Body.String(), `"status":"undated"`)
+	require.Contains(t, out.Body.String(), `"instance_id":"cc"`)
+	require.Contains(t, out.Body.String(), `"quota_unavailable":true`)
+	require.NotContains(t, out.Body.String(), "fixture-password")
+	require.NotContains(t, out.Body.String(), "fixture.test")
+	for _, tc := range []struct{ path, body string }{{"/wallet", fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"add","value":99,"reason":"fixture"}`, target.Id)}, {"/takeover", fmt.Sprintf(`{"user_id":%d}`, target.Id)}} {
+		require.NotEqual(t, 200, request("POST", tc.path, tc.body).Code, "missing proof must not write")
+	}
+	saved, err := model.GetUserById(target.Id, false)
+	require.NoError(t, err)
+	require.Equal(t, 345, saved.Quota)
+	var count int64
+	require.NoError(t, model.DB.Model(&model.GPTHostingGrant{}).Count(&count).Error)
+	require.Zero(t, count)
+	cfg.Users["999"] = cfg.Users[strconv.Itoa(target.Id)]
+	require.Contains(t, request("GET", path, "").Body.String(), `"status":"conflict"`)
+	delete(cfg.Users, "999")
+	require.NoError(t, model.DB.Model(&target).Update("group", "moved").Error)
+	require.Contains(t, request("GET", path, "").Body.String(), `"status":"conflict"`)
+	require.Equal(t, 400, request("GET", "/users?ids=01", "").Code)
 }

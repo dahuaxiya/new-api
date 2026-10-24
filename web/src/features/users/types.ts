@@ -20,6 +20,8 @@ import { z } from 'zod'
 
 import type { AdminPermissionMatrix } from '@/lib/admin-permissions'
 
+import type { HostingSummary } from './hosting-api'
+
 // ============================================================================
 // User Schema & Types
 // ============================================================================
@@ -33,6 +35,7 @@ export const userRoleSchema = z.number()
 export type UserRole = z.infer<typeof userRoleSchema>
 
 export const userSchema = z.object({
+  hosting: z.custom<HostingSummary>().optional(),
   id: z.number(),
   username: z.string(),
   display_name: z.string(),
@@ -107,6 +110,7 @@ export interface GetUsersResponse {
 }
 
 export interface SearchUsersParams {
+  hosting?: string
   keyword?: string
   group?: string
   role?: string
@@ -141,6 +145,7 @@ export type QuotaAdjustMode = 'add' | 'subtract' | 'override'
 export interface ManageUserQuotaPayload {
   id: number
   action: 'add_quota'
+  reason?: string
   mode: QuotaAdjustMode
   value: number
 }

@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
 
-import { Onboarding } from '@/features/onboarding'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -29,17 +28,9 @@ export const Route = createFileRoute('/_authenticated/users/onboarding')({
     if (useAuthStore.getState().auth.user?.role !== ROLE.SUPER_ADMIN) {
       throw redirect({ to: '/403' })
     }
+    throw redirect({ to: '/users', search: { create: true } })
   },
   validateSearch: z.object({
     request_id: z.uuid().optional().catch(undefined),
   }),
-  component: OnboardingRoute,
 })
-
-/**
- * 只传递非敏感操作编号，浏览器历史中不保留用户密码或上游凭据。
- * @return 携带当前查询编号的开户页面。
- */
-function OnboardingRoute(): React.JSX.Element {
-  return <Onboarding requestId={Route.useSearch().request_id} />
-}

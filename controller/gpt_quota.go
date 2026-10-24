@@ -98,7 +98,13 @@ func RefreshGPTQuotaSelf(c *gin.Context) { respondGPTQuota(c, true) }
 // GetGPTQuotaUser exposes a saved quota reading to an authenticated administrator.
 // The target's current database identity must match the configured binding; the
 // browser cannot supply a username, group or slot to redirect the lookup.
-func GetGPTQuotaUser(c *gin.Context) {
+func GetGPTQuotaUser(c *gin.Context) { respondGPTQuotaUser(c, false) }
+
+// RefreshGPTQuotaUser 只允许会话管理员刷新其可管理的单个用户；与本人共享 30 秒冷却。
+func RefreshGPTQuotaUser(c *gin.Context) { respondGPTQuotaUser(c, true) }
+
+// respondGPTQuotaUser 统一读和刷新的目标权限，防止管理员操作同级或更高权限账号。
+func respondGPTQuotaUser(c *gin.Context, refresh bool) {
 	c.Header("Cache-Control", "no-store, private")
 	actor := c.GetInt("id")
 	if hint := c.GetHeader("New-Api-User"); actor <= 0 || (hint != "" && hint != strconv.Itoa(actor)) {
@@ -125,6 +131,10 @@ func GetGPTQuotaUser(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Subscription quota temporarily unavailable"})
 		return
 	}
+	if refresh && !canManageTargetRole(c.GetInt("role"), target.Role) {
+		c.AbortWithStatus(403)
+		return
+	}
 	svc, err := quotaService()
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Subscription quota temporarily unavailable"})
@@ -132,7 +142,12 @@ func GetGPTQuotaUser(c *gin.Context) {
 	}
 	// Read the shared snapshot only: opening a page must not trigger N official
 	// probes or consume each account's manual-refresh cooldown.
-	view, err := linkedGPTQuota(c.Request.Context(), svc, target.Id, target.Username, target.Group, false)
+	view, err := linkedGPTQuota(c.Request.Context(), svc, target.Id, target.Username, target.Group, refresh)
+	if errors.Is(err, gptquota.ErrCooldown) {
+		c.Header("Retry-After", "30")
+		c.JSON(429, gin.H{"success": false, "message": "Please wait 30 seconds before refreshing quota again"})
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Subscription quota temporarily unavailable"})
 		return

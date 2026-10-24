@@ -45,7 +45,6 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import zh from '@/i18n/locales/zh.json'
 import { api } from '@/lib/api'
-import { formatTimestampToDate } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 import {
   DEFAULT_CURRENCY_CONFIG,
@@ -141,7 +140,7 @@ it('shows balance above secondary usage text and opens quota details on click', 
     </I18nextProvider>
   )
   expect(
-    screen.getByRole('columnheader', { name: 'Available Balance ($)' })
+    screen.getByRole('columnheader', { name: 'Site balance ($)' })
   ).toHaveAttribute('data-sortable', 'true')
   expect(screen.getAllByRole('columnheader')).toHaveLength(1)
   const cells = screen.getAllByRole('cell')
@@ -231,7 +230,7 @@ it('shows the custom symbol only in the column header', () => {
     </I18nextProvider>
   )
   expect(
-    screen.getByRole('columnheader', { name: 'Available Balance (🐱)' })
+    screen.getByRole('columnheader', { name: 'Site balance (🐱)' })
   ).toBeInTheDocument()
   for (const cell of screen.getAllByRole('cell')) {
     expect(cell).not.toHaveTextContent('🐱')
@@ -316,13 +315,13 @@ async function renderUsersList(emptyInvitation = false) {
   return get
 }
 
-it('sends balance sorting to the server and keeps invitation details on two lines', async () => {
+it('sends site balance sorting to the server in the unified user table', async () => {
   const get = await renderUsersList()
   expect(
-    screen.getByRole('columnheader', { name: 'User Group' })
+    screen.getByRole('columnheader', { name: 'GPT account' })
   ).toBeInTheDocument()
   await userEvent.click(
-    screen.getByRole('button', { name: 'Available Balance ($)' })
+    screen.getByRole('button', { name: 'Site balance ($)' })
   )
   await userEvent.click(screen.getByRole('menuitem', { name: 'Desc' }))
   await waitFor(() =>
@@ -333,8 +332,9 @@ it('sends balance sorting to the server and keeps invitation details on two line
   expect(
     screen.queryByRole('button', { name: 'Total Used' })
   ).not.toBeInTheDocument()
-  expect(screen.getByText('Inviter ID: 42')).toBeInTheDocument()
-  expect(screen.getByText(/Invited 2 users · Earnings:/)).toBeInTheDocument()
+  expect(
+    screen.getByRole('columnheader', { name: 'Official GPT quota' })
+  ).toBeInTheDocument()
 })
 
 it('shows balance above usage on mobile cards in Chinese', async () => {
@@ -347,7 +347,7 @@ it('shows balance above usage on mobile cards in Chinese', async () => {
   await i18n.changeLanguage('zh')
   try {
     await renderUsersList()
-    expect(screen.getByText('可用余额 ($)')).toBeInTheDocument()
+    expect(screen.getByText('站内余额 ($)')).toBeInTheDocument()
     expect(screen.getByText('已用')).toBeInTheDocument()
     expect(screen.getByText('0.0038')).toBeInTheDocument()
     expect(screen.getByText('0.0022')).toBeInTheDocument()
@@ -364,31 +364,15 @@ it('shows balance above usage on mobile cards in Chinese', async () => {
   }
 })
 
-it('combines creation and last login into one column with full dates visible directly', async () => {
-  vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 8, 12))
+it('unified rows keep unavailable hosting explicit and expose management in place', async () => {
   await renderUsersList(true)
-  expect(screen.getByRole('columnheader', { name: /Time/ })).toBeInTheDocument()
-  expect(
-    screen.queryByRole('columnheader', { name: /Last Login/ })
-  ).not.toBeInTheDocument()
   const row = screen.getByRole('row', {
     name: /long-user-name-for-table-layout/,
   })
-  expect(within(row).getByText('—')).toBeInTheDocument()
-  const times = within(row).getAllByRole('time')
-  expect(times).toHaveLength(2)
-  expect(times[0]).toHaveTextContent(
-    formatTimestampToDate(Math.floor(Date.now() / 1000) - 86400)
-  )
-  expect(times[1]).toHaveTextContent(
-    formatTimestampToDate(Math.floor(Date.now() / 1000) - 20)
-  )
-  expect(within(row).queryByText('Just now')).not.toBeInTheDocument()
-  expect(within(row).getByText('Created')).toBeInTheDocument()
-  expect(within(row).getByText('Last Login')).toBeInTheDocument()
-  expect(screen.queryByText('No Inviter')).not.toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'View' }))
-  await userEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Time' }))
+  expect(within(row).getAllByText('Hosting status unavailable')).toHaveLength(3)
+  expect(
+    within(row).getByRole('button', { name: 'Manage' })
+  ).toBeInTheDocument()
   expect(
     screen.queryByRole('columnheader', { name: /Time/ })
   ).not.toBeInTheDocument()
@@ -410,7 +394,7 @@ it('updates the header unit and converted amounts together when currency setting
     })
   )
   expect(
-    screen.getByRole('columnheader', { name: 'Available Balance (¥)' })
+    screen.getByRole('columnheader', { name: 'Site balance (¥)' })
   ).toBeInTheDocument()
   expect(
     within(screen.getAllByRole('cell')[0]).getByText('7')
@@ -433,7 +417,7 @@ it('labels raw quota mode as tokens without introducing a currency symbol', () =
     </I18nextProvider>
   )
   expect(
-    screen.getByRole('columnheader', { name: 'Available Balance (Tokens)' })
+    screen.getByRole('columnheader', { name: 'Site balance (Tokens)' })
   ).toBeInTheDocument()
   expect(
     within(screen.getAllByRole('cell')[0]).getByText('100')

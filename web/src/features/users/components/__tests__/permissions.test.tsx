@@ -48,6 +48,26 @@ function renderPermissions(viewerRole: number, allowed?: boolean) {
     .getState()
     .auth.setUser({ id: 1, username: 'operator', role: viewerRole })
   const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    if (String(url).startsWith('/api/log') || url === '/api/audit') {
+      return { data: { success: true, data: { items: [], total: 0 } } }
+    }
+    if (url === '/api/gpt-hosting/users') {
+      return {
+        data: {
+          success: true,
+          data: [
+            {
+              user_id: 2,
+              status: 'restricted',
+              source: 'none',
+              grant: null,
+              binding: null,
+              quota: null,
+            },
+          ],
+        },
+      }
+    }
     if (url === '/api/authz/catalog') {
       return {
         data: {
@@ -146,7 +166,9 @@ it.each([undefined, true])(
     )
     expect(toggle).toHaveAccessibleDescription(description)
     await userEvent.click(toggle)
-    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save profile changes' })
+    )
     // The permission matrix changed, so the save waits for verification.
     expect(put).not.toHaveBeenCalled()
     await userEvent.type(
@@ -178,7 +200,9 @@ it('root saving an administrator without changing permissions or password does n
   const displayName = await screen.findByDisplayValue('Managed admin')
   await userEvent.clear(displayName)
   await userEvent.type(displayName, 'Renamed admin')
-  await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Save profile changes' })
+  )
   await waitFor(() =>
     expect(put).toHaveBeenCalledWith(
       '/api/user/',

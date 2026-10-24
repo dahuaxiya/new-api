@@ -57,6 +57,7 @@ type GPTHostingBinding struct {
 	ChannelID      int     `json:"-"`
 	KeyID          string  `json:"-" gorm:"type:varchar(128)"`
 	PoolID         string  `json:"-" gorm:"type:varchar(128)"`
+	LegacySnapshot string  `json:"-" gorm:"type:text"`
 	OperationToken string  `json:"-" gorm:"type:varchar(36)"`
 	OperationUntil int64   `json:"-"`
 	Generation     int64   `json:"-"`
@@ -85,6 +86,11 @@ func GetHostingBinding(userID int) (*GPTHostingBinding, error) {
 // PutHostingGrant 发放或修改单名额并将新托管用户放入专属分组；旧开户用户必须先完成显式迁移。
 // 免费专属分组对应月费托管，保留站内用量记录，不修改用户现有钱包余额。
 func PutHostingGrant(input GPTHostingGrant) (*GPTHostingGrant, error) {
+	return putHostingGrant(input, nil)
+}
+
+// putHostingGrant 在一个事务内建立权益和归属；接管参数只来自服务端预检，不能由浏览器声明。
+func putHostingGrant(input GPTHostingGrant, takeover *HostingTakeover) (*GPTHostingGrant, error) {
 	if input.RetentionDays < 0 || input.RetentionDays > 30 || input.UserID <= 0 || input.ActorID <= 0 || input.StartsAt <= 0 || input.EndsAt <= input.StartsAt || input.EndsAt > 4102444800 || len([]rune(input.Note)) > 255 {
 		return nil, ErrHostingConflict
 	}
@@ -107,7 +113,7 @@ func PutHostingGrant(input GPTHostingGrant) (*GPTHostingGrant, error) {
 			if err := tx.Model(&VM2APIEnrollment{}).Where("user_id = ?", user.Id).Count(&count).Error; err != nil {
 				return err
 			}
-			if count != 0 || strings.HasPrefix(user.Group, "acct_") {
+			if takeover == nil && (count != 0 || strings.HasPrefix(user.Group, "acct_")) {
 				return ErrHostingConflict
 			}
 			saved = input
@@ -117,6 +123,21 @@ func PutHostingGrant(input GPTHostingGrant) (*GPTHostingGrant, error) {
 				return err
 			}
 			binding := GPTHostingBinding{UserID: user.Id, BindingID: uuid.NewString(), State: "unbound"}
+			if takeover != nil {
+				ch, snapshot, err := legacyHostingChannel(tx, user.Id)
+				if err != nil || snapshot != takeover.Snapshot || ch.Id != takeover.ChannelID {
+					return ErrHostingConflict
+				}
+				inv := GPTHostingInventory{ID: uuid.NewString(), InstanceID: takeover.InstanceID, SlotID: takeover.SlotID, Enabled: false}
+				if err := tx.Create(&inv).Error; err != nil {
+					return ErrHostingConflict
+				}
+				binding.State, binding.InventoryID = "takeover", &inv.ID
+				binding.InstanceID, binding.SlotID, binding.ChannelID = takeover.InstanceID, takeover.SlotID, ch.Id
+				binding.AccountHash, binding.SubjectHash = &takeover.AccountHash, &takeover.SubjectHash
+				binding.AccountLabel, binding.Plan = takeover.Label, takeover.Plan
+				binding.KeyID, binding.PoolID, binding.LegacySnapshot = takeover.KeyID, takeover.PoolID, snapshot
+			}
 			if err := tx.Create(&binding).Error; err != nil {
 				return err
 			}
@@ -130,6 +151,14 @@ func PutHostingGrant(input GPTHostingGrant) (*GPTHostingGrant, error) {
 		} else if err != nil {
 			return err
 		} else {
+			var b GPTHostingBinding
+			if err := tx.First(&b, "user_id = ?", input.UserID).Error; err != nil {
+				return err
+			}
+			// 未完成接管只能沿用原任务重试，禁止在远端结果未知时改期限或重新分配。
+			if b.State == "takeover" || takeover != nil {
+				return ErrHostingConflict
+			}
 			saved.StartsAt, saved.EndsAt, saved.Enabled = input.StartsAt, input.EndsAt, input.Enabled
 			saved.ActorID, saved.Note = input.ActorID, input.Note
 			saved.RetentionDays = input.RetentionDays
@@ -303,10 +332,19 @@ func CompleteHostingChannel(userID int, token, baseURL, models, key, keyID, pool
 		if err := lockForUpdate(tx).First(&g, "user_id = ?", userID).Error; err != nil {
 			return err
 		}
-		if !g.ValidAt(now) || b.AccountHash == nil {
+		if g.EndsAt <= now || b.AccountHash == nil {
 			return ErrHostingUnavailable
 		}
 		ch := Channel{Name: "hosted-gpt-" + b.BindingID, Type: 1, Key: key, Status: common.ChannelStatusEnabled, BaseURL: &baseURL, Models: models, Group: g.Group, CreatedTime: now}
+		if b.LegacySnapshot != "" && b.State == "takeover" {
+			var old Channel
+			if err := lockForUpdate(tx).First(&old, b.ChannelID).Error; err != nil {
+				return err
+			}
+			if hostingChannelFingerprint(old) != b.LegacySnapshot {
+				return ErrHostingConflict
+			}
+		}
 		if b.ChannelID != 0 {
 			ch.Id = b.ChannelID
 			if err := tx.Model(&Channel{}).Where("id = ?", ch.Id).Updates(map[string]any{"key": key, "status": ch.Status, "base_url": baseURL, "models": models, "group": g.Group}).Error; err != nil {
@@ -361,7 +399,7 @@ func ExpireHostingBinding(userID int, now int64) (bool, error) {
 		if err := lockForUpdate(tx).First(&b, "user_id = ?", userID).Error; err != nil {
 			return err
 		}
-		if b.State == "unbound" || b.State == "cleaning" || b.OperationUntil > now {
+		if b.State == "unbound" || b.State == "cleaning" || b.State == "takeover" || b.OperationUntil > now {
 			return nil
 		}
 		// 未完成的初次登录预约只保留十五分钟；已有身份的重登失败不能释放他人账号归属。

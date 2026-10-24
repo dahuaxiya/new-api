@@ -20,12 +20,8 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { ActivityTimeCell } from '@/components/activity-time-cell'
-import { BadgeCell } from '@/components/data-table'
-import { GroupBadge } from '@/components/group-badge'
 import { LongText } from '@/components/long-text'
 import { StatusBadge } from '@/components/status-badge'
-import { TableId } from '@/components/table-id'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Tooltip,
@@ -33,7 +29,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { getCurrencyDisplay } from '@/lib/currency'
-import { formatQuota } from '@/lib/format'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
@@ -44,6 +39,7 @@ import {
 } from '../constants'
 import type { User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
+import { HostingCell } from './hosting-cells'
 import { UserQuotaCell } from './user-quota-cell'
 
 export function useUsersColumns(): ColumnDef<User>[] {
@@ -79,20 +75,6 @@ export function useUsersColumns(): ColumnDef<User>[] {
         size: 40,
       },
       {
-        accessorKey: 'id',
-        header: t('ID'),
-        cell: ({ row }) => {
-          return (
-            <TableId
-              value={row.getValue('id') as number}
-              className='w-[60px] [font-family:inherit] text-sm'
-            />
-          )
-        },
-        size: 80,
-        meta: { mobileOrder: 10 },
-      },
-      {
         accessorKey: 'username',
         header: t('Username'),
         cell: ({ row }) => {
@@ -125,6 +107,13 @@ export function useUsersColumns(): ColumnDef<User>[] {
                   </Tooltip>
                 )}
               </div>
+              <p className='text-muted-foreground text-xs'>
+                #{row.original.id} ·{' '}
+                {t(
+                  USER_ROLES[row.original.role as keyof typeof USER_ROLES]
+                    ?.labelKey || 'User'
+                )}
+              </p>
               {displayName && displayName !== username && (
                 <div
                   data-table-text='secondary'
@@ -182,10 +171,39 @@ export function useUsersColumns(): ColumnDef<User>[] {
         size: 120,
         meta: { mobileBadge: true },
       },
+      { accessorKey: 'role', header: t('Role'), enableSorting: false },
+      { accessorKey: 'group', header: t('User Group'), enableSorting: false },
+      {
+        id: 'gpt_account',
+        header: t('GPT account'),
+        cell: ({ row }) => (
+          <HostingCell summary={row.original.hosting} kind='account' />
+        ),
+        enableSorting: false,
+        meta: { mobileOrder: 20 },
+      },
+      {
+        id: 'hosting',
+        header: t('Hosting entitlement'),
+        cell: ({ row }) => (
+          <HostingCell summary={row.original.hosting} kind='term' />
+        ),
+        enableSorting: false,
+        meta: { mobileOrder: 25 },
+      },
+      {
+        id: 'official_quota',
+        header: t('Official GPT quota'),
+        cell: ({ row }) => (
+          <HostingCell summary={row.original.hosting} kind='quota' />
+        ),
+        enableSorting: false,
+        meta: { mobileOrder: 30 },
+      },
       {
         id: 'quota',
         accessorKey: 'quota',
-        header: `${t('Available Balance')} (${quotaUnit})`,
+        header: `${t('Site balance')} (${quotaUnit})`,
         cell: ({ row }) => {
           const user = row.original
           return <UserQuotaCell remaining={user.quota} used={user.used_quota} />
@@ -193,101 +211,6 @@ export function useUsersColumns(): ColumnDef<User>[] {
         size: 180,
         minSize: 160,
         meta: { mobileOrder: 40 },
-      },
-      {
-        accessorKey: 'group',
-        header: t('User Group'),
-        cell: ({ row }) => {
-          const group = row.getValue('group') as string
-          return (
-            <BadgeCell>
-              <GroupBadge group={group} className='font-normal' />
-            </BadgeCell>
-          )
-        },
-        filterFn: (row, id, value) => {
-          const group = String(
-            row.getValue(id) || t('User Group')
-          ).toLowerCase()
-          const searchValue = String(value).toLowerCase()
-          return group.includes(searchValue)
-        },
-        size: 140,
-        meta: { mobileOrder: 30 },
-      },
-      {
-        accessorKey: 'role',
-        header: t('Role'),
-        cell: ({ row }) => {
-          const roleValue = row.getValue('role') as number
-          const roleConfig = USER_ROLES[roleValue as keyof typeof USER_ROLES]
-
-          if (!roleConfig) {
-            return null
-          }
-
-          return <span className='text-sm'>{t(roleConfig.labelKey)}</span>
-        },
-        filterFn: (row, id, value) => {
-          return value.includes(String(row.getValue(id)))
-        },
-        enableSorting: false,
-        size: 120,
-        meta: { mobileOrder: 20 },
-      },
-      {
-        id: 'invite_info',
-        header: t('Invite Info'),
-        cell: ({ row }) => {
-          const user = row.original
-          const affCount = user.aff_count || 0
-          const affHistoryQuota = user.aff_history_quota || 0
-          const inviterId = user.inviter_id || 0
-
-          if (affCount === 0 && affHistoryQuota === 0 && inviterId === 0) {
-            return <span className='text-muted-foreground text-sm'>—</span>
-          }
-
-          return (
-            <div
-              data-table-text='secondary'
-              className='min-w-0 space-y-1 text-xs font-normal'
-            >
-              {(affCount > 0 || affHistoryQuota !== 0) && (
-                <LongText>
-                  {t('Invited {{count}} users', { count: affCount })} ·{' '}
-                  {t('Earnings')}:{' '}
-                  <span className='tabular-nums'>
-                    {formatQuota(affHistoryQuota)}
-                  </span>
-                </LongText>
-              )}
-              {inviterId > 0 && (
-                <LongText className='text-muted-foreground'>
-                  {t('Inviter ID: {{id}}', { id: inviterId })}
-                </LongText>
-              )}
-            </div>
-          )
-        },
-        size: 240,
-        enableSorting: false,
-        meta: { mobileHidden: true },
-      },
-      {
-        accessorKey: 'created_at',
-        header: t('Time'),
-        cell: ({ row }) => (
-          <ActivityTimeCell
-            createdAt={row.original.created_at ?? 0}
-            lastAt={row.original.last_login_at ?? 0}
-            lastLabel={t('Last Login')}
-            format='absolute'
-          />
-        ),
-        size: 260,
-        minSize: 240,
-        meta: { mobileHidden: true },
       },
       {
         id: 'actions',

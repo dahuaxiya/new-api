@@ -73,6 +73,7 @@ export async function searchUsers(
   params: SearchUsersParams
 ): Promise<GetUsersResponse> {
   const {
+    hosting = '',
     keyword = '',
     group = '',
     role = '',
@@ -84,6 +85,7 @@ export async function searchUsers(
   } = params
   const queryParams = new URLSearchParams()
   queryParams.set('keyword', keyword)
+  if (hosting) queryParams.set('hosting', hosting)
   queryParams.set('group', group)
   if (role) queryParams.set('role', role)
   if (status) queryParams.set('status', status)
@@ -166,9 +168,14 @@ export async function manageUser(
  * Adjust user quota atomically (add/subtract/override)
  */
 export async function adjustUserQuota(
-  payload: ManageUserQuotaPayload
+  payload: ManageUserQuotaPayload,
+  proofToken?: string
 ): Promise<ApiResponse<Partial<User>>> {
-  const res = await api.post('/api/user/manage', payload)
+  const res = await api.post(
+    proofToken ? '/api/gpt-hosting/wallet' : '/api/user/manage',
+    payload,
+    securityProofConfig(proofToken)
+  )
   return res.data
 }
 

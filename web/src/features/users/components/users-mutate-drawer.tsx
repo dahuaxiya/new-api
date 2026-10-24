@@ -28,7 +28,6 @@ import {
   SideDrawerSection,
   sideDrawerContentClassName,
   sideDrawerFooterClassName,
-  sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
 import { PermissionMatrix } from '@/components/permission-matrix'
@@ -96,6 +95,8 @@ import {
   transformUserToFormDefaults,
 } from '../lib'
 import type { User } from '../types'
+import { HostingUserActivity } from './hosting-user-activity'
+import { HostingUserPanel } from './hosting-user-panel'
 import { UserQuotaDialog } from './user-quota-dialog'
 import { useUsers } from './users-provider'
 
@@ -112,7 +113,8 @@ export function UsersMutateDrawer({
 }: UsersMutateDrawerProps) {
   const { t } = useTranslation()
   const isUpdate = !!currentRow
-  const { triggerRefresh, requestVerification } = useUsers()
+  const { triggerRefresh, requestVerification, setCurrentRow, setOpen } =
+    useUsers()
   const currentUser = useAuthStore((s) => s.auth.user)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
@@ -245,6 +247,14 @@ export function UsersMutateDrawer({
         )
         onOpenChange(false)
         triggerRefresh()
+        // 新建成功后继续在同一用户抽屉设置期限；关闭抽屉不会赠送或假定已开通名额。
+        if (!isUpdate && result.data?.id) {
+          const created = await getUser(result.data.id)
+          if (created.success && created.data) {
+            setCurrentRow(created.data)
+            setOpen('update')
+          }
+        }
       } else {
         handleServerError(result, t(ERROR_MESSAGES.CREATE_FAILED))
       }
@@ -288,7 +298,7 @@ export function UsersMutateDrawer({
         >
           <SheetHeader className={sideDrawerHeaderClassName()}>
             <SheetTitle>
-              {isUpdate ? t('Update') : t('Create')} {t('User')}
+              {isUpdate ? currentRow.username : `${t('Create')} ${t('User')}`}
             </SheetTitle>
             <SheetDescription>
               {isUpdate
@@ -296,141 +306,36 @@ export function UsersMutateDrawer({
                 : t('Add a new user by providing necessary info.')}
             </SheetDescription>
           </SheetHeader>
-          <Form {...form}>
-            <form
-              id='user-form'
-              onSubmit={form.handleSubmit(onSubmit)}
-              className={sideDrawerFormClassName()}
-            >
-              {/* Basic Information */}
-              <SideDrawerSection>
-                <h3 className='text-sm font-medium'>
-                  {t('Basic Information')}
-                </h3>
-
-                <FormField
-                  control={form.control}
-                  name='username'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Username')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder={t('Enter username')}
-                          disabled={isUpdate}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {!isUpdate && (
-                  <FormField
-                    control={form.control}
-                    name='role'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Role')}</FormLabel>
-                        <Select
-                          items={[
-                            { value: '1', label: t('Common User') },
-                            { value: '10', label: t('Admin') },
-                          ]}
-                          onValueChange={(value) =>
-                            value !== null &&
-                            field.onChange(Number.parseInt(value))
-                          }
-                          value={String(field.value)}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder={t('Select a role')} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent alignItemWithTrigger={false}>
-                            <SelectGroup>
-                              <SelectItem value='1'>
-                                {t('Common User')}
-                              </SelectItem>
-                              <SelectItem value='10'>{t('Admin')}</SelectItem>
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          {t("Set the user's role (cannot be Root)")}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-
-                <FormField
-                  control={form.control}
-                  name='display_name'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Display Name')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder={t('Enter display name')}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t('Leave empty to use username')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name='password'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Password')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          type='password'
-                          placeholder={
-                            isUpdate
-                              ? t('Leave empty to keep unchanged')
-                              : t('Enter password (8–128 characters)')
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </SideDrawerSection>
-
-              {/* Group & Quota Settings (Update only) */}
-              {isUpdate && (
+          <div className='min-h-0 flex-1 overflow-y-auto'>
+            {isUpdate && currentRow && (
+              <>
+                <HostingUserPanel key={currentRow.id} user={currentRow} />
+                <HostingUserActivity user={currentRow} />
+              </>
+            )}
+            <Form {...form}>
+              <form
+                id='user-form'
+                onSubmit={form.handleSubmit(onSubmit)}
+                className='space-y-6 p-6'
+              >
+                {/* Basic Information */}
                 <SideDrawerSection>
-                  <h3 className='text-sm font-medium'>{t('Group & Quota')}</h3>
+                  <h3 className='text-sm font-medium'>
+                    {t('Basic Information')}
+                  </h3>
 
                   <FormField
                     control={form.control}
-                    name='group'
+                    name='username'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('Group')}</FormLabel>
+                        <FormLabel>{t('Username')}</FormLabel>
                         <FormControl>
-                          <Combobox
-                            options={groups.map((group) => ({
-                              value: group,
-                              label: group,
-                            }))}
-                            onValueChange={field.onChange}
-                            value={field.value}
-                            className='w-full'
-                            placeholder={t('Select a group')}
+                          <Input
+                            {...field}
+                            placeholder={t('Enter username')}
+                            disabled={isUpdate}
                           />
                         </FormControl>
                         <FormMessage />
@@ -438,39 +343,61 @@ export function UsersMutateDrawer({
                     )}
                   />
 
+                  {!isUpdate && (
+                    <FormField
+                      control={form.control}
+                      name='role'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Role')}</FormLabel>
+                          <Select
+                            items={[
+                              { value: '1', label: t('Common User') },
+                              { value: '10', label: t('Admin') },
+                            ]}
+                            onValueChange={(value) =>
+                              value !== null &&
+                              field.onChange(Number.parseInt(value))
+                            }
+                            value={String(field.value)}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder={t('Select a role')} />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent alignItemWithTrigger={false}>
+                              <SelectGroup>
+                                <SelectItem value='1'>
+                                  {t('Common User')}
+                                </SelectItem>
+                                <SelectItem value='10'>{t('Admin')}</SelectItem>
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            {t("Set the user's role (cannot be Root)")}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
                   <FormField
                     control={form.control}
-                    name='quota_dollars'
+                    name='display_name'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>
-                          {t('Remaining Quota ({{currency}})', {
-                            currency: currencyLabel,
-                          })}
-                        </FormLabel>
-                        <div className='flex gap-2'>
-                          <FormControl>
-                            <Input
-                              value={
-                                tokensOnly
-                                  ? String(field.value || 0)
-                                  : (field.value || 0).toFixed(6)
-                              }
-                              readOnly
-                              className='flex-1'
-                            />
-                          </FormControl>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            onClick={() => setQuotaDialogOpen(true)}
-                          >
-                            <Pencil className='mr-1 h-4 w-4' />
-                            {t('Adjust Quota')}
-                          </Button>
-                        </div>
+                        <FormLabel>{t('Display Name')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder={t('Enter display name')}
+                          />
+                        </FormControl>
                         <FormDescription>
-                          {formatQuota(parseQuotaFromDollars(field.value || 0))}
+                          {t('Leave empty to use username')}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -479,17 +406,19 @@ export function UsersMutateDrawer({
 
                   <FormField
                     control={form.control}
-                    name='remark'
+                    name='password'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('Remark')}</FormLabel>
+                        <FormLabel>{t('Password')}</FormLabel>
                         <FormControl>
-                          <Textarea
+                          <Input
                             {...field}
-                            placeholder={t(
-                              'Admin notes (only visible to admins)'
-                            )}
-                            rows={3}
+                            type='password'
+                            placeholder={
+                              isUpdate
+                                ? t('Leave empty to keep unchanged')
+                                : t('Enter password (8–128 characters)')
+                            }
                           />
                         </FormControl>
                         <FormMessage />
@@ -497,96 +426,189 @@ export function UsersMutateDrawer({
                     )}
                   />
                 </SideDrawerSection>
-              )}
 
-              {canEditAdminPermissions &&
-                targetIsAdmin &&
-                permissionCatalog.resources.length > 0 && (
+                {/* Group & Quota Settings (Update only) */}
+                {isUpdate && (
                   <SideDrawerSection>
                     <h3 className='text-sm font-medium'>
-                      {t('Admin Permissions')}
+                      {t('Site balance and portal settings')}
                     </h3>
-                    <p className='text-muted-foreground text-xs'>
-                      {t(
-                        'Default administrator permissions can be overridden for this user.'
-                      )}
-                    </p>
+
                     <FormField
                       control={form.control}
-                      name='admin_permissions'
-                      render={({ field }) => {
-                        const selected = normalizeAdminPermissions(
-                          field.value,
-                          permissionCatalog
-                        )
-                        return (
-                          <FormItem>
-                            <PermissionMatrix
-                              resources={permissionCatalog.resources}
-                              value={selected}
-                              onChange={field.onChange}
+                      name='group'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Group')}</FormLabel>
+                          <FormControl>
+                            <Combobox
+                              options={groups.map((group) => ({
+                                value: group,
+                                label: group,
+                              }))}
+                              onValueChange={field.onChange}
+                              value={field.value}
+                              className='w-full'
+                              placeholder={t('Select a group')}
                             />
-                            <FormMessage />
-                          </FormItem>
-                        )
-                      }}
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                    {currentUser && (
-                      <p className='text-muted-foreground text-xs'>
-                        {hasPermission(
-                          currentUser,
-                          ADMIN_PERMISSION_RESOURCES.CHANNEL,
-                          ADMIN_PERMISSION_ACTIONS.SENSITIVE_WRITE
-                        )
-                          ? t(
-                              'Your account can edit sensitive channel settings.'
-                            )
-                          : t(
-                              'Your account cannot edit sensitive channel settings.'
+
+                    <FormField
+                      control={form.control}
+                      name='quota_dollars'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t('Remaining Quota ({{currency}})', {
+                              currency: currencyLabel,
+                            })}
+                          </FormLabel>
+                          <div className='flex gap-2'>
+                            <FormControl>
+                              <Input
+                                value={
+                                  tokensOnly
+                                    ? String(field.value || 0)
+                                    : (field.value || 0).toFixed(6)
+                                }
+                                readOnly
+                                className='flex-1'
+                              />
+                            </FormControl>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              onClick={() => setQuotaDialogOpen(true)}
+                            >
+                              <Pencil className='mr-1 h-4 w-4' />
+                              {t('Adjust site balance')}
+                            </Button>
+                          </div>
+                          <FormDescription>
+                            {formatQuota(
+                              parseQuotaFromDollars(field.value || 0)
                             )}
-                      </p>
-                    )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='remark'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Remark')}</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              {...field}
+                              placeholder={t(
+                                'Admin notes (only visible to admins)'
+                              )}
+                              rows={3}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   </SideDrawerSection>
                 )}
 
-              {/* Binding Information (Read-only) */}
-              {isUpdate && (
-                <SideDrawerSection>
-                  <h3 className='text-sm font-medium'>
-                    {t('Binding Information')}
-                  </h3>
-                  <p className='text-muted-foreground text-xs'>
-                    {t(
-                      'Third-party account bindings (read-only, managed by user in Security & Access)'
-                    )}
-                  </p>
+                {canEditAdminPermissions &&
+                  targetIsAdmin &&
+                  permissionCatalog.resources.length > 0 && (
+                    <SideDrawerSection>
+                      <h3 className='text-sm font-medium'>
+                        {t('Admin Permissions')}
+                      </h3>
+                      <p className='text-muted-foreground text-xs'>
+                        {t(
+                          'Default administrator permissions can be overridden for this user.'
+                        )}
+                      </p>
+                      <FormField
+                        control={form.control}
+                        name='admin_permissions'
+                        render={({ field }) => {
+                          const selected = normalizeAdminPermissions(
+                            field.value,
+                            permissionCatalog
+                          )
+                          return (
+                            <FormItem>
+                              <PermissionMatrix
+                                resources={permissionCatalog.resources}
+                                value={selected}
+                                onChange={field.onChange}
+                              />
+                              <FormMessage />
+                            </FormItem>
+                          )
+                        }}
+                      />
+                      {currentUser && (
+                        <p className='text-muted-foreground text-xs'>
+                          {hasPermission(
+                            currentUser,
+                            ADMIN_PERMISSION_RESOURCES.CHANNEL,
+                            ADMIN_PERMISSION_ACTIONS.SENSITIVE_WRITE
+                          )
+                            ? t(
+                                'Your account can edit sensitive channel settings.'
+                              )
+                            : t(
+                                'Your account cannot edit sensitive channel settings.'
+                              )}
+                        </p>
+                      )}
+                    </SideDrawerSection>
+                  )}
 
-                  <div className='flex flex-col gap-3'>
-                    {BINDING_FIELDS.map(({ key, label }) => (
-                      <div key={key}>
-                        <Label className='text-muted-foreground text-xs'>
-                          {t(label)}
-                        </Label>
-                        <Input
-                          value={
-                            (currentRow?.[key as keyof User] as string) || '-'
-                          }
-                          disabled
-                          className='mt-1'
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </SideDrawerSection>
-              )}
-            </form>
-          </Form>
+                {/* Binding Information (Read-only) */}
+                {isUpdate && (
+                  <SideDrawerSection>
+                    <h3 className='text-sm font-medium'>
+                      {t('Binding Information')}
+                    </h3>
+                    <p className='text-muted-foreground text-xs'>
+                      {t(
+                        'Third-party account bindings (read-only, managed by user in Security & Access)'
+                      )}
+                    </p>
+
+                    <div className='flex flex-col gap-3'>
+                      {BINDING_FIELDS.map(({ key, label }) => (
+                        <div key={key}>
+                          <Label className='text-muted-foreground text-xs'>
+                            {t(label)}
+                          </Label>
+                          <Input
+                            value={
+                              (currentRow?.[key as keyof User] as string) || '-'
+                            }
+                            disabled
+                            className='mt-1'
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </SideDrawerSection>
+                )}
+              </form>
+            </Form>
+          </div>
           <SheetFooter className={sideDrawerFooterClassName()}>
             <SheetClose render={<Button variant='outline' />}>
               {t('Close')}
             </SheetClose>
             <Button form='user-form' type='submit' disabled={isSubmitting}>
-              {isSubmitting ? t('Saving...') : t('Save changes')}
+              {isSubmitting ? t('Saving...') : t('Save profile changes')}
             </Button>
           </SheetFooter>
         </SheetContent>

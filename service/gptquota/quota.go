@@ -213,7 +213,14 @@ func (s *Service) SelfFor(ctx context.Context, id int, username, group string, b
 
 // self 读取一个已验证绑定的快照，缓存与失败退避只作用于该实例。
 func (s *backend) self(ctx context.Context, b Binding) (View, error) {
-	s.mu.Lock()
+	// 分页汇总有整体读预算；不能在同实例互斥锁上无视取消，一台慢实例拖住所有用户。
+	for !s.mu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return View{}, ErrUnavailable
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 	defer s.mu.Unlock()
 	now := time.Now()
 	entry, cached := s.cache[b.Slot]

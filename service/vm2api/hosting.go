@@ -58,7 +58,7 @@ func (c *Client) HostedSlots(ctx context.Context) ([]HostedSlot, error) {
 // HostingAction 只调用固定实例、白名单槽位及动作；body 不允许控制上游地址。
 func (c *Client) HostingAction(ctx context.Context, slot, action string, body any) (HostedState, error) {
 	switch action {
-	case "enroll", "reserve", "prepare", "activate", "policy", "release":
+	case "enroll", "reserve", "prepare", "activate", "policy", "release", "takeover-check", "takeover":
 	default:
 		return HostedState{}, &Error{Code: "hosting_conflict", HTTPStatus: 400}
 	}

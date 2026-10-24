@@ -110,7 +110,7 @@ function hostingMessage(error: unknown): string {
     case 'identity_invalid':
     case 'identity_unavailable':
       return t(
-        'The official account identity could not be verified. Please try again later.'
+        'The official account identity could not be verified. Sign in to the original GPT account again before takeover.'
       )
     case 'cleanup_pending':
       return t(
@@ -130,7 +130,9 @@ export async function postHosting<T = HostingSelf>(
     | 'pause'
     | 'unbind'
     | 'admin/grants'
-    | 'admin/inventory',
+    | 'admin/inventory'
+    | 'admin/takeover/check'
+    | 'admin/takeover',
   body: unknown,
   proof?: string
 ): Promise<T> {
@@ -138,8 +140,10 @@ export async function postHosting<T = HostingSelf>(
     const response = await api.post(`/api/gpt-hosting/${action}`, body, {
       headers: proof ? { 'X-Security-Proof': proof } : undefined,
       timeout: 90_000,
+      singleUseAuthorization: !!proof,
     })
-    return requireServerSuccess(response.data).data
+    const result = requireServerSuccess(response.data)
+    return { ...result.data, sync_pending: response.data.sync_pending === true }
   } catch (error) {
     throw new Error(hostingMessage(error))
   }

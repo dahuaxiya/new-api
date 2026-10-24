@@ -156,7 +156,8 @@ func PutGPTHostingGrant(c *gin.Context) {
 		hostingError(c, err)
 		return
 	}
-	if _, legacy := cfg.Users[strconv.Itoa(input.UserID)]; legacy {
+	_, grantErr := model.GetHostingGrant(input.UserID)
+	if _, legacy := cfg.Users[strconv.Itoa(input.UserID)]; legacy && grantErr != nil {
 		hostingError(c, model.ErrHostingConflict)
 		return
 	}
@@ -167,7 +168,7 @@ func PutGPTHostingGrant(c *gin.Context) {
 	}
 	// 中央请求校验立即生效；远端策略失败时保留待同步状态并明确反馈，后台会重试。
 	syncErr := syncHostingPolicy(c.Request.Context(), g.UserID)
-	model.RecordLog(actor, model.LogTypeManage, common.NewMessage("Updated GPT hosting entitlement for user {{UserID}}", map[string]any{"UserID": g.UserID}))
+	recordHostingUserAudit(c, g.UserID, "hosting.grant", map[string]any{"starts_at": g.StartsAt, "ends_at": g.EndsAt, "enabled": g.Enabled, "retention_days": g.RetentionDays, "note": g.Note, "revision": g.Revision})
 	c.JSON(200, gin.H{"success": true, "data": g, "sync_pending": syncErr != nil})
 }
 
@@ -287,6 +288,10 @@ func StartGPTHostingLogin(c *gin.Context) {
 	before, err := model.GetHostingBinding(id)
 	if err != nil {
 		hostingError(c, err)
+		return
+	}
+	if before.State == "takeover" {
+		hostingError(c, model.ErrHostingConflict)
 		return
 	}
 	if !hostingProof(c, "login", before.BindingID) {
@@ -464,6 +469,10 @@ func RetryGPTHostingLogin(c *gin.Context) {
 		return
 	}
 	defer model.ReleaseHostingOperation(id, lease)
+	if b.State == "takeover" {
+		hostingError(c, model.ErrHostingConflict)
+		return
+	}
 	if !hostingProof(c, "login", b.BindingID) {
 		return
 	}
@@ -614,6 +623,10 @@ func UnbindGPTHosting(c *gin.Context) {
 		return
 	}
 	defer model.ReleaseHostingOperation(id, lease)
+	if b.State == "takeover" {
+		hostingError(c, model.ErrHostingConflict)
+		return
+	}
 	if !hostingProof(c, "unbind", b.BindingID) {
 		return
 	}

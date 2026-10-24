@@ -10,12 +10,16 @@ import (
 	"gorm.io/gorm"
 )
 
+// manageUserQuota 复用事务钱包调整并记录前后值；界面原因仅作为审计字段，不参与金额计算。
 func manageUserQuota(c *gin.Context, req ManageRequest) {
 	action := "generic"
 	params := model.AuditFields{
 		"target_user_id":  req.Id,
 		"mode":            req.Mode,
 		"requested_quota": req.Value,
+	}
+	if req.Reason != "" {
+		params["reason"] = req.Reason
 	}
 	switch req.Mode {
 	case "add":

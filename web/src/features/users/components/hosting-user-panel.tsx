@@ -1,0 +1,437 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import { z } from 'zod'
+
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { Button } from '@/components/ui/button'
+import { Field, FieldError, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
+import { postHosting } from '@/features/gpt-hosting/api'
+import { WindowReading } from '@/features/gpt-quota/quota-reading'
+import { quotaSchema } from '@/features/gpt-quota/schema'
+import { toIntlLocale } from '@/i18n/languages'
+import { api } from '@/lib/api'
+import { handleServerError } from '@/lib/handle-server-error'
+import { ROLE } from '@/lib/roles'
+import { requireServerSuccess } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
+
+import {
+  getHostingSummaries,
+  hostingLocalDate,
+  hostingStatusLabels,
+  renewedHostingEnd,
+} from '../hosting-api'
+import type { User } from '../types'
+import { useUsers } from './users-provider'
+
+const grantForm = z
+  .object({
+    start: z.string().min(1),
+    end: z.string().min(1),
+    retention: z.number().int().min(0).max(30),
+    enabled: z.boolean(),
+    note: z.string().max(255),
+  })
+  .refine(
+    (v) =>
+      Number.isFinite(Date.parse(v.start)) &&
+      Date.parse(v.end) > Date.parse(v.start),
+    {
+      path: ['end'],
+      message: 'The end date must be later than the start date.',
+    }
+  )
+type GrantValues = z.infer<typeof grantForm>
+
+/** 一个用户抽屉内完成额度读取与期限管理；预检、确认和二次验证完成后才写入权益。 */
+export function HostingUserPanel(props: { user: User }) {
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const actor = useAuthStore((s) => s.auth.user)
+  const sid = useAuthStore((s) => s.auth.session?.sid)
+  const cache = useQueryClient()
+  const { triggerRefresh, requestVerification, verificationActive } = useUsers()
+  const queryKey = ['hosting-user', actor?.id, sid, props.user.id]
+  const query = useQuery({
+    queryKey,
+    queryFn: async ({ signal }) =>
+      (await getHostingSummaries([props.user.id], signal))[0],
+    retry: false,
+    staleTime: 15_000,
+  })
+  const data = query.data
+  const [review, setReview] = useState<GrantValues | null>(null)
+  const [preflight, setPreflight] = useState<string>('')
+  const [checking, setChecking] = useState(false)
+  const form = useForm<GrantValues>({
+    resolver: zodResolver(grantForm),
+    defaultValues: {
+      start: hostingLocalDate(Date.now() / 1000),
+      end: '',
+      retention: 7,
+      enabled: true,
+      note: '',
+    },
+  })
+  const loadedGrant = useRef<string>('')
+  useEffect(() => {
+    const version = JSON.stringify(data?.grant)
+    // 后台刷新不能覆盖管理员尚未保存的期限；保存成功后才允许重新装载。
+    if (
+      data?.grant &&
+      version !== loadedGrant.current &&
+      !form.formState.isDirty
+    ) {
+      loadedGrant.current = version
+      form.reset({
+        start: hostingLocalDate(data.grant.starts_at),
+        end: hostingLocalDate(data.grant.ends_at),
+        retention: data.grant.retention_days,
+        enabled: data.grant.enabled,
+        note: data.grant.note,
+      })
+    }
+  }, [data?.grant, form, form.formState.isDirty])
+  const isTakeover = data?.status === 'undated' || data?.status === 'takeover'
+  const canWrite =
+    actor?.role === ROLE.SUPER_ADMIN &&
+    props.user.role === ROLE.USER &&
+    props.user.status === 1
+  const save = useMutation({
+    mutationFn: async (values: GrantValues) => {
+      const proof = await requestVerification({
+        scope: 'admin.user.update',
+        context: { user_id: props.user.id },
+      })
+      if (!proof) return false
+      const result = await postHosting<{ sync_pending?: boolean }>(
+        isTakeover ? 'admin/takeover' : 'admin/grants',
+        {
+          user_id: props.user.id,
+          starts_at: Math.floor(Date.parse(values.start) / 1000),
+          ends_at: Math.floor(Date.parse(values.end) / 1000),
+          retention_days: values.retention,
+          enabled: values.enabled,
+          note: values.note,
+        },
+        proof.proof_token
+      )
+      form.reset(values)
+      loadedGrant.current = ''
+      return result.sync_pending ? 'pending' : 'saved'
+    },
+    retry: false,
+    onError: (error) => handleServerError(error),
+    onSettled: async () => {
+      setReview(null)
+      await cache.invalidateQueries({ queryKey })
+      triggerRefresh()
+    },
+    onSuccess: (changed) => {
+      if (changed === 'pending') {
+        toast.warning(t('Hosting term saved; instance sync is pending.'))
+      } else if (changed) toast.success(t('Hosting entitlement saved'))
+    },
+  })
+  const refresh = useMutation({
+    mutationFn: async () => {
+      const res = await api.post(
+        `/api/gpt-quota/users/${props.user.id}/refresh`,
+        {},
+        { timeout: 90_000 }
+      )
+      return quotaSchema.parse(requireServerSuccess(res.data).data)
+    },
+    retry: false,
+    onError: (error) => handleServerError(error),
+    onSuccess: async (quota) => {
+      cache.setQueryData(queryKey, (old: typeof data) =>
+        old ? { ...old, quota, quota_unavailable: false } : old
+      )
+      triggerRefresh()
+    },
+  })
+  /** 旧绑定先执行只读身份检查；未开始接管的失败不会创建名额或改变旧客户端路由。 */
+  async function reviewGrant(values: GrantValues): Promise<void> {
+    setChecking(true)
+    setPreflight('')
+    try {
+      if (data?.status === 'undated') {
+        const result = await postHosting<{
+          account_label: string
+          instance_id: string
+          slot_id: string
+        }>('admin/takeover/check', { user_id: props.user.id })
+        setPreflight(
+          `${result.account_label} · ${result.instance_id} / ${result.slot_id}`
+        )
+      }
+      setReview(values)
+    } catch (error) {
+      handleServerError(error)
+    } finally {
+      setChecking(false)
+    }
+  }
+  const quota = data?.quota?.bound ? data.quota : undefined
+  return (
+    <section className='space-y-6 border-b p-6'>
+      <div className='space-y-1'>
+        <h3 className='font-semibold'>{t('GPT account and hosting')}</h3>
+        <p className='text-sm'>
+          {t(
+            hostingStatusLabels[data?.status || 'unavailable'] ||
+              'Hosting status unavailable'
+          )}
+        </p>
+        <p className='text-muted-foreground text-xs'>
+          {data?.binding?.account_label || quota?.account_label || '—'} ·{' '}
+          {data?.binding?.plan || quota?.plan || '—'}
+        </p>
+        {data?.slot_id && (
+          <p className='text-muted-foreground text-xs'>
+            {data.instance_name || data.instance_id} / {data.slot_id}
+          </p>
+        )}
+        {data?.status === 'undated' && (
+          <p className='text-muted-foreground text-sm'>
+            {t(
+              'Existing service continues until an administrator sets a hosting term.'
+            )}
+          </p>
+        )}
+        {data?.status === 'takeover' && (
+          <p role='alert' className='text-destructive text-sm'>
+            {t(
+              'Takeover is incomplete. Retry the saved operation; the account remains reserved.'
+            )}
+          </p>
+        )}
+        {query.isError && (
+          <Button
+            type='button'
+            variant='outline'
+            onClick={() => query.refetch()}
+          >
+            {t('Retry')}
+          </Button>
+        )}
+      </div>
+      <div className='space-y-3'>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
+          <h3 className='text-sm font-semibold'>
+            {t('GPT subscription quota')}
+          </h3>
+          {data?.slot_id && (
+            <Button
+              type='button'
+              size='sm'
+              variant='outline'
+              disabled={refresh.isPending}
+              onClick={() => refresh.mutate()}
+            >
+              {refresh.isPending
+                ? t('Querying official quota...')
+                : t('Refresh official quota')}
+            </Button>
+          )}
+        </div>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Official quota is read-only. Hosting renewals and site balance changes do not reset it.'
+          )}
+        </p>
+        {quota?.bound && (
+          <>
+            <div className='grid gap-3 sm:grid-cols-2'>
+              {quota.windows.map((window) => (
+                <WindowReading
+                  key={window.id}
+                  window={window}
+                  now={Date.now()}
+                />
+              ))}
+            </div>
+            <p className='text-muted-foreground text-xs'>
+              {t('Last successful reading')}:{' '}
+              {quota.observed_at
+                ? new Date(quota.observed_at).toLocaleString(locale)
+                : t('Unknown')}
+              {quota.stale ? ` · ${t('Saved reading may be outdated')}` : ''}
+            </p>
+          </>
+        )}
+        {data?.quota_unavailable && (
+          <p className='text-muted-foreground text-sm'>
+            {t('GPT quota could not be loaded')}
+          </p>
+        )}
+      </div>
+      {canWrite &&
+        data &&
+        !['conflict', 'unavailable', 'restricted'].includes(data.status) && (
+          <form className='space-y-4' onSubmit={form.handleSubmit(reviewGrant)}>
+            <div>
+              <h3 className='text-sm font-semibold'>
+                {t('Hosting entitlement')} · {data.slot_id ? '1/1' : '0/1'}
+              </h3>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'One GPT account per user. Saving the term does not change the site balance.'
+                )}
+              </p>
+            </div>
+            <div className='grid gap-3 sm:grid-cols-2'>
+              <Field>
+                <FieldLabel htmlFor='hosting-start'>
+                  {t('Starts at')}
+                </FieldLabel>
+                <Input
+                  id='hosting-start'
+                  type='datetime-local'
+                  {...form.register('start')}
+                  disabled={data.status === 'takeover'}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor='hosting-end'>{t('Ends at')}</FieldLabel>
+                <Input
+                  id='hosting-end'
+                  type='datetime-local'
+                  {...form.register('end')}
+                  disabled={data.status === 'takeover'}
+                />
+                {form.formState.errors.end && (
+                  <FieldError>
+                    {t(
+                      form.formState.errors.end.message || 'Invalid parameters'
+                    )}
+                  </FieldError>
+                )}
+              </Field>
+            </div>
+            <div className='flex flex-wrap gap-2'>
+              {[30, 90].map((days) => (
+                <Button
+                  type='button'
+                  key={days}
+                  size='sm'
+                  variant='outline'
+                  disabled={data.status === 'takeover'}
+                  onClick={() =>
+                    form.setValue(
+                      'end',
+                      renewedHostingEnd(
+                        data.grant ? hostingLocalDate(data.grant.ends_at) : '',
+                        days
+                      ),
+                      { shouldDirty: true }
+                    )
+                  }
+                >
+                  {t('Extend by {{days}} days', { days })}
+                </Button>
+              ))}
+            </div>
+            <Field>
+              <FieldLabel htmlFor='hosting-retention'>
+                {t('Credential retention days after expiry')}
+              </FieldLabel>
+              <Input
+                id='hosting-retention'
+                type='number'
+                min={0}
+                max={30}
+                {...form.register('retention', { valueAsNumber: true })}
+                disabled={data.status === 'takeover'}
+              />
+              {form.formState.errors.retention && (
+                <FieldError>{t('Enter 0 to 30 days')}</FieldError>
+              )}
+            </Field>
+            <Field>
+              <FieldLabel htmlFor='hosting-note'>
+                {t('Reason or note')}
+              </FieldLabel>
+              <Textarea
+                id='hosting-note'
+                maxLength={255}
+                {...form.register('note')}
+                disabled={data.status === 'takeover'}
+              />
+            </Field>
+            <div className='flex items-center justify-between'>
+              <FieldLabel htmlFor='hosting-enabled'>
+                {t('Hosting enabled')}
+              </FieldLabel>
+              <Switch
+                id='hosting-enabled'
+                checked={form.watch('enabled')}
+                onCheckedChange={(value) =>
+                  form.setValue('enabled', value, { shouldDirty: true })
+                }
+                disabled={data.status === 'takeover'}
+              />
+            </div>
+            <Button type='submit' disabled={save.isPending || checking}>
+              {checking
+                ? t('Checking account ownership...')
+                : t('Review and save hosting term')}
+            </Button>
+          </form>
+        )}
+      <ConfirmDialog
+        open={!!review && !verificationActive}
+        onOpenChange={(value) => !value && !save.isPending && setReview(null)}
+        title={t('Confirm hosting entitlement')}
+        desc={
+          <div className='space-y-2'>
+            <p>{preflight}</p>
+            <p>
+              {props.user.username} · {review?.start.replace('T', ' ')} →{' '}
+              {review?.end.replace('T', ' ')}
+            </p>
+            <p>
+              {review?.enabled ? t('Hosting enabled') : t('Hosting disabled')} ·{' '}
+              {review?.retention} {t('days')}
+            </p>
+            <p>
+              {isTakeover
+                ? t(
+                    'This will bring the existing account under hosting expiry controls. Client New API keys are retained.'
+                  )
+                : t('Only the hosting entitlement will change.')}
+            </p>
+          </div>
+        }
+        handleConfirm={() => review && save.mutate(review)}
+        isLoading={save.isPending}
+      />
+    </section>
+  )
+}

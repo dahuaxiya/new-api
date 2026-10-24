@@ -351,6 +351,7 @@ func GetAllUsers(c *gin.Context) {
 	return
 }
 
+// SearchUsers 保留站内条件，并在服务端托管筛选后返回准确的分页总数。
 func SearchUsers(c *gin.Context) {
 	keyword := c.Query("keyword")
 	group := c.Query("group")
@@ -368,7 +369,21 @@ func SearchUsers(c *gin.Context) {
 	}
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
-	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
+	var hosting *model.HostingUserFilter
+	if state := c.Query("hosting"); state != "" {
+		cfg, err := configuredQuota()
+		if err != nil {
+			hostingError(c, err)
+			return
+		}
+		hosting = &model.HostingUserFilter{Status: state}
+		for id := range cfg.Users {
+			if parsed, e := strconv.Atoi(id); e == nil {
+				hosting.LegacyUserIDs = append(hosting.LegacyUserIDs, parsed)
+			}
+		}
+	}
+	users, total, err := model.SearchUsersWithHosting(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), hosting, sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -1061,6 +1076,7 @@ func CreateUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
+		"data":    gin.H{"id": cleanUser.Id},
 	})
 	return
 }
@@ -1082,6 +1098,7 @@ func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, 
 }
 
 type ManageRequest struct {
+	Reason string `json:"reason"`
 	Id     int    `json:"id"`
 	Action string `json:"action"`
 	Value  int    `json:"value"`

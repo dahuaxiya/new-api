@@ -34,6 +34,7 @@ import {
   createServerError,
   requireServerSuccess,
 } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getGroups, getUsers, searchUsers } from '../api'
 import {
@@ -42,6 +43,7 @@ import {
   getUserRoleOptions,
   isUserDeleted,
 } from '../constants'
+import { getHostingSummaries, hostingStatusLabels } from '../hosting-api'
 import type { User, UserSortBy } from '../types'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 import { useUsersColumns } from './users-columns'
@@ -64,6 +66,9 @@ function isDisabledUserRow(user: User) {
 
 export function UsersTable() {
   const { t } = useTranslation()
+  const identity = useAuthStore(
+    (s) => `${s.auth.user?.id}:${s.auth.session?.sid}`
+  )
   const columns = useUsersColumns()
   const { refreshTrigger } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
@@ -83,11 +88,16 @@ export function UsersTable() {
     pagination: { defaultPage: 1, defaultPageSize: isMobile ? 10 : 20 },
     globalFilter: { enabled: true, key: 'filter' },
     columnFilters: [
+      { columnId: 'hosting', searchKey: 'hosting', type: 'array' },
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'role', searchKey: 'role', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'array' },
     ],
   })
+  const hostingFilter =
+    (columnFilters.find((filter) => filter.id === 'hosting')?.value as
+      | string[]
+      | undefined) ?? []
   const statusFilter =
     (columnFilters.find((filter) => filter.id === 'status')?.value as
       | string[]
@@ -133,9 +143,11 @@ export function UsersTable() {
   const { data, isLoading, isFetching } = useQuery({
     queryKey: [
       'users',
+      identity,
       pagination.pageIndex + 1,
       pagination.pageSize,
       globalFilter,
+      hostingFilter,
       statusFilter,
       roleFilter,
       groupFilter,
@@ -145,6 +157,7 @@ export function UsersTable() {
     queryFn: async () => {
       const hasFilter = globalFilter?.trim()
       const hasColumnFilter =
+        hostingFilter.length > 0 ||
         statusFilter.length > 0 ||
         roleFilter.length > 0 ||
         groupFilter.length > 0
@@ -160,6 +173,7 @@ export function UsersTable() {
               ...params,
               keyword: globalFilter,
               status: statusFilter[0] ?? '',
+              hosting: hostingFilter[0] ?? '',
               role: roleFilter[0] ?? '',
               group: groupFilter[0] ?? '',
             })
@@ -172,8 +186,16 @@ export function UsersTable() {
         )
       }
 
+      const items = result.data?.items || []
+      // 汇总接口故障时仍显示全部用户，不能把未知托管状态误显示成未开通。
+      const summaries = await getHostingSummaries(
+        items.map((user) => user.id)
+      ).catch(() => [])
       return {
-        items: result.data?.items || [],
+        items: items.map((user) => ({
+          ...user,
+          hosting: summaries.find((summary) => summary.user_id === user.id),
+        })),
         total: result.data?.total || 0,
       }
     },
@@ -186,6 +208,7 @@ export function UsersTable() {
     data: users,
     columns,
     enableRowSelection: true,
+    initialColumnVisibility: { role: false, group: false },
     columnFilters,
     globalFilter,
     pagination,
@@ -230,6 +253,22 @@ export function UsersTable() {
         searchPlaceholder: t('Filter by username, name or email...'),
         searchDebounceMs: 500,
         filters: [
+          {
+            columnId: 'hosting',
+            title: t('Hosting entitlement'),
+            options: [
+              'unopened',
+              'undated',
+              'active',
+              'expiring',
+              'expired',
+              'scheduled',
+              'awaiting_login',
+              'disabled',
+              'takeover',
+            ].map((value) => ({ value, label: t(hostingStatusLabels[value]) })),
+            singleSelect: true,
+          },
           {
             columnId: 'status',
             title: t('Status'),

@@ -435,7 +435,13 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 	return users, total, nil
 }
 
+// SearchUsers 保留原有搜索契约，不附加托管状态筛选。
 func SearchUsers(keyword string, group string, role *int, status *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
+	return SearchUsersWithHosting(keyword, group, role, status, startIdx, num, nil, sortOptions...)
+}
+
+// SearchUsersWithHosting 先按托管状态过滤再计数和分页，避免只筛当前页遗漏用户。
+func SearchUsersWithHosting(keyword string, group string, role *int, status *int, startIdx int, num int, hosting *HostingUserFilter, sortOptions ...UserSortOptions) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -481,6 +487,13 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 		}
 	}
 
+	if hosting != nil {
+		query, err = hosting.Apply(query, tx)
+		if err != nil {
+			tx.Rollback()
+			return nil, 0, err
+		}
+	}
 	// 获取总数
 	err = query.Count(&total).Error
 	if err != nil {

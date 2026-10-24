@@ -56,6 +56,7 @@ export function SlotSetup(props: {
   instance: OnboardingInstance
   slot?: OnboardingSlot
   disabled: boolean
+  createOnly?: boolean
   onSlotUpdated: (slot: OnboardingSlot) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -224,7 +225,9 @@ export function SlotSetup(props: {
           )}
           <FieldDescription>
             {t(
-              'Creating a slot does not sign in to GPT. Complete the official authorization below before opening the user account.'
+              props.createOnly
+                ? 'An empty slot can be enabled for self-service assignment. The user will sign in later.'
+                : 'Creating a slot does not sign in to GPT. Complete the official authorization below before opening the user account.'
             )}
           </FieldDescription>
           <div className='flex flex-wrap gap-2'>
@@ -263,15 +266,18 @@ export function SlotSetup(props: {
           )}
         </div>
       )}
-      {props.slot && !props.slot.assigned && props.slot.logged_in === false && (
-        <SlotLogin
-          key={props.slot.id}
-          instanceId={props.instance.id}
-          slot={props.slot}
-          disabled={props.disabled || mutation.isPending}
-          onSlotUpdated={props.onSlotUpdated}
-        />
-      )}
+      {!props.createOnly &&
+        props.slot &&
+        !props.slot.assigned &&
+        props.slot.logged_in === false && (
+          <SlotLogin
+            key={props.slot.id}
+            instanceId={props.instance.id}
+            slot={props.slot}
+            disabled={props.disabled || mutation.isPending}
+            onSlotUpdated={props.onSlotUpdated}
+          />
+        )}
       {props.slot?.logged_in && (
         <Alert>
           <AlertDescription>

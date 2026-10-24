@@ -55,7 +55,7 @@ function aggregateUsage(rows: QuotaDataItem[]): Map<string, UsageTotal> {
 }
 
 /** Drop the entire admin view on account/role changes, including in-flight query state. */
-export function UserUsageOverview() {
+export function UserUsageOverview(props: { embedded?: boolean } = {}) {
   const user = useAuthStore((state) => state.auth.user)
   const sid = useAuthStore((state) => state.auth.session?.sid)
   const { t } = useTranslation()
@@ -65,6 +65,7 @@ export function UserUsageOverview() {
   return (
     <AdminUsagePage
       key={`${user.id}:${sid ?? ''}`}
+      embedded={props.embedded}
       viewerId={user.id}
       sid={sid}
     />
@@ -72,7 +73,11 @@ export function UserUsageOverview() {
 }
 
 /** Keep administrator reads session-scoped; refreshing this page only reads saved data. */
-function AdminUsagePage(props: { viewerId: number; sid: string | undefined }) {
+function AdminUsagePage(props: {
+  embedded?: boolean
+  viewerId: number
+  sid: string | undefined
+}) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const [page, setPage] = useState(1)
@@ -125,134 +130,148 @@ function AdminUsagePage(props: { viewerId: number; sid: string | undefined }) {
     { value: '7', label: t('Last 7 days') },
     { value: '30', label: t('Last 30 days') },
   ]
+  const actions = (
+    <>
+      <Select
+        value={String(period.days)}
+        items={ranges}
+        onValueChange={(value) => {
+          if (value) {
+            setPeriod({
+              days: Number(value),
+              end: Math.floor(Date.now() / 1000),
+            })
+          }
+        }}
+      >
+        <SelectTrigger aria-label={t('Usage period')}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {ranges.map((range) => (
+              <SelectItem key={range.value} value={range.value}>
+                {range.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      <Button
+        variant='outline'
+        disabled={users.isFetching || usage.isFetching}
+        onClick={() => {
+          setPeriod((previous) => ({
+            ...previous,
+            end: Math.floor(Date.now() / 1000),
+          }))
+          void client.invalidateQueries({ queryKey: prefix })
+        }}
+      >
+        {t('Refresh display')}
+      </Button>
+    </>
+  )
+  const content = (
+    <>
+      <p className='text-muted-foreground mb-4 text-sm leading-relaxed'>
+        {t(
+          'Site usage only includes requests through New API. Saved summaries may lag behind usage logs. Official GPT quota also includes usage outside this site.'
+        )}{' '}
+        {t(
+          'Refresh display reads saved data; it does not probe every GPT account.'
+        )}
+      </p>
+      {usage.isError && (
+        <ErrorState
+          className='min-h-0 py-3'
+          title={t('Site usage summary unavailable')}
+          description={t(
+            'Failed reads are shown as unavailable, not zero usage.'
+          )}
+          onRetry={() => void usage.refetch()}
+        />
+      )}
+      {users.isPending && <LoadingState inline message={t('Loading...')} />}
+      {users.isError && (
+        <ErrorState
+          title={t('Failed to load users')}
+          onRetry={() => void users.refetch()}
+        />
+      )}
+      {!users.isError && users.data && (
+        <>
+          <div className='grid gap-4 xl:grid-cols-2'>
+            {users.data.items.map((user) => (
+              <UserUsageCard
+                key={user.id}
+                user={user}
+                total={
+                  usage.isError ? undefined : usage.data?.get(user.username)
+                }
+                usageState={usageState}
+                prefix={prefix}
+                start={start}
+                end={period.end}
+              />
+            ))}
+          </div>
+          {users.data.items.length === 0 && (
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>{t('No users found')}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
+          )}
+          <Pagination className='mt-4' aria-label={t('User pages')}>
+            <PaginationContent>
+              <PaginationItem>
+                <Button
+                  variant='outline'
+                  disabled={page === 1}
+                  onClick={() => setPage(page - 1)}
+                >
+                  {t('Previous')}
+                </Button>
+              </PaginationItem>
+              <PaginationItem>
+                <span className='px-3 text-sm'>
+                  {t('Page {{page}} of {{pages}}', {
+                    page,
+                    pages: Math.max(1, Math.ceil(users.data.total / 10)),
+                  })}
+                </span>
+              </PaginationItem>
+              <PaginationItem>
+                <Button
+                  variant='outline'
+                  disabled={page * 10 >= users.data.total}
+                  onClick={() => setPage(page + 1)}
+                >
+                  {t('Next')}
+                </Button>
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </>
+      )}
+    </>
+  )
+  if (props.embedded) {
+    return (
+      <div className='space-y-4'>
+        <div className='flex flex-wrap gap-2'>{actions}</div>
+        {content}
+      </div>
+    )
+  }
   return (
     <SectionPageLayout stackActionsOnMobile>
       <SectionPageLayout.Title>
         {t('User usage overview')}
       </SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        <Select
-          value={String(period.days)}
-          items={ranges}
-          onValueChange={(value) => {
-            if (value) {
-              setPeriod({
-                days: Number(value),
-                end: Math.floor(Date.now() / 1000),
-              })
-            }
-          }}
-        >
-          <SelectTrigger aria-label={t('Usage period')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {ranges.map((range) => (
-                <SelectItem key={range.value} value={range.value}>
-                  {range.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        <Button
-          variant='outline'
-          disabled={users.isFetching || usage.isFetching}
-          onClick={() => {
-            setPeriod((previous) => ({
-              ...previous,
-              end: Math.floor(Date.now() / 1000),
-            }))
-            void client.invalidateQueries({ queryKey: prefix })
-          }}
-        >
-          {t('Refresh display')}
-        </Button>
-      </SectionPageLayout.Actions>
-      <SectionPageLayout.Content>
-        <p className='text-muted-foreground mb-4 text-sm leading-relaxed'>
-          {t(
-            'Site usage only includes requests through New API. Saved summaries may lag behind usage logs. Official GPT quota also includes usage outside this site.'
-          )}{' '}
-          {t(
-            'Refresh display reads saved data; it does not probe every GPT account.'
-          )}
-        </p>
-        {usage.isError && (
-          <ErrorState
-            className='min-h-0 py-3'
-            title={t('Site usage summary unavailable')}
-            description={t(
-              'Failed reads are shown as unavailable, not zero usage.'
-            )}
-            onRetry={() => void usage.refetch()}
-          />
-        )}
-        {users.isPending && <LoadingState inline message={t('Loading...')} />}
-        {users.isError && (
-          <ErrorState
-            title={t('Failed to load users')}
-            onRetry={() => void users.refetch()}
-          />
-        )}
-        {!users.isError && users.data && (
-          <>
-            <div className='grid gap-4 xl:grid-cols-2'>
-              {users.data.items.map((user) => (
-                <UserUsageCard
-                  key={user.id}
-                  user={user}
-                  total={
-                    usage.isError ? undefined : usage.data?.get(user.username)
-                  }
-                  usageState={usageState}
-                  prefix={prefix}
-                  start={start}
-                  end={period.end}
-                />
-              ))}
-            </div>
-            {users.data.items.length === 0 && (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyTitle>{t('No users found')}</EmptyTitle>
-                </EmptyHeader>
-              </Empty>
-            )}
-            <Pagination className='mt-4' aria-label={t('User pages')}>
-              <PaginationContent>
-                <PaginationItem>
-                  <Button
-                    variant='outline'
-                    disabled={page === 1}
-                    onClick={() => setPage(page - 1)}
-                  >
-                    {t('Previous')}
-                  </Button>
-                </PaginationItem>
-                <PaginationItem>
-                  <span className='px-3 text-sm'>
-                    {t('Page {{page}} of {{pages}}', {
-                      page,
-                      pages: Math.max(1, Math.ceil(users.data.total / 10)),
-                    })}
-                  </span>
-                </PaginationItem>
-                <PaginationItem>
-                  <Button
-                    variant='outline'
-                    disabled={page * 10 >= users.data.total}
-                    onClick={() => setPage(page + 1)}
-                  >
-                    {t('Next')}
-                  </Button>
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
-          </>
-        )}
-      </SectionPageLayout.Content>
+      <SectionPageLayout.Actions>{actions}</SectionPageLayout.Actions>
+      <SectionPageLayout.Content>{content}</SectionPageLayout.Content>
     </SectionPageLayout>
   )
 }

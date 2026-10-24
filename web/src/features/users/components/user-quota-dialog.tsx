@@ -24,6 +24,7 @@ import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -31,6 +32,7 @@ import { cn } from '@/lib/utils'
 
 import { adjustUserQuota } from '../api'
 import type { QuotaAdjustMode } from '../types'
+import { useUsers } from './users-provider'
 
 interface UserQuotaDialogProps {
   open: boolean
@@ -40,10 +42,13 @@ interface UserQuotaDialogProps {
   onSuccess: () => void
 }
 
+/** 在提交前展示金额前后值并验证管理员，原因与原钱包审计一起保存。 */
 export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<QuotaAdjustMode>('add')
   const [amount, setAmount] = useState('')
+  const [reason, setReason] = useState('')
+  const { requestVerification, verificationActive } = useUsers()
   const [loading, setLoading] = useState(false)
 
   const { meta: currencyMeta } = getCurrencyDisplay()
@@ -74,16 +79,26 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
     if (!amount && mode !== 'override') return
     if (quotaValue <= 0 && mode !== 'override') return
 
+    if (!reason.trim()) return
     setLoading(true)
     try {
       const value =
         mode === 'override' ? parseQuotaFromDollars(amountValue) : quotaValue
-      const result = await adjustUserQuota({
-        id: props.userId,
-        action: 'add_quota',
-        mode,
-        value: mode === 'override' ? value : Math.abs(value),
+      const proof = await requestVerification({
+        scope: 'admin.user.update',
+        context: { user_id: props.userId },
       })
+      if (!proof) return
+      const result = await adjustUserQuota(
+        {
+          id: props.userId,
+          action: 'add_quota',
+          mode,
+          reason: reason.trim(),
+          value: mode === 'override' ? value : Math.abs(value),
+        },
+        proof.proof_token
+      )
       if (result.success) {
         toast.success(t('Quota adjusted successfully'))
         setAmount('')
@@ -112,9 +127,9 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
 
   return (
     <Dialog
-      open={props.open}
+      open={props.open && !verificationActive}
       onOpenChange={props.onOpenChange}
-      title={t('Adjust Quota')}
+      title={t('Adjust site balance')}
       description={t('Select an operation mode and enter the amount')}
       contentHeight='auto'
       bodyClassName='space-y-4'
@@ -123,7 +138,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
           <Button variant='outline' onClick={handleCancel}>
             {t('Cancel')}
           </Button>
-          <Button onClick={handleConfirm} disabled={loading}>
+          <Button onClick={handleConfirm} disabled={loading || !reason.trim()}>
             {loading ? t('Processing...') : t('Confirm')}
           </Button>
         </>
@@ -131,6 +146,20 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
     >
       <div className='space-y-4'>
         <div className='text-muted-foreground text-sm'>{getPreviewText()}</div>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Changing the site balance does not extend hosting or reset official quota.'
+          )}
+        </p>
+        <div className='space-y-2'>
+          <Label htmlFor='wallet-reason'>{t('Reason or note')}</Label>
+          <Textarea
+            id='wallet-reason'
+            value={reason}
+            maxLength={255}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </div>
 
         <div className='space-y-2'>
           <Label>{t('Mode')}</Label>

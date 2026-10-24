@@ -68,11 +68,59 @@ function claim(row, body) {
   hostedDb().prepare('UPDATE hosted_slots SET generation = ? WHERE vm_id = ?').run(body.generation, row.vm_id)
 }
 
+/** 核验历史槽位的真实身份和独占 Key。只读失败不会隔离槽位，也不会刷新或替换官方令牌。 */
+async function inspectLegacy(ctx, vm, body) {
+  if (hostedRecord(vm.id)) throw hostedError('hosting_conflict')
+  const px = ctx.requireSlotProxy(vm, {})
+  if (!px.ok) throw hostedError('exit_unavailable')
+  const accounts = readCodexAccounts(ctx.cfg.paths.project, vm.id)
+  if (accounts.length !== 1) throw hostedError('identity_invalid')
+  const identity = await verifyHostedIdentity(accounts[0], px.proxyUrl)
+  // 官方验签会让出事件循环；期间旧管理页或内核若更换了凭据，必须重新预检，不能接管已变化的账号。
+  if (JSON.stringify(readCodexAccounts(ctx.cfg.paths.project, vm.id)) !== JSON.stringify(accounts)) throw hostedError('account_changed')
+  const keys = ctx.apiKeyStore.repo.list()
+  const key = keys.find(k => plainApiKey(k) === body.key && body.key)
+  const pools = new VmPoolsRepo(hostedDb()).list()
+  const scope = k => {
+    if (k.vm_pool_id) return pools.find(p => p.id === k.vm_pool_id)?.vm_ids || []
+    try { return Array.isArray(k.allowed_vms) ? k.allowed_vms : JSON.parse(k.allowed_vms || '[]') } catch { throw hostedError('hosting_conflict') }
+  }
+  if (!key || key.status !== 'active' || key.group_type !== 'openai' || scope(key).length !== 1 || scope(key)[0] !== vm.id) throw hostedError('hosting_conflict')
+  // 其他明确指向该槽的 Key 表示共享配置；全局 master/all 在永久标记生效后统一被拒绝。
+  if (keys.some(k => k.id !== key.id && scope(k).includes(vm.id))) throw hostedError('hosting_conflict')
+  const pool = key.vm_pool_id && pools.find(p => p.id === key.vm_pool_id)
+  if (pool && !pool.enabled) throw hostedError('hosting_conflict')
+  return { vm_id:vm.id, state:'checked', ...identity, key_id:key.id, pool_id:pool?.id || '' }
+}
+
 /** 处理单槽动作；所有路径由管理员登记、所有绑定由中央数据库生成，客户端不能提供上游地址。 */
 async function operate(ctx, vm, action, body, commit) {
   const db = hostedDb(), root = ctx.cfg.paths.project
   let row = hostedRecord(vm.id)
   const px = ctx.requireSlotProxy(vm, {})
+  if (action === 'takeover-check') return inspectLegacy(ctx, vm, body)
+  if (action === 'takeover') {
+    if (!UUID.test(body.binding_id || '') || !Number.isSafeInteger(body.generation) || body.generation < 0) throw hostedError()
+    if (!row) {
+      const checked = await inspectLegacy(ctx, vm, body)
+      if (checked.account_hash !== body.account_hash || checked.subject_hash !== body.subject_hash || checked.key_id !== body.key_id) throw hostedError('account_changed')
+      // 中央已持久化唯一身份后才插入永久标记；崩溃只会暂停该账号，不会开放给其他 Key。
+      db.prepare("INSERT INTO hosted_slots (vm_id,binding_id,generation,state,account_hash,subject_hash,key_id,pool_id,label,plan) VALUES (?,?,?,'prepared',?,?,?,?,?,?)").run(vm.id,body.binding_id,body.generation,checked.account_hash,checked.subject_hash,checked.key_id,checked.pool_id || null,checked.label,checked.plan)
+      db.prepare('INSERT OR IGNORE INTO hosted_keys (key_id,vm_id,binding_id) VALUES (?,?,?)').run(checked.key_id,vm.id,body.binding_id)
+      row = hostedRecord(vm.id)
+    }
+    claim(row, body)
+    db.prepare('INSERT OR IGNORE INTO hosted_keys (key_id,vm_id,binding_id) VALUES (?,?,?)').run(row.key_id,vm.id,body.binding_id)
+    if (row.binding_id !== body.binding_id || row.account_hash !== body.account_hash || row.subject_hash !== body.subject_hash) throw hostedError()
+    if (!['prepared','active','paused'].includes(row.state)) throw hostedError()
+    // 首次接管需要结束旧内核的在途刷新；重复调用已激活状态时保持原运行进程。
+    if (row.state === 'prepared') {
+      setVmSchedulable(root,vm.id,false,'hosting_takeover')
+      const child = stopCodexKernel(vm.id)
+      if (child && !(await finishCodexRecycle(child,null)).exited) throw hostedError('cleanup_pending')
+    }
+    return view(hostedRecord(vm.id))
+  }
   if (action === 'enroll') {
     if (row && row.state !== 'inventory') return view(row)
     if (row) { await clearCredentials(ctx, vm); return view(row) }
@@ -126,7 +174,7 @@ async function operate(ctx, vm, action, body, commit) {
     return view(hostedRecord(vm.id))
   }
   if (action === 'activate') {
-    if (body.account_hash !== row.account_hash || body.subject_hash !== row.subject_hash || !row.account_hash || !Number.isSafeInteger(body.starts_at) || !Number.isSafeInteger(body.ends_at) || body.starts_at > Math.floor(Date.now()/1000) || body.ends_at <= Math.floor(Date.now()/1000) || body.starts_at >= body.ends_at) throw hostedError()
+    if (body.account_hash !== row.account_hash || body.subject_hash !== row.subject_hash || !row.account_hash || !Number.isSafeInteger(body.starts_at) || !Number.isSafeInteger(body.ends_at) || body.ends_at <= Math.floor(Date.now()/1000) || body.starts_at >= body.ends_at) throw hostedError()
     if (!['prepared','active','paused'].includes(row.state)) throw hostedError()
     if (row.pending) {
       const account = JSON.parse(decryptString(row.pending))
@@ -149,10 +197,11 @@ async function operate(ctx, vm, action, body, commit) {
     db.prepare('INSERT OR IGNORE INTO hosted_keys (key_id, vm_id, binding_id) VALUES (?, ?, ?)').run(key.id, vm.id, body.binding_id)
     const plain = plainApiKey(key)
     if (!plain) throw hostedError('hosting_unavailable')
-    ctx.apiKeyStore.update(key.id, { status:'active',expires_at:new Date(body.ends_at*1000).toISOString() })
+    const enabled = body.starts_at <= Math.floor(Date.now()/1000) && body.enabled !== false
+    ctx.apiKeyStore.update(key.id, { vm_pool_id:pool.id,group_type:'openai',status:enabled?'active':'disabled',expires_at:new Date(body.ends_at*1000).toISOString() })
     const boot = await startSlotReady(getVm(root,vm.id),root,{routing:ctx.routingConfig})
     if (!boot?.ok) throw hostedError('slot_unavailable')
-    db.prepare("UPDATE hosted_slots SET state = 'active', starts_at = ?, ends_at = ?, pending = NULL WHERE vm_id = ?").run(body.starts_at,body.ends_at,vm.id)
+    db.prepare("UPDATE hosted_slots SET state = ?, starts_at = ?, ends_at = ?, pending = NULL WHERE vm_id = ?").run(enabled?'active':'paused',body.starts_at,body.ends_at,vm.id)
     setVmSchedulable(root,vm.id,true,null)
     return { ...view(hostedRecord(vm.id)), key:plain }
   }
@@ -214,7 +263,7 @@ export async function handleHostedPanel(ctx, req, res, url, commit) {
       })
       ctx.json(res,200,{ok:true,data:{version:1,slots}}); return true
     }
-    const match = p.match(/^\/api\/panel\/hosting\/slots\/([A-Za-z0-9_-]{1,80})\/(enroll|reserve|login|prepare|activate|policy|release)$/)
+    const match = p.match(/^\/api\/panel\/hosting\/slots\/([A-Za-z0-9_-]{1,80})\/(enroll|reserve|login|prepare|activate|policy|release|takeover-check|takeover)$/)
     if (!match || req.method !== 'POST') throw hostedError()
     const id = match[1]
     if (!ID.test(id) || busy.has(id)) throw hostedError('hosting_busy')

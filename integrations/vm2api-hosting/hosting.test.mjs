@@ -12,8 +12,9 @@ const runtime = await import(moduleURL('vm/slot-runtime.mjs'))
 let stopOK = true
 mock.module(moduleURL('vm/slot-runtime.mjs'), { namedExports:{...runtime, stopSlot:async()=>({ok:stopOK}),startSlotReady:async()=>({ok:true})} })
 const identity = await import(moduleURL('admin/hosted-identity.mjs'))
+let identityReadHook = null
 const official = {account_hash:'a'.repeat(64),subject_hash:'b'.repeat(64),label:'a***@example.test',plan:'plus'}
-mock.module(moduleURL('admin/hosted-identity.mjs'), {namedExports:{...identity,verifyHostedIdentity:async()=>official,probeHostedExit:async()=>{}}})
+mock.module(moduleURL('admin/hosted-identity.mjs'), {namedExports:{...identity,verifyHostedIdentity:async()=>{if(identityReadHook) await identityReadHook();return official},probeHostedExit:async()=>{}}})
 const oauth = await import(moduleURL('oauth/codex-oauth.mjs'))
 mock.module(moduleURL('oauth/codex-oauth.mjs'), {namedExports:{...oauth,exchangeCodexAuthCode:async()=>({access_token:'fixture-access',refresh_token:'fixture-refresh',id_token:'fixture-id'})}})
 const { handleHostedPanel } = await import(moduleURL('admin/hosted-panel.mjs'))
@@ -92,4 +93,51 @@ test('prepare, activate, pause, fencing and verified cleanup preserve the prebui
  assert.equal((await call('reserve',{binding_id:nextBinding,generation:1})).status,200,'new owner starts its own generation')
  assert.equal(hostedAllows({hosted_key_id:key},vm.id),false,'old key cannot access reallocated slot')
  assert.equal((await call('policy',{...body,generation:99,enabled:true})).status,409,'old owner cannot modify new binding')
+})
+
+test('legacy takeover validates scope before mutation and resumes one isolated key after response loss', async()=>{
+ const originalId=vm.id
+ vm.id='legacy-takeover'
+ fs.writeFileSync(path.join(tmp,'vms',vm.id+'.json'),JSON.stringify(vm))
+ fs.mkdirSync(path.join(tmp,'vms',vm.id),{recursive:true})
+ writeCodexAccounts(tmp,vm.id,[{access_token:'legacy-access',id_token:'legacy-id',refresh_token:'legacy-refresh'}])
+ const key=keys.create({name:'legacy-specific',group_type:'openai',allowed_vms:[vm.id],max_concurrency:3})
+ const original=keys.repo.getById(key.id)
+ const {plainApiKey}=await import(moduleURL('admin/api-keys.mjs'))
+ const secret=plainApiKey(original)
+ // 验签等待期间另一个管理入口更新凭据时，必须拒绝用旧身份接管新凭据。
+ identityReadHook=async()=>writeCodexAccounts(tmp,vm.id,[{access_token:'changed-access',id_token:'changed-id',refresh_token:'changed-refresh'}])
+ assert.equal((await call('takeover-check',{key:secret})).status,409)
+ assert.equal(hostedRecord(vm.id),null)
+ identityReadHook=null
+ writeCodexAccounts(tmp,vm.id,[{access_token:'legacy-access',id_token:'legacy-id',refresh_token:'legacy-refresh'}])
+ const checked=await call('takeover-check',{key:secret})
+ assert.equal(checked.status,200)
+ assert.equal(checked.body.data.state,'checked')
+ assert.equal(hostedRecord(vm.id),null,'preflight must not isolate the old slot')
+ const duplicate=keys.create({name:'shared-explicit',group_type:'openai',allowed_vms:[vm.id]})
+ assert.equal((await call('takeover-check',{key:secret})).status,409,'shared explicit keys must block takeover')
+ assert.equal(hostedRecord(vm.id),null)
+ keys.update(duplicate.id,{allowed_vms:['other-slot']})
+ const body={key:secret,key_id:key.id,binding_id:'00000000-0000-4000-8000-000000000003',generation:1,...official}
+ assert.equal((await call('takeover',{...body,account_hash:'c'.repeat(64)})).status,409)
+ assert.equal(hostedRecord(vm.id),null,'identity changes must leave legacy service alone')
+ assert.equal((await call('takeover',body)).status,200)
+ assert.equal(hostedAllows({group_type:'all'},vm.id),false,'permanent isolation must precede activation')
+ assert.equal(readCodexAccounts(tmp,vm.id)[0].access_token,'legacy-access','takeover does not exchange or rotate credentials')
+ assert.equal((await call('takeover',{...body,generation:2})).status,200,'same binding resumes after response loss')
+ const now=Math.floor(Date.now()/1000)
+ const active=await call('activate',{...body,generation:2,starts_at:now-1,ends_at:now+3600})
+ assert.equal(active.status,200)
+ assert.equal(active.body.data.key,secret,'exclusive existing upstream key is retained')
+ assert.equal(active.body.data.key_id,key.id)
+ assert.equal(hostedAllows({hosted_key_id:key.id},vm.id),true)
+ assert.equal(hostedAllows({hosted_key_id:key.id},'other-slot'),false)
+ const scheduled=await call('activate',{...body,generation:3,starts_at:now+60,ends_at:now+3600})
+ assert.equal(scheduled.status,200)
+ assert.equal(hostedAllows({hosted_key_id:key.id},vm.id),false,'future terms are not yet usable')
+ assert.equal((await call('policy',{...body,generation:4,starts_at:now-1,ends_at:now+3600,enabled:true})).status,200)
+ assert.equal(hostedAllows({hosted_key_id:key.id},vm.id),true,'policy reconciliation resumes the same key')
+ assert.equal((await call('takeover',{...body,binding_id:binding,generation:99})).status,409)
+ vm.id=originalId
 })
