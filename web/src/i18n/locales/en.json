@@ -7693,15 +7693,15 @@
     "Takeover is incomplete. Retry the saved operation; the account remains reserved.": "Takeover is incomplete. Retry the saved operation; the account remains reserved.",
     "The official account identity could not be verified. Sign in to the original GPT account again before takeover.": "The official account identity could not be verified. Sign in to the original GPT account again before takeover.",
     "This will bring the existing account under hosting expiry controls. Client New API keys are retained.": "This will bring the existing account under hosting expiry controls. Client New API keys are retained.",
-    "Save profile changes": "Save profile changes"
-  },
-  "Checking existing binding...": "Checking existing binding...",
-  "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.",
-  "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.",
-  "The GPT sign-in could not be verified. Start a new GPT sign-in.": "The GPT sign-in could not be verified. Start a new GPT sign-in.",
-  "View accounts, renew hosting and manage quotas in one place.": "View accounts, renew hosting and manage quotas in one place.",
-  "{{count}} users have no hosting term": "{{count}} users have no hosting term",
-  "Existing accounts keep working until you set their hosting term.": "Existing accounts keep working until you set their hosting term.",
-  "View and set terms": "View and set terms",
-  "Refresh data": "Refresh data"
+    "Save profile changes": "Save profile changes",
+    "Checking existing binding...": "Checking existing binding...",
+    "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.",
+    "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.",
+    "The GPT sign-in could not be verified. Start a new GPT sign-in.": "The GPT sign-in could not be verified. Start a new GPT sign-in.",
+    "View accounts, renew hosting and manage quotas in one place.": "View accounts, renew hosting and manage quotas in one place.",
+    "{{count}} users have no hosting term": "{{count}} users have no hosting term",
+    "Existing accounts keep working until you set their hosting term.": "Existing accounts keep working until you set their hosting term.",
+    "View and set terms": "View and set terms",
+    "Refresh data": "Refresh data"
+  }
 }

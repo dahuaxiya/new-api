@@ -230,3 +230,7 @@
     padding: 20px 16px;
   }
 }
+
+.users-workspace [data-slot='tabs-trigger'][data-active]::after {
+  background: var(--primary);
+}

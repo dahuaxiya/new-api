@@ -7693,15 +7693,15 @@
     "Takeover is incomplete. Retry the saved operation; the account remains reserved.": "接管尚未完成。請重試已儲存的操作，帳號仍保留給目前使用者。",
     "The official account identity could not be verified. Sign in to the original GPT account again before takeover.": "無法驗證官方帳號身分。請先重新登入原 GPT 帳號，再進行接管。",
     "This will bring the existing account under hosting expiry controls. Client New API keys are retained.": "確認後，舊帳號將按託管期限管理，用戶端既有的 New API Key 保持不變。",
-    "Save profile changes": "儲存使用者資料"
-  },
-  "Checking existing binding...": "正在核對現有綁定…",
-  "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "無需重新登入 GPT。現有直連 Key 和帳號憑證保留，所有保留的 Key 共用這段託管期限；New API 繼續使用原來的一把上游 Key。",
-  "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "管理員設定期限無需重新登入 GPT；使用者重新登入帳號時才驗證官方身分。",
-  "The GPT sign-in could not be verified. Start a new GPT sign-in.": "無法驗證本次 GPT 登入，請重新發起 GPT 帳號登入。",
-  "View accounts, renew hosting and manage quotas in one place.": "在同一處查看帳號、續期託管及管理額度。",
-  "{{count}} users have no hosting term": "{{count}} 位使用者尚未設定託管期限",
-  "Existing accounts keep working until you set their hosting term.": "設定期限前保留原有服務，不會自動到期。",
-  "View and set terms": "查看並設定",
-  "Refresh data": "重新整理資料"
+    "Save profile changes": "儲存使用者資料",
+    "Checking existing binding...": "正在核對現有綁定…",
+    "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "無需重新登入 GPT。現有直連 Key 和帳號憑證保留，所有保留的 Key 共用這段託管期限；New API 繼續使用原來的一把上游 Key。",
+    "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "管理員設定期限無需重新登入 GPT；使用者重新登入帳號時才驗證官方身分。",
+    "The GPT sign-in could not be verified. Start a new GPT sign-in.": "無法驗證本次 GPT 登入，請重新發起 GPT 帳號登入。",
+    "View accounts, renew hosting and manage quotas in one place.": "在同一處查看帳號、續期託管及管理額度。",
+    "{{count}} users have no hosting term": "{{count}} 位使用者尚未設定託管期限",
+    "Existing accounts keep working until you set their hosting term.": "設定期限前保留原有服務，不會自動到期。",
+    "View and set terms": "查看並設定",
+    "Refresh data": "重新整理資料"
+  }
 }

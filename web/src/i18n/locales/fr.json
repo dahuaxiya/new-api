@@ -7693,15 +7693,15 @@
     "Takeover is incomplete. Retry the saved operation; the account remains reserved.": "Reprise incomplète. Réessayez l’opération enregistrée ; le compte reste réservé.",
     "The official account identity could not be verified. Sign in to the original GPT account again before takeover.": "Identité officielle non vérifiée. Reconnectez-vous au compte GPT d’origine avant la reprise.",
     "This will bring the existing account under hosting expiry controls. Client New API keys are retained.": "Le compte existant sera soumis à la durée d’hébergement. Les clés New API des clients sont conservées.",
-    "Save profile changes": "Enregistrer le profil"
-  },
-  "Checking existing binding...": "Vérification de la liaison existante…",
-  "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.",
-  "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "La gestion de la période ne nécessite pas de connexion GPT. L’identité officielle est vérifiée à la prochaine connexion du compte.",
-  "The GPT sign-in could not be verified. Start a new GPT sign-in.": "Cette connexion GPT n’a pas pu être vérifiée. Démarrez une nouvelle connexion GPT.",
-  "View accounts, renew hosting and manage quotas in one place.": "Consultez les comptes, renouvelez l’hébergement et gérez les quotas au même endroit.",
-  "{{count}} users have no hosting term": "{{count}} utilisateurs sans période d’hébergement",
-  "Existing accounts keep working until you set their hosting term.": "Les comptes existants restent actifs jusqu’à la définition de leur période.",
-  "View and set terms": "Voir et définir",
-  "Refresh data": "Actualiser les données"
+    "Save profile changes": "Enregistrer le profil",
+    "Checking existing binding...": "Vérification de la liaison existante…",
+    "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.",
+    "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "La gestion de la période ne nécessite pas de connexion GPT. L’identité officielle est vérifiée à la prochaine connexion du compte.",
+    "The GPT sign-in could not be verified. Start a new GPT sign-in.": "Cette connexion GPT n’a pas pu être vérifiée. Démarrez une nouvelle connexion GPT.",
+    "View accounts, renew hosting and manage quotas in one place.": "Consultez les comptes, renouvelez l’hébergement et gérez les quotas au même endroit.",
+    "{{count}} users have no hosting term": "{{count}} utilisateurs sans période d’hébergement",
+    "Existing accounts keep working until you set their hosting term.": "Les comptes existants restent actifs jusqu’à la définition de leur période.",
+    "View and set terms": "Voir et définir",
+    "Refresh data": "Actualiser les données"
+  }
 }

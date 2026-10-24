@@ -32,6 +32,7 @@ export function UsersMobileCard(props: { row: Row<User> }) {
     .filter((cell) => cell.column.id !== 'select')
   const title = cells.find((cell) => cell.column.id === 'username')
   const actions = cells.find((cell) => cell.column.id === 'actions')
+  const status = cells.find((cell) => cell.column.id === 'status')
   return (
     <article
       className='users-mobile-card'
@@ -41,12 +42,18 @@ export function UsersMobileCard(props: { row: Row<User> }) {
         <div className='min-w-0 flex-1'>
           {title && flexRender(title.column.columnDef.cell, title.getContext())}
         </div>
-        {actions &&
-          flexRender(actions.column.columnDef.cell, actions.getContext())}
+        <div className='flex shrink-0 flex-col items-end gap-1'>
+          {actions &&
+            flexRender(actions.column.columnDef.cell, actions.getContext())}
+          {status &&
+            flexRender(status.column.columnDef.cell, status.getContext())}
+        </div>
       </div>
       <dl className='users-mobile-fields'>
         {cells
-          .filter((cell) => cell !== title && cell !== actions)
+          .filter(
+            (cell) => cell !== title && cell !== actions && cell !== status
+          )
           .map((cell) => (
             <div
               key={cell.id}

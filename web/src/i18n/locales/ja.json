@@ -7693,15 +7693,15 @@
     "Takeover is incomplete. Retry the saved operation; the account remains reserved.": "引き継ぎ未完了です。保存済みの操作を再試行してください。アカウントは予約されたままです。",
     "The official account identity could not be verified. Sign in to the original GPT account again before takeover.": "公式アカウントを確認できません。元の GPT アカウントに再ログインしてから引き継いでください。",
     "This will bring the existing account under hosting expiry controls. Client New API keys are retained.": "既存アカウントにホスティング期限が適用されます。クライアントの New API キーは維持されます。",
-    "Save profile changes": "ユーザー情報を保存"
-  },
-  "Checking existing binding...": "既存の関連付けを確認しています…",
-  "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.",
-  "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "管理者による期間の設定に GPT ログインは不要です。公式の本人確認はアカウントへの再ログイン時に行われます。",
-  "The GPT sign-in could not be verified. Start a new GPT sign-in.": "今回の GPT ログインを確認できませんでした。GPT ログインをもう一度開始してください。",
-  "View accounts, renew hosting and manage quotas in one place.": "アカウント確認、ホスティング更新、クォータ管理を一か所で。",
-  "{{count}} users have no hosting term": "{{count}} 人のホスティング期間が未設定です",
-  "Existing accounts keep working until you set their hosting term.": "期間を設定するまで既存サービスは継続します。",
-  "View and set terms": "確認・設定",
-  "Refresh data": "データを更新"
+    "Save profile changes": "ユーザー情報を保存",
+    "Checking existing binding...": "既存の関連付けを確認しています…",
+    "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.",
+    "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "管理者による期間の設定に GPT ログインは不要です。公式の本人確認はアカウントへの再ログイン時に行われます。",
+    "The GPT sign-in could not be verified. Start a new GPT sign-in.": "今回の GPT ログインを確認できませんでした。GPT ログインをもう一度開始してください。",
+    "View accounts, renew hosting and manage quotas in one place.": "アカウント確認、ホスティング更新、クォータ管理を一か所で。",
+    "{{count}} users have no hosting term": "{{count}} 人のホスティング期間が未設定です",
+    "Existing accounts keep working until you set their hosting term.": "期間を設定するまで既存サービスは継続します。",
+    "View and set terms": "確認・設定",
+    "Refresh data": "データを更新"
+  }
 }
