@@ -57,7 +57,10 @@ type LogField = {
   sensitive?: boolean
 }
 
-/** Mobile summaries use tappable fields; desktop tooltip cells cannot reveal full text on touch. */
+/**
+ * Mobile summaries use tappable fields; desktop tooltip cells cannot reveal full text on touch.
+ * Reasoning effort reuses the visible desktop cell so missing values and column preferences agree.
+ */
 export function CommonLogMobileCard<TData>(props: {
   log: UsageLog
   cells: Map<string, Cell<TData, unknown>>
@@ -127,6 +130,7 @@ export function CommonLogMobileCard<TData>(props: {
   const costCell = props.cells.get('quota')
   const contentCell = props.cells.get('content')
   const channelCell = props.cells.get('channel')
+  const reasoningEffortCell = props.cells.get('reasoning_effort')
   const cacheRead = other?.cache_tokens || 0
   const cacheWrite =
     (other?.cache_creation_tokens_5m || 0) +
@@ -161,6 +165,17 @@ export function CommonLogMobileCard<TData>(props: {
           </div>
         )}
       </div>
+      {displayable && reasoningEffortCell && (
+        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
+          <span className='text-muted-foreground text-xs'>
+            {t('Reasoning Effort')}
+          </span>
+          {flexRender(
+            reasoningEffortCell.column.columnDef.cell,
+            reasoningEffortCell.getContext()
+          )}
+        </div>
+      )}
       <div
         className='grid min-w-0 grid-cols-2 items-stretch gap-x-3'
         data-slot='log-time-and-timing'

@@ -59,6 +59,7 @@ import {
   formatModelName,
   decodeBillingExprB64,
   getTieredBillingSummary,
+  getReasoningEffortVariant,
   hasAnyCacheTokens,
   parseLogOther,
   isViolationFeeLog,
@@ -340,6 +341,7 @@ function buildTypeDetailSegments(
   return segments
 }
 
+/** 构建个人与管理员共用日志列；推理强度只展示日志实录，不推测模型默认值。 */
 export function useCommonLogsColumns(
   isAdmin: boolean,
   isRoot: boolean,
@@ -689,6 +691,35 @@ export function useCommonLogsColumns(
           )
         },
         meta: { mobileTitle: true },
+      },
+      {
+        id: 'reasoning_effort',
+        header: t('Reasoning Effort'),
+        accessorFn: (log) => {
+          const effort = parseLogOther(log.other)?.reasoning_effort
+          // 旧日志可能缺字段或保留非字符串值；不能把缺失误报为 none 或 medium。
+          return typeof effort === 'string' ? effort.trim() : undefined
+        },
+        cell: ({ row, getValue }) => {
+          if (!isDisplayableLogType(row.original.type)) return null
+          const effort = getValue<string | undefined>()
+          if (!effort) {
+            return (
+              <span className='text-muted-foreground'>{t('Not recorded')}</span>
+            )
+          }
+          return (
+            <StatusBadge
+              label={effort}
+              variant={getReasoningEffortVariant(effort)}
+              size='sm'
+              copyable={false}
+              className='max-w-40 font-mono'
+            />
+          )
+        },
+        size: 120,
+        enableSorting: false,
       },
       {
         accessorKey: 'is_stream',

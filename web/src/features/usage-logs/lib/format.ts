@@ -170,10 +170,13 @@ export function parseLogOther(other: string): LogOtherData | null {
   }
 }
 
+/** 为记录中的推理强度选择颜色；旧日志的无效值使用中性色，不能使整行渲染失败。 */
 export function getReasoningEffortVariant(
-  effort: string | undefined
+  effort: unknown
 ): StatusBadgeProps['variant'] {
-  switch (effort?.trim().toLowerCase()) {
+  // 日志 JSON 没有运行时 schema 保证；详情弹窗也会在关闭时读取这个值。
+  if (typeof effort !== 'string') return 'grey'
+  switch (effort.trim().toLowerCase()) {
     case 'max':
     case 'xhigh':
     case 'high':
