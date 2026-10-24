@@ -7715,6 +7715,14 @@
     "Quota history could not be loaded": "額度歷史載入失敗",
     "No quota history in this range": "此時間範圍暫無額度記錄",
     "History starts when recording is enabled. Earlier readings cannot be recovered.": "歷史從啟用記錄後開始累積，無法補回先前讀數。",
-    "One reading recorded. A line will appear after more readings arrive.": "已記錄一個讀數，後續讀數到達後將形成折線。"
+    "One reading recorded. A line will appear after more readings arrive.": "已記錄一個讀數，後續讀數到達後將形成折線。",
+    "Token Usage": "Token 消耗",
+    "Call Count": "呼叫次數",
+    "Token Usage Trend": "Token 趨勢",
+    "Token Usage Distribution": "Token 分布",
+    "Token Usage Ranking": "Token 排行",
+    "Model analytics metric": "模型分析指標",
+    "Model analytics chart": "模型分析圖表",
+    "Input + output tokens recorded through this site.": "統計透過本站產生的輸入與輸出 Token 合計。"
   }
 }

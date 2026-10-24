@@ -7715,6 +7715,14 @@
     "Quota history could not be loaded": "Quota history could not be loaded",
     "No quota history in this range": "No quota history in this range",
     "History starts when recording is enabled. Earlier readings cannot be recovered.": "History starts when recording is enabled. Earlier readings cannot be recovered.",
-    "One reading recorded. A line will appear after more readings arrive.": "One reading recorded. A line will appear after more readings arrive."
+    "One reading recorded. A line will appear after more readings arrive.": "One reading recorded. A line will appear after more readings arrive.",
+    "Token Usage": "Token Usage",
+    "Call Count": "Call Count",
+    "Token Usage Trend": "Token Usage Trend",
+    "Token Usage Distribution": "Token Usage Distribution",
+    "Token Usage Ranking": "Token Usage Ranking",
+    "Model analytics metric": "Model analytics metric",
+    "Model analytics chart": "Model analytics chart",
+    "Input + output tokens recorded through this site.": "Input + output tokens recorded through this site."
   }
 }

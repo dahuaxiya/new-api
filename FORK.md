@@ -163,3 +163,9 @@ New API 启动后每分钟读取 vm2api 已保存快照，不额外发起模型�
 复用 `GptQuotaCard`、VChart、`useChartTheme`、`NativeSelect` 和项目加载/空/错误状态。既有模型/消耗图表绑定的是模型成功率或本站账单，无法表达官方额度窗口及断档，因此新增额度业务组件，未另造通用图表组件。
 
 验证：SQLite 3.50.4、MySQL 5.7.44、PostgreSQL 16.13 的新表、代表性旧用户/开户表升级、重复迁移、并发乱序写入、归属和保留期；真实会话后台采集/查询隔离；Go race；前端断档、未知/零值、时间范围和失败状态；类型、限定文件 lint/format、生产构建。授权与会话边界遵循 OWASP Authorization、Authentication、Session Management Cheat Sheets 的每次请求检查和服务端归属约束，不宣称完整 ASVS 认证。
+
+### 模型 Token 分析（2026-10-25）
+
+模型调用分析默认显示 Token 消耗，可切换调用次数；趋势、分布和排行使用同一指标，切换后保留原图表类型。数据来自已有统计接口的 `token_used`，表示本站记录的输入与输出 Token 合计，沿用所选时间范围及用户权限；不按账单金额反推 Token，也不代表 GPT 官方剩余额度。Top 20 以当前指标排序，剩余模型汇总为 Other。
+
+复用 `ModelCharts`、`processChartData`、VChart 和 `ToggleGroup`，只增加指标选择与已有聚合的展示，不修改接口、数据库或计费规则。验证覆盖不同指标的排行差异、重复时间桶聚合、零费用模型、空数据、超过 20 个模型的总量保留、切换选中态与范围加载；另检查桌面及窄屏的真实图表。

@@ -7715,6 +7715,14 @@
     "Quota history could not be loaded": "Không thể tải lịch sử hạn mức",
     "No quota history in this range": "Chưa có bản ghi trong khoảng thời gian này",
     "History starts when recording is enabled. Earlier readings cannot be recovered.": "Lịch sử bắt đầu khi bật ghi nhận. Không thể khôi phục dữ liệu trước đó.",
-    "One reading recorded. A line will appear after more readings arrive.": "Đã ghi một giá trị. Đường biểu diễn sẽ xuất hiện khi có thêm dữ liệu."
+    "One reading recorded. A line will appear after more readings arrive.": "Đã ghi một giá trị. Đường biểu diễn sẽ xuất hiện khi có thêm dữ liệu.",
+    "Token Usage": "Lượng token sử dụng",
+    "Call Count": "Số lần gọi",
+    "Token Usage Trend": "Xu hướng token",
+    "Token Usage Distribution": "Phân bố token",
+    "Token Usage Ranking": "Xếp hạng token",
+    "Model analytics metric": "Chỉ số phân tích mô hình",
+    "Model analytics chart": "Biểu đồ phân tích mô hình",
+    "Input + output tokens recorded through this site.": "Tổng token đầu vào và đầu ra được ghi nhận qua trang này."
   }
 }

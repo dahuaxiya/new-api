@@ -20,11 +20,13 @@ import { dataScheme as vchartDefaultDataScheme } from '@visactor/vchart/esm/them
 
 import { MAX_CHART_TREND_POINTS } from '@/features/dashboard/constants'
 import type {
+  ModelAnalyticsMetric,
   QuotaDataItem,
   ProcessedChartData,
   ProcessedUserChartData,
 } from '@/features/dashboard/types'
 import { getCurrencyDisplay } from '@/lib/currency'
+import { formatCompactNumber, formatNumber } from '@/lib/format'
 import { formatChartTime, type TimeGranularity } from '@/lib/time'
 
 type TFunction = (key: string) => string
@@ -65,16 +67,52 @@ function renderQuotaCompat(rawQuota: number, digits = 4): string {
 }
 
 /**
- * Process and aggregate chart data
+ * 按时间和模型汇总本站用量；模型分析可切换次数或 Token，金额图保持原有统计口径。
+ * @param data 已由调用方按用户及时间范围过滤的统计记录，不修改原数据。
+ * @param timeGranularity 趋势聚合的时间粒度。
+ * @param t 当前界面的翻译函数；缺省使用原始英文键。
+ * @param chartCornerRadius 主题提供的图表圆角。
+ * @param modelMetric 模型分析使用的数量指标，默认保留调用次数语义。
+ * @return 金额图与所选模型指标的图表规格，以及互不混用的汇总值。
  */
 export function processChartData(
   data: QuotaDataItem[],
   timeGranularity: TimeGranularity = 'day',
   t?: TFunction,
-  chartCornerRadius?: number
+  chartCornerRadius?: number,
+  modelMetric: ModelAnalyticsMetric = 'requests'
 ): ProcessedChartData {
   const tt: TFunction = t ?? ((x) => x)
   const otherLabel = tt('Other')
+  const metricKey = modelMetric === 'tokens' ? 'tokens' : 'count'
+  const trendTitle =
+    modelMetric === 'tokens' ? tt('Token Usage Trend') : tt('Call Trend')
+  const distributionTitle =
+    modelMetric === 'tokens'
+      ? tt('Token Usage Distribution')
+      : tt('Call Count Distribution')
+  const rankingTitle =
+    modelMetric === 'tokens'
+      ? tt('Token Usage Ranking')
+      : tt('Call Count Ranking')
+  const formatMetric = (value: number) =>
+    modelMetric === 'tokens'
+      ? `${formatNumber(value)} Tokens`
+      : formatNumber(value)
+  // Token 总量可达数亿，坐标轴使用紧凑格式；悬浮提示始终保留完整数量。
+  const metricAxes =
+    modelMetric === 'tokens'
+      ? [
+          {
+            orient: 'left',
+            label: {
+              formatMethod: (value: string | number) =>
+                formatCompactNumber(Number(value)),
+            },
+          },
+          { orient: 'bottom', type: 'band' },
+        ]
+      : undefined
 
   const formatInt = (value: number) =>
     Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
@@ -154,7 +192,7 @@ export function processChartData(
         categoryField: 'type',
         title: {
           visible: true,
-          text: tt('Call Count Distribution'),
+          text: distributionTitle,
           subtext: tt('No data available'),
         },
         legends: { visible: false },
@@ -192,7 +230,7 @@ export function processChartData(
         legends: { visible: true, selectMode: 'single' },
         title: {
           visible: true,
-          text: tt('Call Trend'),
+          text: trendTitle,
         },
       },
       spec_rank_bar: {
@@ -204,11 +242,12 @@ export function processChartData(
         legends: { visible: true, selectMode: 'single' },
         title: {
           visible: true,
-          text: tt('Call Count Ranking'),
+          text: rankingTitle,
         },
       },
       totalQuotaDisplay: formatQuotaTotal(0),
       totalCountDisplay: formatInt(0),
+      totalTokensDisplay: formatNumber(0),
     }
   }
 
@@ -311,12 +350,16 @@ export function processChartData(
     (sum, x) => sum + (Number(x.quota) || 0),
     0
   )
+  const totalTokens = [...modelTotalsMap.values()].reduce(
+    (sum, stats) => sum + stats.tokens,
+    0
+  )
 
-  // Pie chart (model call count proportion)
+  // 三种模型图必须使用同一指标，包括 Top/Other 排序，不能只替换显示标签。
   const pieValues = [...modelTotalsMap.entries()]
     .map(([model, stats]) => ({
       type: model,
-      value: Number(stats.count) || 0,
+      value: Number(stats[metricKey]) || 0,
     }))
     .sort((a, b) => b.value - a.value)
 
@@ -392,12 +435,12 @@ export function processChartData(
     }
   })
 
-  // Line chart: model call trend (top models + "Other" bucket)
+  // Count 保留为既有图表规格的数值字段；其值在 Token 模式下来自 token_used。
   const MAX_TREND_MODELS = 20
   const rankedTrendModels = [...modelTotalsMap.entries()]
     .map(([model, stats]) => ({
       Model: model,
-      Count: Number(stats.count) || 0,
+      Count: Number(stats[metricKey]) || 0,
     }))
     .sort((a, b) => b.Count - a.Count)
   const topTrendModels = rankedTrendModels
@@ -418,13 +461,13 @@ export function processChartData(
       return {
         Time: time,
         Model: model,
-        Count: Number(stats?.count) || 0,
+        Count: Number(stats?.[metricKey]) || 0,
       }
     })
     if (otherTrendModels.length > 0) {
       const otherCount = otherTrendModels.reduce((sum, model) => {
         const stats = timeModelMap.get(time)?.get(model)
-        return sum + (Number(stats?.count) || 0)
+        return sum + (Number(stats?.[metricKey]) || 0)
       }, 0)
       timeData.push({
         Time: time,
@@ -435,12 +478,12 @@ export function processChartData(
     modelLineValues.push(...timeData)
   })
 
-  // Rank bar: model call count ranking (top 20 + "Other" bucket)
+  // 排行保留当前指标前 20 个模型，其余模型汇总为 Other，不丢失总量。
   const MAX_RANK_MODELS = 20
   const allRankValues = [...modelTotalsMap.entries()]
     .map(([model, stats]) => ({
       Model: model,
-      Count: Number(stats.count) || 0,
+      Count: Number(stats[metricKey]) || 0,
     }))
     .sort((a, b) => b.Count - a.Count)
 
@@ -474,7 +517,7 @@ export function processChartData(
       },
       title: {
         visible: true,
-        text: tt('Call Count Distribution'),
+        text: distributionTitle,
       },
       legends: { visible: true, orient: 'left' },
       label: { visible: true },
@@ -485,7 +528,7 @@ export function processChartData(
             {
               key: (datum: Record<string, unknown>) => datum?.type,
               value: (datum: Record<string, unknown>) =>
-                formatInt(Number(datum?.value) || 0),
+                formatMetric(Number(datum?.value) || 0),
             },
           ],
         },
@@ -586,11 +629,12 @@ export function processChartData(
       yField: 'Count',
       seriesField: 'Model',
       stack: false,
+      axes: metricAxes,
       legends: { visible: true, selectMode: 'single' },
       color: modelColor,
       title: {
         visible: true,
-        text: tt('Call Trend'),
+        text: trendTitle,
       },
       tooltip: {
         mark: {
@@ -598,7 +642,7 @@ export function processChartData(
             {
               key: (datum: Record<string, unknown>) => datum?.Model,
               value: (datum: Record<string, unknown>) =>
-                formatInt(Number(datum?.Count) || 0),
+                formatMetric(Number(datum?.Count) || 0),
             },
           ],
         },
@@ -631,11 +675,11 @@ export function processChartData(
             for (let i = 0; i < array.length; i++) {
               const v = Number(array[i].value) || 0
               sum += v
-              array[i].value = formatInt(v)
+              array[i].value = formatMetric(v)
             }
             array.unshift({
               key: tt('Total:'),
-              value: formatInt(sum),
+              value: formatMetric(sum),
             })
             return array
           },
@@ -663,11 +707,12 @@ export function processChartData(
       xField: 'Model',
       yField: 'Count',
       seriesField: 'Model',
+      axes: metricAxes,
       legends: { visible: true, selectMode: 'single' },
       color: modelColor,
       title: {
         visible: true,
-        text: tt('Call Count Ranking'),
+        text: rankingTitle,
       },
       bar: {
         state: {
@@ -680,7 +725,7 @@ export function processChartData(
             {
               key: (datum: Record<string, unknown>) => datum?.Model,
               value: (datum: Record<string, unknown>) =>
-                formatInt(Number(datum?.Count) || 0),
+                formatMetric(Number(datum?.Count) || 0),
             },
           ],
         },
@@ -690,6 +735,7 @@ export function processChartData(
     },
     totalQuotaDisplay: formatQuotaTotal(totalQuotaRaw),
     totalCountDisplay: formatInt(totalTimes),
+    totalTokensDisplay: formatNumber(totalTokens),
   }
 }
 

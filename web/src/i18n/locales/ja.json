@@ -7715,6 +7715,14 @@
     "Quota history could not be loaded": "利用枠の履歴を読み込めませんでした",
     "No quota history in this range": "この期間の記録はまだありません",
     "History starts when recording is enabled. Earlier readings cannot be recovered.": "記録を有効にした時点から蓄積します。それ以前の値は復元できません。",
-    "One reading recorded. A line will appear after more readings arrive.": "1件記録しました。次の読み取り後に折れ線が表示されます。"
+    "One reading recorded. A line will appear after more readings arrive.": "1件記録しました。次の読み取り後に折れ線が表示されます。",
+    "Token Usage": "トークン使用量",
+    "Call Count": "呼び出し回数",
+    "Token Usage Trend": "トークン推移",
+    "Token Usage Distribution": "トークン分布",
+    "Token Usage Ranking": "トークン順位",
+    "Model analytics metric": "モデル分析の指標",
+    "Model analytics chart": "モデル分析のグラフ",
+    "Input + output tokens recorded through this site.": "このサイトで記録した入力・出力トークンの合計。"
   }
 }

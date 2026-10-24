@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { IconBadge } from '@/components/ui/icon-badge'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useThemeCustomization } from '@/context/theme-customization-provider'
 import { useTheme } from '@/context/theme-provider'
 import {
@@ -31,6 +32,7 @@ import {
 import { processChartData } from '@/features/dashboard/lib'
 import type {
   ModelAnalyticsChartTab,
+  ModelAnalyticsMetric,
   QuotaDataItem,
 } from '@/features/dashboard/types'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
@@ -56,6 +58,11 @@ interface ModelChartsProps {
   defaultChartTab?: ModelAnalyticsChartTab
 }
 
+/**
+ * 展示调用方授权范围内的模型用量；切换指标只重算图表，不扩大查询范围。
+ * @param props 已过滤的统计数据、加载状态、时间粒度及默认图表类型。
+ * @return 支持 Token 与调用次数切换的模型分析卡片。
+ */
 export function ModelCharts(props: ModelChartsProps) {
   const { t } = useTranslation()
   const { resolvedTheme } = useTheme()
@@ -67,6 +74,7 @@ export function ModelCharts(props: ModelChartsProps) {
   const [activeTab, setActiveTab] = useState<ModelAnalyticsChartTab>(
     props.defaultChartTab ?? 'trend'
   )
+  const [metric, setMetric] = useState<ModelAnalyticsMetric>('tokens')
   const [themeReady, setThemeReady] = useState(false)
   const themeManagerRef = useRef<
     (typeof import('@visactor/vchart'))['ThemeManager'] | null
@@ -102,53 +110,104 @@ export function ModelCharts(props: ModelChartsProps) {
         props.loading ? [] : props.data,
         timeGranularity,
         t,
-        chartRadius
+        chartRadius,
+        metric
       ),
-    [props.data, props.loading, timeGranularity, t, chartRadius]
+    [props.data, props.loading, timeGranularity, t, chartRadius, metric]
   )
 
   const spec = chartData[CHART_SPEC_KEYS[activeTab]]
   const specType = typeof spec?.type === 'string' ? spec.type : activeTab
   const chartKey = [
     activeTab,
+    metric,
     specType,
     props.loading ? 'loading' : 'ready',
     props.data.length,
     resolvedTheme,
     customization.preset,
   ].join('-')
+  const chartOptions =
+    metric === 'tokens'
+      ? [
+          { value: 'trend', labelKey: 'Token Usage Trend' },
+          { value: 'proportion', labelKey: 'Token Usage Distribution' },
+          { value: 'top', labelKey: 'Token Usage Ranking' },
+        ]
+      : MODEL_ANALYTICS_CHART_OPTIONS
 
   return (
-    <div className='overflow-hidden rounded-lg border'>
-      <div className='flex w-full flex-col gap-1.5 border-b px-3 py-2 sm:gap-3 sm:px-5 sm:py-3 lg:flex-row lg:items-center lg:justify-between'>
-        <div className='flex items-center gap-2'>
+    <section
+      aria-label={t('Model Call Analytics')}
+      className='min-w-0 overflow-hidden rounded-lg border'
+    >
+      <div className='flex w-full flex-col gap-3 border-b px-3 py-2 sm:px-5 sm:py-3'>
+        <div className='flex flex-wrap items-center gap-2'>
           <IconBadge tone='chart-4' size='sm'>
             <PieChartIcon />
           </IconBadge>
           <div className='text-sm font-semibold'>
             {t('Model Call Analytics')}
           </div>
-          <span className='text-muted-foreground text-xs'>
-            {t('Total:')} {chartData.totalCountDisplay}
+          <span
+            className='text-muted-foreground text-xs tabular-nums'
+            aria-live='polite'
+          >
+            {t('Total:')}{' '}
+            {metric === 'tokens'
+              ? `${chartData.totalTokensDisplay} Tokens`
+              : chartData.totalCountDisplay}
           </span>
         </div>
-
-        <div className='bg-muted/60 inline-flex h-7 w-full overflow-x-auto rounded-lg border p-0.5 sm:h-8 sm:w-auto'>
-          {MODEL_ANALYTICS_CHART_OPTIONS.map((tab) => (
-            <button
-              key={tab.value}
-              type='button'
-              onClick={() => setActiveTab(tab.value)}
-              className={`shrink-0 rounded-md px-3 text-xs font-medium transition-colors ${
-                activeTab === tab.value
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {t(tab.labelKey)}
-            </button>
-          ))}
+        <div className='flex min-w-0 flex-wrap items-center gap-2'>
+          <ToggleGroup
+            aria-label={t('Model analytics metric')}
+            value={[metric]}
+            onValueChange={(values) => {
+              // 点击已选项不能清空指标，否则汇总和曲线会失去明确单位。
+              if (values[0] === 'requests' || values[0] === 'tokens') {
+                setMetric(values[0])
+              }
+            }}
+            variant='outline'
+            size='sm'
+          >
+            <ToggleGroupItem value='tokens'>{t('Token Usage')}</ToggleGroupItem>
+            <ToggleGroupItem value='requests'>
+              {t('Call Count')}
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <ToggleGroup
+            aria-label={t('Model analytics chart')}
+            value={[activeTab]}
+            onValueChange={(values) => {
+              if (
+                values[0] === 'trend' ||
+                values[0] === 'proportion' ||
+                values[0] === 'top'
+              ) {
+                setActiveTab(values[0])
+              }
+            }}
+            size='sm'
+            className='bg-muted/60 max-w-full overflow-x-auto rounded-lg p-0.5'
+          >
+            {chartOptions.map((tab) => (
+              <ToggleGroupItem
+                key={tab.value}
+                value={tab.value}
+                className='aria-pressed:bg-background text-xs aria-pressed:shadow-sm'
+              >
+                {t(tab.labelKey)}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
         </div>
+        {metric === 'tokens' && (
+          <p className='text-muted-foreground text-xs'>
+            {t('Input + output tokens recorded through this site.')}
+          </p>
+        )}
       </div>
 
       <div className='h-[300px] p-1.5 sm:h-96 sm:p-2'>
@@ -164,6 +223,6 @@ export function ModelCharts(props: ModelChartsProps) {
           />
         )}
       </div>
-    </div>
+    </section>
   )
 }
