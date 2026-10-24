@@ -7702,6 +7702,10 @@
     "{{count}} users have no hosting term": "{{count}} users have no hosting term",
     "Existing accounts keep working until you set their hosting term.": "Existing accounts keep working until you set their hosting term.",
     "View and set terms": "View and set terms",
-    "Refresh data": "Refresh data"
+    "Refresh data": "Refresh data",
+    "Permanent hosting": "Permanent hosting",
+    "No automatic expiry": "No automatic expiry",
+    "No automatic expiry. Turn off permanent hosting to set an end date or extend the term.": "No automatic expiry. Turn off permanent hosting to set an end date or extend the term.",
+    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account."
   }
 }

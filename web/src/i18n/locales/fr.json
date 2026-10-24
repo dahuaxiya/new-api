@@ -7702,6 +7702,10 @@
     "{{count}} users have no hosting term": "{{count}} utilisateurs sans période d’hébergement",
     "Existing accounts keep working until you set their hosting term.": "Les comptes existants restent actifs jusqu’à la définition de leur période.",
     "View and set terms": "Voir et définir",
-    "Refresh data": "Actualiser les données"
+    "Refresh data": "Actualiser les données",
+    "Permanent hosting": "Hébergement permanent",
+    "No automatic expiry": "Sans expiration automatique",
+    "No automatic expiry. Turn off permanent hosting to set an end date or extend the term.": "Sans expiration automatique. Désactivez l’hébergement permanent pour définir une date de fin ou prolonger la durée.",
+    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "Ce droit d’hébergement n’expire pas automatiquement. L’administrateur peut le désactiver ou modifier sa durée, et vous pouvez dissocier votre compte."
   }
 }

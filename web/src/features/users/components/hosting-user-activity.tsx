@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 
+import { HOSTING_PERMANENT_END } from '@/features/gpt-hosting/api'
 import { getAllLogs } from '@/features/usage-logs/api'
 import { getAuditLogs } from '@/features/usage-logs/audit/api'
 import { usageLogSchema } from '@/features/usage-logs/data/schema'
@@ -98,6 +99,13 @@ export function HostingUserActivity(props: { user: User }) {
               const admin = row.other?.admin_info as
                 | { admin_username?: string }
                 | undefined
+              let endLabel = t('Permanent hosting')
+              if (params.ends_at !== HOSTING_PERMANENT_END) {
+                endLabel =
+                  typeof params.ends_at === 'number'
+                    ? new Date(params.ends_at * 1000).toLocaleString(locale)
+                    : '—'
+              }
               return (
                 <div
                   key={row.event_id}
@@ -118,10 +126,7 @@ export function HostingUserActivity(props: { user: User }) {
                     {typeof params.starts_at === 'number'
                       ? new Date(params.starts_at * 1000).toLocaleString(locale)
                       : '—'}{' '}
-                    →{' '}
-                    {typeof params.ends_at === 'number'
-                      ? new Date(params.ends_at * 1000).toLocaleString(locale)
-                      : '—'}
+                    → {endLabel}
                   </p>
                   {typeof params.note === 'string' && (
                     <p className='break-words'>{params.note}</p>

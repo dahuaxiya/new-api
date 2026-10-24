@@ -139,13 +139,13 @@ func hostingSummary(user *model.User) hostingUserSummary {
 			view.Status = "takeover"
 		case !grant.Enabled || b.Paused:
 			view.Status = "disabled"
-		case now >= grant.EndsAt:
+		case grant.EndsAt != model.HostingPermanentEnd && now >= grant.EndsAt:
 			view.Status = "expired"
 		case now < grant.StartsAt:
 			view.Status = "scheduled"
 		case b.State != "active":
 			view.Status = "awaiting_login"
-		case grant.EndsAt-now <= 7*86400:
+		case grant.EndsAt != model.HostingPermanentEnd && grant.EndsAt-now <= 7*86400:
 			view.Status = "expiring"
 		default:
 			view.Status = "active"

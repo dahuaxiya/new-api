@@ -25,6 +25,9 @@ import {
   requireServerSuccess,
 } from '@/lib/server-error-message'
 
+// 只有服务端约定的 -1 表示永久；0 或缺失值不能被当成永久权益。
+export const HOSTING_PERMANENT_END = -1
+
 export type HostingGrant = {
   user_id: number
   starts_at: number

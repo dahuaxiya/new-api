@@ -31,7 +31,7 @@ const user: User = {
 }
 const clients: QueryClient[] = []
 /** 仅模拟 HTTP 边界，保留真实表单、确认框和二次验证交互。 */
-async function renderPanel(status = 'undated', role = 100) {
+async function renderPanel(status = 'undated', role = 100, endsAt?: number) {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'operator', role })
   const now = Math.floor(Date.now() / 1000)
   const summary = {
@@ -46,7 +46,7 @@ async function renderPanel(status = 'undated', role = 100) {
         : {
             user_id: 2,
             starts_at: now - 100,
-            ends_at: now + 86400,
+            ends_at: endsAt ?? now + 86400,
             retention_days: 7,
             enabled: true,
             note: '',
@@ -178,4 +178,102 @@ it('ordinary administrators can read hosting details but cannot edit terms', asy
     screen.queryByRole('button', { name: 'Review and save hosting term' })
   ).not.toBeInTheDocument()
   expect(screen.queryByLabelText('Ends at')).not.toBeInTheDocument()
+})
+
+it('permanent hosting allows an empty end date and saves -1 only after administrator verification', async () => {
+  const post = vi
+    .spyOn(api, 'post')
+    .mockImplementation(async (url) => ({
+      data: {
+        success: true,
+        data:
+          url === '/api/verify'
+            ? {
+                proof_token: 'fixture-proof',
+                method: '2fa',
+                scope: 'admin.user.update',
+                expires_at: 4102444800,
+              }
+            : {},
+      },
+    }))
+  await renderPanel('active')
+  fireEvent.change(screen.getByLabelText('Ends at'), { target: { value: '' } })
+  await userEvent.click(
+    screen.getByRole('switch', { name: 'Permanent hosting' })
+  )
+  expect(screen.getByLabelText('Ends at')).toBeDisabled()
+  expect(
+    screen.getByRole('button', { name: 'Extend by 30 days' })
+  ).toBeDisabled()
+  expect(
+    screen.getByLabelText('Credential retention days after expiry')
+  ).toBeDisabled()
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Review and save hosting term' })
+  )
+  const confirmation = await screen.findByRole('alertdialog')
+  expect(
+    within(confirmation).getByText(/Permanent hosting/)
+  ).toBeInTheDocument()
+  await userEvent.click(
+    within(confirmation).getByRole('button', { name: 'Continue' })
+  )
+  expect(post).not.toHaveBeenCalled()
+  await userEvent.type(
+    await screen.findByLabelText('Authenticator code or backup code'),
+    '123456'
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Verify' }))
+  await waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      '/api/gpt-hosting/admin/grants',
+      expect.objectContaining({ user_id: 2, ends_at: -1, retention_days: 7 }),
+      expect.objectContaining({
+        headers: { 'X-Security-Proof': 'fixture-proof' },
+      })
+    )
+  )
+})
+
+it('saved permanent hosting reloads without an epoch date and requires a date when changed back', async () => {
+  const post = vi.spyOn(api, 'post')
+  const { client, summary } = await renderPanel('active', 100, -1)
+  await waitFor(() =>
+    expect(
+      screen.getByRole('switch', { name: 'Permanent hosting' })
+    ).toBeChecked()
+  )
+  expect(screen.getByLabelText('Ends at')).toHaveValue('')
+  await userEvent.click(
+    screen.getByRole('switch', { name: 'Permanent hosting' })
+  )
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Review and save hosting term' })
+  )
+  expect(
+    await screen.findByText('The end date must be later than the start date.')
+  ).toBeInTheDocument()
+  expect(post).not.toHaveBeenCalled()
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Extend by 30 days' })
+  )
+  const end = (screen.getByLabelText('Ends at') as HTMLInputElement).value
+  expect(Date.parse(end)).toBeGreaterThan(Date.now())
+  await act(async () => {
+    client.setQueryData(['hosting-user', 1, undefined, 2], {
+      ...summary,
+      grant: { ...summary.grant, note: 'background' },
+    })
+  })
+  expect(
+    screen.getByRole('switch', { name: 'Permanent hosting' })
+  ).not.toBeChecked()
+  expect(screen.getByLabelText('Ends at')).toHaveValue(end)
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Review and save hosting term' })
+  )
+  expect(await screen.findByRole('alertdialog')).toHaveTextContent(
+    end.replace('T', ' ')
+  )
 })

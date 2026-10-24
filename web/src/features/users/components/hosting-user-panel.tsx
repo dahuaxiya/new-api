@@ -30,7 +30,7 @@ import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { postHosting } from '@/features/gpt-hosting/api'
+import { HOSTING_PERMANENT_END, postHosting } from '@/features/gpt-hosting/api'
 import { WindowReading } from '@/features/gpt-quota/quota-reading'
 import { quotaSchema } from '@/features/gpt-quota/schema'
 import { toIntlLocale } from '@/i18n/languages'
@@ -52,7 +52,8 @@ import { useUsers } from './users-provider'
 const grantForm = z
   .object({
     start: z.string().min(1),
-    end: z.string().min(1),
+    end: z.string(),
+    permanent: z.boolean(),
     retention: z.number().int().min(0).max(30),
     enabled: z.boolean(),
     note: z.string().max(255),
@@ -60,7 +61,7 @@ const grantForm = z
   .refine(
     (v) =>
       Number.isFinite(Date.parse(v.start)) &&
-      Date.parse(v.end) > Date.parse(v.start),
+      (v.permanent || Date.parse(v.end) > Date.parse(v.start)),
     {
       path: ['end'],
       message: 'The end date must be later than the start date.',
@@ -93,6 +94,7 @@ export function HostingUserPanel(props: { user: User }) {
     defaultValues: {
       start: hostingLocalDate(Date.now() / 1000),
       end: '',
+      permanent: false,
       retention: 7,
       enabled: true,
       note: '',
@@ -110,13 +112,18 @@ export function HostingUserPanel(props: { user: User }) {
       loadedGrant.current = version
       form.reset({
         start: hostingLocalDate(data.grant.starts_at),
-        end: hostingLocalDate(data.grant.ends_at),
+        end:
+          data.grant.ends_at === HOSTING_PERMANENT_END
+            ? ''
+            : hostingLocalDate(data.grant.ends_at),
+        permanent: data.grant.ends_at === HOSTING_PERMANENT_END,
         retention: data.grant.retention_days,
         enabled: data.grant.enabled,
         note: data.grant.note,
       })
     }
   }, [data?.grant, form, form.formState.isDirty])
+  const permanent = form.watch('permanent')
   const isTakeover = data?.status === 'undated' || data?.status === 'takeover'
   const canWrite =
     actor?.role === ROLE.SUPER_ADMIN &&
@@ -134,7 +141,9 @@ export function HostingUserPanel(props: { user: User }) {
         {
           user_id: props.user.id,
           starts_at: Math.floor(Date.parse(values.start) / 1000),
-          ends_at: Math.floor(Date.parse(values.end) / 1000),
+          ends_at: values.permanent
+            ? HOSTING_PERMANENT_END
+            : Math.floor(Date.parse(values.end) / 1000),
           retention_days: values.retention,
           enabled: values.enabled,
           note: values.note,
@@ -317,6 +326,31 @@ export function HostingUserPanel(props: { user: User }) {
                 )}
               </p>
             </div>
+            <div className='space-y-2'>
+              <div className='flex items-center justify-between'>
+                <FieldLabel htmlFor='hosting-permanent'>
+                  {t('Permanent hosting')}
+                </FieldLabel>
+                <Switch
+                  id='hosting-permanent'
+                  checked={permanent}
+                  disabled={data.status === 'takeover'}
+                  onCheckedChange={(value) =>
+                    form.setValue('permanent', value, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    })
+                  }
+                />
+              </div>
+              {permanent && (
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'No automatic expiry. Turn off permanent hosting to set an end date or extend the term.'
+                  )}
+                </p>
+              )}
+            </div>
             <div className='grid gap-3 sm:grid-cols-2'>
               <Field>
                 <FieldLabel htmlFor='hosting-start'>
@@ -335,7 +369,7 @@ export function HostingUserPanel(props: { user: User }) {
                   id='hosting-end'
                   type='datetime-local'
                   {...form.register('end')}
-                  disabled={data.status === 'takeover'}
+                  disabled={data.status === 'takeover' || permanent}
                 />
                 {form.formState.errors.end && (
                   <FieldError>
@@ -353,12 +387,15 @@ export function HostingUserPanel(props: { user: User }) {
                   key={days}
                   size='sm'
                   variant='outline'
-                  disabled={data.status === 'takeover'}
+                  disabled={data.status === 'takeover' || permanent}
                   onClick={() =>
                     form.setValue(
                       'end',
                       renewedHostingEnd(
-                        data.grant ? hostingLocalDate(data.grant.ends_at) : '',
+                        data.grant &&
+                          data.grant.ends_at !== HOSTING_PERMANENT_END
+                          ? hostingLocalDate(data.grant.ends_at)
+                          : '',
                         days
                       ),
                       { shouldDirty: true }
@@ -379,7 +416,7 @@ export function HostingUserPanel(props: { user: User }) {
                 min={0}
                 max={30}
                 {...form.register('retention', { valueAsNumber: true })}
-                disabled={data.status === 'takeover'}
+                disabled={data.status === 'takeover' || permanent}
               />
               {form.formState.errors.retention && (
                 <FieldError>{t('Enter 0 to 30 days')}</FieldError>
@@ -425,11 +462,15 @@ export function HostingUserPanel(props: { user: User }) {
             <p>{preflight}</p>
             <p>
               {props.user.username} · {review?.start.replace('T', ' ')} →{' '}
-              {review?.end.replace('T', ' ')}
+              {review?.permanent
+                ? t('Permanent hosting')
+                : review?.end.replace('T', ' ')}
             </p>
             <p>
               {review?.enabled ? t('Hosting enabled') : t('Hosting disabled')} ·{' '}
-              {review?.retention} {t('days')}
+              {review?.permanent
+                ? t('No automatic expiry')
+                : `${review?.retention} ${t('days')}`}
             </p>
             <p>
               {isTakeover

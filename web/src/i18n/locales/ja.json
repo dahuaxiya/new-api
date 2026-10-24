@@ -7702,6 +7702,10 @@
     "{{count}} users have no hosting term": "{{count}} 人のホスティング期間が未設定です",
     "Existing accounts keep working until you set their hosting term.": "期間を設定するまで既存サービスは継続します。",
     "View and set terms": "確認・設定",
-    "Refresh data": "データを更新"
+    "Refresh data": "データを更新",
+    "Permanent hosting": "無期限ホスティング",
+    "No automatic expiry": "自動失効なし",
+    "No automatic expiry. Turn off permanent hosting to set an end date or extend the term.": "自動失効しません。終了日時の設定や期間延長には、無期限ホスティングをオフにしてください。",
+    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "このホスティング枠は自動失効しません。管理者による停止や期限変更、およびご自身でのアカウント連携解除が可能です。"
   }
 }

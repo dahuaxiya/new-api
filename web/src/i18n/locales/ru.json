@@ -7702,6 +7702,10 @@
     "{{count}} users have no hosting term": "Для {{count}} пользователей не задан срок размещения",
     "Existing accounts keep working until you set their hosting term.": "Существующие аккаунты работают до назначения срока.",
     "View and set terms": "Посмотреть и настроить",
-    "Refresh data": "Обновить данные"
+    "Refresh data": "Обновить данные",
+    "Permanent hosting": "Бессрочный хостинг",
+    "No automatic expiry": "Без автоматического истечения",
+    "No automatic expiry. Turn off permanent hosting to set an end date or extend the term.": "Отключите бессрочный хостинг, чтобы указать дату окончания или продлить срок.",
+    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "Это право на хостинг не истекает автоматически. Администратор может отключить его или изменить срок, а вы можете отвязать аккаунт."
   }
 }

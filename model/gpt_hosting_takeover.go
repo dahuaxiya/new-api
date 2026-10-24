@@ -118,15 +118,15 @@ func (f HostingUserFilter) Apply(query, tx *gorm.DB) (*gorm.DB, error) {
 	bound = bound.Where("g.enabled = ? AND b.paused = ?", true, false)
 	switch f.Status {
 	case "expired":
-		bound = bound.Where("g.ends_at <= ?", now)
+		bound = bound.Where("g.ends_at <> ? AND g.ends_at <= ?", HostingPermanentEnd, now)
 	case "scheduled":
-		bound = bound.Where("g.ends_at > ? AND g.starts_at > ?", now, now)
+		bound = bound.Where("(g.ends_at = ? OR g.ends_at > ?) AND g.starts_at > ?", HostingPermanentEnd, now, now)
 	case "awaiting_login":
-		bound = bound.Where("g.ends_at > ? AND g.starts_at <= ? AND b.state <> ?", now, now, "active")
+		bound = bound.Where("(g.ends_at = ? OR g.ends_at > ?) AND g.starts_at <= ? AND b.state <> ?", HostingPermanentEnd, now, now, "active")
 	case "expiring":
 		bound = bound.Where("g.ends_at > ? AND g.ends_at <= ? AND g.starts_at <= ? AND b.state = ?", now, now+7*86400, now, "active")
 	case "active":
-		bound = bound.Where("g.ends_at > ? AND g.starts_at <= ? AND b.state = ?", now+7*86400, now, "active")
+		bound = bound.Where("(g.ends_at = ? OR g.ends_at > ?) AND g.starts_at <= ? AND b.state = ?", HostingPermanentEnd, now+7*86400, now, "active")
 	default:
 		return nil, ErrHostingConflict
 	}

@@ -7702,6 +7702,10 @@
     "{{count}} users have no hosting term": "{{count}} người dùng chưa có thời hạn lưu trữ",
     "Existing accounts keep working until you set their hosting term.": "Tài khoản hiện tại tiếp tục hoạt động cho đến khi đặt thời hạn.",
     "View and set terms": "Xem và thiết lập",
-    "Refresh data": "Làm mới dữ liệu"
+    "Refresh data": "Làm mới dữ liệu",
+    "Permanent hosting": "Lưu trữ vĩnh viễn",
+    "No automatic expiry": "Không tự động hết hạn",
+    "No automatic expiry. Turn off permanent hosting to set an end date or extend the term.": "Không tự động hết hạn. Tắt lưu trữ vĩnh viễn để đặt ngày hết hạn hoặc gia hạn.",
+    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "Quyền lưu trữ này không tự động hết hạn. Quản trị viên có thể tắt hoặc đổi thời hạn; bạn có thể hủy liên kết tài khoản."
   }
 }

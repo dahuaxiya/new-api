@@ -41,7 +41,7 @@ import { postHosting, type HostingSelf } from '../api'
 
 let client: QueryClient
 const binding = '00000000-0000-4000-8000-000000000001'
-const granted: HostingSelf = {
+const granted = {
   grant: {
     user_id: 2,
     starts_at: 1,
@@ -53,7 +53,7 @@ const granted: HostingSelf = {
   valid: true,
   binding_id: binding,
   binding: { state: 'unbound', paused: false, account_label: '', plan: '' },
-}
+} satisfies HostingSelf
 beforeEach(() => {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -229,4 +229,22 @@ it('strips request config and uses fixed account mismatch messages', async () =>
   } catch (error) {
     expect(JSON.stringify(error)).not.toContain('private-fixture-code')
   }
+})
+
+it('permanent hosting displays no expiry while still allowing the user to unbind', async () => {
+  mountPage({
+    ...granted,
+    grant: { ...granted.grant, ends_at: -1 },
+    binding: {
+      state: 'active',
+      paused: false,
+      account_label: 'fixture',
+      plan: 'plus',
+    },
+  })
+  expect(await screen.findByText(/Permanent hosting/)).toBeInTheDocument()
+  expect(
+    screen.queryByText(/After expiry, access stops/)
+  ).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Unbind account' })).toBeEnabled()
 })

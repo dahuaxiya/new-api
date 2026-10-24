@@ -7702,6 +7702,10 @@
     "{{count}} users have no hosting term": "{{count}} 位用户尚未设置托管期限",
     "Existing accounts keep working until you set their hosting term.": "设置期限前保留原有服务，不会自动过期。",
     "View and set terms": "查看并设置",
-    "Refresh data": "刷新数据"
+    "Refresh data": "刷新数据",
+    "Permanent hosting": "永久托管",
+    "No automatic expiry": "不会自动到期",
+    "No automatic expiry. Turn off permanent hosting to set an end date or extend the term.": "不会自动到期。如需设置到期日或按天续期，请先关闭永久托管。",
+    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "此托管名额不会自动到期。管理员可以停用或修改期限，你也可以主动解绑账号。"
   }
 }

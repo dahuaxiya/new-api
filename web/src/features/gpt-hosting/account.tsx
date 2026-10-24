@@ -42,6 +42,7 @@ import {
   SecureVerificationDialog,
   useSecureVerification,
 } from '@/features/auth/secure-verification'
+import { HOSTING_PERMANENT_END } from '@/features/gpt-hosting/api'
 import { GptQuotaCard } from '@/features/gpt-quota/GptQuotaCard'
 import { isOfficialAuthorizationURL } from '@/features/onboarding/lib/schema'
 import { toIntlLocale } from '@/i18n/languages'
@@ -204,7 +205,11 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                       locale
                     )}{' '}
                     —{' '}
-                    {new Date(data.grant.ends_at * 1000).toLocaleString(locale)}
+                    {data.grant.ends_at === HOSTING_PERMANENT_END
+                      ? t('Permanent hosting')
+                      : new Date(data.grant.ends_at * 1000).toLocaleString(
+                          locale
+                        )}
                   </p>
                   <p className='text-muted-foreground'>
                     {t('Times are shown in your device time zone: {{zone}}.', {
@@ -212,10 +217,14 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                     })}
                   </p>
                   <p>
-                    {t(
-                      'After expiry, access stops immediately. Credentials are retained for {{days}} days for renewal, then cleaned automatically. You may unbind earlier.',
-                      { days: data.grant.retention_days }
-                    )}
+                    {data.grant.ends_at === HOSTING_PERMANENT_END
+                      ? t(
+                          'This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.'
+                        )
+                      : t(
+                          'After expiry, access stops immediately. Credentials are retained for {{days}} days for renewal, then cleaned automatically. You may unbind earlier.',
+                          { days: data.grant.retention_days }
+                        )}
                   </p>
                   {!data.valid && (
                     <Alert>

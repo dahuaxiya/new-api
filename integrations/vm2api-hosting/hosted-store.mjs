@@ -1,6 +1,14 @@
 /** 托管隔离规则独立存储，避免被普通槽位元数据更新覆盖。 */
 import { getDb, isDbOpen } from '../db/database.mjs'
 const initialized = new WeakSet()
+// 与 New API 的 HostingPermanentEnd 保持一致，只有显式 -1 表示永久，缺失值必须拒绝。
+export const HOSTING_PERMANENT_END = -1
+
+/** 校验完整期限，永久权益仍须有正数开始时间；不影响 OAuth 或登录会话期限。 */
+export function validHostedTerm(startsAt, endsAt) {
+  return Number.isSafeInteger(startsAt) && startsAt > 0 && startsAt <= 4102444800 && Number.isSafeInteger(endsAt) &&
+    (endsAt === HOSTING_PERMANENT_END || (endsAt > startsAt && endsAt <= 4102444800))
+}
 
 /** 建表为可重复的附加迁移；未修改历史账号和任何上游凭据。 */
 export function hostedDb() {
@@ -38,7 +46,7 @@ export function hostedAllows(scope, vmId, now = Math.floor(Date.now() / 1000)) {
   if (!row) return true
   // 新开户只登记主 Key；旧绑定在接管事务中冻结兼容集合。不能按当前池成员动态放行新增 Key。
   return row.state === 'active' && !!row.key_id && !!key &&
-    now >= row.starts_at && now < row.ends_at
+    validHostedTerm(row.starts_at, row.ends_at) && now >= row.starts_at && (row.ends_at === HOSTING_PERMANENT_END || now < row.ends_at)
 }
 
 /** 内核是托管账号唯一的后台 token 刷新者；JS 管理写入必须持有当前绑定的激活/清理上下文。 */

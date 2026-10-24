@@ -43,11 +43,9 @@ afterEach(() => {
 })
 
 it('未设期限提示使用服务端总数，点击后交给列表切换筛选', async () => {
-  const get = vi
-    .spyOn(api, 'get')
-    .mockResolvedValue({
-      data: { success: true, data: { total: 27, items: [{ id: 2 }] } },
-    })
+  const get = vi.spyOn(api, 'get').mockResolvedValue({
+    data: { success: true, data: { total: 27, items: [{ id: 2 }] } },
+  })
   const show = vi.fn()
   renderWorkspace(<HostingTermNotice onShowUndated={show} />)
   expect(
@@ -59,11 +57,9 @@ it('未设期限提示使用服务端总数，点击后交给列表切换筛选'
 })
 
 it('没有未设期限用户时不显示需要处理的提示', async () => {
-  const get = vi
-    .spyOn(api, 'get')
-    .mockResolvedValue({
-      data: { success: true, data: { total: 0, items: [] } },
-    })
+  const get = vi.spyOn(api, 'get').mockResolvedValue({
+    data: { success: true, data: { total: 0, items: [] } },
+  })
   renderWorkspace(<HostingTermNotice onShowUndated={vi.fn()} />)
   await waitFor(() => expect(get).toHaveBeenCalledOnce())
   expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
@@ -136,4 +132,30 @@ it('过期和未知官方读数不绘制可用额度条，已知零余额仍显�
   view.rerender(<HostingCell kind='quota' />)
   expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   expect(screen.getByText('Hosting status unavailable')).toBeInTheDocument()
+})
+
+it('永久托管在用户列表显示永久标记而不是 Unix 起点日期', () => {
+  render(
+    <HostingCell
+      kind='term'
+      summary={{
+        user_id: 2,
+        status: 'active',
+        source: 'hosting',
+        slot_id: 'fixture',
+        grant: {
+          user_id: 2,
+          starts_at: 1,
+          ends_at: -1,
+          retention_days: 7,
+          enabled: true,
+          note: '',
+        },
+        binding: null,
+        quota: null,
+      }}
+    />
+  )
+  expect(screen.getByText(/1\/1 · Permanent hosting/)).toBeInTheDocument()
+  expect(screen.getByText('Hosting active')).toBeInTheDocument()
 })

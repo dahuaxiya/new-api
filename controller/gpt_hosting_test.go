@@ -29,7 +29,7 @@ func TestGPTHostingSessionBoundary(t *testing.T) {
 	t.Setenv("GPT_HOSTING_ENABLED", "true")
 	require.NoError(t, model.DB.AutoMigrate(&model.GPTHostingGrant{}, &model.GPTHostingBinding{}, &model.GPTHostingInventory{}))
 	now := time.Now().Unix()
-	require.NoError(t, model.DB.Create(&model.GPTHostingGrant{UserID: user.Id, StartsAt: now - 1, EndsAt: now + 3600, Enabled: true, Group: "acct_fixture"}).Error)
+	require.NoError(t, model.DB.Create(&model.GPTHostingGrant{UserID: user.Id, StartsAt: now - 1, EndsAt: model.HostingPermanentEnd, Enabled: true, Group: "acct_fixture"}).Error)
 	require.NoError(t, model.DB.Create(&model.GPTHostingBinding{UserID: user.Id, BindingID: uuid.NewString(), State: "unbound"}).Error)
 	token, _, e := service.IssueAccessToken(identity)
 	require.NoError(t, e)
@@ -93,6 +93,7 @@ func TestUnifiedHostingAdminBoundary(t *testing.T) {
 	r := gin.New()
 	r.GET("/users", middleware.AdminAuth(), GetGPTHostingUsers)
 	r.POST("/wallet", middleware.AdminAuth(), middleware.SessionCookieOriginGuard(), AdjustHostingUserWallet)
+	r.POST("/grants", middleware.RootAuth(), middleware.SessionCookieOriginGuard(), PutGPTHostingGrant)
 	r.POST("/takeover", middleware.RootAuth(), middleware.SessionCookieOriginGuard(), TakeoverGPTHosting)
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, "http://portal.test"+path, strings.NewReader(body))
@@ -114,7 +115,7 @@ func TestUnifiedHostingAdminBoundary(t *testing.T) {
 	require.Contains(t, out.Body.String(), `"quota_unavailable":true`)
 	require.NotContains(t, out.Body.String(), "fixture-password")
 	require.NotContains(t, out.Body.String(), "fixture.test")
-	for _, tc := range []struct{ path, body string }{{"/wallet", fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"add","value":99,"reason":"fixture"}`, target.Id)}, {"/takeover", fmt.Sprintf(`{"user_id":%d}`, target.Id)}} {
+	for _, tc := range []struct{ path, body string }{{"/wallet", fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"add","value":99,"reason":"fixture"}`, target.Id)}, {"/takeover", fmt.Sprintf(`{"user_id":%d,"starts_at":1,"ends_at":-1,"enabled":true}`, target.Id)}, {"/grants", fmt.Sprintf(`{"user_id":%d,"starts_at":1,"ends_at":-1,"enabled":true}`, target.Id)}} {
 		require.NotEqual(t, 200, request("POST", tc.path, tc.body).Code, "missing proof must not write")
 	}
 	saved, err := model.GetUserById(target.Id, false)
@@ -136,4 +137,27 @@ func TestHostingLoginRejectsLegacyReference(t *testing.T) {
 	binding := &model.GPTHostingBinding{BindingID: "binding", SlotID: "slot", State: "prepared"}
 	state := vm2api.HostedState{BindingID: "binding", VMID: "slot", State: "prepared", IdentitySource: "legacy_binding"}
 	require.ErrorIs(t, finishHosting(context.Background(), binding, "lease", state), model.ErrHostingConflict)
+}
+
+// TestPermanentHostingSummary 确保永久名额仍按开始时间、暂停和绑定阶段展示，不误报到期。
+func TestPermanentHostingSummary(t *testing.T) {
+	user, _ := setupSecurityEnrollmentTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.GPTHostingGrant{}, &model.GPTHostingBinding{}))
+	now := time.Now().Unix()
+	grant := model.GPTHostingGrant{UserID: user.Id, StartsAt: now - 1, EndsAt: model.HostingPermanentEnd, Enabled: true, Group: "acct_permanent"}
+	binding := model.GPTHostingBinding{UserID: user.Id, BindingID: uuid.NewString(), State: "active"}
+	require.NoError(t, model.DB.Create(&grant).Error)
+	require.NoError(t, model.DB.Create(&binding).Error)
+	for _, status := range []string{"active", "disabled", "scheduled", "awaiting_login"} {
+		grant.StartsAt, binding.Paused, binding.State = now-1, status == "disabled", "active"
+		if status == "scheduled" {
+			grant.StartsAt = now + 3600
+		}
+		if status == "awaiting_login" {
+			binding.State = "unbound"
+		}
+		require.NoError(t, model.DB.Save(&grant).Error)
+		require.NoError(t, model.DB.Save(&binding).Error)
+		require.Equal(t, status, hostingSummary(user).Status)
+	}
 }

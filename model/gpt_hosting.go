@@ -17,7 +17,10 @@ import (
 var ErrHostingConflict = errors.New("hosting state conflicts with this operation")
 var ErrHostingUnavailable = errors.New("hosting entitlement is unavailable")
 
-// GPTHostingGrant 是管理员发放的单账号权益；时间均为 UTC Unix 秒，续期不会创建第二份名额。
+// HostingPermanentEnd 是管理员显式选择的永久期限；零值或其他负数不能授予永久权益。
+const HostingPermanentEnd int64 = -1
+
+// GPTHostingGrant 是管理员发放的单账号权益；时间为 UTC Unix 秒，EndsAt 可为 HostingPermanentEnd。
 type GPTHostingGrant struct {
 	UserID        int    `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
 	StartsAt      int64  `json:"starts_at"`
@@ -67,7 +70,7 @@ type GPTHostingBinding struct {
 
 // ValidAt 在每次绑定和调用时检查真实时间，不使用可滞后的客户端计时或用户缓存。
 func (g GPTHostingGrant) ValidAt(now int64) bool {
-	return g.Enabled && g.StartsAt <= now && now < g.EndsAt
+	return g.Enabled && g.StartsAt > 0 && g.StartsAt <= now && (g.EndsAt == HostingPermanentEnd || now < g.EndsAt)
 }
 
 // GetHostingGrant 返回指定用户的权益；不存在与已到期由调用方分别展示。
@@ -92,7 +95,7 @@ func PutHostingGrant(input GPTHostingGrant) (*GPTHostingGrant, error) {
 
 // putHostingGrant 在一个事务内建立权益和归属；接管参数只来自服务端预检，不能由浏览器声明。
 func putHostingGrant(input GPTHostingGrant, takeover *HostingTakeover) (*GPTHostingGrant, error) {
-	if input.RetentionDays < 0 || input.RetentionDays > 30 || input.UserID <= 0 || input.ActorID <= 0 || input.StartsAt <= 0 || input.EndsAt <= input.StartsAt || input.EndsAt > 4102444800 || len([]rune(input.Note)) > 255 {
+	if input.RetentionDays < 0 || input.RetentionDays > 30 || input.UserID <= 0 || input.ActorID <= 0 || input.StartsAt <= 0 || input.StartsAt > 4102444800 || (input.EndsAt != HostingPermanentEnd && (input.EndsAt <= input.StartsAt || input.EndsAt > 4102444800)) || len([]rune(input.Note)) > 255 {
 		return nil, ErrHostingConflict
 	}
 	vm2apiEnrollmentCommitMutex.Lock()
@@ -230,7 +233,7 @@ func ListHostingInventory() ([]GPTHostingInventory, error) {
 func ReserveHostingSlot(userID int, inventoryID string) (*GPTHostingBinding, error) {
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		now := time.Now().Unix()
-		grant := tx.Model(&GPTHostingGrant{}).Where("user_id = ? AND enabled = ? AND starts_at <= ? AND ends_at > ?", userID, true, now, now).Update("revision", gorm.Expr("revision + 1"))
+		grant := tx.Model(&GPTHostingGrant{}).Where("user_id = ? AND enabled = ? AND starts_at <= ? AND (ends_at = ? OR ends_at > ?)", userID, true, now, HostingPermanentEnd, now).Update("revision", gorm.Expr("revision + 1"))
 		if grant.Error != nil {
 			return grant.Error
 		}
@@ -334,7 +337,7 @@ func CompleteHostingChannel(userID int, token, baseURL, models, key, keyID, pool
 		if err := lockForUpdate(tx).First(&g, "user_id = ?", userID).Error; err != nil {
 			return err
 		}
-		if g.EndsAt <= now || b.AccountHash == nil {
+		if (g.EndsAt != HostingPermanentEnd && g.EndsAt <= now) || b.AccountHash == nil {
 			return ErrHostingUnavailable
 		}
 		ch := Channel{Name: "hosted-gpt-" + b.BindingID, Type: 1, Key: key, Status: common.ChannelStatusEnabled, BaseURL: &baseURL, Models: models, Group: g.Group, CreatedTime: now}
@@ -406,7 +409,8 @@ func ExpireHostingBinding(userID int, now int64) (bool, error) {
 		}
 		// 未完成的初次登录预约只保留十五分钟；已有身份的重登失败不能释放他人账号归属。
 		abandoned := b.AccountHash == nil && (b.State == "reserved" || b.State == "authorizing") && b.UpdatedAt < now-900
-		if now < g.EndsAt+int64(g.RetentionDays)*86400 && !abandoned {
+		// 永久权益不按时间回收，但放弃的首次登录仍须释放预约，避免无限占槽。
+		if (g.EndsAt == HostingPermanentEnd || now < g.EndsAt+int64(g.RetentionDays)*86400) && !abandoned {
 			return nil
 		}
 		changed = true

@@ -2,7 +2,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { hostedDb, hostedRecord, withHostedWrite } from './hosted-store.mjs'
+import { HOSTING_PERMANENT_END, validHostedTerm, hostedDb, hostedRecord, withHostedWrite } from './hosted-store.mjs'
 import { hostedError, verifyHostedIdentity, probeHostedExit } from './hosted-identity.mjs'
 import { encryptionEnabled, encryptString, decryptString } from '../db/secure.mjs'
 import { getVm, listVms, patchVmRecord, setVmSchedulable } from '../vm/vm-registry.mjs'
@@ -208,7 +208,7 @@ async function operate(ctx, vm, action, body, commit) {
     return view(hostedRecord(vm.id))
   }
   if (action === 'activate') {
-    if (body.account_hash !== row.account_hash || body.subject_hash !== row.subject_hash || !row.account_hash || !Number.isSafeInteger(body.starts_at) || !Number.isSafeInteger(body.ends_at) || body.ends_at <= Math.floor(Date.now()/1000) || body.starts_at >= body.ends_at) throw hostedError()
+    if (body.account_hash !== row.account_hash || body.subject_hash !== row.subject_hash || !row.account_hash || !validHostedTerm(body.starts_at, body.ends_at) || (body.ends_at !== HOSTING_PERMANENT_END && body.ends_at <= Math.floor(Date.now()/1000))) throw hostedError()
     if (!['prepared','active','paused'].includes(row.state)) throw hostedError()
     if (row.pending) {
       const account = JSON.parse(decryptString(row.pending))
@@ -232,7 +232,8 @@ async function operate(ctx, vm, action, body, commit) {
     const plain = plainApiKey(key)
     if (!plain) throw hostedError('hosting_unavailable')
     const enabled = body.starts_at <= Math.floor(Date.now()/1000) && body.enabled !== false
-    ctx.apiKeyStore.update(key.id, { vm_pool_id:pool.id,group_type:'openai',status:enabled?'active':'disabled',expires_at:new Date(body.ends_at*1000).toISOString() })
+    // 从定期改为永久时必须清空主 Key 的独立到期时间；兼容旧 Key 的个人设置不变。
+    ctx.apiKeyStore.update(key.id, { vm_pool_id:pool.id,group_type:'openai',status:enabled?'active':'disabled',expires_at:body.ends_at === HOSTING_PERMANENT_END ? null : new Date(body.ends_at*1000).toISOString() })
     const boot = await startSlotReady(getVm(root,vm.id),root,{routing:ctx.routingConfig})
     if (!boot?.ok) throw hostedError('slot_unavailable')
     db.prepare("UPDATE hosted_slots SET state = ?, starts_at = ?, ends_at = ?, pending = NULL WHERE vm_id = ?").run(enabled?'active':'paused',body.starts_at,body.ends_at,vm.id)
@@ -240,10 +241,11 @@ async function operate(ctx, vm, action, body, commit) {
     return { ...view(hostedRecord(vm.id)), key:plain }
   }
   if (action === 'policy') {
-    if (!row.key_id || !['active','paused'].includes(row.state) || !Number.isSafeInteger(body.starts_at) || !Number.isSafeInteger(body.ends_at)) throw hostedError()
-    const active = body.enabled === true && body.starts_at <= Math.floor(Date.now()/1000) && body.ends_at > Math.floor(Date.now()/1000)
+    if (!row.key_id || !['active','paused'].includes(row.state) || !validHostedTerm(body.starts_at, body.ends_at)) throw hostedError()
+    const active = body.enabled === true && body.starts_at <= Math.floor(Date.now()/1000) && (body.ends_at === HOSTING_PERMANENT_END || body.ends_at > Math.floor(Date.now()/1000))
     db.prepare('UPDATE hosted_slots SET state = ?, starts_at = ?, ends_at = ? WHERE vm_id = ?').run(active?'active':'paused',body.starts_at,body.ends_at,vm.id)
-    ctx.apiKeyStore.update(row.key_id, { status:active?'active':'disabled',expires_at:new Date(body.ends_at*1000).toISOString() })
+    // 显式 null 清除旧期限；暂停、归属和历史 Key 墓碑仍由请求路径检查。
+    ctx.apiKeyStore.update(row.key_id, { status:active?'active':'disabled',expires_at:body.ends_at === HOSTING_PERMANENT_END ? null : new Date(body.ends_at*1000).toISOString() })
     return view(hostedRecord(vm.id))
   }
   if (action === 'release') {

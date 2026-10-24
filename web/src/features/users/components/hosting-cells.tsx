@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
 import { Progress } from '@/components/ui/progress'
+import { HOSTING_PERMANENT_END } from '@/features/gpt-hosting/api'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatNumber } from '@/lib/format'
 
@@ -55,7 +56,9 @@ export function HostingCell(props: {
         {v.grant && (
           <p className='text-muted-foreground'>
             {v.slot_id ? '1/1' : '0/1'} ·{' '}
-            {new Date(v.grant.ends_at * 1000).toLocaleDateString(locale)}
+            {v.grant.ends_at === HOSTING_PERMANENT_END
+              ? t('Permanent hosting')
+              : new Date(v.grant.ends_at * 1000).toLocaleDateString(locale)}
           </p>
         )}
         {v.status === 'undated' && (

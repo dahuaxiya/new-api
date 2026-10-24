@@ -204,7 +204,28 @@ test('root can set legacy terms with an expired identity token while reauthentic
  assert.equal((await call('prepare',{...body,generation:8,session_id:relogin.body.data.session_id,callback_url:nextCallback})).status,200)
  assert.equal((await call('activate',{...body,generation:9,starts_at:now-1,ends_at:now+3600})).status,200)
  assert.equal(hostedAllows({hosted_key_id:duplicate.id},vm.id),true,'official re-login does not discard preserved direct keys')
- assert.equal((await call('release',{...body,generation:10})).status,200)
+ // 永久权益覆盖主 Key 和已冻结的旧直连 Key；切换模式不能扩张 Key 集合。
+ let generation=10
+ const term={...body,starts_at:now-1,ends_at:-1,enabled:true}
+ assert.equal((await call('activate',{...term,generation:generation++})).status,200)
+ assert.equal(keys.repo.getById(key.id).expires_at,null,'permanent activation clears prior key expiry')
+ for (const id of [key.id,duplicate.id]) assert.equal(hostedAllows({hosted_key_id:id},vm.id,4102444801),true)
+ assert.equal(hostedAllows({hosted_key_id:lateKey.id},vm.id),false)
+ for (const ends_at of [0,-2,undefined,now-2,4102444801]) {
+   assert.equal((await call('policy',{...term,ends_at,generation:generation++})).status,409,'invalid terms fail closed')
+ }
+ assert.equal((await call('policy',{...term,enabled:false,generation:generation++})).status,200)
+ assert.equal(hostedAllows({hosted_key_id:duplicate.id},vm.id),false,'permanent may still be disabled')
+ assert.equal((await call('policy',{...term,starts_at:now+3600,generation:generation++})).status,200)
+ assert.equal(hostedAllows({hosted_key_id:key.id},vm.id),false,'permanent does not bypass start time')
+ assert.equal((await call('policy',{...term,ends_at:now+3600,generation:generation++})).status,200)
+ assert.notEqual(keys.repo.getById(key.id).expires_at,null)
+ for (const id of [key.id,duplicate.id]) assert.equal(hostedAllows({hosted_key_id:id},vm.id,now+3600),false,'dated conversion restores deadline')
+ assert.equal((await call('policy',{...term,generation:generation++})).status,200)
+ assert.equal(keys.repo.getById(key.id).expires_at,null,'permanent policy clears dated key expiry')
+ assert.equal(plainApiKey(keys.repo.getById(key.id)),secret)
+ assert.equal(keys.repo.getById(duplicate.id).expires_at,directBefore.expires_at,'preserved direct key metadata remains unchanged')
+ assert.equal((await call('release',{...body,generation:generation++})).status,200)
  assert.equal(hostedAllows({hosted_key_id:duplicate.id},vm.id),false,'unbind revokes all preserved keys')
  assert.equal(hostedAllows({hosted_key_id:duplicate.id},'other-slot'),false,'released direct keys keep their tombstones')
  assert.equal((await call('reserve',{binding_id:binding,generation:1})).status,200)
