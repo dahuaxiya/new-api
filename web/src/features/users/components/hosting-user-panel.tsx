@@ -431,7 +431,7 @@ export function HostingUserPanel(props: { user: User }) {
             <p>
               {isTakeover
                 ? t(
-                    'Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.'
+                    'GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.'
                   )
                 : t('Only the hosting entitlement will change.')}
             </p>

@@ -90,7 +90,7 @@ function existingAccountReference(account, vm) {
   return { account_hash:hash('openai-account\0'+accountID),subject_hash:hash('openai-subject\0'+subject),label:(at>0?email[0]+'***'+email.slice(at):'GPT account').slice(0,160),plan:['free','plus','pro'].includes(auth.chatgpt_plan_type)?auth.chatgpt_plan_type:'unknown',identity_source:'legacy_binding' }
 }
 
-/** 同步核对旧账号、独占槽位和 Key；不重新验证登录、不访问官方服务，也不旋转任何凭据。 */
+/** 同步核对旧账号与单槽位 Key 集合；保留旧直连入口，但中央始终只连接指定的一把 Key。 */
 function inspectLegacy(ctx, vm, body) {
   if (hostedRecord(vm.id)) throw hostedError('hosting_conflict')
   const accounts = readCodexAccounts(ctx.cfg.paths.project, vm.id)
@@ -101,14 +101,20 @@ function inspectLegacy(ctx, vm, body) {
   const pools = new VmPoolsRepo(hostedDb()).list()
   const scope = k => {
     if (k.vm_pool_id) return pools.find(p => p.id === k.vm_pool_id)?.vm_ids || []
+    if (k.group_type === 'all') return []
     try { return Array.isArray(k.allowed_vms) ? k.allowed_vms : JSON.parse(k.allowed_vms || '[]') } catch { throw hostedError('hosting_conflict') }
   }
-  if (!key || key.status !== 'active' || key.group_type !== 'openai' || scope(key).length !== 1 || scope(key)[0] !== vm.id) throw hostedError('hosting_conflict')
-  // 其他明确指向该槽的 Key 表示共享配置；全局 master/all 在永久标记生效后统一被拒绝。
-  if (keys.some(k => k.id !== key.id && scope(k).includes(vm.id))) throw hostedError('hosting_conflict')
+  // 老版池 Key 保存为 all，但池成员仍是唯一调度范围；只有无池的 all 才是全局授权。
+  if (!key || key.status !== 'active' || !(key.group_type === 'openai' || (key.vm_pool_id && key.group_type === 'all')) || scope(key).length !== 1 || scope(key)[0] !== vm.id) throw hostedError('hosting_conflict')
+  // 仅兼容保存期限时已存在、且只指向当前槽位的 Key；共享多槽 Key 不能被静默收窄。
+  // 停用的旧 Key 也登记墓碑，但保留其停用状态；后续改池、重新启用不能越过本次归属。
+  const retained = keys.filter(k => scope(k).includes(vm.id))
+  for (const candidate of retained) {
+    if (scope(candidate).length !== 1 || !(candidate.group_type === 'openai' || (candidate.vm_pool_id && candidate.group_type === 'all')) || hostedDb().prepare('SELECT 1 FROM hosted_keys WHERE key_id = ?').get(candidate.id)) throw hostedError('hosting_conflict')
+  }
   const pool = key.vm_pool_id && pools.find(p => p.id === key.vm_pool_id)
   if (pool && !pool.enabled) throw hostedError('hosting_conflict')
-  return { vm_id:vm.id, state:'checked', ...identity, key_id:key.id, pool_id:pool?.id || '' }
+  return { vm_id:vm.id, state:'checked', ...identity, key_id:key.id, pool_id:pool?.id || '', retained_key_ids:retained.map(k => k.id) }
 }
 
 /** 处理单槽动作；所有路径由管理员登记、所有绑定由中央数据库生成，客户端不能提供上游地址。 */
@@ -120,11 +126,21 @@ async function operate(ctx, vm, action, body, commit) {
   if (action === 'takeover') {
     if (!UUID.test(body.binding_id || '') || !Number.isSafeInteger(body.generation) || body.generation < 0) throw hostedError()
     if (!row) {
-      const checked = inspectLegacy(ctx, vm, body)
-      if (checked.account_hash !== body.account_hash || checked.subject_hash !== body.subject_hash || checked.key_id !== body.key_id) throw hostedError('account_changed')
-      // root 已确认现有独占绑定，中央保存归属后才限制 Key；同步检查到写入之间没有 await，不能被换号插入。
-      db.prepare("INSERT INTO hosted_slots (vm_id,binding_id,generation,state,account_hash,subject_hash,key_id,pool_id,label,plan,identity_source) VALUES (?,?,?,'prepared',?,?,?,?,?,?,?)").run(vm.id,body.binding_id,body.generation,checked.account_hash,checked.subject_hash,checked.key_id,checked.pool_id || null,checked.label,checked.plan,checked.identity_source)
-      db.prepare('INSERT OR IGNORE INTO hosted_keys (key_id,vm_id,binding_id) VALUES (?,?,?)').run(checked.key_id,vm.id,body.binding_id)
+      // 首次接管原子冻结现有 Key 集合。失败必须整体回滚；重试不能把后来新增的 Key 混进来。
+      // 使用 SQLite 保存点，兼容没有 DatabaseSync.isTransaction 的旧 Node，异常时仍可靠回滚。
+      db.exec('SAVEPOINT hosted_takeover')
+      try {
+        const checked = inspectLegacy(ctx, vm, body)
+        if (checked.account_hash !== body.account_hash || checked.subject_hash !== body.subject_hash || checked.key_id !== body.key_id) throw hostedError('account_changed')
+        // 同步检查到写入之间没有 await；旧账号标识只用于维持归属，不代替官方登录证明。
+        db.prepare("INSERT INTO hosted_slots (vm_id,binding_id,generation,state,account_hash,subject_hash,key_id,pool_id,label,plan,identity_source) VALUES (?,?,?,'prepared',?,?,?,?,?,?,?)").run(vm.id,body.binding_id,body.generation,checked.account_hash,checked.subject_hash,checked.key_id,checked.pool_id || null,checked.label,checked.plan,checked.identity_source)
+        const insert = db.prepare('INSERT INTO hosted_keys (key_id,vm_id,binding_id) VALUES (?,?,?)')
+        for (const id of checked.retained_key_ids) insert.run(id,vm.id,body.binding_id)
+        db.exec('RELEASE hosted_takeover')
+      } catch (error) {
+        db.exec('ROLLBACK TO hosted_takeover; RELEASE hosted_takeover')
+        throw error
+      }
       row = hostedRecord(vm.id)
     }
     claim(row, body)

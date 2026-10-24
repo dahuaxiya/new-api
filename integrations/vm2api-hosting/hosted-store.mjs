@@ -29,14 +29,15 @@ export function hostedRecord(vmId) {
   return hostedDb().prepare('SELECT * FROM hosted_slots WHERE vm_id = ?').get(vmId) || null
 }
 
-/** 未托管账号沿用原权限；托管槽位仅接受登记的唯一 Key，master/all 也不能绕过。 */
+/** 未托管账号沿用原权限；托管槽位仅接受本绑定登记的 Key，旧直连 Key 共用期限，master/all 不能绕过。 */
 export function hostedAllows(scope, vmId, now = Math.floor(Date.now() / 1000)) {
   const row = hostedRecord(vmId)
   // 历史托管 Key 的墓碑永久保留；即使被通用面板改池或重新启用，也不能访问新用户或传统槽位。
   const key = isDbOpen() && scope?.hosted_key_id ? hostedDb().prepare('SELECT * FROM hosted_keys WHERE key_id = ?').get(scope.hosted_key_id) : null
   if (key && (!row || key.vm_id !== vmId || key.binding_id !== row.binding_id)) return false
   if (!row) return true
-  return row.state === 'active' && !!row.key_id && row.key_id === scope?.hosted_key_id &&
+  // 新开户只登记主 Key；旧绑定在接管事务中冻结兼容集合。不能按当前池成员动态放行新增 Key。
+  return row.state === 'active' && !!row.key_id && !!key &&
     now >= row.starts_at && now < row.ends_at
 }
 

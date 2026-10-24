@@ -120,7 +120,7 @@ it('legacy users show no preset end date and cancelling the preview never takes 
   const confirm = await screen.findByRole('alertdialog')
   expect(
     within(confirm).getByText(
-      'Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.'
+      'GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.'
     )
   ).toBeInTheDocument()
   expect(post).toHaveBeenCalledWith(

@@ -7696,7 +7696,7 @@
     "Save profile changes": "ユーザー情報を保存"
   },
   "Checking existing binding...": "既存の関連付けを確認しています…",
-  "Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.": "既存アカウントのホスティング期間を保存します。GPT への再ログインは不要で、既存のキーと認証情報は維持されます。",
+  "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.",
   "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "管理者による期間の設定に GPT ログインは不要です。公式の本人確認はアカウントへの再ログイン時に行われます。",
   "The GPT sign-in could not be verified. Start a new GPT sign-in.": "今回の GPT ログインを確認できませんでした。GPT ログインをもう一度開始してください。"
 }

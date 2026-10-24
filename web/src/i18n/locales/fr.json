@@ -7696,7 +7696,7 @@
     "Save profile changes": "Enregistrer le profil"
   },
   "Checking existing binding...": "Vérification de la liaison existante…",
-  "Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.": "Enregistrer la période pour le compte existant, sans connexion GPT. Les clés et identifiants sont conservés.",
+  "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.",
   "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "La gestion de la période ne nécessite pas de connexion GPT. L’identité officielle est vérifiée à la prochaine connexion du compte.",
   "The GPT sign-in could not be verified. Start a new GPT sign-in.": "Cette connexion GPT n’a pas pu être vérifiée. Démarrez une nouvelle connexion GPT."
 }

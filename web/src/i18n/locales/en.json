@@ -7696,7 +7696,7 @@
     "Save profile changes": "Save profile changes"
   },
   "Checking existing binding...": "Checking existing binding...",
-  "Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.": "Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.",
+  "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.",
   "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.",
   "The GPT sign-in could not be verified. Start a new GPT sign-in.": "The GPT sign-in could not be verified. Start a new GPT sign-in."
 }

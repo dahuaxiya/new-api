@@ -7696,7 +7696,7 @@
     "Save profile changes": "Lưu hồ sơ người dùng"
   },
   "Checking existing binding...": "Đang kiểm tra liên kết hiện tại…",
-  "Save the hosting term for the existing account. GPT sign-in is not required; existing keys and credentials are retained.": "Lưu thời hạn cho tài khoản hiện có, không cần đăng nhập lại GPT; giữ nguyên khóa và thông tin đăng nhập.",
+  "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.": "GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.",
   "Administrators can manage this term without GPT sign-in. Official identity is verified when the user signs in again.": "Quản trị viên có thể quản lý thời hạn mà không cần đăng nhập GPT. Danh tính chính thức được xác minh khi người dùng đăng nhập lại.",
   "The GPT sign-in could not be verified. Start a new GPT sign-in.": "Không thể xác minh lần đăng nhập GPT này. Hãy bắt đầu đăng nhập GPT lại."
 }
