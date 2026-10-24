@@ -118,9 +118,11 @@ export function SidebarPersonalSettings() {
                     </>
                   )}
                 </DropdownMenuTrigger>
+                {/* 手机抽屉与菜单定位层默认同级；提高定位层才能让子菜单接收点击，单改内容层无效。 */}
                 <DropdownMenuContent
                   aria-label={t('Personal settings')}
                   className='personal-settings-flyout'
+                  positionerClassName='z-[60]'
                   side={isMobile ? 'top' : 'right'}
                   align={isMobile ? 'start' : 'end'}
                   sideOffset={12}
