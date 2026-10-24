@@ -7723,6 +7723,11 @@
     "Token Usage Ranking": "Token 排行",
     "Model analytics metric": "模型分析指標",
     "Model analytics chart": "模型分析圖表",
-    "Input + output tokens recorded through this site.": "統計透過本站產生的輸入與輸出 Token 合計。"
+    "Input + output tokens recorded through this site.": "統計透過本站產生的輸入與輸出 Token 合計。",
+    "Basic profile": "基本資料",
+    "Name, email and language": "暱稱、電子郵件與語言",
+    "Password, verification and sessions": "修改密碼、驗證與登入裝置",
+    "Profile and account security": "資料與帳戶安全",
+    "My account": "我的帳戶"
   }
 }

@@ -7723,6 +7723,11 @@
     "Token Usage Ranking": "Xếp hạng token",
     "Model analytics metric": "Chỉ số phân tích mô hình",
     "Model analytics chart": "Biểu đồ phân tích mô hình",
-    "Input + output tokens recorded through this site.": "Tổng token đầu vào và đầu ra được ghi nhận qua trang này."
+    "Input + output tokens recorded through this site.": "Tổng token đầu vào và đầu ra được ghi nhận qua trang này.",
+    "Basic profile": "Hồ sơ cơ bản",
+    "Name, email and language": "Tên, email và ngôn ngữ",
+    "Password, verification and sessions": "Mật khẩu, xác minh và phiên đăng nhập",
+    "Profile and account security": "Hồ sơ và bảo mật tài khoản",
+    "My account": "Tài khoản của tôi"
   }
 }

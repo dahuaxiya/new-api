@@ -7723,6 +7723,11 @@
     "Token Usage Ranking": "Classement des tokens",
     "Model analytics metric": "Indicateur des modèles",
     "Model analytics chart": "Graphique des modèles",
-    "Input + output tokens recorded through this site.": "Total des tokens d’entrée et de sortie enregistrés sur ce site."
+    "Input + output tokens recorded through this site.": "Total des tokens d’entrée et de sortie enregistrés sur ce site.",
+    "Basic profile": "Profil",
+    "Name, email and language": "Nom, e-mail et langue",
+    "Password, verification and sessions": "Mot de passe, vérification et sessions",
+    "Profile and account security": "Profil et sécurité du compte",
+    "My account": "Mon compte"
   }
 }

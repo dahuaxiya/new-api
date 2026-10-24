@@ -38,14 +38,12 @@ export function Profile() {
   const showSecurity = useIsSidebarModuleVisible('/security')
   return (
     <SectionPageLayout>
-      <SectionPageLayout.Title>
-        {t('Personal settings')}
-      </SectionPageLayout.Title>
+      <SectionPageLayout.Title>{t('Basic profile')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         {showSecurity && (
           <Button variant='outline' size='sm' render={<Link to='/security' />}>
             <ShieldCheck />
-            {t('Security & Access')}
+            {t('Account security')}
           </Button>
         )}
       </SectionPageLayout.Actions>

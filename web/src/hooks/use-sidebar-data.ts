@@ -21,7 +21,6 @@ import {
   FileText,
   Key,
   LayoutDashboard,
-  Settings,
   ShieldCheck,
   Wallet,
 } from 'lucide-react'
@@ -30,7 +29,7 @@ import { useTranslation } from 'react-i18next'
 import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
 
-/** 用户导航只保留日常接入功能；管理入口另开工作区，不混排资源管理菜单。 */
+/** 用户导航只保留日常接入功能；个人设置由固定底栏承载，管理入口另开工作区。 */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
   return {
@@ -52,12 +51,6 @@ export function useSidebarData(): SidebarData {
           { title: t('API Keys'), url: '/keys', icon: Key },
           { title: t('Usage Logs'), url: '/usage-logs/common', icon: FileText },
           { title: t('Billing and redemption'), url: '/wallet', icon: Wallet },
-          {
-            title: t('Personal settings'),
-            url: '/profile',
-            activeUrls: ['/security'],
-            icon: Settings,
-          },
         ],
       },
       {

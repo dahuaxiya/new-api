@@ -7723,6 +7723,11 @@
     "Token Usage Ranking": "Token Usage Ranking",
     "Model analytics metric": "Model analytics metric",
     "Model analytics chart": "Model analytics chart",
-    "Input + output tokens recorded through this site.": "Input + output tokens recorded through this site."
+    "Input + output tokens recorded through this site.": "Input + output tokens recorded through this site.",
+    "Basic profile": "Basic profile",
+    "Name, email and language": "Name, email and language",
+    "Password, verification and sessions": "Password, verification and sessions",
+    "Profile and account security": "Profile and account security",
+    "My account": "My account"
   }
 }

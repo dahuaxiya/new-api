@@ -25,6 +25,7 @@ import { useSidebarView } from '@/hooks/use-sidebar-view'
 import { MOTION_TRANSITION, MOTION_VARIANTS } from '@/lib/motion'
 
 import { NavGroup } from './nav-group'
+import { SidebarPersonalSettings } from './sidebar-personal-settings'
 import { SidebarViewHeader } from './sidebar-view-header'
 
 /**
@@ -66,6 +67,7 @@ export function AppSidebar() {
             </motion.div>
           </AnimatePresence>
         </SidebarContent>
+        <SidebarPersonalSettings />
       </div>
       <SidebarRail />
     </Sidebar>

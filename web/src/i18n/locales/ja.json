@@ -7723,6 +7723,11 @@
     "Token Usage Ranking": "トークン順位",
     "Model analytics metric": "モデル分析の指標",
     "Model analytics chart": "モデル分析のグラフ",
-    "Input + output tokens recorded through this site.": "このサイトで記録した入力・出力トークンの合計。"
+    "Input + output tokens recorded through this site.": "このサイトで記録した入力・出力トークンの合計。",
+    "Basic profile": "基本プロフィール",
+    "Name, email and language": "名前・メール・言語",
+    "Password, verification and sessions": "パスワード・認証・セッション",
+    "Profile and account security": "プロフィールとアカウントの安全",
+    "My account": "マイアカウント"
   }
 }

@@ -7723,6 +7723,11 @@
     "Token Usage Ranking": "Рейтинг по токенам",
     "Model analytics metric": "Метрика моделей",
     "Model analytics chart": "График моделей",
-    "Input + output tokens recorded through this site.": "Сумма входных и выходных токенов, записанных на этом сайте."
+    "Input + output tokens recorded through this site.": "Сумма входных и выходных токенов, записанных на этом сайте.",
+    "Basic profile": "Основные данные",
+    "Name, email and language": "Имя, почта и язык",
+    "Password, verification and sessions": "Пароль, проверка и сеансы",
+    "Profile and account security": "Профиль и безопасность аккаунта",
+    "My account": "Мой аккаунт"
   }
 }
