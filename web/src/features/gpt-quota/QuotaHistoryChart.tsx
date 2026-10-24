@@ -13,7 +13,11 @@ import {
   type QuotaHistoryPoint,
 } from './history'
 
-/** Reuse the app's VChart theme and real time axis; one observation stays a dot. */
+/**
+ * 展示真实额度读数及断档；数据点和时间轴提示共用设备时区与当前界面语言。
+ * @param props 当前用户已过滤的历史读数；单个读数只画点，不补造曲线。
+ * @return 复用应用主题的额度历史图。
+ */
 export default function QuotaHistoryChart(props: {
   points: QuotaHistoryPoint[]
 }) {
@@ -25,6 +29,26 @@ export default function QuotaHistoryChart(props: {
     const segments = [...new Set(values.map((row) => row.series))]
     const firstTime = props.points[0]?.observed_at ?? 0
     const lastTime = props.points.at(-1)?.observed_at ?? firstTime
+    const tooltipPattern = {
+      title: {
+        value: (row: QuotaChartPoint) =>
+          new Date(row.time).toLocaleString(locale, {
+            timeZoneName: 'short',
+          }),
+      },
+      content: [
+        {
+          key: (row: QuotaChartPoint) =>
+            row.window === '5h'
+              ? t('GPT 5-hour window')
+              : t('GPT 7-day window'),
+          value: (row: QuotaChartPoint) =>
+            t('GPT remaining {{percent}}%', {
+              percent: formatNumber(row.remaining, locale),
+            }),
+        },
+      ],
+    }
     return {
       type: 'line' as const,
       data: [{ id: 'quota-history', values }],
@@ -67,26 +91,10 @@ export default function QuotaHistoryChart(props: {
         },
       ],
       tooltip: {
-        mark: {
-          title: {
-            value: (row: QuotaChartPoint) =>
-              new Date(row.time).toLocaleString(locale, {
-                timeZoneName: 'short',
-              }),
-          },
-          content: [
-            {
-              key: (row: QuotaChartPoint) =>
-                row.window === '5h'
-                  ? t('GPT 5-hour window')
-                  : t('GPT 7-day window'),
-              value: (row: QuotaChartPoint) =>
-                t('GPT remaining {{percent}}%', {
-                  percent: formatNumber(row.remaining, locale),
-                }),
-            },
-          ],
-        },
+        // 折线默认会触发时间轴维度提示；只配置 mark 会显示毫秒时间和 7d:0。
+        // series 仍用于断档分段，两种提示均以 window 生成可读名称。
+        mark: tooltipPattern,
+        dimension: tooltipPattern,
       },
     }
   }, [props.points, locale, t])
