@@ -17,6 +17,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestObserveForBypassesCachedOwner 验证历史采集不会把同槽位上一位用户的 UI 缓存记给新用户，
+// 且对外实时视图不泄漏用于内部账号分段的身份指纹。
+func TestObserveForBypassesCachedOwner(t *testing.T) {
+	var calls atomic.Int32
+	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/panel/login" {
+			fmt.Fprint(w, `{"token":"fixture"}`)
+			return
+		}
+		account := "old-private-account"
+		if calls.Add(1) > 1 {
+			account = "new-private-account"
+		}
+		fmt.Fprintf(w, `{"ok":true,"data":{"vm":{"id":"s","org_uuid":%q,"codex_usage":{"snapshot":{"updated_at":%q},"windows":[{"id":"7d","used_percent":20}]}}}}`, account, time.Now().UTC().Format(time.RFC3339))
+	}))
+	defer panel.Close()
+	svc, err := New(Config{PanelURL: panel.URL + "/api/panel", Login: map[string]string{"username": "fixture", "password": "fixture"}})
+	require.NoError(t, err)
+	old, err := svc.SelfFor(context.Background(), 2, "alice", "alice", Binding{Username: "alice", Group: "alice", Slot: "s"})
+	require.NoError(t, err)
+	current, err := svc.ObserveFor(context.Background(), 3, "bob", "bob", Binding{Username: "bob", Group: "bob", Slot: "s"})
+	require.NoError(t, err)
+	require.NotEqual(t, old.AccountFingerprint, current.AccountFingerprint)
+	require.EqualValues(t, 2, calls.Load())
+	raw, err := common.Marshal(current)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "private-account")
+	require.NotContains(t, string(raw), current.AccountFingerprint)
+	_, err = svc.ObserveFor(context.Background(), 3, "bob", "bob", Binding{Username: "alice", Group: "alice", Slot: "s"})
+	require.ErrorIs(t, err, ErrUnbound)
+	require.EqualValues(t, 2, calls.Load())
+}
+
 // TestSelfIsolationAndPersistedReads proves callers cannot cross bindings or trigger a probe.
 func TestSelfIsolationAndPersistedReads(t *testing.T) {
 	reads, logins := 0, 0

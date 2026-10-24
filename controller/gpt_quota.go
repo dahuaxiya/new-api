@@ -43,49 +43,57 @@ var quotaService = sync.OnceValues(func() (*gptquota.Service, error) {
 	return gptquota.New(cfg)
 })
 
-// linkedGPTQuota reads a completed, server-owned binding on every request. The
-// service also checks the current username/group so later administrative moves
-// cannot expose the former account's cached subscription usage.
-func linkedGPTQuota(ctx context.Context, svc *gptquota.Service, id int, username, group string, refresh bool) (gptquota.View, error) {
+// resolveGPTQuotaBinding 每次从当前数据库解析绑定；epoch 区分解绑重绑，不能使用缓存授权。
+func resolveGPTQuotaBinding(svc *gptquota.Service, id int, username, group string) (gptquota.Binding, string, error) {
 	var hosted *model.GPTHostingBinding
 	hostedErr := gorm.ErrRecordNotFound
 	if os.Getenv("GPT_HOSTING_ENABLED") == "true" {
 		hosted, hostedErr = model.GetHostingBinding(id)
 	}
 	if hostedErr == nil {
-		// 托管身份在中央解绑后立即停止读取旧槽位，防止空槽被再次分配后的额度泄露。
 		if hosted.AccountHash == nil || hosted.InventoryID == nil || hosted.State == "cleaning" || hosted.State == "unbound" {
-			return gptquota.View{}, gptquota.ErrUnbound
+			return gptquota.Binding{}, "", gptquota.ErrUnbound
 		}
 		grant, err := model.GetHostingGrant(id)
 		if err != nil {
-			return gptquota.View{}, gptquota.ErrUnavailable
+			return gptquota.Binding{}, "", gptquota.ErrUnavailable
 		}
-		binding := gptquota.Binding{InstanceID: hosted.InstanceID, Username: username, Group: grant.Group, Slot: hosted.SlotID, Label: hosted.AccountLabel}
-		if refresh {
-			return svc.RefreshFor(ctx, id, username, group, binding)
-		}
-		return svc.SelfFor(ctx, id, username, group, binding)
+		binding := gptquota.Binding{InstanceID: hosted.InstanceID, Username: username, Group: grant.Group, Slot: hosted.SlotID, Label: hosted.AccountLabel, AccountHash: *hosted.AccountHash}
+		return binding, "hosted:" + hosted.BindingID + ":" + *hosted.AccountHash, nil
 	}
-	// 未启用扩展的旧测试/安装可没有此表；启用后所有读取异常都必须失败关闭。
+	// 启用托管后，数据库故障不能降级到旧绑定，避免解绑期间重新读到旧槽位。
 	if os.Getenv("GPT_HOSTING_ENABLED") == "true" && !errors.Is(hostedErr, gorm.ErrRecordNotFound) {
-		return gptquota.View{}, gptquota.ErrUnavailable
+		return gptquota.Binding{}, "", gptquota.ErrUnavailable
 	}
 	job, err := model.GetVM2APIEnrollmentForUser(id)
 	if err == nil {
-		binding := gptquota.Binding{InstanceID: job.InstanceID, Username: job.Username, Group: job.Group, Slot: job.SlotID, Label: job.DisplayName}
-		if refresh {
-			return svc.RefreshFor(ctx, id, username, group, binding)
-		}
-		return svc.SelfFor(ctx, id, username, group, binding)
+		return gptquota.Binding{InstanceID: job.InstanceID, Username: job.Username, Group: job.Group, Slot: job.SlotID, Label: job.DisplayName}, "enrollment:" + job.RequestID, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return gptquota.View{}, gptquota.ErrUnavailable
+		return gptquota.Binding{}, "", gptquota.ErrUnavailable
+	}
+	return svc.StaticBinding(id), "legacy", nil
+}
+
+// linkedGPTQuota 统一实时查询和刷新；绑定不匹配时保持旧接口的未绑定行为。
+func linkedGPTQuota(ctx context.Context, svc *gptquota.Service, id int, username, group string, refresh bool) (gptquota.View, error) {
+	binding, _, err := resolveGPTQuotaBinding(svc, id, username, group)
+	if err != nil {
+		return gptquota.View{}, err
 	}
 	if refresh {
-		return svc.Refresh(ctx, id, username, group)
+		view, err := svc.RefreshFor(ctx, id, username, group, binding)
+		// 手动刷新后读取刚持久化的快照；记录失败不把成功的官方查询变成失败。
+		if err == nil {
+			if user, userErr := model.GetUserById(id, false); userErr == nil {
+				if historyErr := collectGPTQuotaUser(ctx, svc, user); historyErr != nil {
+					common.SysError("GPT quota history refresh persistence unavailable")
+				}
+			}
+		}
+		return view, err
 	}
-	return svc.Self(ctx, id, username, group)
+	return svc.SelfFor(ctx, id, username, group, binding)
 }
 
 // GetGPTQuotaSelf uses the identity established by UserAuth on every request.

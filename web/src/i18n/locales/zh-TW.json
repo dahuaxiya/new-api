@@ -7706,6 +7706,15 @@
     "Permanent hosting": "永久託管",
     "No automatic expiry": "不會自動到期",
     "No automatic expiry. Turn off permanent hosting to set an end date or extend the term.": "不會自動到期。如需設定到期日或按天續期，請先關閉永久託管。",
-    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "此託管名額不會自動到期。管理員可以停用或修改期限，你也可以主動解除帳號綁定。"
+    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "此託管名額不會自動到期。管理員可以停用或修改期限，你也可以主動解除帳號綁定。",
+    "Quota history": "額度變化",
+    "Quota history range": "額度歷史時間範圍",
+    "GPT remaining quota history": "GPT 剩餘額度變化圖",
+    "Official remaining percentages, recorded every 5 minutes and retained for 30 days. Gaps and resets are not connected.": "記錄官方剩餘百分比，每 5 分鐘保留一筆，保存 30 天；缺失讀數和視窗重設處斷開曲線。",
+    "Loading quota history...": "正在載入額度歷史…",
+    "Quota history could not be loaded": "額度歷史載入失敗",
+    "No quota history in this range": "此時間範圍暫無額度記錄",
+    "History starts when recording is enabled. Earlier readings cannot be recovered.": "歷史從啟用記錄後開始累積，無法補回先前讀數。",
+    "One reading recorded. A line will appear after more readings arrive.": "已記錄一個讀數，後續讀數到達後將形成折線。"
   }
 }

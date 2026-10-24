@@ -7706,6 +7706,15 @@
     "Permanent hosting": "Permanent hosting",
     "No automatic expiry": "No automatic expiry",
     "No automatic expiry. Turn off permanent hosting to set an end date or extend the term.": "No automatic expiry. Turn off permanent hosting to set an end date or extend the term.",
-    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account."
+    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.",
+    "Quota history": "Quota history",
+    "Quota history range": "Quota history range",
+    "GPT remaining quota history": "GPT remaining quota history",
+    "Official remaining percentages, recorded every 5 minutes and retained for 30 days. Gaps and resets are not connected.": "Official remaining percentages, recorded every 5 minutes and retained for 30 days. Gaps and resets are not connected.",
+    "Loading quota history...": "Loading quota history...",
+    "Quota history could not be loaded": "Quota history could not be loaded",
+    "No quota history in this range": "No quota history in this range",
+    "History starts when recording is enabled. Earlier readings cannot be recovered.": "History starts when recording is enabled. Earlier readings cannot be recovered.",
+    "One reading recorded. A line will appear after more readings arrive.": "One reading recorded. A line will appear after more readings arrive."
   }
 }

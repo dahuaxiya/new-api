@@ -352,6 +352,7 @@ func migrateDB() error {
 		&GPTHostingGrant{},
 		&GPTHostingInventory{},
 		&GPTHostingBinding{},
+		&GPTQuotaHistory{},
 		&PasskeyCredential{},
 		&Option{},
 		&LoginEncryptionKey{},

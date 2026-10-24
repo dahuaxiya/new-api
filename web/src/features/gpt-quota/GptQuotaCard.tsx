@@ -19,6 +19,7 @@ import { requireServerSuccess } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { WindowReading } from './quota-reading'
+import { QuotaHistory } from './QuotaHistory'
 import { quotaSchema } from './schema'
 
 /** Fetch the signed-in user's snapshot through the existing session-aware client. */
@@ -66,7 +67,12 @@ function SessionQuotaCard(props: {
     },
     // Cancel an older display read so it cannot overwrite the fresh probe result.
     onMutate: () => queryClient.cancelQueries({ queryKey }),
-    onSuccess: (value) => queryClient.setQueryData(queryKey, value),
+    onSuccess: (value) => {
+      queryClient.setQueryData(queryKey, value)
+      void queryClient.invalidateQueries({
+        queryKey: ['gpt-quota-history', props.userId, props.sessionId],
+      })
+    },
     retry: false,
     meta: { errorToast: false },
   })
@@ -177,6 +183,9 @@ function SessionQuotaCard(props: {
               {t('Quota integration source code')}
             </a>
           </>
+        )}
+        {!query.isPending && (
+          <QuotaHistory userId={props.userId} sessionId={props.sessionId} />
         )}
       </CardContent>
     </Card>

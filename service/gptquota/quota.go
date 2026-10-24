@@ -5,7 +5,9 @@ package gptquota
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"math"
@@ -36,11 +38,12 @@ var slotName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 const DefaultInstanceID = "legacy"
 
 type Binding struct {
-	InstanceID string `json:"instance_id"`
-	Username   string `json:"username"`
-	Group      string `json:"group"`
-	Slot       string `json:"slot"`
-	Label      string `json:"label"`
+	AccountHash string `json:"-"`
+	InstanceID  string `json:"instance_id"`
+	Username    string `json:"username"`
+	Group       string `json:"group"`
+	Slot        string `json:"slot"`
+	Label       string `json:"label"`
 }
 
 // BackendConfig 只能由管理员的部署配置提供，不能接受浏览器传入的地址或凭据。
@@ -61,20 +64,23 @@ type Window struct {
 	Reset     *string  `json:"reset_at"`
 }
 type View struct {
-	Bound       bool     `json:"bound"`
-	Label       string   `json:"account_label,omitempty"`
-	Plan        *string  `json:"plan"`
-	Windows     []Window `json:"windows"`
-	Observed    *string  `json:"observed_at"`
-	Checked     *string  `json:"last_checked_at"`
-	Status      string   `json:"sync_status"`
-	Stale       bool     `json:"stale"`
-	PollSeconds int      `json:"poll_seconds"`
+	// AccountFingerprint 用于内部历史分段，永不把上游身份或哈希返回实时额度接口。
+	AccountFingerprint string   `json:"-"`
+	Bound              bool     `json:"bound"`
+	Label              string   `json:"account_label,omitempty"`
+	Plan               *string  `json:"plan"`
+	Windows            []Window `json:"windows"`
+	Observed           *string  `json:"observed_at"`
+	Checked            *string  `json:"last_checked_at"`
+	Status             string   `json:"sync_status"`
+	Stale              bool     `json:"stale"`
+	PollSeconds        int      `json:"poll_seconds"`
 }
 type persistedVM struct {
-	ID    string `json:"id"`
-	Plan  string `json:"plan_type"`
-	Usage struct {
+	AccountID string `json:"org_uuid"`
+	ID        string `json:"id"`
+	Plan      string `json:"plan_type"`
+	Usage     struct {
 		Snapshot struct {
 			Updated string `json:"updated_at"`
 		} `json:"snapshot"`
@@ -192,6 +198,9 @@ func (s *Service) boundBackend(b Binding) (*backend, error) {
 	return result, nil
 }
 
+// StaticBinding 只返回部署时加载的历史绑定，调用者仍须校验实时用户身份。
+func (s *Service) StaticBinding(id int) Binding { return s.config.Users[strconv.Itoa(id)] }
+
 // Self 使用历史静态用户映射查询额度；授权判断和动态绑定采用同一流程。
 func (s *Service) Self(ctx context.Context, id int, username, group string) (View, error) {
 	return s.SelfFor(ctx, id, username, group, s.config.Users[strconv.Itoa(id)])
@@ -208,11 +217,24 @@ func (s *Service) SelfFor(ctx context.Context, id int, username, group string, b
 	if err != nil {
 		return View{}, err
 	}
-	return instance.self(ctx, b)
+	return instance.self(ctx, b, false)
+}
+
+// ObserveFor 绕过槽位显示缓存读取持久化快照，避免槽位换人后的旧缓存进入新用户历史。
+// 此方法不触发官方探测；调用方必须在网络读取前后核验当前数据库绑定。
+func (s *Service) ObserveFor(ctx context.Context, id int, username, group string, b Binding) (View, error) {
+	if id <= 0 || b.Username != username || b.Group != group || username == "" || group == "" {
+		return View{}, ErrUnbound
+	}
+	instance, err := s.boundBackend(b)
+	if err != nil {
+		return View{}, err
+	}
+	return instance.self(ctx, b, true)
 }
 
 // self 读取一个已验证绑定的快照，缓存与失败退避只作用于该实例。
-func (s *backend) self(ctx context.Context, b Binding) (View, error) {
+func (s *backend) self(ctx context.Context, b Binding, force bool) (View, error) {
 	// 分页汇总有整体读预算；不能在同实例互斥锁上无视取消，一台慢实例拖住所有用户。
 	for !s.mu.TryLock() {
 		select {
@@ -224,7 +246,7 @@ func (s *backend) self(ctx context.Context, b Binding) (View, error) {
 	defer s.mu.Unlock()
 	now := time.Now()
 	entry, cached := s.cache[b.Slot]
-	if !cached || now.Sub(entry.fetched) >= 15*time.Second {
+	if force || !cached || now.Sub(entry.fetched) >= 15*time.Second {
 		// 后端不可用时保留旧快照及其观察时间，并限制重新登录频率。
 		// 用户授权不使用缓存，每次访问都在进入此方法前重新验证。
 		if now.Before(s.retryAfter) {
@@ -329,7 +351,7 @@ func (s *backend) request(ctx context.Context, path string, body any, target any
 // quotaView exposes only window percentages and dates. Missing windows remain
 // unknown; reset time passing never fabricates a fresh zero-percent reading.
 func quotaView(vm persistedVM, now time.Time) View {
-	view := View{Windows: []Window{{ID: "5h"}, {ID: "7d"}}, Status: "pending"}
+	view := View{AccountFingerprint: fmt.Sprintf("%x", sha256.Sum256([]byte("openai-account\x00"+vm.AccountID))), Windows: []Window{{ID: "5h"}, {ID: "7d"}}, Status: "pending"}
 	if strings.Contains("|free|plus|pro|team|business|enterprise|edu|", "|"+vm.Plan+"|") && vm.Plan != "" {
 		view.Plan = &vm.Plan
 	}
@@ -410,7 +432,7 @@ func (s *backend) refresh(ctx context.Context, b Binding) (View, error) {
 		if flight.err != nil {
 			return View{}, flight.err
 		}
-		return s.self(ctx, b)
+		return s.self(ctx, b, false)
 	}
 }
 

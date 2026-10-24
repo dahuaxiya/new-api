@@ -7706,6 +7706,15 @@
     "Permanent hosting": "Бессрочный хостинг",
     "No automatic expiry": "Без автоматического истечения",
     "No automatic expiry. Turn off permanent hosting to set an end date or extend the term.": "Отключите бессрочный хостинг, чтобы указать дату окончания или продлить срок.",
-    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "Это право на хостинг не истекает автоматически. Администратор может отключить его или изменить срок, а вы можете отвязать аккаунт."
+    "This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.": "Это право на хостинг не истекает автоматически. Администратор может отключить его или изменить срок, а вы можете отвязать аккаунт.",
+    "Quota history": "История квоты",
+    "Quota history range": "Период истории квоты",
+    "GPT remaining quota history": "График оставшейся квоты GPT",
+    "Official remaining percentages, recorded every 5 minutes and retained for 30 days. Gaps and resets are not connected.": "Официальный остаток в процентах: одна запись за 5 минут, хранение 30 дней. Пропуски и сбросы разрывают линию.",
+    "Loading quota history...": "Загрузка истории квоты…",
+    "Quota history could not be loaded": "Не удалось загрузить историю квоты",
+    "No quota history in this range": "Нет записей за этот период",
+    "History starts when recording is enabled. Earlier readings cannot be recovered.": "История собирается с момента включения. Предыдущие данные восстановить нельзя.",
+    "One reading recorded. A line will appear after more readings arrive.": "Записано одно значение. Линия появится после следующих измерений."
   }
 }
