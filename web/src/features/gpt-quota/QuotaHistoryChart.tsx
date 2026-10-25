@@ -26,7 +26,11 @@ export default function QuotaHistoryChart(props: {
   const { resolvedTheme, themeReady } = useChartTheme()
   const spec = useMemo(() => {
     const values = quotaChartPoints(props.points)
-    const segments = [...new Set(values.map((row) => row.series))]
+    const segmentSizes = new Map<string, number>()
+    for (const row of values) {
+      segmentSizes.set(row.series, (segmentSizes.get(row.series) ?? 0) + 1)
+    }
+    const segments = [...segmentSizes.keys()]
     const firstTime = props.points[0]?.observed_at ?? 0
     const lastTime = props.points.at(-1)?.observed_at ?? firstTime
     const tooltipPattern = {
@@ -60,8 +64,20 @@ export default function QuotaHistoryChart(props: {
         segment.startsWith('5h:') ? '#2563eb' : '#0d9488'
       ),
       animation: false,
-      line: { style: { lineWidth: 2, curveType: 'linear' as const } },
-      point: { visible: true, style: { size: values.length > 500 ? 2 : 5 } },
+      line: {
+        visible: true,
+        style: { lineWidth: 2.5, lineDash: [], curveType: 'linear' as const },
+      },
+      // 密集采样点会遮住折线；仅保留无法组成线段的孤立读数，不能为了连线跨越断档。
+      point: {
+        style: {
+          visible: (row: QuotaChartPoint) => segmentSizes.get(row.series) === 1,
+          size: 5,
+        },
+        state: { dimension_hover: { visible: true, size: 6 } },
+      },
+      // 常态隐藏采样点时仍为悬停位置绘制标记，保持时间轴提示的定位能力。
+      activePoint: true,
       legends: { visible: false },
       axes: [
         {
