@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { TopNavLink } from '../types'
+import { Footer } from './footer'
 import { PublicHeader, type PublicHeaderProps } from './public-header'
 
 type PublicLayoutProps = {
@@ -30,11 +31,18 @@ type PublicLayoutProps = {
   showNotifications?: boolean
   logo?: React.ReactNode
   siteName?: string
+  /** 首页可提供完整品牌页脚，其他公开页面默认使用紧凑页脚。 */
+  footer?: React.ReactNode
 }
 
+/**
+ * 组合公开页面的导航、正文与统一源码入口，首页可以保留完整页脚。
+ * @param props 页面内容与展示配置，footer 未提供时自动显示紧凑页脚。
+ * @return 含页脚的公开页面，正文与页脚按文档流布局。
+ */
 export function PublicLayout(props: PublicLayoutProps) {
   return (
-    <div className='bg-background text-foreground relative min-h-svh overflow-x-clip'>
+    <div className='bg-background text-foreground relative flex min-h-svh flex-col overflow-x-clip'>
       <PublicHeader
         navContent={props.navContent}
         navLinks={props.navLinks}
@@ -47,12 +55,13 @@ export function PublicLayout(props: PublicLayoutProps) {
       />
 
       {props.showMainContainer !== false ? (
-        <main className='container px-4 py-6 pt-20 md:px-4'>
+        <main className='container flex-1 px-4 py-6 pt-20 md:px-4'>
           {props.children}
         </main>
       ) : (
         props.children
       )}
+      {props.footer ?? <Footer compact className='mt-auto' />}
     </div>
   )
 }

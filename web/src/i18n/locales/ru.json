@@ -7784,6 +7784,7 @@
     "OpenAI-compatible URL (with /v1)": "Адрес, совместимый с OpenAI (с /v1)",
     "Use this as the Base URL in Codex or an OpenAI SDK. Do not add /v1 again.": "Укажите этот адрес как Base URL в Codex или OpenAI SDK. Не добавляйте /v1 повторно.",
     "Server URL (without /v1)": "Адрес сервера (без /v1)",
-    "Only use this if your client automatically adds /v1.": "Используйте только для клиентов, которые автоматически добавляют /v1."
+    "Only use this if your client automatically adds /v1.": "Используйте только для клиентов, которые автоматически добавляют /v1.",
+    "Site source code and license": "Исходный код и лицензия сайта"
   }
 }

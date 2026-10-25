@@ -7784,6 +7784,7 @@
     "OpenAI-compatible URL (with /v1)": "Địa chỉ tương thích OpenAI (có /v1)",
     "Use this as the Base URL in Codex or an OpenAI SDK. Do not add /v1 again.": "Dùng địa chỉ này làm Base URL trong Codex hoặc OpenAI SDK. Không thêm /v1 lần nữa.",
     "Server URL (without /v1)": "Địa chỉ máy chủ (không có /v1)",
-    "Only use this if your client automatically adds /v1.": "Chỉ dùng nếu ứng dụng tự động thêm /v1."
+    "Only use this if your client automatically adds /v1.": "Chỉ dùng nếu ứng dụng tự động thêm /v1.",
+    "Site source code and license": "Mã nguồn và giấy phép của trang"
   }
 }

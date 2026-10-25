@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
+import { Footer } from '@/components/layout/components/footer'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSystemConfig } from '@/hooks/use-system-config'
 
@@ -26,12 +27,17 @@ type AuthLayoutProps = {
   children: React.ReactNode
 }
 
+/**
+ * 登录页面保留独立表单布局，并向未登录用户展示同一源码与许可证入口。
+ * @param children 登录或找回账号的表单内容。
+ * @return 正文可自然增高、页脚不覆盖表单操作的登录页面。
+ */
 export function AuthLayout({ children }: AuthLayoutProps) {
   const { t } = useTranslation()
   const { systemName, logo, loading } = useSystemConfig()
 
   return (
-    <div className='relative grid h-svh max-w-none'>
+    <div className='relative grid min-h-svh max-w-none grid-rows-[1fr_auto]'>
       <Link
         to='/'
         className='absolute top-4 left-4 z-10 flex items-center gap-2 transition-opacity hover:opacity-80 sm:top-8 sm:left-8'
@@ -58,6 +64,7 @@ export function AuthLayout({ children }: AuthLayoutProps) {
           {children}
         </div>
       </div>
+      <Footer compact />
     </div>
   )
 }

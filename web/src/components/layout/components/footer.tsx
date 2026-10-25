@@ -40,6 +40,8 @@ interface FooterProps {
   columns?: FooterColumnProps[]
   copyright?: string
   className?: string
+  /** 控制台和内页使用紧凑页脚，避免占用正文和表格的可视空间。 */
+  compact?: boolean
 }
 
 const NEW_API_FOOTER_ATTRIBUTION_KEY = [
@@ -121,8 +123,11 @@ function LegalLinks(props: { leadingSeparator?: boolean }) {
   )
 }
 
-// inline=true returns just the inner span for composition in a parent flex
-// row. inline=false wraps in a centered/right-aligned div (default).
+/**
+ * 保留上游署名和当前站点的源码及许可证下载，所有页脚变体共用同一个入口。
+ * @param props 当前年份与行内显示方式；行内模式由父容器负责窄屏换行。
+ * @return 署名和源码入口，不依赖用户登录或额度读取成功。
+ */
 function ProjectAttribution(props: { currentYear: number; inline?: boolean }) {
   const { t } = useTranslation()
   const content = (
@@ -138,8 +143,11 @@ function ProjectAttribution(props: { currentYear: number; inline?: boolean }) {
       </a>
       . {t(NEW_API_FOOTER_ATTRIBUTION_KEY)}
       {' · '}
-      <a href='/quota-source.tar.gz' className='underline underline-offset-4'>
-        {t('Source code')}
+      <a
+        href='/quota-source.tar.gz'
+        className='text-muted-foreground hover:text-foreground rounded-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-4'
+      >
+        {t('Site source code and license')}
       </a>
     </span>
   )
@@ -153,7 +161,11 @@ function ProjectAttribution(props: { currentYear: number; inline?: boolean }) {
   )
 }
 
-/** 页脚保留项目署名、法律链接及接入文档，不再重复展示开发者产品导航。 */
+/**
+ * 提供统一页脚；内页使用紧凑变体，首页保留既有品牌与自定义内容。
+ * @param props 页脚展示配置，compact 仅改变布局，不隐藏源码及许可证入口。
+ * @return 包含上游署名、源码入口及已启用法律链接的页脚。
+ */
 export function Footer(props: FooterProps) {
   const { t } = useTranslation()
   const {
@@ -182,6 +194,23 @@ export function Footer(props: FooterProps) {
   )
 
   const displayColumns = props.columns ?? fallbackColumns
+
+  if (props.compact) {
+    // 作为布局中的普通 flex 子项预留高度，不能悬浮遮住表格分页或移动端操作。
+    return (
+      <footer
+        className={cn(
+          'bg-background border-border/40 shrink-0 border-t px-4 py-2',
+          props.className
+        )}
+      >
+        <div className='text-muted-foreground flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs'>
+          <LegalLinks />
+          <ProjectAttribution currentYear={currentYear} inline />
+        </div>
+      </footer>
+    )
+  }
 
   if (footerHtml) {
     return (

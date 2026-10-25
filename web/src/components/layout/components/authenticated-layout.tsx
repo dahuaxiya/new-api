@@ -31,12 +31,17 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { AppHeader } from './app-header'
 import { AppSidebar } from './app-sidebar'
+import { Footer } from './footer'
 
 type AuthenticatedLayoutProps = {
   children?: React.ReactNode
 }
 
-/** 使用统一的用户壳；已精简页面的旧书签回到首页，权限仍由既有路由和接口负责。 */
+/**
+ * 使用统一用户壳和紧凑页脚；旧书签跳转不改变现有权限校验。
+ * @param props 可选页面内容，缺省渲染当前路由。
+ * @return 为正文和页脚分别预留空间的用户工作区。
+ */
 export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
   const pathname = useLocation({ select: (location) => location.pathname })
   const role = useAuthStore((state) => state.auth.user?.role ?? 0)
@@ -64,6 +69,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
               ) : (
                 (props.children ?? <AnimatedOutlet />)
               )}
+              <Footer compact />
             </SidebarInset>
           </div>
         </SidebarProvider>

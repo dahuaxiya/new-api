@@ -52,7 +52,11 @@ export function GptQuotaCard(props: { seatId?: string } = {}) {
   )
 }
 
-/** Keep refresh callbacks and feedback scoped to the session that started them. */
+/**
+ * 展示当前会话的官方额度与历史；全站源码入口由公共页脚提供。
+ * @param props 用户、会话和可选名额，刷新及查询缓存均受此范围限制。
+ * @return 额度读取、刷新反馈与历史图表，不混入全站导航入口。
+ */
 function SessionQuotaCard(props: {
   seatId?: string
   userId: number
@@ -185,12 +189,6 @@ function SessionQuotaCard(props: {
                 'GPT syncs every 5 minutes; displayed times use your local timezone.'
               )}
             </p>
-            <a
-              className='text-muted-foreground text-xs underline'
-              href='/quota-source.tar.gz'
-            >
-              {t('Quota integration source code')}
-            </a>
           </>
         )}
         {!query.isPending && (

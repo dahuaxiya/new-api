@@ -7784,6 +7784,7 @@
     "OpenAI-compatible URL (with /v1)": "OpenAI 互換 URL（/v1 あり）",
     "Use this as the Base URL in Codex or an OpenAI SDK. Do not add /v1 again.": "Codex または OpenAI SDK の Base URL にこのアドレスを入力してください。/v1 を重複して追加しないでください。",
     "Server URL (without /v1)": "サーバー URL（/v1 なし）",
-    "Only use this if your client automatically adds /v1.": "/v1 を自動で追加するクライアントでのみ使用してください。"
+    "Only use this if your client automatically adds /v1.": "/v1 を自動で追加するクライアントでのみ使用してください。",
+    "Site source code and license": "当サイトのソースコードとライセンス"
   }
 }

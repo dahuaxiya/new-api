@@ -61,6 +61,18 @@ function mount() {
 }
 
 describe('official quota display', () => {
+  /** 额度读数正常加载后，卡片也不再混入全站源码下载入口。 */
+  it('keeps source downloads out of the quota card', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: { success: true, data: fixture },
+    })
+    mount()
+    await screen.findByText('GPT remaining 44%')
+    expect(
+      screen.queryByRole('link', { name: 'Quota integration source code' })
+    ).not.toBeInTheDocument()
+  })
+
   it('shows a missing window as unknown and a known window as remaining percentage', async () => {
     vi.spyOn(api, 'get').mockResolvedValue({
       data: { success: true, data: fixture },

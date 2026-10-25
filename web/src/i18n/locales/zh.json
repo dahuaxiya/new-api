@@ -7784,6 +7784,7 @@
     "OpenAI-compatible URL (with /v1)": "OpenAI 兼容地址（含 /v1）",
     "Use this as the Base URL in Codex or an OpenAI SDK. Do not add /v1 again.": "在 Codex 或 OpenAI SDK 的 Base URL 中填写这个地址，不要重复添加 /v1。",
     "Server URL (without /v1)": "服务器地址（不含 /v1）",
-    "Only use this if your client automatically adds /v1.": "仅供会自动添加 /v1 的客户端使用。"
+    "Only use this if your client automatically adds /v1.": "仅供会自动添加 /v1 的客户端使用。",
+    "Site source code and license": "本站源码与许可证"
   }
 }

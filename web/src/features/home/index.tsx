@@ -29,7 +29,10 @@ import { useAuthStore } from '@/stores/auth-store'
 import { PortalWelcome } from './components/portal-welcome'
 import { useHomePageContent } from './hooks'
 
-/** 保留站长自定义首页；默认页面采用精简的接入说明。 */
+/**
+ * 保留站长自定义首页，默认接入说明通过公开布局挂载完整页脚，避免重复入口。
+ * @return 当前配置对应的首页内容与页脚。
+ */
 export function Home() {
   const { i18n, t } = useTranslation()
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -122,9 +125,8 @@ export function Home() {
   }
 
   return (
-    <PublicLayout showMainContainer={false}>
+    <PublicLayout showMainContainer={false} footer={<Footer />}>
       <PortalWelcome isAuthenticated={isAuthenticated} />
-      <Footer />
     </PublicLayout>
   )
 }
