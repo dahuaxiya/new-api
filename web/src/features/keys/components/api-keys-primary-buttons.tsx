@@ -37,10 +37,16 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { useApiInfo } from '@/features/dashboard/hooks/use-status-data'
+import { docsApiBase } from '@/features/user-docs/config'
 import { useStatus } from '@/hooks/use-status'
 
 import { useApiKeys } from './api-keys-provider'
 
+/**
+ * 提供密钥创建入口及可复制地址；默认优先展示与教程一致的 OpenAI 基础地址。
+ * 管理员显式配置的线路可能有专用路径，保持原值，不自动添加或删除其版本后缀。
+ * @return 带地址选择弹窗的密钥页操作按钮。
+ */
 export function ApiKeysPrimaryButtons() {
   const { t } = useTranslation()
   const { setOpen } = useApiKeys()
@@ -50,13 +56,25 @@ export function ApiKeysPrimaryButtons() {
     (typeof status?.server_address === 'string' &&
       status.server_address.trim()) ||
     ''
+  // 与教程共用地址规范化，保留反向代理前缀，并避免已有 /v1 时重复追加。
+  // 服务器地址仅移除末尾的版本段，供会自动补 /v1 的客户端使用。
+  const apiBase = docsApiBase(serverAddress, window.location.origin)
   const addresses = items.length
     ? items
     : [
         {
-          url: serverAddress || window.location.origin,
-          route: serverAddress ? t('Default API address') : t('Current domain'),
-          description: '',
+          url: apiBase,
+          route: t('OpenAI-compatible URL (with /v1)'),
+          description: t(
+            'Use this as the Base URL in Codex or an OpenAI SDK. Do not add /v1 again.'
+          ),
+        },
+        {
+          url: apiBase.slice(0, -3),
+          route: t('Server URL (without /v1)'),
+          description: t(
+            'Only use this if your client automatically adds /v1.'
+          ),
         },
       ]
 

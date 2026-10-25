@@ -48,6 +48,7 @@ afterEach(() => {
   localStorage.clear()
 })
 
+/** 使用真实状态查询缓存渲染地址菜单，验证展示值与剪贴板内容一致。 */
 function renderAddresses(status: StatusData) {
   client.setQueryData(STATUS_QUERY_KEY, status)
   return render(
@@ -117,13 +118,13 @@ it.each([
       api_info: [],
       server_address: 'https://gateway.example.com/proxy/',
     },
-    label: 'Default API address',
-    url: 'https://gateway.example.com/proxy/',
+    url: 'https://gateway.example.com/proxy/v1',
+    server: 'https://gateway.example.com/proxy',
   },
   {
     status: { api_info: [] },
-    label: 'Current domain',
-    url: window.location.origin,
+    url: `${window.location.origin}/v1`,
+    server: window.location.origin,
   },
   {
     status: {
@@ -138,12 +139,20 @@ it.each([
       ],
       server_address: 'https://gateway.example.com',
     },
-    label: 'Default API address',
-    url: 'https://gateway.example.com',
+    url: 'https://gateway.example.com/v1',
+    server: 'https://gateway.example.com',
+  },
+  {
+    status: {
+      api_info: [],
+      server_address: 'https://gateway.example.com/proxy/v1/',
+    },
+    url: 'https://gateway.example.com/proxy/v1',
+    server: 'https://gateway.example.com/proxy',
   },
 ])(
-  'shows and copies the fallback $label when no configured addresses are available',
-  async ({ status, label, url }) => {
+  'copies the versioned API base $url by default and offers the server URL separately',
+  async ({ status, url, server }) => {
     const user = userEvent.setup()
     const writeText = vi.spyOn(navigator.clipboard, 'writeText')
     renderAddresses(status)
@@ -154,8 +163,11 @@ it.each([
     await user.keyboard('{Enter}')
     const dialog = await screen.findByRole('dialog', { name: 'API Addresses' })
     expect(trigger).toHaveAttribute('aria-expanded', 'true')
-    expect(within(dialog).getAllByRole('listitem')).toHaveLength(1)
-    expect(within(dialog).getByText(label)).toBeVisible()
+    expect(within(dialog).getAllByRole('listitem')).toHaveLength(2)
+    expect(
+      within(dialog).getByText('OpenAI-compatible URL (with /v1)')
+    ).toBeVisible()
+    expect(within(dialog).getByText('Server URL (without /v1)')).toBeVisible()
     expect(within(dialog).getByText(url)).toBeVisible()
     const copy = within(dialog).getByRole('button', {
       name: `Copy API URL: ${url}`,
@@ -163,6 +175,11 @@ it.each([
     await waitFor(() => expect(copy).toHaveFocus())
     await user.keyboard('{Enter}')
     expect(writeText).toHaveBeenCalledWith(url)
+    await user.click(
+      within(dialog).getByRole('button', { name: `Copy API URL: ${server}` })
+    )
+    expect(writeText).toHaveBeenLastCalledWith(server)
+    expect(within(dialog).queryByText(/\/v1\/v1/)).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
     await waitFor(() =>
       expect(trigger).toHaveAttribute('aria-expanded', 'false')

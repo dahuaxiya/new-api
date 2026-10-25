@@ -7780,6 +7780,10 @@
     "Complete account sign-in": "Complete account sign-in",
     "Choose this account for a New API key on the API Keys page. Each key uses only its selected account.": "Choose this account for a New API key on the API Keys page. Each key uses only its selected account.",
     "This stops access for this seat and removes its hosted credentials. Its term does not change. Official authorization is not revoked.": "This stops access for this seat and removes its hosted credentials. Its term does not change. Official authorization is not revoked.",
-    "Prepare empty slots and outbound connections here. Users sign in to their own GPT or Claude accounts. Create Claude slots in vm2api before enabling assignment here.": "Prepare empty slots and outbound connections here. Users sign in to their own GPT or Claude accounts. Create Claude slots in vm2api before enabling assignment here."
+    "Prepare empty slots and outbound connections here. Users sign in to their own GPT or Claude accounts. Create Claude slots in vm2api before enabling assignment here.": "Prepare empty slots and outbound connections here. Users sign in to their own GPT or Claude accounts. Create Claude slots in vm2api before enabling assignment here.",
+    "OpenAI-compatible URL (with /v1)": "Địa chỉ tương thích OpenAI (có /v1)",
+    "Use this as the Base URL in Codex or an OpenAI SDK. Do not add /v1 again.": "Dùng địa chỉ này làm Base URL trong Codex hoặc OpenAI SDK. Không thêm /v1 lần nữa.",
+    "Server URL (without /v1)": "Địa chỉ máy chủ (không có /v1)",
+    "Only use this if your client automatically adds /v1.": "Chỉ dùng nếu ứng dụng tự động thêm /v1."
   }
 }

@@ -7780,6 +7780,10 @@
     "Complete account sign-in": "完成账号登录",
     "Choose this account for a New API key on the API Keys page. Each key uses only its selected account.": "到 API 密钥页面为 Key 选择此账号。每把 Key 只使用其指定的账号。",
     "This stops access for this seat and removes its hosted credentials. Its term does not change. Official authorization is not revoked.": "这会停止此名额的调用并清除托管凭据，名额期限保持不变。官方授权不会自动撤销。",
-    "Prepare empty slots and outbound connections here. Users sign in to their own GPT or Claude accounts. Create Claude slots in vm2api before enabling assignment here.": "在这里准备空槽位和出口，由用户登录自己的 GPT 或 Claude 账号。Claude 槽位请先在 vm2api 中创建，再在这里启用分配。"
+    "Prepare empty slots and outbound connections here. Users sign in to their own GPT or Claude accounts. Create Claude slots in vm2api before enabling assignment here.": "在这里准备空槽位和出口，由用户登录自己的 GPT 或 Claude 账号。Claude 槽位请先在 vm2api 中创建，再在这里启用分配。",
+    "OpenAI-compatible URL (with /v1)": "OpenAI 兼容地址（含 /v1）",
+    "Use this as the Base URL in Codex or an OpenAI SDK. Do not add /v1 again.": "在 Codex 或 OpenAI SDK 的 Base URL 中填写这个地址，不要重复添加 /v1。",
+    "Server URL (without /v1)": "服务器地址（不含 /v1）",
+    "Only use this if your client automatically adds /v1.": "仅供会自动添加 /v1 的客户端使用。"
   }
 }
