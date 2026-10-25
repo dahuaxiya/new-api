@@ -256,11 +256,11 @@ export function UserDocs() {
               )}
               {active === 'gpt-hosting' && (
                 <>
-                  <Step number={1} title={t('One account hosting seat')}>
+                  <Step number={1} title={t('Hosting seats')}>
                     <p>{t('docs.guide.hosting.seat')}</p>
                     <p>{t('docs.guide.hosting.subscription')}</p>
                   </Step>
-                  <Step number={2} title={t('Connect GPT account')}>
+                  <Step number={2} title={t('Connect account')}>
                     <a href='/account/gpt'>{t('Hosted accounts')}</a>
                     <p>{t('docs.guide.hosting.verification')}</p>
                     <p>{t('docs.guide.hosting.officialLogin')}</p>

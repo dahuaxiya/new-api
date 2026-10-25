@@ -35,6 +35,22 @@ const messages = [
 ] as const
 
 describe('hosted account translations', () => {
+  /** 中文教程必须说明按 Key 选账号，不能继续引导多名额用户共享首账号。 */
+  it('中文教程说明 Key 选择账号及名额独立期限', async () => {
+    const translator = createInstance()
+    await translator.init({
+      lng: 'zh',
+      resources: { zh },
+      fallbackLng: false,
+      nsSeparator: false,
+    })
+    expect(translator.t('docs.guide.hosting.sharedQuota')).toContain(
+      '每把 Key 选择一个指定账号'
+    )
+    expect(translator.t('docs.guide.hosting.seat')).toContain('永久')
+    expect(translator.t('docs.guide.hosting.callback')).toContain('code#state')
+  })
+
   // 使用真实资源和 i18next，防止条目放在命名空间之外时被模拟翻译函数掩盖。
   it.each(Object.entries(locales))(
     '%s 页面能解析账号、订阅和 Key 绑定说明',
