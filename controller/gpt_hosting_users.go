@@ -20,6 +20,10 @@ import (
 
 // hostingUserSummary 统一展示来源，但不包含 Key、官方身份哈希和面板地址。
 type hostingUserSummary struct {
+	Seats            []hostingSeatView        `json:"seats"`
+	SeatCount        int                      `json:"seat_count"`
+	ActiveSeats      int                      `json:"active_seats"`
+	BoundSeats       int                      `json:"bound_seats"`
 	UserID           int                      `json:"user_id"`
 	Status           string                   `json:"status"`
 	Source           string                   `json:"source"`
@@ -30,6 +34,55 @@ type hostingUserSummary struct {
 	Binding          *model.GPTHostingBinding `json:"binding"`
 	Quota            *gptquota.View           `json:"quota"`
 	QuotaUnavailable bool                     `json:"quota_unavailable"`
+}
+
+// hostingSeatView 绑定与期限按名额组织，用户看不到机器凭据和官方身份哈希。
+type hostingSeatView struct {
+	Status     string                   `json:"status"`
+	InstanceID string                   `json:"instance_id,omitempty"`
+	SlotID     string                   `json:"slot_id,omitempty"`
+	Grant      *model.GPTHostingGrant   `json:"grant"`
+	Binding    *model.GPTHostingBinding `json:"binding"`
+	BindingID  string                   `json:"binding_id"`
+	Valid      bool                     `json:"valid"`
+}
+
+// hostingSeatViews 从鉴权后的用户 ID 读取全部名额，缺失绑定视为数据错误而非空名额。
+func hostingSeatViews(userID int) ([]hostingSeatView, error) {
+	grants, err := model.ListHostingSeats(userID)
+	if err != nil {
+		return nil, err
+	}
+	rows := []hostingSeatView{}
+	for i := range grants {
+		b, e := model.GetHostingBinding(userID, grants[i].SeatID)
+		if e != nil {
+			return nil, e
+		}
+		rows = append(rows, hostingSeatView{Grant: &grants[i], Binding: b, BindingID: b.BindingID, Valid: grants[i].ValidAt(time.Now().Unix()), Status: hostingSeatStatus(&grants[i], b)})
+	}
+	return rows, nil
+}
+
+// hostingSeatStatus 同一套状态用于用户摘要和每个名额，避免有效期限被误显示成账号已经就绪。
+func hostingSeatStatus(grant *model.GPTHostingGrant, binding *model.GPTHostingBinding) string {
+	now := time.Now().Unix()
+	switch {
+	case binding.State == "takeover":
+		return "takeover"
+	case !grant.Enabled || binding.Paused:
+		return "disabled"
+	case grant.EndsAt != model.HostingPermanentEnd && now >= grant.EndsAt:
+		return "expired"
+	case now < grant.StartsAt:
+		return "scheduled"
+	case binding.State != "active":
+		return "awaiting_login"
+	case grant.EndsAt != model.HostingPermanentEnd && grant.EndsAt-now <= 7*86400:
+		return "expiring"
+	default:
+		return "active"
+	}
 }
 
 // resolveLegacyBinding 按明确 ID 或完全一致的面板 URL 归一化；多来源冲突不得任选一个。
@@ -120,6 +173,23 @@ func resolveHostingInstance(cfg gptquota.Config, registry *vm2api.Registry, b gp
 // hostingSummary 查询统一归属；已有托管记录始终优先，解绑、失败或到期不能回落到旧配置。
 func hostingSummary(user *model.User) hostingUserSummary {
 	view := hostingUserSummary{UserID: user.Id, Status: "unopened", Source: "none"}
+	seats, seatErr := hostingSeatViews(user.Id)
+	if seatErr != nil {
+		view.Status = "unavailable"
+		return view
+	}
+	view.Seats, view.SeatCount = seats, len(seats)
+	for i := range seats {
+		seat := &seats[i]
+		// 实例与槽位仅加在管理员摘要，用户自助列表不公开运维拓扑。
+		seat.InstanceID, seat.SlotID = seat.Binding.InstanceID, seat.Binding.SlotID
+		if seat.Valid {
+			view.ActiveSeats++
+		}
+		if seat.Binding.AccountLabel != "" {
+			view.BoundSeats++
+		}
+	}
 	if user.Role != common.RoleCommonUser {
 		view.Status = "restricted"
 		return view
@@ -133,23 +203,7 @@ func hostingSummary(user *model.User) hostingUserSummary {
 			return view
 		}
 		view.Binding, view.InstanceID, view.SlotID = b, b.InstanceID, b.SlotID
-		now := time.Now().Unix()
-		switch {
-		case b.State == "takeover":
-			view.Status = "takeover"
-		case !grant.Enabled || b.Paused:
-			view.Status = "disabled"
-		case grant.EndsAt != model.HostingPermanentEnd && now >= grant.EndsAt:
-			view.Status = "expired"
-		case now < grant.StartsAt:
-			view.Status = "scheduled"
-		case b.State != "active":
-			view.Status = "awaiting_login"
-		case grant.EndsAt != model.HostingPermanentEnd && grant.EndsAt-now <= 7*86400:
-			view.Status = "expiring"
-		default:
-			view.Status = "active"
-		}
+		view.Status = hostingSeatStatus(grant, b)
 	} else if errors.Is(err, gorm.ErrRecordNotFound) {
 		b, e := resolveLegacyBinding(user)
 		if e != nil {

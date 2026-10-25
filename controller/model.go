@@ -188,7 +188,7 @@ type modelListGroups struct {
 
 // getModelListGroups 使用与请求分发相同的当前托管权益解析模型可见范围；无托管名额的用户保留原分组规则。
 func getModelListGroups(c *gin.Context) (modelListGroups, error) {
-	hostingGroup, hostingChannel, err := model.GetHostingRoute(c.GetInt("id"))
+	hostingGroup, hostingChannel, err := model.GetTokenHostingRoute(c.GetInt("id"), c.GetInt("token_id"))
 	if err != nil {
 		// 已有托管但过期、暂停或读取失败时不能回退旧组；也不向客户端暴露绑定或数据库细节。
 		return modelListGroups{}, model.ErrHostingUnavailable

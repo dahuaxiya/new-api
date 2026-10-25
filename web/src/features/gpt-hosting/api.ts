@@ -29,6 +29,7 @@ import {
 export const HOSTING_PERMANENT_END = -1
 
 export type HostingGrant = {
+  seat_id?: string
   user_id: number
   starts_at: number
   ends_at: number
@@ -37,10 +38,13 @@ export type HostingGrant = {
   note: string
 }
 export type HostingSelf = {
+  seats?: HostingSelf[]
   grant: HostingGrant | null
   valid?: boolean
   binding_id?: string
   binding: {
+    seat_id?: string
+    platform?: 'codex' | 'claude'
     state: string
     paused: boolean
     account_label: string
@@ -55,6 +59,7 @@ export type HostingAdmin = {
     available: boolean
     slots: Array<{
       id: string
+      platform?: 'codex' | 'claude'
       name: string
       empty: boolean
       exit_ready: boolean
@@ -65,6 +70,7 @@ export type HostingAdmin = {
   }>
 }
 export type HostingLogin = {
+  platform?: string
   auth_url: string
   session_id: string
   expires_at: string
@@ -73,9 +79,13 @@ export type HostingLogin = {
 /** 只读取会话对应的安全视图，调用方不能拼接任意管理接口。 */
 export async function getHosting<T extends HostingSelf | HostingAdmin>(
   view: 'self' | 'admin',
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  seatId?: string
 ): Promise<T> {
-  const response = await api.get(`/api/gpt-hosting/${view}`, { signal })
+  const response = await api.get(`/api/gpt-hosting/${view}`, {
+    signal,
+    params: seatId ? { seat_id: seatId } : undefined,
+  })
   return requireServerSuccess(response.data).data
 }
 
@@ -89,7 +99,7 @@ function hostingMessage(error: unknown): string {
       )
     case 'account_changed':
       return t(
-        'Sign in to the same GPT account, or unbind it before changing accounts.'
+        'Sign in to the same account, or unbind it before changing accounts.'
       )
     case 'hosting_conflict':
       return t(
@@ -108,12 +118,12 @@ function hostingMessage(error: unknown): string {
       )
     case 'personal_account_required':
       return t(
-        'Only a personal GPT account with a supported subscription can be hosted.'
+        'Only personal GPT or Claude accounts with supported subscriptions can be hosted.'
       )
     case 'identity_invalid':
     case 'identity_unavailable':
       return t(
-        'The GPT sign-in could not be verified. Start a new GPT sign-in.'
+        'The account sign-in could not be verified. Start a new sign-in.'
       )
     case 'cleanup_pending':
       return t(
@@ -137,10 +147,12 @@ export async function postHosting<T = HostingSelf>(
     | 'admin/takeover/check'
     | 'admin/takeover',
   body: unknown,
-  proof?: string
+  proof?: string,
+  seatId?: string
 ): Promise<T> {
   try {
     const response = await api.post(`/api/gpt-hosting/${action}`, body, {
+      params: seatId ? { seat_id: seatId } : undefined,
       headers: proof ? { 'X-Security-Proof': proof } : undefined,
       timeout: 90_000,
       singleUseAuthorization: !!proof,

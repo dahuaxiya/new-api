@@ -57,6 +57,13 @@ func TestGPTHostingSessionBoundary(t *testing.T) {
 	for _, private := range []string{"account_hash", "subject_hash", "slot_id", "instance_id", "operation_token", "key_id"} {
 		require.NotContains(t, own.Body.String(), `"`+private+`"`)
 	}
+	// 用户即使知道他人的名额编号，也不能读取其身份或授权状态。
+	foreignSeat := uuid.NewString()
+	require.NoError(t, model.DB.Create(&model.GPTHostingGrant{SeatID: foreignSeat, UserID: user.Id + 1, Group: "acct_other", Enabled: true, StartsAt: now - 1, EndsAt: -1}).Error)
+	require.NoError(t, model.DB.Create(&model.GPTHostingBinding{SeatID: foreignSeat, UserID: user.Id + 1, BindingID: uuid.NewString(), State: "active", AccountLabel: "foreign-owner"}).Error)
+	forbiddenSeat := request("GET", "/self?seat_id="+foreignSeat, token, "")
+	require.Equal(t, 409, forbiddenSeat.Code)
+	require.NotContains(t, forbiddenSeat.Body.String(), "foreign-owner")
 	require.Equal(t, 401, request("GET", "/self", "", "").Code)
 	require.Equal(t, 403, request("GET", "/admin", token, "").Code)
 	require.Equal(t, 403, request("POST", "/login", token, "https://untrusted.test").Code)

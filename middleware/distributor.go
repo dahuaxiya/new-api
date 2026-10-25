@@ -34,7 +34,7 @@ type ModelRequest struct {
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// 所有调用每次读取当前权益和绑定。历史用户没有名额时继续走原有路径。
-		hostingGroup, hostingChannel, hostingErr := model.GetHostingRoute(c.GetInt("id"))
+		hostingGroup, hostingChannel, hostingErr := model.GetTokenHostingRoute(c.GetInt("id"), c.GetInt("token_id"))
 		if hostingErr != nil {
 			abortWithOpenAiMessage(c, http.StatusForbidden, "GPT hosting is inactive or expired")
 			return

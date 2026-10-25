@@ -110,7 +110,7 @@ it('桌面点击其他菜单后选中态跟随路由，返回入口仍回到用�
     expect(router.state.location.pathname).toBe('/dashboard/overview')
   )
   expect(
-    await screen.findByRole('link', { name: 'My GPT account' })
+    await screen.findByRole('link', { name: 'Hosted accounts' })
   ).toBeVisible()
 })
 
@@ -156,7 +156,7 @@ it('折叠后仍可键盘访问当前菜单并恢复展开状态', async () => {
 
 it('普通用户在管理地址也只看到用户菜单，样式调整不扩大管理权限', async () => {
   await mountSidebar({ role: 1 })
-  expect(screen.getByRole('link', { name: 'My GPT account' })).toBeVisible()
+  expect(screen.getByRole('link', { name: 'Hosted accounts' })).toBeVisible()
   expect(screen.queryByRole('link', { name: 'Users' })).toBeNull()
   expect(screen.queryByRole('link', { name: 'Administration' })).toBeNull()
 })

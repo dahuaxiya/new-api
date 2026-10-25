@@ -284,7 +284,7 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 	constraints := GetChannelConstraints(c)
 	// Responses WebSocket 在每条消息中直接调用这里，不经过 Distribute。
 	// 每次选择及重试都重新校验权益和专属渠道，不能仅依赖握手时的分组或历史 pin。
-	hostingGroup, hostingChannel, hostingErr := model.GetHostingRoute(c.GetInt("id"))
+	hostingGroup, hostingChannel, hostingErr := model.GetTokenHostingRoute(c.GetInt("id"), c.GetInt("token_id"))
 	if hostingErr != nil {
 		return nil, "", &ChannelSelectError{StatusCode: http.StatusForbidden, Message: "GPT hosting is inactive or expired"}
 	}

@@ -83,7 +83,7 @@ export function HostingResources(props: {
           <SheetTitle>{t('Slot resources')}</SheetTitle>
           <SheetDescription>
             {t(
-              'Prepare empty slots and outbound connections here. Users sign in to their own GPT accounts.'
+              'Prepare empty slots and outbound connections here. Users sign in to their own GPT or Claude accounts. Create Claude slots in vm2api before enabling assignment here.'
             )}
           </SheetDescription>
         </SheetHeader>
@@ -124,7 +124,10 @@ export function HostingResources(props: {
                   className='flex flex-wrap items-center justify-between gap-2 border-b pb-3 text-sm'
                 >
                   <div>
-                    <p>{slot.name || slot.id}</p>
+                    <p>
+                      {slot.name || slot.id} ·{' '}
+                      {slot.platform === 'claude' ? 'Claude' : 'GPT'}
+                    </p>
                     <p className='text-muted-foreground text-xs'>
                       {slot.id} ·{' '}
                       {slot.exit_ready

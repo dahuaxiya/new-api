@@ -107,7 +107,7 @@ func (f HostingUserFilter) Apply(query, tx *gorm.DB) (*gorm.DB, error) {
 		return query.Where("role = ?", common.RoleCommonUser).Where("id NOT IN (?)", grants).Where("id NOT IN ? AND id NOT IN (?)", legacy, jobs), nil
 	}
 	now := time.Now().Unix()
-	bound := tx.Table("gpt_hosting_grants AS g").Select("g.user_id").Joins("JOIN gpt_hosting_bindings AS b ON b.user_id = g.user_id")
+	bound := tx.Table("account_hosting_grants AS g").Select("g.user_id").Joins("JOIN account_hosting_bindings AS b ON b.seat_id = g.seat_id AND b.user_id = g.user_id")
 	if f.Status == "takeover" {
 		return query.Where("id IN (?)", bound.Where("b.state = ?", "takeover")), nil
 	}

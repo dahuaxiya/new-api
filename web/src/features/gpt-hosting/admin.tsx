@@ -167,7 +167,7 @@ export function HostingAdmin(): React.JSX.Element {
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        {t('GPT hosting management')}
+        {t('Account hosting management')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <Button
@@ -347,7 +347,7 @@ export function HostingAdmin(): React.JSX.Element {
                   <CardTitle>{t('Prepared slot inventory')}</CardTitle>
                   <CardDescription>
                     {t(
-                      'Only enable empty local GPT slots with a working outbound connection. Disabling inventory stops new assignments and keeps current users connected.'
+                      'Only enable empty local GPT or Claude slots with a working outbound connection. Disabling inventory stops new assignments and keeps current users connected.'
                     )}
                   </CardDescription>
                 </CardHeader>
@@ -374,7 +374,8 @@ export function HostingAdmin(): React.JSX.Element {
                         >
                           <div>
                             <p className='font-medium'>
-                              {slot.name || slot.id}
+                              {slot.name || slot.id} ·{' '}
+                              {slot.platform === 'claude' ? 'Claude' : 'GPT'}
                             </p>
                             <p className='text-muted-foreground'>
                               {slot.empty

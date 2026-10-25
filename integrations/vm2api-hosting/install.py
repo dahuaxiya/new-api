@@ -53,7 +53,7 @@ def install(root):
     s = replace_once(s, "live.error === 'upstream_auth' && rotate && refreshToken", "live.error === 'upstream_auth' && rotate && refreshToken && !hostedRecord(target.id)")
     s = replace_once(s, "codex && !result?.ok && looksLikeCodexUnauthorized(result)", "codex && !hostedRecord(vmId) && !result?.ok && looksLikeCodexUnauthorized(result)")
     files[target] = s
-    for name in ['hosted-store.mjs', 'hosted-identity.mjs', 'hosted-panel.mjs']:
+    for name in ['hosted-store.mjs', 'hosted-identity.mjs', 'hosted-panel.mjs', 'hosted-claude.mjs']:
         files[root / 'lib/admin' / name] = (Path(__file__).parent / name).read_text()
     for target, content in files.items():
         target.write_text(content)

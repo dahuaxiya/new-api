@@ -28,6 +28,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { HOSTING_PERMANENT_END, postHosting } from '@/features/gpt-hosting/api'
@@ -85,7 +86,60 @@ export function HostingUserPanel(props: { user: User }) {
     retry: false,
     staleTime: 15_000,
   })
-  const data = query.data
+  const [selectedSeat, setSelectedSeat] = useState('')
+  const isNewSeat = selectedSeat === '__new'
+  const selected = query.data?.seats?.find(
+    (seat) => seat.grant?.seat_id === selectedSeat
+  )
+  // 新增名额不能沿用首名额的账号摘要；选择已有名额时只展示该名额的数据。
+  const isAdditional =
+    !!selected && selected.grant?.seat_id !== query.data?.grant?.seat_id
+  let data = query.data
+  if (isNewSeat && query.data) {
+    data = {
+      ...query.data,
+      grant: null,
+      binding: null,
+      quota: null,
+      slot_id: undefined,
+      status: 'unopened',
+    }
+  } else if (isAdditional && query.data && selected) {
+    data = {
+      ...query.data,
+      grant: selected.grant,
+      binding: selected.binding,
+      slot_id: selected.slot_id,
+      instance_id: selected.instance_id,
+      instance_name: undefined,
+      quota: undefined,
+      quota_unavailable: false,
+      status: selected.status || (selected.valid ? 'active' : 'expired'),
+    }
+  }
+  const quotaKey = [
+    'hosting-seat-quota',
+    actor?.id,
+    sid,
+    props.user.id,
+    selectedSeat,
+  ]
+  const seatQuota = useQuery({
+    queryKey: quotaKey,
+    queryFn: async ({ signal }) => {
+      const res = await api.get(`/api/gpt-quota/users/${props.user.id}`, {
+        signal,
+        params: { seat_id: selectedSeat },
+      })
+      return quotaSchema.parse(requireServerSuccess(res.data).data)
+    },
+    enabled:
+      isAdditional &&
+      selected.binding?.platform !== 'claude' &&
+      !!selected.binding?.account_label,
+    retry: false,
+  })
+  const grant = isNewSeat ? undefined : data?.grant
   const [review, setReview] = useState<GrantValues | null>(null)
   const [preflight, setPreflight] = useState<string>('')
   const [checking, setChecking] = useState(false)
@@ -102,29 +156,26 @@ export function HostingUserPanel(props: { user: User }) {
   })
   const loadedGrant = useRef<string>('')
   useEffect(() => {
-    const version = JSON.stringify(data?.grant)
+    const version = JSON.stringify(grant)
     // 后台刷新不能覆盖管理员尚未保存的期限；保存成功后才允许重新装载。
-    if (
-      data?.grant &&
-      version !== loadedGrant.current &&
-      !form.formState.isDirty
-    ) {
+    if (grant && version !== loadedGrant.current && !form.formState.isDirty) {
       loadedGrant.current = version
       form.reset({
-        start: hostingLocalDate(data.grant.starts_at),
+        start: hostingLocalDate(grant.starts_at),
         end:
-          data.grant.ends_at === HOSTING_PERMANENT_END
+          grant.ends_at === HOSTING_PERMANENT_END
             ? ''
-            : hostingLocalDate(data.grant.ends_at),
-        permanent: data.grant.ends_at === HOSTING_PERMANENT_END,
-        retention: data.grant.retention_days,
-        enabled: data.grant.enabled,
-        note: data.grant.note,
+            : hostingLocalDate(grant.ends_at),
+        permanent: grant.ends_at === HOSTING_PERMANENT_END,
+        retention: grant.retention_days,
+        enabled: grant.enabled,
+        note: grant.note,
       })
     }
-  }, [data?.grant, form, form.formState.isDirty])
+  }, [grant, form, form.formState.isDirty])
   const permanent = form.watch('permanent')
-  const isTakeover = data?.status === 'undated' || data?.status === 'takeover'
+  const isTakeover =
+    !isNewSeat && (data?.status === 'undated' || data?.status === 'takeover')
   const canWrite =
     actor?.role === ROLE.SUPER_ADMIN &&
     props.user.role === ROLE.USER &&
@@ -140,6 +191,8 @@ export function HostingUserPanel(props: { user: User }) {
         isTakeover ? 'admin/takeover' : 'admin/grants',
         {
           user_id: props.user.id,
+          seat_id: isNewSeat ? undefined : grant?.seat_id,
+          new_seat: isNewSeat,
           starts_at: Math.floor(Date.parse(values.start) / 1000),
           ends_at: values.permanent
             ? HOSTING_PERMANENT_END
@@ -162,6 +215,7 @@ export function HostingUserPanel(props: { user: User }) {
       triggerRefresh()
     },
     onSuccess: (changed) => {
+      if (changed) setSelectedSeat('')
       if (changed === 'pending') {
         toast.warning(t('Hosting term saved; instance sync is pending.'))
       } else if (changed) toast.success(t('Hosting entitlement saved'))
@@ -172,16 +226,23 @@ export function HostingUserPanel(props: { user: User }) {
       const res = await api.post(
         `/api/gpt-quota/users/${props.user.id}/refresh`,
         {},
-        { timeout: 90_000 }
+        {
+          timeout: 90_000,
+          params: selectedSeat ? { seat_id: selectedSeat } : undefined,
+        }
       )
       return quotaSchema.parse(requireServerSuccess(res.data).data)
     },
     retry: false,
     onError: (error) => handleServerError(error),
     onSuccess: async (quota) => {
-      cache.setQueryData(queryKey, (old: typeof data) =>
-        old ? { ...old, quota, quota_unavailable: false } : old
-      )
+      if (isAdditional) {
+        cache.setQueryData(quotaKey, quota)
+      } else {
+        cache.setQueryData(queryKey, (old: typeof data) =>
+          old ? { ...old, quota, quota_unavailable: false } : old
+        )
+      }
       triggerRefresh()
     },
   })
@@ -190,7 +251,7 @@ export function HostingUserPanel(props: { user: User }) {
     setChecking(true)
     setPreflight('')
     try {
-      if (data?.status === 'undated') {
+      if (!isNewSeat && data?.status === 'undated') {
         const result = await postHosting<{
           account_label: string
           instance_id: string
@@ -207,11 +268,12 @@ export function HostingUserPanel(props: { user: User }) {
       setChecking(false)
     }
   }
-  const quota = data?.quota?.bound ? data.quota : undefined
+  const reading = isAdditional ? seatQuota.data : data?.quota
+  const quota = reading && reading.bound === true ? reading : undefined
   return (
     <section className='users-hosting-panel space-y-6 border-b p-6'>
       <div className='users-account-summary space-y-2'>
-        <h3 className='font-semibold'>{t('GPT account and hosting')}</h3>
+        <h3 className='font-semibold'>{t('Hosted accounts')}</h3>
         <p className='text-sm'>
           {t(
             hostingStatusLabels[data?.status || 'unavailable'] ||
@@ -219,8 +281,13 @@ export function HostingUserPanel(props: { user: User }) {
           )}
         </p>
         <p className='text-muted-foreground text-xs'>
-          {data?.binding?.account_label || quota?.account_label || '—'} ·{' '}
-          {data?.binding?.plan || quota?.plan || '—'}
+          {data?.binding?.account_label ||
+            (quota?.bound ? quota.account_label : undefined) ||
+            '—'}{' '}
+          ·{' '}
+          {data?.binding?.plan ||
+            (quota?.bound ? quota.plan : undefined) ||
+            '—'}
         </p>
         {data?.slot_id && (
           <p className='text-muted-foreground text-xs'>
@@ -259,56 +326,126 @@ export function HostingUserPanel(props: { user: User }) {
           </Button>
         )}
       </div>
-      <div className='space-y-3'>
-        <div className='flex flex-wrap items-center justify-between gap-2'>
-          <h3 className='text-sm font-semibold'>
-            {t('GPT subscription quota')}
-          </h3>
-          {data?.slot_id && (
-            <Button
-              type='button'
-              size='sm'
-              variant='outline'
-              disabled={refresh.isPending}
-              onClick={() => refresh.mutate()}
-            >
-              {refresh.isPending
-                ? t('Querying official quota...')
-                : t('Refresh official quota')}
-            </Button>
-          )}
-        </div>
-        <p className='text-muted-foreground text-xs'>
-          {t(
-            'Official quota is read-only. Hosting renewals and site balance changes do not reset it.'
-          )}
-        </p>
-        {quota?.bound && (
-          <>
-            <div className='grid gap-3 sm:grid-cols-2'>
-              {quota.windows.map((window) => (
-                <WindowReading
-                  key={window.id}
-                  window={window}
-                  now={Date.now()}
-                />
-              ))}
-            </div>
-            <p className='text-muted-foreground text-xs'>
-              {t('Last successful reading')}:{' '}
-              {quota.observed_at
-                ? new Date(quota.observed_at).toLocaleString(locale)
-                : t('Unknown')}
-              {quota.stale ? ` · ${t('Saved reading may be outdated')}` : ''}
-            </p>
-          </>
-        )}
-        {data?.quota_unavailable && (
-          <p className='text-muted-foreground text-sm'>
-            {t('GPT quota could not be loaded')}
-          </p>
+      <div className='flex flex-wrap items-end gap-3'>
+        <Field className='min-w-48 flex-1'>
+          <FieldLabel htmlFor='admin-hosting-seat'>
+            {t('Hosting seats')} · {query.data?.bound_seats || 0}/
+            {query.data?.seat_count || 0}
+          </FieldLabel>
+          <NativeSelect
+            id='admin-hosting-seat'
+            value={
+              isNewSeat ? '__new' : selectedSeat || data?.grant?.seat_id || ''
+            }
+            disabled={save.isPending || checking || refresh.isPending}
+            onChange={(event) => {
+              setSelectedSeat(event.target.value)
+              loadedGrant.current = ''
+              form.reset({
+                start: hostingLocalDate(Date.now() / 1000),
+                end: '',
+                permanent: false,
+                retention: 7,
+                enabled: true,
+                note: '',
+              })
+            }}
+          >
+            {!query.data?.seats?.length && (
+              <NativeSelectOption value=''>
+                {t('First hosting seat')}
+              </NativeSelectOption>
+            )}
+            {query.data?.seats?.map((seat, index) => (
+              <NativeSelectOption
+                key={seat.grant?.seat_id}
+                value={seat.grant?.seat_id}
+              >
+                {t('Seat {{number}}', { number: index + 1 })} ·{' '}
+                {seat.binding?.account_label || t('Not connected')}
+              </NativeSelectOption>
+            ))}
+            {isNewSeat && (
+              <NativeSelectOption value='__new'>
+                {t('New hosting seat')}
+              </NativeSelectOption>
+            )}
+          </NativeSelect>
+        </Field>
+        {canWrite && !!query.data?.seats?.length && (
+          <Button
+            type='button'
+            variant='outline'
+            disabled={save.isPending || isNewSeat || refresh.isPending}
+            onClick={() => {
+              setSelectedSeat('__new')
+              loadedGrant.current = ''
+              form.reset({
+                start: hostingLocalDate(Date.now() / 1000),
+                end: '',
+                permanent: false,
+                retention: 7,
+                enabled: true,
+                note: '',
+              })
+            }}
+          >
+            {t('Add hosting seat')}
+          </Button>
         )}
       </div>
+      {!isNewSeat && data?.binding?.platform !== 'claude' && (
+        <div className='space-y-3'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <h3 className='text-sm font-semibold'>
+              {t('GPT subscription quota')}
+            </h3>
+            {data?.slot_id && (
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                disabled={refresh.isPending}
+                onClick={() => refresh.mutate()}
+              >
+                {refresh.isPending
+                  ? t('Querying official quota...')
+                  : t('Refresh official quota')}
+              </Button>
+            )}
+          </div>
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Official quota is read-only. Hosting renewals and site balance changes do not reset it.'
+            )}
+          </p>
+          {quota?.bound && (
+            <>
+              <div className='grid gap-3 sm:grid-cols-2'>
+                {quota.windows.map((window) => (
+                  <WindowReading
+                    key={window.id}
+                    window={window}
+                    now={Date.now()}
+                  />
+                ))}
+              </div>
+              <p className='text-muted-foreground text-xs'>
+                {t('Last successful reading')}:{' '}
+                {quota.observed_at
+                  ? new Date(quota.observed_at).toLocaleString(locale)
+                  : t('Unknown')}
+                {quota.stale ? ` · ${t('Saved reading may be outdated')}` : ''}
+              </p>
+            </>
+          )}
+          {(data?.quota_unavailable || seatQuota.isError) && (
+            <p className='text-muted-foreground text-sm'>
+              {t('GPT quota could not be loaded')}
+            </p>
+          )}
+        </div>
+      )}
       {canWrite &&
         data &&
         !['conflict', 'unavailable', 'restricted'].includes(data.status) && (
@@ -318,11 +455,11 @@ export function HostingUserPanel(props: { user: User }) {
           >
             <div>
               <h3 className='text-sm font-semibold'>
-                {t('Hosting entitlement')} · {data.slot_id ? '1/1' : '0/1'}
+                {isNewSeat ? t('New hosting seat') : t('Hosting entitlement')}
               </h3>
               <p className='text-muted-foreground text-xs'>
                 {t(
-                  'One GPT account per user. Saving the term does not change the site balance.'
+                  'Each seat hosts one GPT or Claude account and has its own term. Disabling a seat blocks only its account.'
                 )}
               </p>
             </div>
@@ -392,9 +529,8 @@ export function HostingUserPanel(props: { user: User }) {
                     form.setValue(
                       'end',
                       renewedHostingEnd(
-                        data.grant &&
-                          data.grant.ends_at !== HOSTING_PERMANENT_END
-                          ? hostingLocalDate(data.grant.ends_at)
+                        grant && grant.ends_at !== HOSTING_PERMANENT_END
+                          ? hostingLocalDate(grant.ends_at)
                           : '',
                         days
                       ),
@@ -446,7 +582,10 @@ export function HostingUserPanel(props: { user: User }) {
                 disabled={data.status === 'takeover'}
               />
             </div>
-            <Button type='submit' disabled={save.isPending || checking}>
+            <Button
+              type='submit'
+              disabled={save.isPending || checking || refresh.isPending}
+            >
               {checking
                 ? t('Checking existing binding...')
                 : t('Review and save hosting term')}

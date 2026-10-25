@@ -31,7 +31,12 @@ const user: User = {
 }
 const clients: QueryClient[] = []
 /** 仅模拟 HTTP 边界，保留真实表单、确认框和二次验证交互。 */
-async function renderPanel(status = 'undated', role = 100, endsAt?: number) {
+async function renderPanel(
+  status = 'undated',
+  role = 100,
+  endsAt?: number,
+  multi = false
+) {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'operator', role })
   const now = Math.floor(Date.now() / 1000)
   const summary = {
@@ -54,6 +59,39 @@ async function renderPanel(status = 'undated', role = 100, endsAt?: number) {
     binding: null,
     quota: null,
   }
+  const seats = multi
+    ? [
+        {
+          grant: { ...summary.grant, seat_id: 'first' },
+          binding: {
+            state: 'active',
+            account_label: 'GPT owner',
+            plan: 'pro',
+            paused: false,
+          },
+          binding_id: 'b1',
+          valid: true,
+        },
+        {
+          grant: { ...summary.grant, seat_id: 'second', ends_at: -1 },
+          binding: {
+            state: 'active',
+            account_label: 'Claude owner',
+            platform: 'claude',
+            plan: 'max',
+            paused: false,
+          },
+          binding_id: 'b2',
+          valid: true,
+        },
+      ]
+    : undefined
+  const responseSummary = {
+    ...summary,
+    seats,
+    seat_count: seats?.length,
+    bound_seats: seats?.length,
+  }
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
     if (url === '/api/verify/methods') {
       return {
@@ -68,7 +106,7 @@ async function renderPanel(status = 'undated', role = 100, endsAt?: number) {
         },
       }
     }
-    return { data: { success: true, data: [summary] } }
+    return { data: { success: true, data: [responseSummary] } }
   })
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -274,4 +312,26 @@ it('saved permanent hosting reloads without an epoch date and requires a date wh
   expect(await screen.findByRole('alertdialog')).toHaveTextContent(
     end.replace('T', ' ')
   )
+})
+
+it('shows independent seat terms and opens a blank form when adding another seat', async () => {
+  await renderPanel('active', 100, undefined, true)
+  const picker = screen.getByLabelText(/Hosting seats/)
+  await userEvent.selectOptions(picker, 'second')
+  await waitFor(() =>
+    expect(
+      screen.getByRole('switch', { name: 'Permanent hosting' })
+    ).toBeChecked()
+  )
+  expect(
+    screen.getByText(/Claude owner/, { selector: 'p' })
+  ).toBeInTheDocument()
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Add hosting seat' })
+  )
+  expect(
+    screen.getByRole('switch', { name: 'Permanent hosting' })
+  ).not.toBeChecked()
+  expect(screen.getByLabelText('Ends at')).toHaveValue('')
+  expect(picker).toHaveValue('__new')
 })

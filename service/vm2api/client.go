@@ -31,12 +31,13 @@ type Config struct {
 
 // InstanceConfig 保存面板管理凭据；禁止将此结构序列化到 API 响应或日志。
 type InstanceConfig struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	BaseURL  string   `json:"base_url"`
-	Username string   `json:"username"`
-	Password string   `json:"password"`
-	Models   []string `json:"models"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	BaseURL      string   `json:"base_url"`
+	Username     string   `json:"username"`
+	Password     string   `json:"password"`
+	Models       []string `json:"models"`
+	ClaudeModels []string `json:"claude_models"`
 }
 
 // InstanceView 仅提供开户选择器需要的名称和模型，不公开主机地址或凭据。
@@ -138,7 +139,7 @@ func New(cfg Config) (*Registry, error) {
 		if _, exists := r.clients[instance.ID]; exists {
 			return nil, errors.New("duplicate vm2api instance")
 		}
-		for _, model := range instance.Models {
+		for _, model := range append(slices.Clone(instance.Models), instance.ClaudeModels...) {
 			if strings.TrimSpace(model) == "" || len(model) > 200 {
 				return nil, errors.New("invalid vm2api model")
 			}
@@ -172,6 +173,7 @@ func New(cfg Config) (*Registry, error) {
 		}
 		origins[instance.BaseURL] = true
 		instance.Models = slices.Clone(instance.Models)
+		instance.ClaudeModels = slices.Clone(instance.ClaudeModels)
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		// 固定实例可使用私网地址，但不允许 HTTP_PROXY 将管理密码转交给另一主机。
 		transport.Proxy = nil
@@ -208,6 +210,7 @@ func (r *Registry) Client(id string) (*Client, error) {
 func (c *Client) Config() InstanceConfig {
 	result := c.cfg
 	result.Models = slices.Clone(c.cfg.Models)
+	result.ClaudeModels = slices.Clone(c.cfg.ClaudeModels)
 	return result
 }
 
@@ -314,4 +317,12 @@ func (c *Client) roundTrip(ctx context.Context, method, path string, body any, t
 		return res.StatusCode, &Error{Code: "invalid_upstream_response", HTTPStatus: 502}
 	}
 	return res.StatusCode, nil
+}
+
+// HostingModels 只采用管理员登记的对应平台模型，Claude 未登记时不误用 GPT 模型。
+func (c *Client) HostingModels(platform string) []string {
+	if platform == "claude" {
+		return append([]string(nil), c.cfg.ClaudeModels...)
+	}
+	return append([]string(nil), c.cfg.Models...)
 }

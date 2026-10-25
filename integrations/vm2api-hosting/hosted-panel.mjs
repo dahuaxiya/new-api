@@ -14,7 +14,9 @@ import { createVmPool } from './vm-pools.mjs'
 import { plainApiKey } from './api-keys.mjs'
 import { stopSlot, startSlotReady } from '../vm/slot-runtime.mjs'
 import { stopCodexKernel, finishCodexRecycle } from '../transport/codex-kernel-supervisor.mjs'
-import { isCodexVm } from '../vm/vm-kind.mjs'
+import { assertClaudeEmpty, clearClaudeCredentials, verifyHostedClaudeIdentity } from './hosted-claude.mjs'
+import { startClaudeAuthLoginSession, completeClaudeAuthLogin } from '../oauth/claude-auth-login.mjs'
+import { isCodexVm, isClaudeVm } from '../vm/vm-kind.mjs'
 const busy = new Set()
 const sessions = new Map()
 const ID = /^[a-zA-Z0-9_-]{1,80}$/
@@ -34,6 +36,11 @@ function cancelSessions(id) {
 
 /** 确认槽位没有任何授权或账号池；不把读文件失败误当成空账号。 */
 function assertEmpty(root, vm) {
+  if (isClaudeVm(vm)) {
+    assertClaudeEmpty(root, vm)
+    if (new VmPoolsRepo(hostedDb()).list().some(p => p.vm_ids.includes(vm.id))) throw hostedError('slot_not_empty')
+    return
+  }
   const dir = path.join(root, 'vms', vm.id)
   const credential = path.join(dir, 'codex-credentials.json')
   if (fs.existsSync(credential)) {
@@ -46,6 +53,7 @@ function assertEmpty(root, vm) {
 
 /** 排空内核与容器后再清理，保留预置槽位、网络和出口；失败时调用方保留 cleaning 状态。 */
 async function clearCredentials(ctx, vm) {
+  if (isClaudeVm(vm)) return clearClaudeCredentials(ctx.cfg.paths.project, vm)
   const child = stopCodexKernel(vm.id)
   if (child && !(await finishCodexRecycle(child, null)).exited) throw hostedError('cleanup_pending')
   const stopped = await stopSlot(vm)
@@ -160,7 +168,7 @@ async function operate(ctx, vm, action, body, commit) {
     if (row) { await clearCredentials(ctx, vm); return view(row) }
     if (!px.ok) throw hostedError('exit_unavailable')
     assertEmpty(root, vm)
-    await probeHostedExit(px.proxyUrl)
+    await probeHostedExit(px.proxyUrl, isClaudeVm(vm) ? 'claude' : 'codex')
     // 永久隔离标记先写，随后即使进程崩溃，master/all 也不能调度此槽。
     db.prepare('INSERT INTO hosted_slots (vm_id) VALUES (?)').run(vm.id)
     setVmSchedulable(root, vm.id, false, 'hosting_inventory')
@@ -173,7 +181,7 @@ async function operate(ctx, vm, action, body, commit) {
     if (row.binding_id === body.binding_id) return view(hostedRecord(vm.id))
     if (row.state !== 'inventory' || !px.ok) throw hostedError('slot_unavailable')
     assertEmpty(root, vm)
-    await probeHostedExit(px.proxyUrl)
+    await probeHostedExit(px.proxyUrl, isClaudeVm(vm) ? 'claude' : 'codex')
     db.prepare("UPDATE hosted_slots SET binding_id = ?, state = 'reserved', pending = NULL WHERE vm_id = ?").run(body.binding_id, vm.id)
     return view(hostedRecord(vm.id))
   }
@@ -187,6 +195,18 @@ async function operate(ctx, vm, action, body, commit) {
     setVmSchedulable(root, vm.id, false, 'hosting_authorization')
     const child = stopCodexKernel(vm.id)
     if (child && !(await finishCodexRecycle(child, null)).exited) throw hostedError('cleanup_pending')
+    if (isClaudeVm(vm)) {
+      // 官方 CLI 会写临时授权文件，先排空旧进程；托管状态在中央激活前始终不允许推理。
+      await clearClaudeCredentials(root, vm)
+      const fresh = getVm(root, vm.id)
+      const boot = await startSlotReady(fresh, root, {routing:ctx.routingConfig})
+      if (!boot?.ok) throw hostedError('slot_unavailable')
+      const auth = await startClaudeAuthLoginSession({vm:getVm(root, vm.id),projectRoot:root,force:true})
+      const state = new URL(auth.auth_url).searchParams.get('state')
+      if (!state) throw hostedError('identity_invalid')
+      sessions.set(auth.session_id,{vmId:vm.id,bindingId:body.binding_id,state,expiresAt:auth.expires_at})
+      return {...auth,platform:'claude'}
+    }
     const auth = generateCodexAuthUrl({ vmId: vm.id, proxyUrl: px.proxyUrl, installationId: vm.device_id })
     sessions.set(auth.session_id, { vmId: vm.id, bindingId: body.binding_id, state: new URL(new URL(auth.auth_url).searchParams.get('authorize_url')).searchParams.get('state'), expiresAt: auth.expires_at })
     return auth
@@ -195,6 +215,25 @@ async function operate(ctx, vm, action, body, commit) {
     if (!px.ok || !encryptionEnabled()) throw hostedError('hosting_unavailable')
     if (row.state === 'prepared' && row.pending) return view(row)
     const session = sessions.get(body.session_id)
+    if (isClaudeVm(vm)) {
+      const code = String(body.callback_url || '').trim(), parts = code.split('#')
+      if (!session || session.vmId !== vm.id || session.bindingId !== body.binding_id || session.expiresAt <= Date.now() || parts.length !== 2 || !parts[0] || parts[1] !== session.state || /[\r\n]/.test(code)) throw hostedError('authorization_expired')
+      sessions.delete(body.session_id)
+      let verified
+      try {
+        const tokens = await completeClaudeAuthLogin({projectRoot:root,vmId:vm.id,sessionId:body.session_id,code})
+        verified = await verifyHostedClaudeIdentity(tokens,px.proxyUrl)
+        const identity = verified.identity
+        if ((row.account_hash && row.account_hash !== identity.account_hash) || (row.subject_hash && row.subject_hash !== identity.subject_hash)) throw hostedError('account_changed')
+
+      } finally {
+        // CLI 登录已落盘的授权只允许转入加密 pending；身份冲突或换票失败也清理，避免后台复用。
+        await clearClaudeCredentials(root, vm)
+      }
+      const identity = verified.identity
+      db.prepare("UPDATE hosted_slots SET state = 'prepared', pending = ?, account_hash = ?, subject_hash = ?, label = ?, plan = ?, identity_source = 'official' WHERE vm_id = ?").run(encryptString(JSON.stringify(verified.tokens)),identity.account_hash,identity.subject_hash,identity.label,identity.plan,vm.id)
+      return view(hostedRecord(vm.id))
+    }
     let callback
     try { callback = new URL(body.callback_url) } catch { throw hostedError('invalid_callback') }
     if (!session || session.vmId !== vm.id || session.bindingId !== body.binding_id || session.expiresAt <= Date.now() || callback.origin !== 'http://localhost:1455' || callback.pathname !== '/auth/callback' || callback.username || callback.password || callback.hash || callback.searchParams.getAll('state').length !== 1 || callback.searchParams.get('state') !== session.state || callback.searchParams.getAll('code').length !== 1 || !callback.searchParams.get('code')) throw hostedError('authorization_expired')
@@ -212,7 +251,13 @@ async function operate(ctx, vm, action, body, commit) {
     if (!['prepared','active','paused'].includes(row.state)) throw hostedError()
     if (row.pending) {
       const account = JSON.parse(decryptString(row.pending))
-      await withHostedWrite(vm.id, () => commit({ cfg:ctx.cfg,vmPath:path.join(root,'vms',vm.id+'.json'),existing:vm,account,routingConfig:ctx.routingConfig }))
+      await withHostedWrite(vm.id, async () => {
+        if (isClaudeVm(vm)) {
+          // 不启动异步官方初始化任务，防止解绑后迟到的工作器重新写入上一个账号。
+          const result = await ctx.commitImportedOauth({vmId:vm.id,vmPath:path.join(root,'vms',vm.id+'.json'),existing:getVm(root,vm.id),oauth:account,source:'claude-auth-login',skipOfficialCc:true})
+          if (!result?.ok) throw hostedError('slot_unavailable')
+        } else await commit({ cfg:ctx.cfg,vmPath:path.join(root,'vms',vm.id+'.json'),existing:vm,account,routingConfig:ctx.routingConfig })
+      })
     }
     let pool = row.pool_id && new VmPoolsRepo(db).get(row.pool_id)
     if (!pool) {
@@ -225,7 +270,7 @@ async function operate(ctx, vm, action, body, commit) {
     if (!key) {
       key = ctx.apiKeyStore.list().find(k => k.name === 'hst-'+body.binding_id.replaceAll('-',''))
       if (key) key = ctx.apiKeyStore.repo.getById(key.id)
-      if (!key) key = ctx.apiKeyStore.create({ name:'hst-'+body.binding_id.replaceAll('-',''),vm_pool_id:pool.id,group_type:'openai',max_concurrency:3 })
+      if (!key) key = ctx.apiKeyStore.create({ name:'hst-'+body.binding_id.replaceAll('-',''),vm_pool_id:pool.id,group_type:isClaudeVm(vm)?'anthropic':'openai',max_concurrency:3 })
       db.prepare('UPDATE hosted_slots SET key_id = ? WHERE vm_id = ?').run(key.id,vm.id)
     }
     db.prepare('INSERT OR IGNORE INTO hosted_keys (key_id, vm_id, binding_id) VALUES (?, ?, ?)').run(key.id, vm.id, body.binding_id)
@@ -233,7 +278,7 @@ async function operate(ctx, vm, action, body, commit) {
     if (!plain) throw hostedError('hosting_unavailable')
     const enabled = body.starts_at <= Math.floor(Date.now()/1000) && body.enabled !== false
     // 从定期改为永久时必须清空主 Key 的独立到期时间；兼容旧 Key 的个人设置不变。
-    ctx.apiKeyStore.update(key.id, { vm_pool_id:pool.id,group_type:'openai',status:enabled?'active':'disabled',expires_at:body.ends_at === HOSTING_PERMANENT_END ? null : new Date(body.ends_at*1000).toISOString() })
+    ctx.apiKeyStore.update(key.id, { vm_pool_id:pool.id,group_type:isClaudeVm(vm)?'anthropic':'openai',status:enabled?'active':'disabled',expires_at:body.ends_at === HOSTING_PERMANENT_END ? null : new Date(body.ends_at*1000).toISOString() })
     const boot = await startSlotReady(getVm(root,vm.id),root,{routing:ctx.routingConfig})
     if (!boot?.ok) throw hostedError('slot_unavailable')
     db.prepare("UPDATE hosted_slots SET state = ?, starts_at = ?, ends_at = ?, pending = NULL WHERE vm_id = ?").run(enabled?'active':'paused',body.starts_at,body.ends_at,vm.id)
@@ -266,6 +311,10 @@ async function operate(ctx, vm, action, body, commit) {
 function legacyIdentity(root, vm, managed) {
   const accounts = new Set(), subjects = new Set()
   const hash = (kind, value) => crypto.createHash('sha256').update(kind + '\0' + value).digest('hex')
+  if (!managed && isClaudeVm(vm)) {
+    if (vm.claude?.account_uuid) { accounts.add(hash('anthropic-account',String(vm.claude.account_uuid))); subjects.add(hash('anthropic-subject',String(vm.claude.account_uuid))) }
+    return {legacy_account_hashes:[...accounts],legacy_subject_hashes:[...subjects]}
+  }
   if (!managed) {
     const records = readCodexAccounts(root,vm.id)
     for (const account of [vm.codex || {}, ...records]) {
@@ -290,14 +339,14 @@ export async function handleHostedPanel(ctx, req, res, url, commit) {
   try {
     if (req.panelRole && req.panelRole !== 'admin') throw hostedError('forbidden')
     if (p === '/api/panel/hosting/slots' && req.method === 'GET') {
-      const slots = listVms(ctx.cfg.paths.project).filter(v => isCodexVm(v) && !v.node_id).map(v => {
+      const slots = listVms(ctx.cfg.paths.project).filter(v => (isCodexVm(v) || isClaudeVm(v)) && !v.node_id).map(v => {
         const record = hostedRecord(v.id)
         let empty = false
         try { assertEmpty(ctx.cfg.paths.project, getVm(ctx.cfg.paths.project,v.id)); empty = true } catch {}
         const px = ctx.requireSlotProxy(getVm(ctx.cfg.paths.project,v.id),{})
-        return { id:v.id,name:v.name,empty,exit_ready:px.ok===true,managed:!!record,hosting:view(record), ...legacyIdentity(ctx.cfg.paths.project,v,record) }
+        return { platform:isClaudeVm(v)?'claude':'codex',id:v.id,name:v.name,empty,exit_ready:px.ok===true,managed:!!record,hosting:view(record), ...legacyIdentity(ctx.cfg.paths.project,v,record) }
       })
-      ctx.json(res,200,{ok:true,data:{version:1,slots}}); return true
+      ctx.json(res,200,{ok:true,data:{version:2,slots}}); return true
     }
     const match = p.match(/^\/api\/panel\/hosting\/slots\/([A-Za-z0-9_-]{1,80})\/(enroll|reserve|login|prepare|activate|policy|release|takeover-check|takeover)$/)
     if (!match || req.method !== 'POST') throw hostedError()
@@ -306,7 +355,7 @@ export async function handleHostedPanel(ctx, req, res, url, commit) {
     busy.add(id)
     try {
       const vm = getVm(ctx.cfg.paths.project,id)
-      if (!vm || !isCodexVm(vm) || vm.node_id) throw hostedError('slot_unavailable')
+      if (!vm || (!isCodexVm(vm) && !isClaudeVm(vm)) || vm.node_id) throw hostedError('slot_unavailable')
       const body = await ctx.readBody(req, 20000)
       const result = await operate(ctx,vm,match[2],body,commit)
       ctx.json(res,200,{ok:true,data:result})

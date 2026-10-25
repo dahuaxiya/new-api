@@ -618,7 +618,7 @@ func TokenAuth() func(c *gin.Context) {
 		}
 
 		// 托管期限按实际请求校验，创建新客户端 Key 不能绕过暂停或到期。
-		hostingGroup, _, hostingErr := model.GetHostingRoute(token.UserId)
+		hostingGroup, _, hostingErr := model.GetTokenHostingRoute(token.UserId, token.Id)
 		if hostingErr != nil {
 			abortWithOpenAiMessage(c, http.StatusForbidden, "GPT hosting is inactive or expired")
 			return

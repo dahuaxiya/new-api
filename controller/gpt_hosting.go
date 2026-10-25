@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/vm2api"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -71,21 +72,22 @@ func GetGPTHostingSelf(c *gin.Context) {
 	if !ok {
 		return
 	}
-	g, err := model.GetHostingGrant(id)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		c.JSON(200, gin.H{"success": true, "data": gin.H{"grant": nil, "binding": nil}})
-		return
-	}
+	seats, err := hostingSeatViews(id)
 	if err != nil {
 		hostingError(c, err)
 		return
 	}
-	b, err := model.GetHostingBinding(id)
-	if err != nil {
-		hostingError(c, err)
+	selected := gin.H{"grant": nil, "binding": nil, "seats": seats}
+	for _, seat := range seats {
+		if c.Query("seat_id") == seat.Grant.SeatID || (c.Query("seat_id") == "" && selected["grant"] == nil) {
+			selected["grant"], selected["binding"], selected["binding_id"], selected["valid"] = seat.Grant, seat.Binding, seat.BindingID, seat.Valid
+		}
+	}
+	if c.Query("seat_id") != "" && selected["grant"] == nil {
+		hostingError(c, model.ErrHostingConflict)
 		return
 	}
-	c.JSON(200, gin.H{"success": true, "data": gin.H{"grant": g, "valid": g.ValidAt(time.Now().Unix()), "binding": b, "binding_id": b.BindingID}})
+	c.JSON(200, gin.H{"success": true, "data": selected})
 }
 
 // GetGPTHostingAdmin 组合中央占用与远端空槽视图；单实例故障单独展示，不能把错误结果视为空槽。
@@ -121,7 +123,7 @@ func GetGPTHostingAdmin(c *gin.Context) {
 			if slot.Hosting != nil {
 				state = slot.Hosting.State
 			}
-			row := gin.H{"id": slot.ID, "name": slot.Name, "empty": slot.Empty, "exit_ready": slot.ExitReady, "managed": slot.Managed, "state": state, "enabled": false}
+			row := gin.H{"platform": slot.Platform, "id": slot.ID, "name": slot.Name, "empty": slot.Empty, "exit_ready": slot.ExitReady, "managed": slot.Managed, "state": state, "enabled": false}
 			for _, inv := range inventory {
 				if inv.InstanceID == instance.ID && inv.SlotID == slot.ID {
 					row["inventory_id"] = inv.ID
@@ -142,7 +144,10 @@ func PutGPTHostingGrant(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var input model.GPTHostingGrant
+	var input struct {
+		model.GPTHostingGrant
+		NewSeat bool `json:"new_seat"`
+	}
 	if !onboardingBody(c, &input) {
 		return
 	}
@@ -161,14 +166,30 @@ func PutGPTHostingGrant(c *gin.Context) {
 		hostingError(c, model.ErrHostingConflict)
 		return
 	}
-	g, err := model.PutHostingGrant(input)
+	if input.NewSeat {
+		// 首名额沿用旧接口的稳定编号，新增名额始终由服务端生成，不能覆盖其他用户。
+		if existing, e := model.ListHostingSeats(input.UserID); e != nil {
+			hostingError(c, e)
+			return
+		} else if len(existing) > 0 {
+			input.SeatID = uuid.NewString()
+		} else {
+			input.SeatID = ""
+		}
+	} else if input.SeatID != "" {
+		if _, e := model.GetHostingGrant(input.UserID, input.SeatID); e != nil {
+			hostingError(c, model.ErrHostingConflict)
+			return
+		}
+	}
+	g, err := model.PutHostingGrant(input.GPTHostingGrant)
 	if err != nil {
 		hostingError(c, err)
 		return
 	}
 	// 中央请求校验立即生效；远端策略失败时保留待同步状态并明确反馈，后台会重试。
-	syncErr := syncHostingPolicy(c.Request.Context(), g.UserID)
-	recordHostingUserAudit(c, g.UserID, "hosting.grant", map[string]any{"starts_at": g.StartsAt, "ends_at": g.EndsAt, "enabled": g.Enabled, "retention_days": g.RetentionDays, "note": g.Note, "revision": g.Revision})
+	syncErr := syncHostingPolicy(c.Request.Context(), g.UserID, g.SeatID)
+	recordHostingUserAudit(c, g.UserID, "hosting.grant", map[string]any{"seat_id": g.SeatID, "starts_at": g.StartsAt, "ends_at": g.EndsAt, "enabled": g.Enabled, "retention_days": g.RetentionDays, "note": g.Note, "revision": g.Revision})
 	c.JSON(200, gin.H{"success": true, "data": g, "sync_pending": syncErr != nil})
 }
 
@@ -212,7 +233,25 @@ func PutGPTHostingInventory(c *gin.Context) {
 			return
 		}
 	}
-	row, err := model.PutHostingInventory(input.InstanceID, input.SlotID, input.Enabled)
+	slots, err := client.HostedSlots(c.Request.Context())
+	if err != nil {
+		hostingError(c, err)
+		return
+	}
+	platform := ""
+	for _, slot := range slots {
+		if slot.ID == input.SlotID {
+			platform = slot.Platform
+			if platform == "" {
+				platform = "codex"
+			}
+		}
+	}
+	if platform == "" {
+		hostingError(c, model.ErrHostingConflict)
+		return
+	}
+	row, err := model.PutHostingInventory(input.InstanceID, input.SlotID, input.Enabled, platform)
 	if err != nil {
 		hostingError(c, err)
 		return
@@ -221,12 +260,15 @@ func PutGPTHostingInventory(c *gin.Context) {
 }
 
 // reserveHosting 为一个有效名额挑选预置空槽；独占写入成功后才触发任何远端授权动作。
-func reserveHosting(ctx context.Context, userID int) (*model.GPTHostingBinding, error) {
-	b, err := model.GetHostingBinding(userID)
+func reserveHosting(ctx context.Context, userID int, seatID, platform string) (*model.GPTHostingBinding, error) {
+	b, err := model.GetHostingBinding(userID, seatID)
 	if err != nil {
 		return nil, err
 	}
 	if b.State != "unbound" {
+		if b.Platform != platform {
+			return nil, model.ErrHostingConflict
+		}
 		return b, nil
 	}
 	inventory, err := model.ListHostingInventory()
@@ -238,11 +280,11 @@ func reserveHosting(ctx context.Context, userID int) (*model.GPTHostingBinding, 
 		return nil, err
 	}
 	for _, inv := range inventory {
-		if !inv.Enabled {
+		if !inv.Enabled || (inv.Platform != platform && !(inv.Platform == "" && platform == "codex")) {
 			continue
 		}
 		client, e := registry.Client(inv.InstanceID)
-		if e != nil {
+		if e != nil || len(client.HostingModels(platform)) == 0 {
 			continue
 		}
 		slots, e := client.HostedSlots(ctx)
@@ -253,11 +295,11 @@ func reserveHosting(ctx context.Context, userID int) (*model.GPTHostingBinding, 
 			if slot.ID != inv.SlotID || !slot.Empty || !slot.ExitReady || slot.Hosting == nil || slot.Hosting.State != "inventory" {
 				continue
 			}
-			reserved, e := model.ReserveHostingSlot(userID, inv.ID)
+			reserved, e := model.ReserveHostingSlot(userID, inv.ID, seatID)
 			if e == nil {
 				return reserved, nil
 			}
-			current, readErr := model.GetHostingBinding(userID)
+			current, readErr := model.GetHostingBinding(userID, seatID)
 			if readErr == nil && current.State != "unbound" {
 				return current, nil
 			}
@@ -272,11 +314,20 @@ func StartGPTHostingLogin(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var input struct{}
+	var input struct {
+		Platform string `json:"platform"`
+	}
 	if !onboardingBody(c, &input) {
 		return
 	}
-	g, err := model.GetHostingGrant(id)
+	if input.Platform == "" {
+		input.Platform = "codex"
+	}
+	if input.Platform != "codex" && input.Platform != "claude" {
+		hostingError(c, model.ErrHostingConflict)
+		return
+	}
+	g, err := model.GetHostingGrant(id, c.Query("seat_id"))
 	if err != nil {
 		hostingError(c, err)
 		return
@@ -285,7 +336,7 @@ func StartGPTHostingLogin(c *gin.Context) {
 		hostingError(c, model.ErrHostingUnavailable)
 		return
 	}
-	before, err := model.GetHostingBinding(id)
+	before, err := model.GetHostingBinding(id, c.Query("seat_id"))
 	if err != nil {
 		hostingError(c, err)
 		return
@@ -297,16 +348,16 @@ func StartGPTHostingLogin(c *gin.Context) {
 	if !hostingProof(c, "login", before.BindingID) {
 		return
 	}
-	if _, err = reserveHosting(c.Request.Context(), id); err != nil {
+	if _, err = reserveHosting(c.Request.Context(), id, g.SeatID, input.Platform); err != nil {
 		hostingError(c, err)
 		return
 	}
-	b, lease, err := model.ClaimHostingOperation(id)
+	b, lease, err := model.ClaimHostingOperation(id, c.Query("seat_id"))
 	if err != nil {
 		hostingError(c, err)
 		return
 	}
-	defer model.ReleaseHostingOperation(id, lease)
+	defer model.ReleaseHostingOperation(id, lease, b.SeatID)
 	if b.State == "cleaning" {
 		hostingError(c, model.ErrHostingConflict)
 		return
@@ -326,11 +377,11 @@ func StartGPTHostingLogin(c *gin.Context) {
 		return
 	}
 	// 先禁止门户调用再替换授权；任一步失败仍保持暂停状态供用户重试或解绑。
-	if err = model.UpdateHostingOperation(id, lease, map[string]any{"state": "authorizing"}); err != nil {
+	if err = model.UpdateHostingOperation(id, lease, map[string]any{"state": "authorizing"}, b.SeatID); err != nil {
 		hostingError(c, err)
 		return
 	}
-	auth, err := registry.StartHostedOAuth(c.Request.Context(), id, c.GetString("session_id"), b.InstanceID, b.SlotID, b.BindingID, b.Generation)
+	auth, err := registry.StartHostedOAuth(c.Request.Context(), id, c.GetString("session_id"), b.InstanceID, b.SlotID, b.BindingID, b.Generation, b.Platform)
 	if err != nil {
 		hostingError(c, err)
 		return
@@ -374,10 +425,10 @@ func finishHosting(ctx context.Context, b *model.GPTHostingBinding, lease string
 			}
 		}
 	}
-	if err := model.ClaimHostingIdentity(b.UserID, lease, prepared.AccountHash, prepared.SubjectHash, prepared.Label, prepared.Plan); err != nil {
+	if err := model.ClaimHostingIdentity(b.UserID, lease, prepared.AccountHash, prepared.SubjectHash, prepared.Label, prepared.Plan, b.SeatID); err != nil {
 		return err
 	}
-	g, err := model.GetHostingGrant(b.UserID)
+	g, err := model.GetHostingGrant(b.UserID, b.SeatID)
 	if err != nil {
 		return err
 	}
@@ -399,7 +450,7 @@ func finishHosting(ctx context.Context, b *model.GPTHostingBinding, lease string
 	if active.BindingID != b.BindingID || active.AccountHash != prepared.AccountHash || active.SubjectHash != prepared.SubjectHash {
 		return model.ErrHostingConflict
 	}
-	err = model.CompleteHostingChannel(b.UserID, lease, client.Config().BaseURL, strings.Join(client.Config().Models, ","), active.Key, active.KeyID, active.PoolID)
+	err = model.CompleteHostingChannel(b.UserID, lease, client.Config().BaseURL, strings.Join(client.HostingModels(b.Platform), ","), active.Key, active.KeyID, active.PoolID, b.SeatID)
 	if err == nil {
 		model.InitChannelCache()
 	}
@@ -419,7 +470,7 @@ func FinishGPTHostingLogin(c *gin.Context) {
 	if !onboardingBody(c, &input) {
 		return
 	}
-	g, err := model.GetHostingGrant(id)
+	g, err := model.GetHostingGrant(id, c.Query("seat_id"))
 	if err != nil {
 		hostingError(c, err)
 		return
@@ -428,12 +479,12 @@ func FinishGPTHostingLogin(c *gin.Context) {
 		hostingError(c, model.ErrHostingUnavailable)
 		return
 	}
-	b, lease, err := model.ClaimHostingOperation(id)
+	b, lease, err := model.ClaimHostingOperation(id, c.Query("seat_id"))
 	if err != nil {
 		hostingError(c, err)
 		return
 	}
-	defer model.ReleaseHostingOperation(id, lease)
+	defer model.ReleaseHostingOperation(id, lease, b.SeatID)
 	if b.State != "authorizing" {
 		hostingError(c, model.ErrHostingConflict)
 		return
@@ -464,12 +515,12 @@ func RetryGPTHostingLogin(c *gin.Context) {
 	if !onboardingBody(c, &input) {
 		return
 	}
-	b, lease, err := model.ClaimHostingOperation(id)
+	b, lease, err := model.ClaimHostingOperation(id, c.Query("seat_id"))
 	if err != nil {
 		hostingError(c, err)
 		return
 	}
-	defer model.ReleaseHostingOperation(id, lease)
+	defer model.ReleaseHostingOperation(id, lease, b.SeatID)
 	if b.State == "takeover" {
 		hostingError(c, model.ErrHostingConflict)
 		return
@@ -511,16 +562,16 @@ func RetryGPTHostingLogin(c *gin.Context) {
 }
 
 // syncHostingPolicy 用最新权益更新远端；策略短暂不同步时门户仍实时拒绝过期请求。
-func syncHostingPolicy(ctx context.Context, userID int) error {
-	b, lease, err := model.ClaimHostingOperation(userID)
+func syncHostingPolicy(ctx context.Context, userID int, seats ...string) error {
+	b, lease, err := model.ClaimHostingOperation(userID, seats...)
 	if err != nil {
 		return err
 	}
-	defer model.ReleaseHostingOperation(userID, lease)
+	defer model.ReleaseHostingOperation(userID, lease, seats...)
 	if b.State != "active" {
 		return nil
 	}
-	g, err := model.GetHostingGrant(userID)
+	g, err := model.GetHostingGrant(userID, seats...)
 	if err != nil {
 		return err
 	}
@@ -548,26 +599,26 @@ func SetGPTHostingPaused(c *gin.Context) {
 	if !onboardingBody(c, &input) {
 		return
 	}
-	b, lease, err := model.ClaimHostingOperation(id)
+	b, lease, err := model.ClaimHostingOperation(id, c.Query("seat_id"))
 	if err != nil {
 		hostingError(c, err)
 		return
 	}
 	if b.State != "active" {
-		model.ReleaseHostingOperation(id, lease)
+		model.ReleaseHostingOperation(id, lease, b.SeatID)
 		hostingError(c, model.ErrHostingConflict)
 		return
 	}
-	g, e := model.GetHostingGrant(id)
+	g, e := model.GetHostingGrant(id, b.SeatID)
 	if e != nil || (!input.Paused && !g.ValidAt(time.Now().Unix())) {
-		model.ReleaseHostingOperation(id, lease)
+		model.ReleaseHostingOperation(id, lease, b.SeatID)
 		hostingError(c, model.ErrHostingUnavailable)
 		return
 	}
-	err = model.UpdateHostingOperation(id, lease, map[string]any{"paused": input.Paused})
-	model.ReleaseHostingOperation(id, lease)
+	err = model.UpdateHostingOperation(id, lease, map[string]any{"paused": input.Paused}, b.SeatID)
+	model.ReleaseHostingOperation(id, lease, b.SeatID)
 	if err == nil {
-		err = syncHostingPolicy(c.Request.Context(), id)
+		err = syncHostingPolicy(c.Request.Context(), id, b.SeatID)
 	}
 	if err != nil {
 		hostingError(c, err)
@@ -577,12 +628,12 @@ func SetGPTHostingPaused(c *gin.Context) {
 }
 
 // cleanHosting 幂等清理已获用户授权的绑定；必须远端确认后才释放中央身份与库存。
-func cleanHosting(ctx context.Context, userID int) error {
-	b, lease, err := model.ClaimHostingOperation(userID)
+func cleanHosting(ctx context.Context, userID int, seats ...string) error {
+	b, lease, err := model.ClaimHostingOperation(userID, seats...)
 	if err != nil {
 		return err
 	}
-	defer model.ReleaseHostingOperation(userID, lease)
+	defer model.ReleaseHostingOperation(userID, lease, seats...)
 	if b.State != "cleaning" {
 		return model.ErrHostingConflict
 	}
@@ -601,7 +652,7 @@ func cleanHosting(ctx context.Context, userID int) error {
 	if remote.State != "inventory" || remote.BindingID != "" {
 		return model.ErrHostingConflict
 	}
-	if err := model.ClearHostingBinding(userID, lease); err != nil {
+	if err := model.ClearHostingBinding(userID, lease, seats...); err != nil {
 		return err
 	}
 	model.InitChannelCache()
@@ -618,12 +669,12 @@ func UnbindGPTHosting(c *gin.Context) {
 	if !onboardingBody(c, &input) {
 		return
 	}
-	b, lease, err := model.ClaimHostingOperation(id)
+	b, lease, err := model.ClaimHostingOperation(id, c.Query("seat_id"))
 	if err != nil {
 		hostingError(c, err)
 		return
 	}
-	defer model.ReleaseHostingOperation(id, lease)
+	defer model.ReleaseHostingOperation(id, lease, b.SeatID)
 	if b.State == "takeover" {
 		hostingError(c, model.ErrHostingConflict)
 		return
@@ -635,12 +686,12 @@ func UnbindGPTHosting(c *gin.Context) {
 		GetGPTHostingSelf(c)
 		return
 	}
-	if err = model.UpdateHostingOperation(id, lease, map[string]any{"state": "cleaning"}); err != nil {
+	if err = model.UpdateHostingOperation(id, lease, map[string]any{"state": "cleaning"}, b.SeatID); err != nil {
 		hostingError(c, err)
 		return
 	}
-	model.ReleaseHostingOperation(id, lease)
-	err = cleanHosting(c.Request.Context(), id)
+	model.ReleaseHostingOperation(id, lease, b.SeatID)
+	err = cleanHosting(c.Request.Context(), id, b.SeatID)
 	if err != nil {
 		c.JSON(http.StatusAccepted, gin.H{"success": true, "data": gin.H{"state": "cleaning"}})
 		return
@@ -662,14 +713,14 @@ func StartGPTHostingMaintenance() {
 				continue
 			}
 			for _, b := range rows {
-				if expired, err := model.ExpireHostingBinding(b.UserID, time.Now().Unix()); err == nil && expired {
+				if expired, err := model.ExpireHostingBinding(b.UserID, time.Now().Unix(), b.SeatID); err == nil && expired {
 					b.State = "cleaning"
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				if b.State == "cleaning" {
-					_ = cleanHosting(ctx, b.UserID)
+					_ = cleanHosting(ctx, b.UserID, b.SeatID)
 				} else if b.State == "active" {
-					_ = syncHostingPolicy(ctx, b.UserID)
+					_ = syncHostingPolicy(ctx, b.UserID, b.SeatID)
 				}
 				cancel()
 			}

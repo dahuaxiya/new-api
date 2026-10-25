@@ -60,3 +60,47 @@ func TestHostedOAuthBinding(t *testing.T) {
 	raw, _ := common.Marshal(e)
 	require.NotContains(t, string(raw), "private token")
 }
+
+// TestHostedClaudeOAuthSeats 验证同用户的两个授权互不取消，Claude 回调不能跨名额、跨平台或重放。
+func TestHostedClaudeOAuthSeats(t *testing.T) {
+	var exchanged atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/panel/login":
+			fmt.Fprint(w, `{"ok":true,"token":"fixture","role":"admin","expires_in":3600}`)
+		case strings.HasSuffix(r.URL.Path, "/login"):
+			fmt.Fprintf(w, `{"ok":true,"data":{"auth_url":"https://claude.com/cai/oauth/authorize?state=seat-state&code_challenge=challenge&code_challenge_method=S256","session_id":"remote-session","expires_at":%d}}`, time.Now().Add(time.Minute).UnixMilli())
+		case strings.HasSuffix(r.URL.Path, "/prepare"):
+			exchanged.Add(1)
+			fmt.Fprint(w, `{"ok":true,"data":{"state":"prepared"}}`)
+		}
+	}))
+	defer server.Close()
+	registry, err := New(Config{Instances: []InstanceConfig{{ID: "cc", Name: "CC", BaseURL: server.URL, Username: "fixture", Password: "fixture", Models: []string{"gpt-test"}, ClaudeModels: []string{"claude-test"}}}})
+	require.NoError(t, err)
+	first, err := registry.StartHostedOAuth(context.Background(), 1, "portal", "cc", "slot-a", "binding-a", 1, "claude")
+	require.NoError(t, err)
+	second, err := registry.StartHostedOAuth(context.Background(), 1, "portal", "cc", "slot-b", "binding-b", 1, "claude")
+	require.NoError(t, err)
+	for _, bad := range []string{"code#wrong-state", "code#seat-state\ninjected", "http://localhost:1455/auth/callback?code=code&state=seat-state"} {
+		_, err = registry.PrepareHostedOAuth(context.Background(), 1, "portal", "cc", "slot-a", "binding-a", first.SessionID, bad, 2)
+		require.Error(t, err)
+	}
+	_, err = registry.PrepareHostedOAuth(context.Background(), 1, "portal", "cc", "slot-b", "binding-b", first.SessionID, "code#seat-state", 2)
+	require.Error(t, err)
+	for _, entry := range []struct {
+		auth          OAuthSession
+		slot, binding string
+	}{{first, "slot-a", "binding-a"}, {second, "slot-b", "binding-b"}} {
+		_, err = registry.PrepareHostedOAuth(context.Background(), 1, "portal", "cc", entry.slot, entry.binding, entry.auth.SessionID, "code#seat-state", 2)
+		require.NoError(t, err)
+		_, err = registry.PrepareHostedOAuth(context.Background(), 1, "portal", "cc", entry.slot, entry.binding, entry.auth.SessionID, "code#seat-state", 2)
+		require.Error(t, err)
+	}
+	require.EqualValues(t, 2, exchanged.Load())
+	_, _, err = hostedAuthorization("https://evil.test/cai/oauth/authorize?state=s", "claude")
+	require.Error(t, err)
+	_, _, err = hostedAuthorization("https://claude.com/cai/oauth/authorize?state=s&code_challenge=x&code_challenge_method=plain", "claude")
+	require.Error(t, err)
+}

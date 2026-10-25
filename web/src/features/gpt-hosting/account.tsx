@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/card'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import {
   SecureVerificationDialog,
   useSecureVerification,
@@ -73,10 +74,12 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const client = useQueryClient()
-  const queryKey = ['gpt-hosting', 'self', props.identity]
+  const [seatId, setSeatId] = useState('')
+  const [platform, setPlatform] = useState<'codex' | 'claude'>('codex')
+  const queryKey = ['gpt-hosting', 'self', props.identity, seatId]
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => getHosting<HostingSelf>('self', signal),
+    queryFn: ({ signal }) => getHosting<HostingSelf>('self', signal, seatId),
     refetchInterval: 15_000,
   })
   const verification = useSecureVerification()
@@ -89,6 +92,7 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
     mutationFn: async (
       kind: 'login' | 'finish' | 'retry' | 'pause' | 'unbind'
     ) => {
+      if (!data?.grant) return
       let proof: string | undefined
       if (kind === 'login' || kind === 'retry' || kind === 'unbind') {
         if (!data?.binding_id) return
@@ -103,10 +107,20 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
         proof = result.proof_token
       }
       if (kind === 'login') {
-        const next = await postHosting<HostingLogin>('login', {}, proof)
-        if (!isOfficialAuthorizationURL(next.auth_url)) {
+        const next = await postHosting<HostingLogin>(
+          'login',
+          {
+            platform:
+              data.binding?.state === 'unbound'
+                ? platform
+                : data.binding?.platform || 'codex',
+          },
+          proof,
+          data.grant?.seat_id
+        )
+        if (!isHostedAuthorizationURL(next.auth_url, next.platform)) {
           throw new Error(
-            t('The authorization URL is not an approved OpenAI address.')
+            t('The authorization URL is not an approved provider address.')
           )
         }
         setLogin(next)
@@ -116,19 +130,29 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
         if (!login) return
         // 授权码不进入 mutation variables/cache，提交结束无论成败均清掉输入。
         try {
-          await postHosting('finish', {
-            session_id: login.session_id,
-            callback_url: callback.current,
-          })
+          await postHosting(
+            'finish',
+            {
+              session_id: login.session_id,
+              callback_url: callback.current,
+            },
+            undefined,
+            data?.grant?.seat_id
+          )
         } finally {
           callback.current = ''
           setCallbackValue('')
         }
         setLogin(undefined)
       } else if (kind === 'pause') {
-        await postHosting('pause', { paused: !data?.binding?.paused })
+        await postHosting(
+          'pause',
+          { paused: !data?.binding?.paused },
+          undefined,
+          data?.grant?.seat_id
+        )
       } else {
-        await postHosting(kind, {}, proof)
+        await postHosting(kind, {}, proof, data?.grant?.seat_id)
         setLogin(undefined)
         callback.current = ''
         setCallbackValue('')
@@ -155,7 +179,7 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
   if (state === 'cleaning') status = t('Cleaning credentials')
   return (
     <SectionPageLayout>
-      <SectionPageLayout.Title>{t('My GPT account')}</SectionPageLayout.Title>
+      <SectionPageLayout.Title>{t('Hosted accounts')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <Button
           variant='outline'
@@ -167,6 +191,58 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='mx-auto max-w-4xl space-y-5'>
+          {!!data?.seats?.length && (
+            <Field>
+              <FieldLabel htmlFor='hosting-seat-select'>
+                {t('Hosting seat')}
+              </FieldLabel>
+              <NativeSelect
+                id='hosting-seat-select'
+                value={data.grant?.seat_id || ''}
+                disabled={action.isPending}
+                onChange={(event) => {
+                  // 切换名额立即销毁授权输入，旧回调不能提交到新选择的账号。
+                  setSeatId(event.target.value)
+                  setLogin(undefined)
+                  callback.current = ''
+                  setCallbackValue('')
+                  setConfirmUnbind(false)
+                }}
+              >
+                {data.seats.map((seat, index) => (
+                  <NativeSelectOption
+                    key={seat.grant?.seat_id}
+                    value={seat.grant?.seat_id}
+                  >
+                    {t('Seat {{number}}', { number: index + 1 })} ·{' '}
+                    {seat.binding?.account_label || t('Not connected')} ·{' '}
+                    {seat.binding?.platform === 'claude' ? 'Claude' : 'GPT'}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </Field>
+          )}
+          {data?.grant && state === 'unbound' && (
+            <Field>
+              <FieldLabel htmlFor='hosting-platform'>
+                {t('Account platform')}
+              </FieldLabel>
+              <NativeSelect
+                id='hosting-platform'
+                value={platform}
+                disabled={action.isPending}
+                onChange={(event) =>
+                  setPlatform(
+                    event.target.value === 'claude' ? 'claude' : 'codex'
+                  )
+                }
+              >
+                <NativeSelectOption value='codex'>GPT</NativeSelectOption>
+                <NativeSelectOption value='claude'>Claude</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+
           {query.isPending && <LoadingState />}
           {query.isError && (
             <ErrorState
@@ -178,7 +254,7 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
             <EmptyState
               title={t('No hosting entitlement yet')}
               description={t(
-                'Ask the administrator to grant one hosting seat with a start and end date. You will then be able to connect your own GPT account.'
+                'Ask the administrator for a hosting seat. Each seat has its own term and can host one GPT or Claude account.'
               )}
             />
           )}
@@ -187,14 +263,14 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
               <Card>
                 <CardHeader>
                   <div className='flex flex-wrap items-center justify-between gap-3'>
-                    <CardTitle>{t('One account hosting seat')}</CardTitle>
+                    <CardTitle>{t('Hosting seat')}</CardTitle>
                     <Badge variant={data.valid ? 'default' : 'secondary'}>
                       {data.valid ? t('Active') : t('Inactive')}
                     </Badge>
                   </div>
                   <CardDescription>
                     {t(
-                      'Hosting does not include a GPT subscription or additional official quota.'
+                      'Hosting does not include an official subscription or additional official quota.'
                     )}
                   </CardDescription>
                 </CardHeader>
@@ -242,13 +318,13 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                   <div className='flex flex-wrap items-center justify-between gap-3'>
                     <CardTitle>
                       {data.binding?.account_label ||
-                        t('Connect your own GPT account')}
+                        t('Connect your own account')}
                     </CardTitle>
                     <Badge variant='outline'>{status}</Badge>
                   </div>
                   <CardDescription>
                     {t(
-                      'One GPT account can be bound to one user. Reauthorization must use the same account.'
+                      'Each seat hosts one account. Reauthorization must use the same account; unbind first to change accounts.'
                     )}
                   </CardDescription>
                 </CardHeader>
@@ -272,7 +348,7 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                       onClick={() => action.mutate('login')}
                     >
                       {state === 'unbound'
-                        ? t('Connect GPT account')
+                        ? t('Connect account')
                         : t('Sign in again')}
                     </Button>
                     {state === 'active' && (
@@ -326,7 +402,7 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                     <div className='space-y-4 rounded-lg border p-4'>
                       <p className='text-sm'>
                         {t(
-                          'Sign in on the official OpenAI page. Never enter a GPT password in this form.'
+                          'Sign in on the official provider page. Never enter your account password in this form.'
                         )}
                       </p>
                       <Button
@@ -343,13 +419,19 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                         {t('Open official authorization')}
                       </Button>
                       <p className='text-muted-foreground text-sm'>
-                        {t(
-                          'If the browser opens a localhost address that cannot load, copy its full address and paste it below. Do not share that address.'
-                        )}
+                        {login.platform === 'claude'
+                          ? t(
+                              'Paste the complete authorization code from Claude, including the part after #. Do not share it.'
+                            )
+                          : t(
+                              'If the browser opens a localhost address that cannot load, copy its full address and paste it below. Do not share that address.'
+                            )}
                       </p>
                       <Field>
                         <FieldLabel htmlFor='hosting-callback'>
-                          {t('Authorization callback URL')}
+                          {login.platform === 'claude'
+                            ? t('Authorization code including #state')
+                            : t('Authorization callback URL')}
                         </FieldLabel>
                         <Input
                           id='hosting-callback'
@@ -366,13 +448,13 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                         disabled={action.isPending || !callbackValue.trim()}
                         onClick={() => action.mutate('finish')}
                       >
-                        {t('Complete GPT sign-in')}
+                        {t('Complete account sign-in')}
                       </Button>
                     </div>
                   )}
                   <p className='text-muted-foreground text-sm'>
                     {t(
-                      'All your New API keys share this account, its official quota and hosting expiry.'
+                      'Choose this account for a New API key on the API Keys page. Each key uses only its selected account.'
                     )}{' '}
                     <Link to='/keys' className='underline'>
                       {t('API Keys')}
@@ -384,7 +466,9 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                   </p>
                 </CardContent>
               </Card>
-              {state === 'active' && <GptQuotaCard />}
+              {state === 'active' && data.binding?.platform !== 'claude' && (
+                <GptQuotaCard seatId={data.grant.seat_id} />
+              )}
             </>
           )}
         </div>
@@ -393,7 +477,7 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
           onOpenChange={setConfirmUnbind}
           title={t('Unbind account')}
           desc={t(
-            'This stops access and removes the hosted credentials. Your service expiry does not change. This does not revoke authorization on the official GPT website.'
+            'This stops access for this seat and removes its hosted credentials. Its term does not change. Official authorization is not revoked.'
           )}
           confirmText={t('Unbind account')}
           destructive
@@ -404,4 +488,21 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )
+}
+
+/** 仅允许两个协议的官方授权页面，禁止远端响应引导用户访问任意地址。 */
+function isHostedAuthorizationURL(value: string, platform?: string): boolean {
+  if (platform !== 'claude') return isOfficialAuthorizationURL(value)
+  try {
+    const url = new URL(value)
+    return (
+      url.origin === 'https://claude.com' &&
+      url.pathname === '/cai/oauth/authorize' &&
+      !url.username &&
+      !url.password &&
+      !url.hash
+    )
+  } catch {
+    return false
+  }
 }

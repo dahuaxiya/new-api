@@ -24,6 +24,7 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
 const { api } = await import('@/lib/api')
+const { useAuthStore } = await import('@/stores/auth-store')
 const { ApiKeysProvider } = await import('../api-keys-provider')
 const { ApiKeysMutateDrawer } = await import('../api-keys-mutate-drawer')
 
@@ -47,9 +48,41 @@ const originalGet = apiClient.get
 const originalPost = apiClient.post
 let renderedDrawer: RenderedDrawer | null = null
 
-function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
+/** 模拟管理接口边界；托管场景提供两个可选账号，保留真实表单和提交转换。 */
+function installApiFixtures(
+  createdPayloads: Array<Record<string, unknown>>,
+  hosted = false
+) {
   apiClient.get = async (url) => {
     switch (url) {
+      case '/api/gpt-hosting/self':
+        return {
+          data: {
+            success: true,
+            data: {
+              seats: hosted
+                ? [
+                    {
+                      grant: { seat_id: 'gpt-seat' },
+                      binding: {
+                        platform: 'codex',
+                        account_label: 'GPT owner',
+                      },
+                      valid: true,
+                    },
+                    {
+                      grant: { seat_id: 'claude-seat' },
+                      binding: {
+                        platform: 'claude',
+                        account_label: 'Claude owner',
+                      },
+                      valid: true,
+                    },
+                  ]
+                : [],
+            },
+          },
+        }
       case '/api/status':
         return { data: { data: { default_use_auto_group: true } } }
       case '/api/user/models':
@@ -196,6 +229,7 @@ function selectComboboxOption(
 afterEach(() => {
   apiClient.get = originalGet
   apiClient.post = originalPost
+  useAuthStore.getState().auth.reset()
   localStorage.clear()
   if (renderedDrawer) {
     renderedDrawer.queryClient.clear()
@@ -297,5 +331,31 @@ describe('API keys mutate drawer user quota query switch', () => {
     fireEvent.click(findButton('Save changes', true))
     await waitFor(() => expect(createdPayloads).toHaveLength(1))
     expect(createdPayloads[0]?.allow_user_quota_query).toBe(false)
+  })
+})
+
+/** 多名额用户必须明确选择；选择 Claude 后只提交该账号，不开放跨组回退。 */
+test('multiple hosted accounts require an explicit target and submit only the chosen account', async () => {
+  const payloads: Array<Record<string, unknown>> = []
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 88, username: 'seat-owner', role: 1 })
+  installApiFixtures(payloads, true)
+  await renderCreateDrawer()
+  const selector = await screen.findByLabelText('Hosted account for this key')
+  expect(screen.queryByText('Auto group order')).not.toBeInTheDocument()
+  changeInput(getControlByLabel('Name'), 'Claude client')
+  fireEvent.click(findButton('Save changes', true))
+  await screen.findByText('Select a hosted account', {
+    selector: '[data-slot="form-message"]',
+  })
+  expect(payloads).toHaveLength(0)
+  fireEvent.change(selector, { target: { value: 'claude-seat' } })
+  fireEvent.click(findButton('Save changes', true))
+  await waitFor(() => expect(payloads).toHaveLength(1))
+  expect(payloads[0]).toMatchObject({
+    hosting_seat_id: 'claude-seat',
+    group: '',
+    cross_group_retry: false,
   })
 })

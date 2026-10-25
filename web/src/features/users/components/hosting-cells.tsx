@@ -55,7 +55,7 @@ export function HostingCell(props: {
         />
         {v.grant && (
           <p className='text-muted-foreground'>
-            {v.slot_id ? '1/1' : '0/1'} ·{' '}
+            {`${v.bound_seats ?? (v.slot_id ? 1 : 0)}/${v.seat_count ?? 1}`} ·{' '}
             {v.grant.ends_at === HOSTING_PERMANENT_END
               ? t('Permanent hosting')
               : new Date(v.grant.ends_at * 1000).toLocaleDateString(locale)}
@@ -73,7 +73,9 @@ export function HostingCell(props: {
     return (
       <div className='max-w-56 space-y-1 text-sm'>
         <p className='truncate'>
-          {v.binding?.account_label || reading?.account_label || '—'}
+          {v.seats && v.seats.length > 1
+            ? t('{{count}} hosted accounts', { count: v.bound_seats || 0 })
+            : v.binding?.account_label || reading?.account_label || '—'}
         </p>
         <p className='text-muted-foreground truncate text-xs'>
           {[v.binding?.plan || reading?.plan, v.instance_name]

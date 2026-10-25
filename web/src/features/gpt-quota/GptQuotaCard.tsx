@@ -24,15 +24,19 @@ import { quotaSchema } from './schema'
 
 /** Fetch the signed-in user's snapshot through the existing session-aware client. */
 async function fetchQuota(
-  signal: AbortSignal
+  signal: AbortSignal,
+  seatId?: string
 ): Promise<z.infer<typeof quotaSchema>> {
-  const response = await api.get('/api/gpt-quota/self', { signal })
+  const response = await api.get('/api/gpt-quota/self', {
+    signal,
+    params: seatId ? { seat_id: seatId } : undefined,
+  })
   const result = requireServerSuccess(response.data)
   return quotaSchema.parse(result.data)
 }
 
 /** Compose the native user card with per-session caching and no slot selector. */
-export function GptQuotaCard() {
+export function GptQuotaCard(props: { seatId?: string } = {}) {
   const userId = useAuthStore((state) => state.auth.user?.id)
   const sessionId = useAuthStore((state) => state.auth.session?.sid)
   // Remount mutation state on account/session changes; an old in-flight refresh
@@ -40,7 +44,8 @@ export function GptQuotaCard() {
   if (!userId) return null
   return (
     <SessionQuotaCard
-      key={`${userId}:${sessionId ?? ''}`}
+      key={`${userId}:${sessionId ?? ''}:${props.seatId || ''}`}
+      seatId={props.seatId}
       userId={userId}
       sessionId={sessionId}
     />
@@ -49,19 +54,23 @@ export function GptQuotaCard() {
 
 /** Keep refresh callbacks and feedback scoped to the session that started them. */
 function SessionQuotaCard(props: {
+  seatId?: string
   userId: number
   sessionId: string | undefined
 }) {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const queryClient = useQueryClient()
-  const queryKey = ['gpt-quota', props.userId, props.sessionId]
+  const queryKey = ['gpt-quota', props.userId, props.sessionId, props.seatId]
   const refresh = useMutation({
     mutationFn: async () => {
       const response = await api.post(
         '/api/gpt-quota/self/refresh',
         {},
-        { timeout: 90_000 }
+        {
+          timeout: 90_000,
+          params: props.seatId ? { seat_id: props.seatId } : undefined,
+        }
       )
       return quotaSchema.parse(requireServerSuccess(response.data).data)
     },
@@ -79,7 +88,7 @@ function SessionQuotaCard(props: {
   // Never reuse one person's quota when another account logs in in the same tab.
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => fetchQuota(signal),
+    queryFn: ({ signal }) => fetchQuota(signal, props.seatId),
     enabled: !refresh.isPending,
     staleTime: 15_000,
     gcTime: 0,
@@ -185,7 +194,11 @@ function SessionQuotaCard(props: {
           </>
         )}
         {!query.isPending && (
-          <QuotaHistory userId={props.userId} sessionId={props.sessionId} />
+          <QuotaHistory
+            seatId={props.seatId}
+            userId={props.userId}
+            sessionId={props.sessionId}
+          />
         )}
       </CardContent>
     </Card>

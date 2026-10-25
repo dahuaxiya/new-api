@@ -1,5 +1,6 @@
 /** 官方 OIDC 身份验证：只接受服务器通过 PKCE 换票获得的 ID token。 */
 import crypto from 'node:crypto'
+import { BOOTSTRAP_URL } from '../oauth/oauth-contract.mjs'
 import { CODEX_OAUTH_CLIENT_ID, makeProxyFetch } from '../protocol/codex-models.mjs'
 
 /** 固定诊断码，禁止将 JWT、授权码和远端响应写入错误。 */
@@ -46,7 +47,16 @@ export async function verifyHostedIdentity(tokens, proxyUrl, fetchImpl = makePro
 }
 
 /** 实际从已配置出口访问官方站点，不能只凭代理字段存在就分配槽位。 */
-export async function probeHostedExit(proxyUrl) {
-  try { await officialJSON('https://auth.openai.com/.well-known/openid-configuration', makeProxyFetch(proxyUrl)) }
+export async function probeHostedExit(proxyUrl, platform = 'codex', fetchImpl = makeProxyFetch(proxyUrl)) {
+  try {
+    if (platform === 'claude') {
+      // 无凭据请求应收到官方鉴权拒绝；网络超时、重定向或地区拦截不能算出口就绪。
+      const response = await fetchImpl(BOOTSTRAP_URL, { redirect: 'error', size: 262144, signal: AbortSignal.timeout(8000) })
+      try { if (response.status !== 401) throw hostedError('exit_unavailable') }
+      finally { response.body?.destroy?.() }
+    } else if (platform === 'codex') {
+      await officialJSON('https://auth.openai.com/.well-known/openid-configuration', fetchImpl)
+    } else throw hostedError('exit_unavailable')
+  }
   catch { throw hostedError('exit_unavailable') }
 }

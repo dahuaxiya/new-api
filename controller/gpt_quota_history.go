@@ -21,8 +21,8 @@ var quotaHistoryOnce sync.Once
 
 // quotaHistoryScope 将用户生命周期和当前绑定共同编码；用户名、槽位相同不能代替归属。
 // 调用者只能传从会话和数据库取得的身份，不能接收浏览器的 user_id/slot。
-func quotaHistoryScope(svc *gptquota.Service, user *model.User) (gptquota.Binding, string, error) {
-	binding, epoch, err := resolveGPTQuotaBinding(svc, user.Id, user.Username, user.Group)
+func quotaHistoryScope(svc *gptquota.Service, user *model.User, seats ...string) (gptquota.Binding, string, error) {
+	binding, epoch, err := resolveGPTQuotaBinding(svc, user.Id, user.Username, user.Group, seats...)
 	if err != nil {
 		return binding, "", err
 	}
@@ -35,8 +35,8 @@ func quotaHistoryScope(svc *gptquota.Service, user *model.User) (gptquota.Bindin
 
 // collectGPTQuotaUser 仅读取 vm2api 已有官方快照，不生成模型请求或重复执行官方探测。
 // 网络读取后重查归属，防止慢响应在解绑或改组后被记到新绑定；失败不伪造零值。
-func collectGPTQuotaUser(ctx context.Context, svc *gptquota.Service, user *model.User) error {
-	binding, scope, err := quotaHistoryScope(svc, user)
+func collectGPTQuotaUser(ctx context.Context, svc *gptquota.Service, user *model.User, seats ...string) error {
+	binding, scope, err := quotaHistoryScope(svc, user, seats...)
 	if err != nil || scope == "" {
 		return err
 	}
@@ -51,7 +51,7 @@ func collectGPTQuotaUser(ctx context.Context, svc *gptquota.Service, user *model
 	if err != nil {
 		return err
 	}
-	_, currentScope, err := quotaHistoryScope(svc, current)
+	_, currentScope, err := quotaHistoryScope(svc, current, seats...)
 	if err != nil || scope != currentScope || current.Status != common.UserStatusEnabled {
 		return err
 	}
@@ -98,7 +98,20 @@ func collectGPTQuotaHistory(ctx context.Context, svc *gptquota.Service) error {
 		}
 		for i := range users {
 			userCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
-			err := collectGPTQuotaUser(userCtx, svc, &users[i])
+			var seats []model.GPTHostingGrant
+			var err error
+			if os.Getenv("GPT_HOSTING_ENABLED") == "true" {
+				seats, err = model.ListHostingSeats(users[i].Id)
+			}
+			if err == nil && len(seats) > 0 {
+				for _, seat := range seats {
+					if e := collectGPTQuotaUser(userCtx, svc, &users[i], seat.SeatID); e != nil && e != gptquota.ErrUnbound {
+						err = e
+					}
+				}
+			} else if err == nil {
+				err = collectGPTQuotaUser(userCtx, svc, &users[i])
+			}
 			cancel()
 			if err != nil && err != gptquota.ErrUnbound {
 				// 不记录上游响应、用户身份或令牌；采集失败不影响推理和实时额度查询。
@@ -162,7 +175,7 @@ func GetGPTQuotaHistorySelf(c *gin.Context) {
 		c.AbortWithStatus(503)
 		return
 	}
-	_, scope, err := quotaHistoryScope(svc, user)
+	_, scope, err := quotaHistoryScope(svc, user, c.Query("seat_id"))
 	if err == gptquota.ErrUnbound {
 		scope, err = "", nil
 	}
@@ -187,7 +200,13 @@ func urlHistoryHours(c *gin.Context) (int, error) {
 	if parseErr != nil {
 		return 0, parseErr
 	}
-	if len(values) == 0 && c.Request.URL.RawQuery == "" {
+	if selected, ok := values["seat_id"]; ok {
+		if len(selected) != 1 || len(selected[0]) > 36 {
+			return 0, fmt.Errorf("invalid seat")
+		}
+		values.Del("seat_id")
+	}
+	if len(values) == 0 {
 		return 24, nil
 	}
 	if len(values) != 1 || len(values["hours"]) != 1 {

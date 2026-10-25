@@ -546,7 +546,7 @@ func responsesWSErrorEndsRequest(event responsesWSErrorEvent, streamID, response
 
 // restoreConnectionContext 重新校验长连接的当前授权；托管续期或换绑后不能复用另一账号的连接。
 func (s *responsesWSSession) restoreConnectionContext(c *gin.Context, model string) *types.NewAPIError {
-	group, channelID, hostingErr := appmodel.GetHostingRoute(c.GetInt("id"))
+	group, channelID, hostingErr := appmodel.GetTokenHostingRoute(c.GetInt("id"), c.GetInt("token_id"))
 	if hostingErr != nil || (channelID != 0 && (channelID != s.lockedChannelID || !appmodel.IsChannelEnabledForGroupModel(group, model, channelID))) {
 		return types.NewErrorWithStatusCode(errors.New("GPT hosting connection is no longer allowed"), types.ErrorCodeAccessDenied, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 	}

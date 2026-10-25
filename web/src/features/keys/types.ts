@@ -23,6 +23,7 @@ import { z } from 'zod'
 // ============================================================================
 
 export const apiKeySchema = z.object({
+  hosting_seat_id: z.string().nullish().optional(),
   id: z.number(),
   name: z.string(),
   key: z.string(),
@@ -85,6 +86,7 @@ export interface SearchApiKeysParams {
 }
 
 export interface ApiKeyFormData {
+  hosting_seat_id?: string
   name: string
   remain_quota: number
   expired_time: number

@@ -51,6 +51,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import {
   Sheet,
   SheetClose,
@@ -62,6 +63,7 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { getHosting, type HostingSelf } from '@/features/gpt-hosting/api'
 import { RelatedPolicyLink } from '@/features/system-settings/request-policies/related-policy-link'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
@@ -72,6 +74,7 @@ import {
   translateServerText,
 } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   createApiKey,
@@ -117,6 +120,17 @@ export function ApiKeysMutateDrawer({
     null
   )
   const defaultUseAutoGroup = status?.default_use_auto_group === true
+
+  const viewer = useAuthStore((state) => state.auth.user?.id)
+  const sid = useAuthStore((state) => state.auth.session?.sid)
+  const hosting = useQuery({
+    queryKey: ['gpt-hosting', 'key-choices', viewer, sid],
+    queryFn: ({ signal }) => getHosting<HostingSelf>('self', signal),
+    enabled: open,
+    retry: false,
+    meta: { errorToast: false },
+  })
+  const seats = hosting.data?.seats || []
 
   // Fetch models
   const { data: modelsData } = useQuery({
@@ -284,10 +298,24 @@ export function ApiKeysMutateDrawer({
     }
   }, [groups, form, selectedGroup])
 
+  /** 托管 Key 只提交指定账号；隐藏的默认 Auto 分组不能影响账号路由。 */
   const onSubmit = async (data: ApiKeyFormValues) => {
     setIsSubmitting(true)
     try {
+      if (seats.length > 1 && !data.hosting_seat_id) {
+        form.setError('hosting_seat_id', {
+          message: t('Select a hosted account'),
+        })
+        return
+      }
       const basePayload = transformFormDataToPayload(data)
+      if (seats.length) {
+        basePayload.hosting_seat_id =
+          data.hosting_seat_id || seats[0]?.grant?.seat_id
+        basePayload.group = ''
+        basePayload.auto_groups = []
+        basePayload.cross_group_retry = false
+      }
 
       if (isUpdate && currentRow) {
         const result = await updateApiKey({
@@ -419,37 +447,81 @@ export function ApiKeysMutateDrawer({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name='group'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Group')}</FormLabel>
-                    <FormControl>
-                      <ApiKeyGroupCombobox
-                        options={groups}
-                        value={field.value}
-                        onValueChange={(group) => {
-                          field.onChange(group)
-                          if (group === 'auto') {
-                            form.setValue('cross_group_retry', true, {
+              {!!seats.length && (
+                <FormField
+                  control={form.control}
+                  name='hosting_seat_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Hosted account for this key')}</FormLabel>
+                      <FormControl>
+                        <NativeSelect
+                          value={field.value || ''}
+                          onChange={field.onChange}
+                        >
+                          <NativeSelectOption value=''>
+                            {t('Select a hosted account')}
+                          </NativeSelectOption>
+                          {seats.map((seat, index) => (
+                            <NativeSelectOption
+                              key={seat.grant?.seat_id}
+                              value={seat.grant?.seat_id}
+                            >
+                              {t('Seat {{number}}', { number: index + 1 })} ·{' '}
+                              {seat.binding?.platform === 'claude'
+                                ? 'Claude'
+                                : 'GPT'}{' '}
+                              ·{' '}
+                              {seat.binding?.account_label ||
+                                t('Not connected')}
+                              {!seat.valid ? ` · ${t('Inactive')}` : ''}
+                            </NativeSelectOption>
+                          ))}
+                        </NativeSelect>
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'This key uses only the selected account. Other accounts are never used as fallbacks.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+              {!seats.length && (
+                <FormField
+                  control={form.control}
+                  name='group'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Group')}</FormLabel>
+                      <FormControl>
+                        <ApiKeyGroupCombobox
+                          options={groups}
+                          value={field.value}
+                          onValueChange={(group) => {
+                            field.onChange(group)
+                            if (group === 'auto') {
+                              form.setValue('cross_group_retry', true, {
+                                shouldDirty: true,
+                              })
+                              return
+                            }
+                            form.setValue('cross_group_retry', false, {
                               shouldDirty: true,
                             })
-                            return
-                          }
-                          form.setValue('cross_group_retry', false, {
-                            shouldDirty: true,
-                          })
-                        }}
-                        placeholder={t('Select a group')}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                          }}
+                          placeholder={t('Select a group')}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
-              {selectedGroup === 'auto' && (
+              {!seats.length && selectedGroup === 'auto' && (
                 <FormField
                   control={form.control}
                   name='auto_groups'
@@ -490,7 +562,7 @@ export function ApiKeysMutateDrawer({
                 />
               )}
 
-              {selectedGroup === 'auto' && (
+              {!seats.length && selectedGroup === 'auto' && (
                 <FormField
                   control={form.control}
                   name='cross_group_retry'

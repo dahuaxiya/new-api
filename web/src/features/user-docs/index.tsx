@@ -37,7 +37,7 @@ const defaultTopic = {
 const topics = [
   {
     id: 'gpt-hosting',
-    label: 'My GPT account',
+    label: 'Hosted accounts',
     icon: Gauge,
     group: 'Get connected',
   },
@@ -261,7 +261,7 @@ export function UserDocs() {
                     <p>{t('docs.guide.hosting.subscription')}</p>
                   </Step>
                   <Step number={2} title={t('Connect GPT account')}>
-                    <a href='/account/gpt'>{t('My GPT account')}</a>
+                    <a href='/account/gpt'>{t('Hosted accounts')}</a>
                     <p>{t('docs.guide.hosting.verification')}</p>
                     <p>{t('docs.guide.hosting.officialLogin')}</p>
                     <p>{t('docs.guide.hosting.callback')}</p>

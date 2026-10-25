@@ -22,7 +22,7 @@ import { quotaSchema } from '@/features/gpt-quota/schema'
 import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
-export const hostingSummarySchema = z.object({
+const baseHostingSummarySchema = z.object({
   user_id: z.number(),
   status: z.string(),
   source: z.string().optional(),
@@ -31,6 +31,7 @@ export const hostingSummarySchema = z.object({
   slot_id: z.string().optional(),
   grant: z
     .object({
+      seat_id: z.string().optional(),
       user_id: z.number(),
       starts_at: z.number(),
       ends_at: z.number(),
@@ -42,6 +43,7 @@ export const hostingSummarySchema = z.object({
     .optional(),
   binding: z
     .object({
+      platform: z.string().optional(),
       state: z.string(),
       identity_source: z.string().optional(),
       account_label: z.string(),
@@ -52,6 +54,24 @@ export const hostingSummarySchema = z.object({
     .optional(),
   quota: quotaSchema.nullable().optional(),
   quota_unavailable: z.boolean().optional(),
+})
+export const hostingSummarySchema = baseHostingSummarySchema.extend({
+  seat_count: z.number().optional(),
+  active_seats: z.number().optional(),
+  bound_seats: z.number().optional(),
+  seats: z
+    .array(
+      z.object({
+        grant: baseHostingSummarySchema.shape.grant,
+        binding: baseHostingSummarySchema.shape.binding,
+        binding_id: z.string(),
+        status: z.string().optional(),
+        instance_id: z.string().optional(),
+        slot_id: z.string().optional(),
+        valid: z.boolean(),
+      })
+    )
+    .optional(),
 })
 export type HostingSummary = z.infer<typeof hostingSummarySchema>
 
@@ -97,7 +117,7 @@ export const hostingStatusLabels: Record<string, string> = {
   expiring: 'Hosting expires soon',
   expired: 'Hosting expired',
   scheduled: 'Hosting scheduled',
-  awaiting_login: 'Awaiting GPT sign-in',
+  awaiting_login: 'Awaiting account sign-in',
   disabled: 'Hosting disabled',
   takeover: 'Takeover incomplete',
   conflict: 'Account binding needs review',

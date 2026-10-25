@@ -15,17 +15,24 @@ const Chart = lazy(() => import('./QuotaHistoryChart'))
 
 /** Fetch only self history; session-scoped caching prevents account-switch flashes. */
 export function QuotaHistory(props: {
+  seatId?: string
   userId: number
   sessionId: string | undefined
 }) {
   const { t } = useTranslation()
   const [hours, setHours] = useState(24)
   const query = useQuery({
-    queryKey: ['gpt-quota-history', props.userId, props.sessionId, hours],
+    queryKey: [
+      'gpt-quota-history',
+      props.userId,
+      props.sessionId,
+      props.seatId,
+      hours,
+    ],
     queryFn: async ({ signal }) => {
       const response = await api.get('/api/gpt-quota/self/history', {
         signal,
-        params: { hours },
+        params: { hours, ...(props.seatId ? { seat_id: props.seatId } : {}) },
       })
       return quotaHistorySchema.parse(requireServerSuccess(response.data).data)
     },

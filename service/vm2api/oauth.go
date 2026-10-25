@@ -13,12 +13,14 @@ import (
 
 // OAuthSession 仅公开官方登录链接和短期关联 ID，不包含验证码、PKCE verifier 或 token。
 type OAuthSession struct {
+	Platform  string    `json:"platform,omitempty"`
 	AuthURL   string    `json:"auth_url"`
 	SessionID string    `json:"session_id"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type oauthState struct {
+	Platform                                                           string
 	AdminID                                                            int
 	InstanceID, SlotID, UpstreamID, State, RedirectURI, LoginSessionID string
 	ExpiresAt                                                          time.Time

@@ -36,7 +36,8 @@ type tokenRequest struct {
 	model.Token
 	AutoGroups tokenAutoGroupsInput `json:"auto_groups"`
 	// 指针区分“未传”和显式 false：新建时未传即开启，更新时未传则保留原值。
-	AllowUserQuotaQuery *bool `json:"allow_user_quota_query"`
+	AllowUserQuotaQuery *bool   `json:"allow_user_quota_query"`
+	HostingSeatID       *string `json:"hosting_seat_id"`
 }
 
 type tokenResponse struct {
@@ -296,6 +297,7 @@ func GetTokenUsage(c *gin.Context) {
 	})
 }
 
+// AddToken 创建当前用户的客户端 Key，托管目标须属于本人，多名额禁止隐式选择。
 func AddToken(c *gin.Context) {
 	request := tokenRequest{}
 	err := c.ShouldBindJSON(&request)
@@ -304,6 +306,20 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	token := request.Token
+	seatID := ""
+	if request.HostingSeatID != nil {
+		seatID = *request.HostingSeatID
+	}
+	seatID, err = model.SelectTokenHostingSeat(c.GetInt("id"), seatID)
+	if err != nil {
+		hostingError(c, err)
+		return
+	}
+
+	if seatID != "" {
+		token.Group = ""
+		token.CrossGroupRetry = false
+	}
 	if len(token.Name) > 50 {
 		common.ApiErrorT(c, "Token name is too long")
 		return
@@ -348,6 +364,7 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	cleanToken := model.Token{
+		HostingSeatID:      seatID,
 		UserId:             c.GetInt("id"),
 		Name:               token.Name,
 		Key:                key,
@@ -399,6 +416,7 @@ func DeleteToken(c *gin.Context) {
 	})
 }
 
+// UpdateToken 保留未提供的托管目标；改选账号前校验归属并使令牌缓存失效。
 func UpdateToken(c *gin.Context) {
 	userId := c.GetInt("id")
 	statusOnly := c.Query("status_only")
@@ -448,6 +466,15 @@ func UpdateToken(c *gin.Context) {
 	if statusOnly != "" {
 		cleanToken.Status = token.Status
 	} else {
+		// 未传选择字段保留旧 Key 指向，显式修改必须校验名额属于当前用户。
+		if request.HostingSeatID != nil {
+			seatID, e := model.SelectTokenHostingSeat(userId, *request.HostingSeatID)
+			if e != nil {
+				hostingError(c, e)
+				return
+			}
+			cleanToken.HostingSeatID = seatID
+		}
 		// If you add more fields, please also update token.Update()
 		cleanToken.Name = token.Name
 		cleanToken.ExpiredTime = token.ExpiredTime
@@ -458,6 +485,10 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.AllowIps = token.AllowIps
 		if request.AllowUserQuotaQuery != nil {
 			cleanToken.AllowUserQuotaQuery = *request.AllowUserQuotaQuery
+		}
+		if cleanToken.HostingSeatID != "" {
+			token.Group = ""
+			token.CrossGroupRetry = false
 		}
 		cleanToken.Group = token.Group
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
@@ -493,6 +524,7 @@ func UpdateToken(c *gin.Context) {
 			{"allow_ips", (previous.AllowIps == nil) != (cleanToken.AllowIps == nil) ||
 				(previous.AllowIps != nil && cleanToken.AllowIps != nil && *previous.AllowIps != *cleanToken.AllowIps)},
 			{"allow_user_quota_query", previous.AllowUserQuotaQuery != cleanToken.AllowUserQuotaQuery},
+			{"hosting_seat_id", previous.HostingSeatID != cleanToken.HostingSeatID},
 			{"group", previous.Group != cleanToken.Group},
 			{"cross_group_retry", previous.CrossGroupRetry != cleanToken.CrossGroupRetry},
 			{"auto_groups", previous.AutoGroups != cleanToken.AutoGroups},

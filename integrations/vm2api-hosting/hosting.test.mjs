@@ -18,6 +18,18 @@ const official = {account_hash:crypto.createHash('sha256').update('openai-accoun
 mock.module(moduleURL('admin/hosted-identity.mjs'), {namedExports:{...identity,verifyHostedIdentity:async()=>{if(identityReadHook) await identityReadHook();return official},probeHostedExit:async()=>{}}})
 const oauth = await import(moduleURL('oauth/codex-oauth.mjs'))
 mock.module(moduleURL('oauth/codex-oauth.mjs'), {namedExports:{...oauth,exchangeCodexAuthCode:async()=>({access_token:'fixture-access',refresh_token:'fixture-refresh',id_token:'fixture-id'})}})
+const claudeOAuth=await import(moduleURL('oauth/claude-auth-login.mjs'))
+const claudeIdentity=await import(moduleURL('oauth/oauth-identity.mjs'))
+const bootstrap=await import(moduleURL('oauth/official-cc-bootstrap.mjs'))
+const claudeAccount='00000000-0000-4000-8000-000000000010',claudeOrg='00000000-0000-4000-8000-000000000011'
+let claudeMismatch=false
+mock.module(moduleURL('oauth/claude-auth-login.mjs'),{namedExports:{...claudeOAuth,
+ startClaudeAuthLoginSession:async()=>({auth_url:'https://claude.com/cai/oauth/authorize?state=fixture-state&code_challenge=fixture&code_challenge_method=S256',session_id:'claude-session',expires_at:Date.now()+60000}),
+ stopClaudeAuthLoginSession:async()=>{},
+ completeClaudeAuthLogin:async({projectRoot,vmId})=>{const dir=path.join(projectRoot,'vms',vmId,'cli-home','.claude');fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'.credentials.json'),JSON.stringify({accessToken:'temporary-secret'}));return {access_token:'claude-access',refresh_token:'claude-refresh',scope:'user:profile user:inference',account_uuid:claudeAccount}},
+}})
+mock.module(moduleURL('oauth/official-cc-bootstrap.mjs'),{namedExports:{...bootstrap,stopOfficialCcResident:()=>({})}})
+mock.module(moduleURL('oauth/oauth-identity.mjs'),{namedExports:{...claudeIdentity,fetchOauthBootstrapAccount:async()=>({ok:true,identity:{account_uuid:claudeMismatch?claudeOrg:claudeAccount,org_uuid:claudeOrg,email:'owner@example.test',subscription_type:'max'}})}})
 const { handleHostedPanel } = await import(moduleURL('admin/hosted-panel.mjs'))
 const { openDatabase, closeDatabase, getDb } = await import(moduleURL('db/database.mjs'))
 const { hostedDb, hostedRecord, hostedAllows, withHostedWrite, assertHostedWrite } = await import(moduleURL('admin/hosted-store.mjs'))
@@ -231,4 +243,32 @@ test('root can set legacy terms with an expired identity token while reauthentic
  assert.equal((await call('reserve',{binding_id:binding,generation:1})).status,200)
  assert.equal(hostedAllows({hosted_key_id:duplicate.id},vm.id),false,'direct key cannot access the next owner')
  vm.id=originalId
+})
+
+test('Claude prepares encrypted authorization and cleans temporary credentials before activation',async()=>{
+ const oldId=vm.id;vm.id='claude-hosted-slot'
+ const claudeVm={...vm,platform:'anthropic',family:'claude',codex_kernel:false}
+ fs.writeFileSync(path.join(tmp,'vms',vm.id+'.json'),JSON.stringify(claudeVm))
+ const b='00000000-0000-4000-8000-000000000020'
+ assert.equal((await call('enroll')).status,200)
+ assert.equal((await call('reserve',{binding_id:b,generation:1})).status,200)
+ const login=await call('login',{binding_id:b,generation:2});assert.equal(login.status,200)
+ const prepare={binding_id:b,generation:3,session_id:login.body.data.session_id,callback_url:'fixture-code#fixture-state'}
+ claudeMismatch=true
+ assert.equal((await call('prepare',prepare)).status,409)
+ assert.equal(fs.existsSync(path.join(tmp,'vms',vm.id,'cli-home','.claude','.credentials.json')),false,'failed identity verification cleans CLI credential')
+ claudeMismatch=false
+ const login2=await call('login',{binding_id:b,generation:4});assert.equal(login2.status,200)
+ assert.equal((await call('prepare',{...prepare,generation:5})).status,200)
+ const prepared=hostedRecord(vm.id);assert.equal(prepared.state,'prepared');assert.ok(!prepared.pending.includes('claude-access'))
+ assert.equal(fs.existsSync(path.join(tmp,'vms',vm.id,'cli-home','.claude')),false)
+ assert.equal(hostedAllows(null,vm.id),false)
+ ctx.commitImportedOauth=async({oauth,skipOfficialCc})=>{assert.equal(oauth.account_uuid,claudeAccount);assert.equal(skipOfficialCc,true);return {ok:true}}
+ const now=Math.floor(Date.now()/1000)
+ const active=await call('activate',{binding_id:b,generation:6,account_hash:prepared.account_hash,subject_hash:prepared.subject_hash,starts_at:now-1,ends_at:-1})
+ assert.equal(active.status,200);assert.equal(keys.repo.getById(active.body.data.key_id).group_type,'anthropic')
+ assert.equal(hostedAllows({hosted_key_id:active.body.data.key_id},vm.id),true)
+ assert.equal((await call('release',{binding_id:b,generation:7})).status,200)
+ assert.equal(hostedAllows({hosted_key_id:active.body.data.key_id},vm.id),false)
+ vm.id=oldId
 })

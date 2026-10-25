@@ -109,14 +109,14 @@ it('explains missing entitlement and blocks new login for expired users', async 
     await screen.findByText('No hosting entitlement yet')
   ).toBeInTheDocument()
   expect(
-    screen.queryByRole('button', { name: 'Connect GPT account' })
+    screen.queryByRole('button', { name: 'Connect account' })
   ).not.toBeInTheDocument()
   cleanup()
   client.clear()
   vi.restoreAllMocks()
   mountPage({ ...granted, valid: false })
   expect(
-    await screen.findByRole('button', { name: 'Connect GPT account' })
+    await screen.findByRole('button', { name: 'Connect account' })
   ).toBeDisabled()
 })
 
@@ -153,7 +153,7 @@ it('requires verification and never caches callback credentials or upstream keys
   })
   mountPage(granted)
   await user.click(
-    await screen.findByRole('button', { name: 'Connect GPT account' })
+    await screen.findByRole('button', { name: 'Connect account' })
   )
   await user.type(
     await screen.findByLabelText('Password', { selector: 'input' }),
@@ -165,7 +165,7 @@ it('requires verification and never caches callback credentials or upstream keys
   ).toHaveAttribute('href', auth)
   expect(post).toHaveBeenCalledWith(
     '/api/gpt-hosting/login',
-    {},
+    { platform: 'codex' },
     expect.objectContaining({
       headers: { 'X-Security-Proof': 'fixture-proof' },
     })
@@ -173,7 +173,9 @@ it('requires verification and never caches callback credentials or upstream keys
   const callback =
     'http://localhost:1455/auth/callback?code=private-fixture-code&state=fixture'
   await user.type(screen.getByLabelText('Authorization callback URL'), callback)
-  await user.click(screen.getByRole('button', { name: 'Complete GPT sign-in' }))
+  await user.click(
+    screen.getByRole('button', { name: 'Complete account sign-in' })
+  )
   await waitFor(() =>
     expect(
       screen.queryByLabelText('Authorization callback URL')
@@ -207,7 +209,7 @@ it('unbind requires a separate destructive confirmation and can be cancelled', a
   )
   const dialog = await screen.findByRole('alertdialog')
   expect(
-    within(dialog).getByText(/service expiry does not change/)
+    within(dialog).getByText(/Its term does not change/)
   ).toBeInTheDocument()
   await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
   expect(post).not.toHaveBeenCalled()
@@ -222,7 +224,7 @@ it('strips request config and uses fixed account mismatch messages', async () =>
     },
   })
   await expect(postHosting('finish', {})).rejects.toThrow(
-    'Sign in to the same GPT account'
+    'Sign in to the same account'
   )
   try {
     await postHosting('finish', {})
@@ -247,4 +249,41 @@ it('permanent hosting displays no expiry while still allowing the user to unbind
     screen.queryByText(/After expiry, access stops/)
   ).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Unbind account' })).toBeEnabled()
+})
+
+it('selects a seat and clears the authorization form before switching accounts', async () => {
+  const user = userEvent.setup()
+  const first = {
+    ...granted,
+    grant: { ...granted.grant, seat_id: 'seat-first' },
+  }
+  const second = {
+    ...granted,
+    grant: { ...granted.grant, seat_id: 'seat-second', ends_at: -1 },
+    binding: {
+      ...granted.binding,
+      account_label: 'Claude owner',
+      platform: 'claude' as const,
+    },
+  }
+  mountPage({ ...first, seats: [first, second] })
+  const picker = await screen.findByLabelText('Hosting seat')
+  expect(
+    screen.getByRole('option', { name: /Claude owner/ })
+  ).toBeInTheDocument()
+  await user.selectOptions(picker, 'seat-second')
+  await waitFor(() =>
+    expect(
+      vi
+        .mocked(api.get)
+        .mock.calls.some(
+          ([url, config]) =>
+            url === '/api/gpt-hosting/self' &&
+            config?.params?.seat_id === 'seat-second'
+        )
+    ).toBe(true)
+  )
+  expect(
+    screen.queryByLabelText('Authorization callback URL')
+  ).not.toBeInTheDocument()
 })

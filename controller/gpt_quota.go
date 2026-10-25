@@ -44,26 +44,29 @@ var quotaService = sync.OnceValues(func() (*gptquota.Service, error) {
 })
 
 // resolveGPTQuotaBinding 每次按已鉴权用户 ID 从数据库解析绑定；username、group 必须来自
-// 当前会话或数据库用户，不能取自请求参数。epoch 区分解绑重绑，不能使用缓存授权。
-func resolveGPTQuotaBinding(svc *gptquota.Service, id int, username, group string) (gptquota.Binding, string, error) {
+// 当前会话或数据库用户，不能取自请求参数。epoch 区分解绑重绑，seat 只在本人名额内解析。
+func resolveGPTQuotaBinding(svc *gptquota.Service, id int, username, group string, seats ...string) (gptquota.Binding, string, error) {
 	var hosted *model.GPTHostingBinding
 	hostedErr := gorm.ErrRecordNotFound
 	if os.Getenv("GPT_HOSTING_ENABLED") == "true" {
-		hosted, hostedErr = model.GetHostingBinding(id)
+		hosted, hostedErr = model.GetHostingBinding(id, seats...)
 	}
 	if hostedErr == nil {
-		if hosted.AccountHash == nil || hosted.InventoryID == nil || hosted.State == "cleaning" || hosted.State == "unbound" {
+		if hosted.Platform == "claude" || hosted.AccountHash == nil || hosted.InventoryID == nil || hosted.State == "cleaning" || hosted.State == "unbound" {
 			return gptquota.Binding{}, "", gptquota.ErrUnbound
 		}
-		_, err := model.GetHostingGrant(id)
+		_, err := model.GetHostingGrant(id, seats...)
 		if err != nil {
 			return gptquota.Binding{}, "", gptquota.ErrUnavailable
 		}
 		// 托管专属组负责模型路由，旧用户和已有 Key 可以继续保留原用户组。
 		// 额度服务的 Group 用于验证读取者身份，必须使用当前用户组；槽位仍只由
-		// 上面的 user_id 查询及解绑状态确定，历史采集继续校验 AccountHash。
+		// 上面的 user_id/seat_id 查询及解绑状态确定，历史采集继续校验 AccountHash。
 		binding := gptquota.Binding{InstanceID: hosted.InstanceID, Username: username, Group: group, Slot: hosted.SlotID, Label: hosted.AccountLabel, AccountHash: *hosted.AccountHash}
 		return binding, "hosted:" + hosted.BindingID + ":" + *hosted.AccountHash, nil
+	}
+	if len(seats) > 0 && seats[0] != "" {
+		return gptquota.Binding{}, "", gptquota.ErrUnbound
 	}
 	// 启用托管后，数据库故障不能降级到旧绑定，避免解绑期间重新读到旧槽位。
 	if os.Getenv("GPT_HOSTING_ENABLED") == "true" && !errors.Is(hostedErr, gorm.ErrRecordNotFound) {
@@ -80,8 +83,8 @@ func resolveGPTQuotaBinding(svc *gptquota.Service, id int, username, group strin
 }
 
 // linkedGPTQuota 统一实时查询和刷新；绑定不匹配时保持旧接口的未绑定行为。
-func linkedGPTQuota(ctx context.Context, svc *gptquota.Service, id int, username, group string, refresh bool) (gptquota.View, error) {
-	binding, _, err := resolveGPTQuotaBinding(svc, id, username, group)
+func linkedGPTQuota(ctx context.Context, svc *gptquota.Service, id int, username, group string, refresh bool, seats ...string) (gptquota.View, error) {
+	binding, _, err := resolveGPTQuotaBinding(svc, id, username, group, seats...)
 	if err != nil {
 		return gptquota.View{}, err
 	}
@@ -90,7 +93,7 @@ func linkedGPTQuota(ctx context.Context, svc *gptquota.Service, id int, username
 		// 手动刷新后读取刚持久化的快照；记录失败不把成功的官方查询变成失败。
 		if err == nil {
 			if user, userErr := model.GetUserById(id, false); userErr == nil {
-				if historyErr := collectGPTQuotaUser(ctx, svc, user); historyErr != nil {
+				if historyErr := collectGPTQuotaUser(ctx, svc, user, seats...); historyErr != nil {
 					common.SysError("GPT quota history refresh persistence unavailable")
 				}
 			}
@@ -154,7 +157,7 @@ func respondGPTQuotaUser(c *gin.Context, refresh bool) {
 	}
 	// Read the shared snapshot only: opening a page must not trigger N official
 	// probes or consume each account's manual-refresh cooldown.
-	view, err := linkedGPTQuota(c.Request.Context(), svc, target.Id, target.Username, target.Group, refresh)
+	view, err := linkedGPTQuota(c.Request.Context(), svc, target.Id, target.Username, target.Group, refresh, c.Query("seat_id"))
 	if errors.Is(err, gptquota.ErrCooldown) {
 		c.Header("Retry-After", "30")
 		c.JSON(429, gin.H{"success": false, "message": "Please wait 30 seconds before refreshing quota again"})
@@ -170,7 +173,7 @@ func respondGPTQuotaUser(c *gin.Context, refresh bool) {
 // respondGPTQuota keeps identity and query checks identical on read and refresh.
 func respondGPTQuota(c *gin.Context, refresh bool) {
 	c.Header("Cache-Control", "no-store, private")
-	if c.Request.URL.RawQuery != "" {
+	if values := c.Request.URL.Query(); len(values) > 1 || (len(values) == 1 && (len(values["seat_id"]) != 1 || len(values.Get("seat_id")) > 36)) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Not found"})
 		return
 	}
@@ -184,7 +187,7 @@ func respondGPTQuota(c *gin.Context, refresh bool) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Subscription quota temporarily unavailable"})
 		return
 	}
-	view, err := linkedGPTQuota(c.Request.Context(), service, id, c.GetString("username"), c.GetString("group"), refresh)
+	view, err := linkedGPTQuota(c.Request.Context(), service, id, c.GetString("username"), c.GetString("group"), refresh, c.Query("seat_id"))
 	if errors.Is(err, gptquota.ErrCooldown) {
 		c.Header("Retry-After", "30")
 		c.JSON(http.StatusTooManyRequests, gin.H{"success": false, "message": "Please wait 30 seconds before refreshing quota again"})

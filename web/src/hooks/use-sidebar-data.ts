@@ -44,7 +44,7 @@ export function useSidebarData(): SidebarData {
             icon: LayoutDashboard,
           },
           {
-            title: t('My GPT account'),
+            title: t('Hosted accounts'),
             url: '/account/gpt',
             icon: ShieldCheck,
           },
