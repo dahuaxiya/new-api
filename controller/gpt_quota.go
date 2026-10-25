@@ -43,7 +43,8 @@ var quotaService = sync.OnceValues(func() (*gptquota.Service, error) {
 	return gptquota.New(cfg)
 })
 
-// resolveGPTQuotaBinding 每次从当前数据库解析绑定；epoch 区分解绑重绑，不能使用缓存授权。
+// resolveGPTQuotaBinding 每次按已鉴权用户 ID 从数据库解析绑定；username、group 必须来自
+// 当前会话或数据库用户，不能取自请求参数。epoch 区分解绑重绑，不能使用缓存授权。
 func resolveGPTQuotaBinding(svc *gptquota.Service, id int, username, group string) (gptquota.Binding, string, error) {
 	var hosted *model.GPTHostingBinding
 	hostedErr := gorm.ErrRecordNotFound
@@ -54,11 +55,14 @@ func resolveGPTQuotaBinding(svc *gptquota.Service, id int, username, group strin
 		if hosted.AccountHash == nil || hosted.InventoryID == nil || hosted.State == "cleaning" || hosted.State == "unbound" {
 			return gptquota.Binding{}, "", gptquota.ErrUnbound
 		}
-		grant, err := model.GetHostingGrant(id)
+		_, err := model.GetHostingGrant(id)
 		if err != nil {
 			return gptquota.Binding{}, "", gptquota.ErrUnavailable
 		}
-		binding := gptquota.Binding{InstanceID: hosted.InstanceID, Username: username, Group: grant.Group, Slot: hosted.SlotID, Label: hosted.AccountLabel, AccountHash: *hosted.AccountHash}
+		// 托管专属组负责模型路由，旧用户和已有 Key 可以继续保留原用户组。
+		// 额度服务的 Group 用于验证读取者身份，必须使用当前用户组；槽位仍只由
+		// 上面的 user_id 查询及解绑状态确定，历史采集继续校验 AccountHash。
+		binding := gptquota.Binding{InstanceID: hosted.InstanceID, Username: username, Group: group, Slot: hosted.SlotID, Label: hosted.AccountLabel, AccountHash: *hosted.AccountHash}
 		return binding, "hosted:" + hosted.BindingID + ":" + *hosted.AccountHash, nil
 	}
 	// 启用托管后，数据库故障不能降级到旧绑定，避免解绑期间重新读到旧槽位。
