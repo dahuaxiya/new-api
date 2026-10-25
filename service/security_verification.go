@@ -199,8 +199,16 @@ func BindVerificationOperation(operation VerificationOperation) (VerificationBin
 			Action    string `json:"action"`
 			BindingID string `json:"binding_id"`
 		}
-		if len(fields) != 2 || common.Unmarshal(operation.Context, &context) != nil || !slices.Contains([]string{"login", "unbind"}, context.Action) {
+		if len(fields) != 2 || common.Unmarshal(operation.Context, &context) != nil || !slices.Contains([]string{"login", "unbind", "store-plan"}, context.Action) {
 			return VerificationBinding{}, ErrVerificationContextInvalid
+		}
+		// 套餐操作使用固定产品编号；账号操作仍强制 UUID，两个动作的证明不能互换。
+		if context.Action == "store-plan" {
+			if !slices.Contains([]string{"monthly", "quarterly", "yearly"}, context.BindingID) {
+				return VerificationBinding{}, ErrVerificationContextInvalid
+			}
+			normalized = context
+			break
 		}
 		id, err := uuid.Parse(context.BindingID)
 		if err != nil || id == uuid.Nil || id.String() != context.BindingID {

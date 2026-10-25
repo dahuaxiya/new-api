@@ -217,6 +217,8 @@ func AccessTokenScopeGranted(scopes []string, scope string) bool {
 // scope a PAT needs to obtain its proof. An empty value means PATs can never
 // obtain it; scopes missing from this table are denied too.
 var accessTokenVerificationScopes = map[string]string{
+	// 托管授权和套餐配置必须在门户会话内完成，不提供 PAT 证明签发。
+	VerificationScopeGPTHosting:            "",
 	VerificationScopeChannelKeyRead:        AccessTokenScopeOf(authz.ChannelSecretView),
 	VerificationScopeAdminUserCreate:       "user:write",
 	VerificationScopeAdminUserUpdate:       "user:write",

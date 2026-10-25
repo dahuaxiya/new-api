@@ -5,8 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Calcium-Ion/go-epay/epay"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -166,5 +172,180 @@ func TestPermanentHostingSummary(t *testing.T) {
 		require.NoError(t, model.DB.Save(&grant).Error)
 		require.NoError(t, model.DB.Save(&binding).Error)
 		require.Equal(t, status, hostingSummary(user).Status)
+	}
+}
+
+// TestHostingStoreCallbackBoundary 使用真实签名和数据库验证回调验签、金额口径、重复通知及用户归属。
+func TestHostingStoreCallbackBoundary(t *testing.T) {
+	oldSecure := common.SessionCookieSecure
+	common.SessionCookieSecure = true
+	t.Cleanup(func() { common.SessionCookieSecure = oldSecure })
+	oldOptions, oldRatios := common.OptionMap, ratio_setting.GroupRatio2JSONString()
+	common.OptionMap = map[string]string{}
+	t.Cleanup(func() { common.OptionMap = oldOptions; _ = ratio_setting.UpdateGroupRatioByJSONString(oldRatios) })
+	user, identity := setupSecurityEnrollmentTest(t)
+	t.Setenv("GPT_HOSTING_ENABLED", "true")
+	require.NoError(t, model.DB.AutoMigrate(&model.HostingPlan{}, &model.HostingOrder{}, &model.GPTHostingGrant{}, &model.GPTHostingBinding{}, &model.GPTHostingInventory{}, &model.VM2APIEnrollment{}, &model.Token{}))
+	require.NoError(t, model.MigrateHostingStore(model.DB))
+	oldAddress, oldID, oldKey, oldMethods := operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey, operation_setting.PayMethods
+	t.Cleanup(func() {
+		operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey, operation_setting.PayMethods = oldAddress, oldID, oldKey, oldMethods
+	})
+	operation_setting.PayAddress = "https://payment.test"
+	operation_setting.EpayId = "merchant"
+	operation_setting.EpayKey = "test-only-signing-secret"
+	operation_setting.PayMethods = []map[string]string{{"type": "wxpay"}, {"type": "alipay"}}
+	require.NoError(t, model.SaveHostingPlan(model.HostingPlan{ID: "monthly", Days: 30, PriceCents: 4000, Enabled: true}))
+	inv, err := model.PutHostingInventory("cc", "signed-callback", true)
+	require.NoError(t, err)
+	order, err := model.CreateHostingOrder(user.Id, uuid.NewString(), "monthly", "", "codex", "wxpay", "merchant", []string{inv.ID})
+	require.NoError(t, err)
+	r := gin.New()
+	r.GET("/notify", HostingPaymentNotify)
+	r.POST("/notify", HostingPaymentNotify)
+	r.GET("/orders", middleware.UserAuth(), GetHostingOrders)
+	r.GET("/admin", middleware.RootAuth(), GetHostingStoreAdmin)
+	r.POST("/pay", middleware.UserAuth(), middleware.SessionCookieOriginGuard(), RequestHostingPayment)
+	token, _, err := service.IssueAccessToken(identity)
+	require.NoError(t, err)
+	base := map[string]string{"pid": "merchant", "trade_no": "provider-transaction", "out_trade_no": order.ID, "type": "wxpay", "name": "Hosting 30 days", "money": "40.00", "trade_status": "TRADE_SUCCESS"}
+	call := func(method string, params map[string]string, duplicate bool) *httptest.ResponseRecorder {
+		signed, err := epay.GenerateParamsWithError(params, operation_setting.EpayKey)
+		require.NoError(t, err)
+		values := url.Values{}
+		for k, v := range signed {
+			values.Set(k, v)
+		}
+		if duplicate {
+			values.Add("money", "0.01")
+		}
+		target := "http://portal.test/notify"
+		var body *strings.Reader
+		if method == "GET" {
+			target += "?" + values.Encode()
+			body = strings.NewReader("")
+		} else {
+			body = strings.NewReader(values.Encode())
+		}
+		req := httptest.NewRequest(method, target, body)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	for _, tc := range []struct{ key, value string }{{"money", "0.01"}, {"money", "40.001"}, {"money", "4e1"}, {"money", "-40"}, {"pid", "foreign"}, {"type", "alipay"}, {"trade_status", "WAIT_BUYER_PAY"}} {
+		t.Run(tc.key+tc.value, func(t *testing.T) {
+			params := maps.Clone(base)
+			params[tc.key] = tc.value
+			require.Equal(t, 400, call("GET", params, false).Code)
+		})
+	}
+	require.Equal(t, 400, call("POST", maps.Clone(base), true).Code)
+	tampered, _ := epay.GenerateParamsWithError(maps.Clone(base), "wrong-key")
+	v := url.Values{}
+	for k, val := range tampered {
+		v.Set(k, val)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "http://portal.test/notify?"+v.Encode(), nil))
+	require.Equal(t, 400, w.Code)
+	_, err = model.GetHostingGrant(user.Id, order.SeatID)
+	require.Error(t, err)
+	for _, method := range []string{"POST", "GET", "POST"} {
+		response := call(method, maps.Clone(base), false)
+		require.Equal(t, 200, response.Code, response.Body.String())
+		require.Equal(t, "success", response.Body.String())
+	}
+	grant, err := model.GetHostingGrant(user.Id, order.SeatID)
+	require.NoError(t, err)
+	require.Equal(t, int64(30*86400), grant.EndsAt-grant.StartsAt)
+	// 现有已绑定名额续费不需要空闲槽位；即使客户端伪造价格与天数，也只签发服务端快照。
+	confirmPaymentComplianceForTest(t)
+	oldServer, oldCallback := system_setting.ServerAddress, operation_setting.CustomCallbackAddress
+	system_setting.ServerAddress = "https://portal.test"
+	operation_setting.CustomCallbackAddress = ""
+	t.Cleanup(func() {
+		system_setting.ServerAddress = oldServer
+		operation_setting.CustomCallbackAddress = oldCallback
+	})
+	raw, _ := common.Marshal(map[string]any{"request_id": uuid.NewString(), "plan_id": "monthly", "seat_id": grant.SeatID, "platform": "codex", "method": "wxpay", "price_cents": 1, "days": 99999})
+	purchaseRequest := httptest.NewRequest("POST", "http://portal.test/pay", bytes.NewReader(raw))
+	purchaseRequest.Header.Set("Authorization", "Bearer "+token)
+	purchaseRequest.Header.Set("Origin", "http://portal.test")
+	purchaseRequest.Header.Set("Content-Type", "application/json")
+	purchaseResponse := httptest.NewRecorder()
+	r.ServeHTTP(purchaseResponse, purchaseRequest)
+	require.Equal(t, 200, purchaseResponse.Code, purchaseResponse.Body.String())
+	var checkout struct {
+		Success bool `json:"success"`
+		Data    struct {
+			URL    string            `json:"url"`
+			Params map[string]string `json:"params"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(purchaseResponse.Body.Bytes(), &checkout))
+	require.True(t, checkout.Success, purchaseResponse.Body.String())
+	require.Equal(t, "40.00", checkout.Data.Params["money"])
+	require.Equal(t, "https://portal.test/api/gpt-hosting/payment/notify", checkout.Data.Params["notify_url"])
+	require.Equal(t, "https://portal.test/account/gpt", checkout.Data.Params["return_url"])
+	// 有会话的订单查询仍忽略外部 user_id；普通用户不能读取管理视图或跨站发起付款。
+	foreign := model.HostingOrder{ID: "other-user-order", UserID: user.Id + 1, RequestUser: user.Id + 1, RequestID: uuid.NewString(), Status: "paid"}
+	require.NoError(t, model.DB.Create(&foreign).Error)
+	for _, tc := range []struct {
+		method, path, origin string
+		code                 int
+	}{{"GET", "/orders?user_id=999", "", 200}, {"GET", "/admin", "", 403}, {"POST", "/pay", "https://foreign.test", 403}} {
+		req := httptest.NewRequest(tc.method, "http://portal.test"+tc.path, strings.NewReader(`{}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		if tc.origin != "" {
+			req.Header.Set("Origin", tc.origin)
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		require.Equal(t, tc.code, w.Code, w.Body.String())
+		require.NotContains(t, w.Body.String(), foreign.ID)
+		for _, private := range []string{"merchant", "provider_trade", "inventory_id", "request_id"} {
+			require.NotContains(t, w.Body.String(), `"`+private+`"`)
+		}
+	}
+}
+
+// TestHostingPlanProofBoundary 验证套餐改价需要 root 及目标绑定的一次性证明，其他账号动作的证明不能替代。
+func TestHostingPlanProofBoundary(t *testing.T) {
+	user, identity := setupSecurityEnrollmentTest(t)
+	t.Setenv("GPT_HOSTING_ENABLED", "true")
+	require.NoError(t, model.DB.AutoMigrate(&model.HostingPlan{}))
+	require.NoError(t, model.MigrateHostingStore(model.DB))
+	body := `{"id":"monthly","days":30,"price_cents":4000,"enabled":true}`
+	operation := service.VerificationOperation{Scope: service.VerificationScopeGPTHosting, Context: []byte(`{"action":"store-plan","binding_id":"monthly"}`)}
+	binding, err := service.BindVerificationOperation(operation)
+	require.NoError(t, err)
+	proof, err := service.CompleteSecurityVerification(identity, binding, service.VerificationMethodPassword)
+	require.NoError(t, err)
+	request := func(role int, token string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "http://portal.test/plan", strings.NewReader(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Request.Header.Set("X-Security-Proof", token)
+		c.Set("id", user.Id)
+		c.Set("role", role)
+		c.Set("session_id", identity.SessionID)
+		c.Set("auth_version", identity.UserAuthVersion)
+		c.Set("session_version", identity.SessionVersion)
+		PutHostingStorePlan(c)
+		return w
+	}
+	require.Equal(t, 403, request(common.RoleCommonUser, proof.ProofToken).Code)
+	// 生产身份中 root 角色也要从数据库确认；模拟授权提升后保持同一会话。
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
+	require.NotEqual(t, 200, request(common.RoleRootUser, "").Code)
+	response := request(common.RoleRootUser, proof.ProofToken)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.NotEqual(t, 200, request(common.RoleRootUser, proof.ProofToken).Code)
+	for _, context := range []string{`{"action":"store-plan","binding_id":"arbitrary"}`, `{"action":"login","binding_id":"monthly"}`} {
+		_, err := service.BindVerificationOperation(service.VerificationOperation{Scope: service.VerificationScopeGPTHosting, Context: []byte(context)})
+		require.Error(t, err)
 	}
 }

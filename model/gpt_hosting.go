@@ -111,102 +111,7 @@ func putHostingGrant(input GPTHostingGrant, takeover *HostingTakeover) (*GPTHost
 	var saved GPTHostingGrant
 	var ratioJSON string
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		var user User
-		// 写入权益之前锁用户；SQLite 以写入占有，跨方言唯一索引兜住并发首次开通。
-		if err := lockForUpdate(tx).First(&user, "id = ?", input.UserID).Error; err != nil {
-			return err
-		}
-		if user.Role != common.RoleCommonUser || user.Status != common.UserStatusEnabled {
-			return ErrHostingConflict
-		}
-		err := hostingSeatScope(tx, input.UserID, []string{input.SeatID}).First(&saved).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			var count int64
-			if err := tx.Model(&VM2APIEnrollment{}).Where("user_id = ?", user.Id).Count(&count).Error; err != nil {
-				return err
-			}
-			var existingSeats int64
-			if err := tx.Model(&GPTHostingGrant{}).Where("user_id = ?", user.Id).Count(&existingSeats).Error; err != nil {
-				return err
-			}
-			if existingSeats >= 100 {
-				return ErrHostingConflict
-			}
-			if takeover == nil && existingSeats == 0 && (count != 0 || strings.HasPrefix(user.Group, "acct_")) {
-				return ErrHostingConflict
-			}
-			saved = input
-			saved.Group = "acct_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-			saved.Revision = 1
-			if err := tx.Create(&saved).Error; err != nil {
-				return err
-			}
-			binding := GPTHostingBinding{SeatID: saved.SeatID, UserID: user.Id, BindingID: uuid.NewString(), State: "unbound"}
-			if takeover != nil {
-				ch, snapshot, err := legacyHostingChannel(tx, user.Id)
-				if err != nil || snapshot != takeover.Snapshot || ch.Id != takeover.ChannelID {
-					return ErrHostingConflict
-				}
-				inv := GPTHostingInventory{ID: uuid.NewString(), InstanceID: takeover.InstanceID, SlotID: takeover.SlotID, Enabled: false}
-				if err := tx.Create(&inv).Error; err != nil {
-					return ErrHostingConflict
-				}
-				binding.State, binding.InventoryID = "takeover", &inv.ID
-				binding.IdentitySource = takeover.IdentitySource
-				binding.InstanceID, binding.SlotID, binding.ChannelID = takeover.InstanceID, takeover.SlotID, ch.Id
-				binding.AccountHash, binding.SubjectHash = &takeover.AccountHash, &takeover.SubjectHash
-				binding.AccountLabel, binding.Plan = takeover.Label, takeover.Plan
-				binding.KeyID, binding.PoolID, binding.LegacySnapshot = takeover.KeyID, takeover.PoolID, snapshot
-			}
-			if err := tx.Create(&binding).Error; err != nil {
-				return err
-			}
-			if existingSeats == 0 {
-				if err := tx.Model(&User{}).Where("id = ?", user.Id).Update("group", saved.Group).Error; err != nil {
-					return err
-				}
-				// 旧令牌显式分组清空后跟随当前用户组，避免发放名额后仍落入公共渠道。
-				if err := tx.Model(&Token{}).Where("user_id = ?", user.Id).Updates(map[string]any{"group": "", "auto_groups": "", "cross_group_retry": false, "hosting_seat_id": saved.SeatID}).Error; err != nil {
-					return err
-				}
-			}
-		} else if err != nil {
-			return err
-		} else {
-			var b GPTHostingBinding
-			if err := hostingSeatScope(tx, input.UserID, []string{input.SeatID}).First(&b).Error; err != nil {
-				return err
-			}
-			// 未完成接管只能沿用原任务重试，禁止在远端结果未知时改期限或重新分配。
-			if b.State == "takeover" || takeover != nil {
-				return ErrHostingConflict
-			}
-			saved.StartsAt, saved.EndsAt, saved.Enabled = input.StartsAt, input.EndsAt, input.Enabled
-			saved.ActorID, saved.Note = input.ActorID, input.Note
-			saved.RetentionDays = input.RetentionDays
-			saved.Revision++
-			if err := tx.Save(&saved).Error; err != nil {
-				return err
-			}
-		}
-		option := Option{Key: "GroupRatio", Value: ratio_setting.GroupRatio2JSONString()}
-		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&option).Error; err != nil {
-			return err
-		}
-		if err := lockForUpdate(tx).Where(Option{Key: "GroupRatio"}).First(&option).Error; err != nil {
-			return err
-		}
-		ratios := map[string]float64{}
-		if err := common.UnmarshalJsonStr(option.Value, &ratios); err != nil || ratios == nil {
-			return ErrHostingConflict
-		}
-		ratios[saved.Group] = 0
-		raw, err := common.Marshal(ratios)
-		if err != nil {
-			return err
-		}
-		ratioJSON = string(raw)
-		return tx.Model(&Option{}).Where(Option{Key: "GroupRatio"}).Update("value", ratioJSON).Error
+		return persistHostingGrant(tx, input, takeover, &saved, &ratioJSON)
 	})
 	if err != nil {
 		return nil, err
@@ -218,6 +123,107 @@ func putHostingGrant(input GPTHostingGrant, takeover *HostingTakeover) (*GPTHost
 		return nil, err
 	}
 	return &saved, nil
+}
+
+// persistHostingGrant 将名额、绑定和专属分组写入调用方事务，支付订单必须与权益一起提交。
+// 调用方持有开户互斥锁；提交后再刷新内存与缓存，不能在事务内发布尚未提交的分组。
+func persistHostingGrant(tx *gorm.DB, input GPTHostingGrant, takeover *HostingTakeover, saved *GPTHostingGrant, ratioJSON *string) error {
+	var user User
+	// 写入权益之前锁用户；SQLite 以写入占有，跨方言唯一索引兜住并发首次开通。
+	if err := lockForUpdate(tx).First(&user, "id = ?", input.UserID).Error; err != nil {
+		return err
+	}
+	if user.Role != common.RoleCommonUser || user.Status != common.UserStatusEnabled {
+		return ErrHostingConflict
+	}
+	err := hostingSeatScope(tx, input.UserID, []string{input.SeatID}).First(saved).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		var count int64
+		if err := tx.Model(&VM2APIEnrollment{}).Where("user_id = ?", user.Id).Count(&count).Error; err != nil {
+			return err
+		}
+		var existingSeats int64
+		if err := tx.Model(&GPTHostingGrant{}).Where("user_id = ?", user.Id).Count(&existingSeats).Error; err != nil {
+			return err
+		}
+		if existingSeats >= 100 {
+			return ErrHostingConflict
+		}
+		if takeover == nil && existingSeats == 0 && (count != 0 || strings.HasPrefix(user.Group, "acct_")) {
+			return ErrHostingConflict
+		}
+		*saved = input
+		saved.Group = "acct_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+		saved.Revision = 1
+		if err := tx.Create(saved).Error; err != nil {
+			return err
+		}
+		binding := GPTHostingBinding{SeatID: saved.SeatID, UserID: user.Id, BindingID: uuid.NewString(), State: "unbound"}
+		if takeover != nil {
+			ch, snapshot, err := legacyHostingChannel(tx, user.Id)
+			if err != nil || snapshot != takeover.Snapshot || ch.Id != takeover.ChannelID {
+				return ErrHostingConflict
+			}
+			inv := GPTHostingInventory{ID: uuid.NewString(), InstanceID: takeover.InstanceID, SlotID: takeover.SlotID, Enabled: false}
+			if err := tx.Create(&inv).Error; err != nil {
+				return ErrHostingConflict
+			}
+			binding.State, binding.InventoryID = "takeover", &inv.ID
+			binding.IdentitySource = takeover.IdentitySource
+			binding.InstanceID, binding.SlotID, binding.ChannelID = takeover.InstanceID, takeover.SlotID, ch.Id
+			binding.AccountHash, binding.SubjectHash = &takeover.AccountHash, &takeover.SubjectHash
+			binding.AccountLabel, binding.Plan = takeover.Label, takeover.Plan
+			binding.KeyID, binding.PoolID, binding.LegacySnapshot = takeover.KeyID, takeover.PoolID, snapshot
+		}
+		if err := tx.Create(&binding).Error; err != nil {
+			return err
+		}
+		if existingSeats == 0 {
+			if err := tx.Model(&User{}).Where("id = ?", user.Id).Update("group", saved.Group).Error; err != nil {
+				return err
+			}
+			// 旧令牌显式分组清空后跟随当前用户组，避免发放名额后仍落入公共渠道。
+			if err := tx.Model(&Token{}).Where("user_id = ?", user.Id).Updates(map[string]any{"group": "", "auto_groups": "", "cross_group_retry": false, "hosting_seat_id": saved.SeatID}).Error; err != nil {
+				return err
+			}
+		}
+	} else if err != nil {
+		return err
+	} else {
+		var b GPTHostingBinding
+		if err := hostingSeatScope(tx, input.UserID, []string{input.SeatID}).First(&b).Error; err != nil {
+			return err
+		}
+		// 未完成接管只能沿用原任务重试，禁止在远端结果未知时改期限或重新分配。
+		if b.State == "takeover" || takeover != nil {
+			return ErrHostingConflict
+		}
+		saved.StartsAt, saved.EndsAt, saved.Enabled = input.StartsAt, input.EndsAt, input.Enabled
+		saved.ActorID, saved.Note = input.ActorID, input.Note
+		saved.RetentionDays = input.RetentionDays
+		saved.Revision++
+		if err := tx.Save(saved).Error; err != nil {
+			return err
+		}
+	}
+	option := Option{Key: "GroupRatio", Value: ratio_setting.GroupRatio2JSONString()}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&option).Error; err != nil {
+		return err
+	}
+	if err := lockForUpdate(tx).Where(Option{Key: "GroupRatio"}).First(&option).Error; err != nil {
+		return err
+	}
+	ratios := map[string]float64{}
+	if err := common.UnmarshalJsonStr(option.Value, &ratios); err != nil || ratios == nil {
+		return ErrHostingConflict
+	}
+	ratios[saved.Group] = 0
+	raw, err := common.Marshal(ratios)
+	if err != nil {
+		return err
+	}
+	*ratioJSON = string(raw)
+	return tx.Model(&Option{}).Where(Option{Key: "GroupRatio"}).Update("value", *ratioJSON).Error
 }
 
 // PutHostingInventory 只登记通过远端空槽检查的目标，已有记录不会因重新同步而失去占用信息。
@@ -266,6 +272,10 @@ func ReserveHostingSlot(userID int, inventoryID string, seats ...string) (*GPTHo
 		}
 		var inv GPTHostingInventory
 		if err := lockForUpdate(tx).First(&inv, "id = ? AND enabled = ?", inventoryID, true).Error; err != nil {
+			return err
+		}
+		// 待支付订单短期占用库存，管理员赠送名额也不能抢走已进入付款流程的槽位。
+		if err := checkHostingInventoryHold(tx, inv.ID, "", now); err != nil {
 			return err
 		}
 		seatID := ""

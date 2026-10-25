@@ -29,6 +29,10 @@ import zh from '@/i18n/locales/zh.json'
 
 const locales = { en, fr, ja, ru, vi, zhTW, zh }
 const messages = [
+  'Hosting plans',
+  'Hosting payments are not available yet.',
+  'Paid, awaiting review',
+  'Renewal extends an active seat from its expiry date. An expired seat starts again when payment is received. Permanent seats do not need renewal.',
   'Hosting does not include an official subscription or additional official quota.',
   'Each seat hosts one account. Reauthorization must use the same account; unbind first to change accounts.',
   'Choose this account for a New API key on the API Keys page. Each key uses only its selected account.',
@@ -66,9 +70,11 @@ describe('hosted account translations', () => {
         expect(translator.exists(message)).toBe(true)
       }
       if (language === 'zh') {
-        expect(translator.t(messages[0])).toBe(
-          '托管服务不包含官方订阅，也不会增加官方额度。'
-        )
+        expect(
+          translator.t(
+            'Hosting does not include an official subscription or additional official quota.'
+          )
+        ).toBe('托管服务不包含官方订阅，也不会增加官方额度。')
       }
     }
   )

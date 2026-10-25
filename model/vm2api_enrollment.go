@@ -112,7 +112,28 @@ func ReserveVM2APIEnrollment(input *VM2APIEnrollment) (*VM2APIEnrollment, error)
 		}
 		// 三种数据库对冲突写入的 RowsAffected 不同，统一读回 request_id 验证真实归属。
 		// 此写入包含密码哈希；即使运维开启 GORM Debug，也不能把参数值输出到 SQL 日志。
-		if err := DB.Session(&gorm.Session{Logger: logger.Discard}).Clauses(clause.OnConflict{DoNothing: true}).Create(&candidate).Error; err != nil {
+		if err := DB.Session(&gorm.Session{Logger: logger.Discard}).Transaction(func(tx *gorm.DB) error {
+			// 旧开户入口与自助商城共享库存锁，不能在订单付款期间抢走预留的槽位。
+			if tx.Migrator().HasTable(&GPTHostingInventory{}) {
+				var inventory GPTHostingInventory
+				err := lockForUpdate(tx).Where("instance_id = ? AND slot_id = ?", input.InstanceID, input.SlotID).First(&inventory).Error
+				if err == nil {
+					if err := checkHostingInventoryHold(tx, inventory.ID, "", time.Now().Unix()); err != nil {
+						return err
+					}
+					var used int64
+					if err := tx.Model(&GPTHostingBinding{}).Where("inventory_id = ?", inventory.ID).Count(&used).Error; err != nil {
+						return err
+					}
+					if used != 0 {
+						return ErrVM2APIEnrollmentConflict
+					}
+				} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
+				}
+			}
+			return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&candidate).Error
+		}); err != nil {
 			return nil, err
 		}
 		err = DB.Where("request_id = ?", input.RequestID).First(&saved).Error

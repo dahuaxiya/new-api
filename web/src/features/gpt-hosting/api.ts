@@ -145,7 +145,9 @@ export async function postHosting<T = HostingSelf>(
     | 'admin/grants'
     | 'admin/inventory'
     | 'admin/takeover/check'
-    | 'admin/takeover',
+    | 'admin/takeover'
+    | 'payment'
+    | 'admin/store/plans',
   body: unknown,
   proof?: string,
   seatId?: string
@@ -162,4 +164,51 @@ export async function postHosting<T = HostingSelf>(
   } catch (error) {
     throw new Error(hostingMessage(error))
   }
+}
+
+export type HostingPlan = {
+  id: string
+  days: number
+  price_cents: number
+  enabled: boolean
+}
+export type HostingOrder = {
+  id: string
+  user_id: number
+  kind: 'new' | 'renew'
+  seat_id: string
+  platform: 'codex' | 'claude'
+  method: 'wxpay' | 'alipay'
+  days: number
+  price_cents: number
+  status: 'pending' | 'expired' | 'paid' | 'paid_review'
+  created_at: number
+  expires_at: number
+  paid_at: number
+  ends_at: number
+}
+export type HostingStore = {
+  plans: HostingPlan[]
+  payment_ready: boolean
+  methods: Array<'wxpay' | 'alipay'>
+}
+export type HostingOrders = { items: HostingOrder[]; total: number }
+export type HostingAdminStore = HostingStore & HostingOrders
+export type HostingCheckout = {
+  url: string
+  params: Record<string, string>
+  order: HostingOrder
+}
+
+/** 商城视图只通过已认证会话读取；查询键由页面另行加入用户及会话身份。 */
+export async function getHostingStore<T extends HostingStore | HostingOrders>(
+  view: 'store' | 'orders' | 'admin/store',
+  page = 1,
+  signal?: AbortSignal
+): Promise<T> {
+  const response = await api.get(`/api/gpt-hosting/${view}`, {
+    params: { page },
+    signal,
+  })
+  return requireServerSuccess(response.data).data
 }

@@ -74,6 +74,17 @@ afterEach(() => {
 /** 使用真实页面、Router 和验证弹窗，HTTP 边界只提供独立合成数据。 */
 function mountPage(data: HostingSelf): void {
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    if (url === '/api/gpt-hosting/store') {
+      return {
+        data: {
+          success: true,
+          data: { plans: [], methods: [], payment_ready: false },
+        },
+      }
+    }
+    if (url === '/api/gpt-hosting/orders') {
+      return { data: { success: true, data: { items: [], total: 0 } } }
+    }
     if (url === '/api/verify/methods') {
       return {
         data: {

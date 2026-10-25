@@ -56,6 +56,7 @@ import {
   type HostingLogin,
   type HostingSelf,
 } from './api'
+import { HostingStore } from './store'
 
 /** 会话变化时卸载授权表单，避免上一个用户的回调、验证结果和缓存被复用。 */
 export function HostingAccount(): React.JSX.Element {
@@ -191,6 +192,11 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='mx-auto max-w-4xl space-y-5'>
+          <HostingStore
+            identity={props.identity}
+            seat={data}
+            platform={platform}
+          />
           {!!data?.seats?.length && (
             <Field>
               <FieldLabel htmlFor='hosting-seat-select'>

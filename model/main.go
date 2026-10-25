@@ -352,6 +352,8 @@ func migrateDB() error {
 		&GPTHostingGrant{},
 		&GPTHostingInventory{},
 		&GPTHostingBinding{},
+		&HostingPlan{},
+		&HostingOrder{},
 		&GPTQuotaHistory{},
 		&PasskeyCredential{},
 		&Option{},
@@ -385,6 +387,9 @@ func migrateDB() error {
 		&UserAccessToken{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := MigrateHostingStore(DB); err != nil {
 		return err
 	}
 	if err := MigrateHostingSeats(DB); err != nil {

@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { HostingStoreAdmin } from '@/features/gpt-hosting/store-admin'
 import { UserUsageOverview } from '@/features/user-usage'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -43,6 +44,7 @@ function UsersContent() {
   const search = route.useSearch()
   const navigate = route.useNavigate()
   const isRoot = useAuthStore((s) => s.auth.user?.role === ROLE.SUPER_ADMIN)
+  const [store, setStore] = useState(false)
   const [resources, setResources] = useState(
     search.resources === true && isRoot
   )
@@ -77,7 +79,10 @@ function UsersContent() {
       >
         <SectionPageLayout.Title>{t('Users')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          <UsersPrimaryButtons onResources={() => setResources(true)} />
+          <UsersPrimaryButtons
+            onResources={() => setResources(true)}
+            onStore={() => setStore(true)}
+          />
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div className='flex min-h-0 flex-1 flex-col gap-4'>
@@ -109,7 +114,10 @@ function UsersContent() {
       />
       <UsersDeleteDialog />
       {isRoot && (
-        <HostingResources open={resources} onOpenChange={setResources} />
+        <>
+          <HostingResources open={resources} onOpenChange={setResources} />
+          <HostingStoreAdmin open={store} onOpenChange={setStore} />
+        </>
       )}
     </>
   )

@@ -29,7 +29,10 @@ import { useUsers } from './users-provider'
  * 管理员保留原建用户入口；超级管理员可进入跨实例开户流程。
  * @return 当前角色可用的用户管理操作。
  */
-export function UsersPrimaryButtons(props: { onResources: () => void }) {
+export function UsersPrimaryButtons(props: {
+  onResources: () => void
+  onStore: () => void
+}) {
   const { t } = useTranslation()
   const canOpenAccount = useAuthStore(
     (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
@@ -42,11 +45,16 @@ export function UsersPrimaryButtons(props: { onResources: () => void }) {
   }
 
   return (
-    <div className='users-primary-actions flex gap-2'>
+    <div className='users-primary-actions flex flex-wrap gap-2'>
       {canOpenAccount && (
-        <Button size='sm' variant='outline' onClick={props.onResources}>
-          {t('Slot resources')}
-        </Button>
+        <>
+          <Button size='sm' variant='outline' onClick={props.onStore}>
+            {t('Hosting plans and orders')}
+          </Button>
+          <Button size='sm' variant='outline' onClick={props.onResources}>
+            {t('Slot resources')}
+          </Button>
+        </>
       )}
       <Button size='sm' onClick={handleCreate}>
         <Plus className='h-4 w-4' />

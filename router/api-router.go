@@ -41,6 +41,12 @@ func SetApiRouter(router *gin.Engine) {
 		// writes before accepting customer passwords or OAuth callback codes.
 		hosting := apiRouter.Group("/gpt-hosting", middleware.UserAuth(), middleware.DisableCache())
 		hosting.GET("/self", controller.GetGPTHostingSelf)
+		hosting.GET("/store", controller.GetHostingStore)
+		hosting.GET("/orders", controller.GetHostingOrders)
+		hosting.POST("/payment", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("hosting-payment"), controller.RequestHostingPayment)
+		// 网关通知独立验签，不能套登录或浏览器 Origin 校验。
+		apiRouter.POST("/gpt-hosting/payment/notify", anonymousRequestBodyLimit, controller.HostingPaymentNotify)
+		apiRouter.GET("/gpt-hosting/payment/notify", controller.HostingPaymentNotify)
 		hosting.POST("/login", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting"), controller.StartGPTHostingLogin)
 		hosting.POST("/finish", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting"), controller.FinishGPTHostingLogin)
 		hosting.POST("/retry", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting"), controller.RetryGPTHostingLogin)
@@ -48,6 +54,8 @@ func SetApiRouter(router *gin.Engine) {
 		hosting.POST("/unbind", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting"), controller.UnbindGPTHosting)
 		hostingAdmin := apiRouter.Group("/gpt-hosting/admin", middleware.RootAuth(), middleware.DisableCache())
 		hostingAdmin.GET("", controller.GetGPTHostingAdmin)
+		hostingAdmin.GET("/store", controller.GetHostingStoreAdmin)
+		hostingAdmin.POST("/store/plans", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("hosting-store-admin"), controller.PutHostingStorePlan)
 		hostingAdmin.POST("/takeover/check", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting-admin"), controller.CheckGPTHostingTakeover)
 		hostingAdmin.POST("/takeover", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting-admin"), controller.TakeoverGPTHosting)
 		hostingAdmin.POST("/grants", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting-admin"), controller.PutGPTHostingGrant)
