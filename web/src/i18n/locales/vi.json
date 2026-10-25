@@ -7728,6 +7728,26 @@
     "Name, email and language": "Tên, email và ngôn ngữ",
     "Password, verification and sessions": "Mật khẩu, xác minh và phiên đăng nhập",
     "Profile and account security": "Hồ sơ và bảo mật tài khoản",
-    "My account": "Tài khoản của tôi"
+    "My account": "Tài khoản của tôi",
+    "docs.config.mode": "Cách cấu hình",
+    "docs.config.newTab": "Thiết lập lần đầu",
+    "docs.config.existingTab": "Sửa tệp hiện có",
+    "docs.config.defaultsTitle": "1. Sửa các trường ở đầu tệp",
+    "docs.config.defaultsHint": "Đặt ba trường này trước [phần] đầu tiên. Sửa giá trị hiện có và chỉ thêm trường còn thiếu. Dùng tên mô hình đã được xác nhận cho tài khoản.",
+    "docs.config.defaultsLabel": "Cấu hình đầu tệp",
+    "docs.config.providerTitle": "2. Sửa phần nhà cung cấp",
+    "docs.config.providerHint": "Tìm [model_providers.my_api] và thay nội dung cho đến trước [phần] tiếp theo. Nếu chưa có, thêm đoạn này vào cuối tệp. Thay YOUR_API_KEY bằng khóa đầy đủ và giữ dấu ngoặc kép.",
+    "docs.config.providerLabel": "Cấu hình nhà cung cấp",
+    "docs.windows.editFile": "Nhấp chuột phải vào config.toml → Mở bằng → Notepad. Nếu chưa có tệp, mở Notepad rồi dán cấu hình ở bước tiếp theo.",
+    "docs.windows.saveShort": "Lưu config.toml vào thư mục này. Với tệp mới, chọn All files và mã hóa UTF-8.",
+    "docs.windows.fileHelp": "Không tìm thấy thư mục hoặc tên tệp có đuôi .txt?",
+    "docs.guide.hosting.officialLogin": "Đăng nhập trên trang OpenAI chính thức. Không nhập mật khẩu GPT vào biểu mẫu này.",
+    "docs.guide.hosting.callback": "Nếu trang localhost không tải được, sao chép toàn bộ địa chỉ và dán bên dưới. Không chia sẻ địa chỉ này.",
+    "docs.guide.hosting.sharedQuota": "All your New API keys share this account, its official quota and hosting expiry.",
+    "docs.guide.hosting.seat": "Ask the administrator to grant one hosting seat with a start and end date. You will then be able to connect your own GPT account.",
+    "docs.guide.hosting.subscription": "Hosting does not include a GPT subscription or additional official quota.",
+    "docs.guide.hosting.binding": "One GPT account can be bound to one user. Reauthorization must use the same account.",
+    "docs.guide.hosting.unbind": "This stops access and removes the hosted credentials. Your service expiry does not change. This does not revoke authorization on the official GPT website.",
+    "docs.guide.hosting.verification": "Connecting or unbinding requires security verification. Manage your verification methods in Security."
   }
 }

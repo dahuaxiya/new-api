@@ -7728,6 +7728,26 @@
     "Name, email and language": "Name, email and language",
     "Password, verification and sessions": "Password, verification and sessions",
     "Profile and account security": "Profile and account security",
-    "My account": "My account"
+    "My account": "My account",
+    "docs.config.mode": "Configuration type",
+    "docs.config.newTab": "First setup",
+    "docs.config.existingTab": "Edit existing file",
+    "docs.config.defaultsTitle": "1. Update the fields at the top",
+    "docs.config.defaultsHint": "Keep these three fields above the first [section]. Update existing values and add only missing fields. Use the model name confirmed for your account.",
+    "docs.config.defaultsLabel": "Top-level settings",
+    "docs.config.providerTitle": "2. Update the provider section",
+    "docs.config.providerHint": "Find [model_providers.my_api] and replace its contents up to the next [section]. If it is missing, append this snippet at the end. Replace YOUR_API_KEY with your full key, keeping the quotes.",
+    "docs.config.providerLabel": "Provider settings",
+    "docs.windows.editFile": "Right-click config.toml → Open with → Notepad. If the file does not exist, open Notepad and paste the configuration from the next step.",
+    "docs.windows.saveShort": "Save config.toml in this folder. For a new file, select All files as the file type and UTF-8 as the encoding.",
+    "docs.windows.fileHelp": "Folder missing, or filename ends in .txt?",
+    "docs.guide.hosting.officialLogin": "Sign in on the official OpenAI page. Never enter a GPT password in this form.",
+    "docs.guide.hosting.callback": "If the browser opens a localhost address that cannot load, copy its full address and paste it below. Do not share that address.",
+    "docs.guide.hosting.sharedQuota": "All your New API keys share this account, its official quota and hosting expiry.",
+    "docs.guide.hosting.seat": "Ask the administrator to grant one hosting seat with a start and end date. You will then be able to connect your own GPT account.",
+    "docs.guide.hosting.subscription": "Hosting does not include a GPT subscription or additional official quota.",
+    "docs.guide.hosting.binding": "One GPT account can be bound to one user. Reauthorization must use the same account.",
+    "docs.guide.hosting.unbind": "This stops access and removes the hosted credentials. Your service expiry does not change. This does not revoke authorization on the official GPT website.",
+    "docs.guide.hosting.verification": "Connecting or unbinding requires security verification. Manage your verification methods in Security."
   }
 }

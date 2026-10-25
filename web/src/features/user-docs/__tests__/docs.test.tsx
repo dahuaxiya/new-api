@@ -5,7 +5,14 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -80,6 +87,55 @@ describe('public user guide', () => {
     )
   })
 
+  /** 用户一次只阅读一条配置路径；已有文件只复制目标片段，避免覆盖其他设置。 */
+  it('separates first setup from existing-file edits and copies each existing section', async () => {
+    const user = userEvent.setup()
+    mountDocs()
+    await screen.findByRole('heading', { name: 'Codex setup' })
+    const mode = screen.getByRole('tablist', { name: 'docs.config.mode' })
+    expect(
+      within(mode).getByRole('tab', { name: 'docs.config.newTab' })
+    ).toHaveAttribute('aria-selected', 'true')
+    await user.click(
+      within(mode).getByRole('tab', { name: 'docs.config.existingTab' })
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Copy config.toml' })
+    ).toBeNull()
+    await user.click(
+      screen.getByRole('button', { name: 'Copy docs.config.defaultsLabel' })
+    )
+    const defaults = await navigator.clipboard.readText()
+    expect(defaults).toContain('model_provider = "my_api"')
+    expect(defaults).not.toContain('[model_providers.my_api]')
+    await user.click(
+      screen.getByRole('button', { name: 'Copy docs.config.providerLabel' })
+    )
+    const provider = await navigator.clipboard.readText()
+    expect(provider).toContain('[model_providers.my_api]')
+    expect(provider).toContain('experimental_bearer_token = "YOUR_API_KEY"')
+    expect(defaults + '\n\n' + provider).toBe(
+      codexConfig('https://gateway.example.com/v1')
+    )
+  })
+
+  /** Windows 主线直接编辑文件；仅在需要时展开文件夹和扩展名排错。 */
+  it('shows direct Windows file editing and expands optional file help', async () => {
+    const user = userEvent.setup()
+    mountDocs()
+    await screen.findByRole('heading', { name: 'Codex setup' })
+    expect(screen.getByText('docs.windows.editFile')).toBeVisible()
+    expect(screen.getByText('docs.windows.saveShort')).toBeVisible()
+    const help = screen.getByRole('button', { name: 'docs.windows.fileHelp' })
+    expect(help).toHaveAttribute('aria-expanded', 'false')
+    await user.click(help)
+    expect(await screen.findByText('docs.windows.createFolder')).toBeVisible()
+    expect(screen.getByText('docs.windows.extensions')).toBeVisible()
+    expect(document.querySelector('article')?.textContent).not.toMatch(
+      /powershell|New-Item|Set-Content/i
+    )
+  })
+
   it('restores chapters from hash navigation and falls back for an unknown anchor', async () => {
     mountDocs()
     await screen.findByRole('heading', { name: 'Codex setup' })
@@ -121,6 +177,13 @@ describe('public user guide', () => {
     expect(
       screen.getByRole('button', { name: '复制 config.toml' })
     ).toBeTruthy()
+    expect(screen.getByRole('tab', { name: '首次配置' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    expect(
+      screen.getByRole('button', { name: '找不到文件夹，或文件名多了 .txt？' })
+    ).toHaveAttribute('aria-expanded', 'false')
   })
 
   it.each([

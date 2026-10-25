@@ -11,15 +11,21 @@ import {
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { CodeBlockFrame } from '@/components/ai-elements/code-block'
-import { CopyButton } from '@/components/copy-button'
 import { PublicLayout } from '@/components/layout'
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from '@/components/ui/accordion'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useStatus } from '@/hooks/use-status'
 import { cn } from '@/lib/utils'
 
-import { codexConfig, docsApiBase } from './config'
+import { docsApiBase } from './config'
+import { ConfigGuide } from './config-guide'
+import { Example } from './example'
 
 const defaultTopic = {
   id: 'codex-setup',
@@ -74,49 +80,31 @@ function currentTopic(): string {
   return topics.some((topic) => topic.id === id) ? id : 'codex-setup'
 }
 
-/** Compose the existing code frame and copy control for non-editable examples. */
-function Example(props: { title: string; value: string }) {
-  const { t } = useTranslation()
-  return (
-    <CodeBlockFrame
-      showToolbar
-      title={props.title}
-      endActions={
-        <CopyButton
-          value={props.value}
-          size='sm'
-          aria-label={t('Copy {{file}}', { file: props.title })}
-        >
-          {t('Copy')}
-        </CopyButton>
-      }
-    >
-      <pre className='overflow-x-auto p-4 text-xs leading-6 sm:p-5 sm:text-sm'>
-        <code>{props.value}</code>
-      </pre>
-    </CodeBlockFrame>
-  )
-}
-
-/** Keep numbered instructions readable on both desktop and narrow screens. */
+/**
+ * 为文档步骤提供统一留白，并将正文行宽与代码框滚动区域分开。
+ * @param props 步骤编号、标题和说明内容；不修改其中的配置示例。
+ * @return 适配桌面及手机的步骤区域。
+ */
 function Step(props: { number: number; title: string; children: ReactNode }) {
   return (
-    <section className='border-border/70 rounded-xl border p-5 sm:p-7'>
+    <section className='border-border/70 min-w-0 rounded-xl border p-4 sm:p-6'>
       <h3 className='mb-4 flex items-center gap-3 text-lg font-semibold'>
         <span className='bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-sm'>
           {props.number}
         </span>
         {props.title}
       </h3>
-      <div className='text-muted-foreground [&_a]:text-primary space-y-4 text-sm leading-7 [&_a]:underline [&_code]:break-words'>
+      <div className='text-muted-foreground [&_a]:text-primary min-w-0 space-y-4 text-sm leading-6 [&_a]:underline [&_p]:max-w-prose'>
         {props.children}
       </div>
     </section>
   )
 }
 
-/** Publish a credential-free guide; authentication is required only after following console links.
- * Keep first-time and existing-file instructions together so users preserve unrelated settings.
+/**
+ * 展示公开接入教程，只有用户访问控制台链接时才需要登录。
+ * 首次与已有配置分开显示；文档不读取密钥，已有配置路径保留其他设置的约束。
+ * @return 按章节和操作系统组织的用户文档。
  */
 export function UserDocs() {
   const { t } = useTranslation()
@@ -124,7 +112,6 @@ export function UserDocs() {
   const [active, setActive] = useState(currentTopic)
   const baseUrl = docsApiBase(status?.server_address, window.location.origin)
   const topic = topics.find((item) => item.id === active) ?? defaultTopic
-  const config = codexConfig(baseUrl)
 
   useEffect(() => {
     // Hash links remain shareable and browser Back restores the previous chapter.
@@ -270,46 +257,18 @@ export function UserDocs() {
               {active === 'gpt-hosting' && (
                 <>
                   <Step number={1} title={t('One account hosting seat')}>
-                    <p>
-                      {t(
-                        'Ask the administrator to grant one hosting seat with a start and end date. You will then be able to connect your own GPT account.'
-                      )}
-                    </p>
-                    <p>
-                      {t(
-                        'Hosting does not include a GPT subscription or additional official quota.'
-                      )}
-                    </p>
+                    <p>{t('docs.guide.hosting.seat')}</p>
+                    <p>{t('docs.guide.hosting.subscription')}</p>
                   </Step>
                   <Step number={2} title={t('Connect GPT account')}>
                     <a href='/account/gpt'>{t('My GPT account')}</a>
-                    <p>
-                      {t(
-                        'Connecting or unbinding requires security verification. Manage your verification methods in Security.'
-                      )}
-                    </p>
-                    <p>
-                      {t(
-                        'Sign in on the official OpenAI page. Never enter a GPT password in this form.'
-                      )}
-                    </p>
-                    <p>
-                      {t(
-                        'If the browser opens a localhost address that cannot load, copy its full address and paste it below. Do not share that address.'
-                      )}
-                    </p>
-                    <p>
-                      {t(
-                        'One GPT account can be bound to one user. Reauthorization must use the same account.'
-                      )}
-                    </p>
+                    <p>{t('docs.guide.hosting.verification')}</p>
+                    <p>{t('docs.guide.hosting.officialLogin')}</p>
+                    <p>{t('docs.guide.hosting.callback')}</p>
+                    <p>{t('docs.guide.hosting.binding')}</p>
                   </Step>
                   <Step number={3} title={t('Get your API key')}>
-                    <p>
-                      {t(
-                        'All your New API keys share this account, its official quota and hosting expiry.'
-                      )}
-                    </p>
+                    <p>{t('docs.guide.hosting.sharedQuota')}</p>
                     <a href='/keys'>{t('Go to API Keys')}</a>
                   </Step>
                   <Step number={4} title={t('Pause access')}>
@@ -318,11 +277,7 @@ export function UserDocs() {
                         'Hosting expiry stops new requests. The account page shows the credential retention period and lets you unbind before automatic cleanup.'
                       )}
                     </p>
-                    <p>
-                      {t(
-                        'This stops access and removes the hosted credentials. Your service expiry does not change. This does not revoke authorization on the official GPT website.'
-                      )}
-                    </p>
+                    <p>{t('docs.guide.hosting.unbind')}</p>
                   </Step>
                 </>
               )}
@@ -377,39 +332,28 @@ export function UserDocs() {
                                 : '~/.codex'
                             }
                           />
-                          {os === 'windows' && (
-                            <p>{t('docs.windows.createFolder')}</p>
+                          {os === 'windows' ? (
+                            <>
+                              <p>{t('docs.windows.editFile')}</p>
+                              <p>{t('docs.windows.saveShort')}</p>
+                              <Accordion>
+                                <AccordionItem value='file-help'>
+                                  <AccordionTrigger>
+                                    {t('docs.windows.fileHelp')}
+                                  </AccordionTrigger>
+                                  <AccordionContent>
+                                    <p>{t('docs.windows.createFolder')}</p>
+                                    <p>{t('docs.windows.extensions')}</p>
+                                  </AccordionContent>
+                                </AccordionItem>
+                              </Accordion>
+                            </>
+                          ) : (
+                            <p>{t('docs.file.openOrCreate')}</p>
                           )}
-                          <p>{t('docs.file.openOrCreate')}</p>
-                          {os === 'windows' && (
-                            <ol className='list-decimal space-y-2 pl-5'>
-                              <li>{t('docs.windows.saveAs')}</li>
-                              <li>{t('docs.windows.extensions')}</li>
-                            </ol>
-                          )}
-                          <p>{t('docs.file.backup')}</p>
                         </Step>
                         <Step number={3} title={t('Edit config.toml')}>
-                          <p>{t('docs.config.prepare')}</p>
-                          <a href='/keys'>{t('Go to API Keys')}</a>
-                          <Example title='API Base URL' value={baseUrl} />
-                          <p>{t('docs.config.baseUrl')}</p>
-                          <h4 className='text-foreground font-semibold'>
-                            {t('docs.config.newTitle')}
-                          </h4>
-                          <p>{t('docs.config.newFile')}</p>
-                          <Example title='config.toml' value={config} />
-                          <h4 className='text-foreground font-semibold'>
-                            {t('docs.config.existingTitle')}
-                          </h4>
-                          <ol className='list-decimal space-y-3 pl-5'>
-                            <li>{t('docs.config.topLevel')}</li>
-                            <li>{t('docs.config.provider')}</li>
-                            <li>{t('docs.config.keepOthers')}</li>
-                          </ol>
-                          <p className='bg-muted rounded-lg px-4 py-3'>
-                            {t('docs.config.privateKey')}
-                          </p>
+                          <ConfigGuide baseUrl={baseUrl} />
                         </Step>
                         <Step
                           number={4}

@@ -7728,6 +7728,26 @@
     "Name, email and language": "名前・メール・言語",
     "Password, verification and sessions": "パスワード・認証・セッション",
     "Profile and account security": "プロフィールとアカウントの安全",
-    "My account": "マイアカウント"
+    "My account": "マイアカウント",
+    "docs.config.mode": "設定方法",
+    "docs.config.newTab": "初めての設定",
+    "docs.config.existingTab": "既存ファイルを編集",
+    "docs.config.defaultsTitle": "1. ファイル先頭の3項目を編集",
+    "docs.config.defaultsHint": "最初の [セクション] より前に配置します。既存の値を変更し、不足する項目だけを追加してください。モデル名はアカウントで利用可能と確認されたものを使います。",
+    "docs.config.defaultsLabel": "先頭の設定",
+    "docs.config.providerTitle": "2. プロバイダーの設定を編集",
+    "docs.config.providerHint": "[model_providers.my_api] を探し、次の [セクション] の直前までを下記で置き換えます。なければ末尾に追加します。引用符を残したまま YOUR_API_KEY を完全なキーに置き換えてください。",
+    "docs.config.providerLabel": "プロバイダー設定",
+    "docs.windows.editFile": "config.toml を右クリック → プログラムから開く → メモ帳。ファイルがなければメモ帳を開き、次の手順の設定を貼り付けます。",
+    "docs.windows.saveShort": "このフォルダーに config.toml として保存します。新規作成時はファイルの種類を「すべてのファイル」、文字コードを UTF-8 にします。",
+    "docs.windows.fileHelp": "フォルダーがない、またはファイル名が .txt で終わる場合",
+    "docs.guide.hosting.officialLogin": "OpenAI の公式ページでログインしてください。このフォームに GPT のパスワードを入力しないでください。",
+    "docs.guide.hosting.callback": "localhost ページが開けない場合は、アドレス全体を下に貼り付けてください。他人と共有しないでください。",
+    "docs.guide.hosting.sharedQuota": "All your New API keys share this account, its official quota and hosting expiry.",
+    "docs.guide.hosting.seat": "Ask the administrator to grant one hosting seat with a start and end date. You will then be able to connect your own GPT account.",
+    "docs.guide.hosting.subscription": "Hosting does not include a GPT subscription or additional official quota.",
+    "docs.guide.hosting.binding": "One GPT account can be bound to one user. Reauthorization must use the same account.",
+    "docs.guide.hosting.unbind": "This stops access and removes the hosted credentials. Your service expiry does not change. This does not revoke authorization on the official GPT website.",
+    "docs.guide.hosting.verification": "Connecting or unbinding requires security verification. Manage your verification methods in Security."
   }
 }

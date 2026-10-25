@@ -7728,6 +7728,26 @@
     "Name, email and language": "Nom, e-mail et langue",
     "Password, verification and sessions": "Mot de passe, vérification et sessions",
     "Profile and account security": "Profil et sécurité du compte",
-    "My account": "Mon compte"
+    "My account": "Mon compte",
+    "docs.config.mode": "Type de configuration",
+    "docs.config.newTab": "Première configuration",
+    "docs.config.existingTab": "Fichier existant",
+    "docs.config.defaultsTitle": "1. Modifier les champs en début de fichier",
+    "docs.config.defaultsHint": "Placez ces trois champs avant la première [section]. Modifiez les valeurs existantes et ajoutez uniquement les champs manquants. Utilisez le modèle confirmé pour votre compte.",
+    "docs.config.defaultsLabel": "Paramètres principaux",
+    "docs.config.providerTitle": "2. Modifier la section du fournisseur",
+    "docs.config.providerHint": "Recherchez [model_providers.my_api] et remplacez son contenu jusqu’à la [section] suivante. Si elle est absente, ajoutez cet extrait en fin de fichier. Remplacez YOUR_API_KEY par votre clé complète en conservant les guillemets.",
+    "docs.config.providerLabel": "Configuration du fournisseur",
+    "docs.windows.editFile": "Clic droit sur config.toml → Ouvrir avec → Bloc-notes. Si le fichier n’existe pas, ouvrez le Bloc-notes et collez la configuration de l’étape suivante.",
+    "docs.windows.saveShort": "Enregistrez config.toml dans ce dossier. Pour un nouveau fichier, choisissez Tous les fichiers et l’encodage UTF-8.",
+    "docs.windows.fileHelp": "Dossier introuvable ou nom se terminant par .txt ?",
+    "docs.guide.hosting.officialLogin": "Connectez-vous sur le site officiel OpenAI. Ne saisissez pas votre mot de passe GPT ici.",
+    "docs.guide.hosting.callback": "Si une page localhost ne se charge pas, copiez son adresse complète ci-dessous. Ne la partagez pas.",
+    "docs.guide.hosting.sharedQuota": "All your New API keys share this account, its official quota and hosting expiry.",
+    "docs.guide.hosting.seat": "Ask the administrator to grant one hosting seat with a start and end date. You will then be able to connect your own GPT account.",
+    "docs.guide.hosting.subscription": "Hosting does not include a GPT subscription or additional official quota.",
+    "docs.guide.hosting.binding": "One GPT account can be bound to one user. Reauthorization must use the same account.",
+    "docs.guide.hosting.unbind": "This stops access and removes the hosted credentials. Your service expiry does not change. This does not revoke authorization on the official GPT website.",
+    "docs.guide.hosting.verification": "Connecting or unbinding requires security verification. Manage your verification methods in Security."
   }
 }

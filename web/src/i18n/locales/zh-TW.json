@@ -7728,6 +7728,26 @@
     "Name, email and language": "暱稱、電子郵件與語言",
     "Password, verification and sessions": "修改密碼、驗證與登入裝置",
     "Profile and account security": "資料與帳戶安全",
-    "My account": "我的帳戶"
+    "My account": "我的帳戶",
+    "docs.config.mode": "設定方式",
+    "docs.config.newTab": "首次設定",
+    "docs.config.existingTab": "已有設定",
+    "docs.config.defaultsTitle": "1. 修改檔案開頭的三項",
+    "docs.config.defaultsHint": "放在第一個 [區段] 之前：已有的改值，缺少的補上，每項只保留一行。model 使用管理員確認的模型名稱。",
+    "docs.config.defaultsLabel": "檔案開頭的設定",
+    "docs.config.providerTitle": "2. 修改服務商設定區段",
+    "docs.config.providerHint": "找到 [model_providers.my_api]，以下方內容替換這一段，到下一個 [區段] 之前為止。沒有就附加至檔案末尾。將 YOUR_API_KEY 換成完整金鑰，保留英文雙引號。",
+    "docs.config.providerLabel": "服務商設定區段",
+    "docs.windows.editFile": "右鍵點選 config.toml → 開啟檔案 → 記事本。若檔案不存在，先開啟記事本，貼上下一步的設定。",
+    "docs.windows.saveShort": "將檔案儲存為此資料夾中的 config.toml。新增檔案時，存檔類型選「所有檔案」，編碼選 UTF-8。",
+    "docs.windows.fileHelp": "找不到資料夾，或檔名多了 .txt？",
+    "docs.guide.hosting.officialLogin": "請在 OpenAI 官方頁面登入，不要在此表單輸入 GPT 密碼。",
+    "docs.guide.hosting.callback": "如果授權後跳到無法開啟的 localhost 頁面，複製網址列中的完整位址並貼到下方。不要將該位址分享給他人。",
+    "docs.guide.hosting.sharedQuota": "你创建的所有 New API Key 共用这个账号、官方额度和托管期限。",
+    "docs.guide.hosting.seat": "请联系管理员开通有明确起止时间的托管名额，再连接你自己的 GPT 账号。",
+    "docs.guide.hosting.subscription": "托管服务不包含 GPT 官方订阅，也不会增加官方额度。",
+    "docs.guide.hosting.binding": "一个 GPT 账号只能绑定一个本站用户，重新登录必须使用原账号。",
+    "docs.guide.hosting.unbind": "解绑将停止接入并清除平台保存的凭据，服务到期时间不变。此操作不会撤销 GPT 官方网站上的授权。",
+    "docs.guide.hosting.verification": "连接或解绑账号需要二次验证，可在安全设置中管理验证方式。"
   }
 }
