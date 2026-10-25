@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -185,7 +186,17 @@ type modelListGroups struct {
 	ownerGroups []string
 }
 
+// getModelListGroups 使用与请求分发相同的当前托管权益解析模型可见范围；无托管名额的用户保留原分组规则。
 func getModelListGroups(c *gin.Context) (modelListGroups, error) {
+	hostingGroup, hostingChannel, err := model.GetHostingRoute(c.GetInt("id"))
+	if err != nil {
+		// 已有托管但过期、暂停或读取失败时不能回退旧组；也不向客户端暴露绑定或数据库细节。
+		return modelListGroups{}, model.ErrHostingUnavailable
+	}
+	if hostingChannel != 0 {
+		// 接管旧账号不会改写用户及已有 Key 的组，模型发现必须和 Distribute 一样优先采用专属组。
+		return modelListGroups{userGroup: hostingGroup, tokenGroup: hostingGroup, ownerGroups: []string{hostingGroup}}, nil
+	}
 	tokenGroup := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
 	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 	if userGroup == "" && (tokenGroup == "" || tokenGroup == "auto") {
@@ -215,6 +226,7 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 	}, nil
 }
 
+// ListModels 返回当前账号可调用且满足令牌模型限制的模型；托管不可用时拒绝发现，避免回退至旧组。
 func ListModels(c *gin.Context, modelType int) {
 	acceptUnsetRatioModel := operation_setting.SelfUseModeEnabled
 	if !acceptUnsetRatioModel {
@@ -230,6 +242,13 @@ func ListModels(c *gin.Context, modelType int) {
 	userModelNames := make([]string, 0)
 	groups, err := getModelListGroups(c)
 	if err != nil {
+		if errors.Is(err, model.ErrHostingUnavailable) {
+			c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
+				"message": "GPT hosting is inactive or expired",
+				"type":    "permission_error", "code": "hosting_unavailable",
+			}})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": "get user group failed",
