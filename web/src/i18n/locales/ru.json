@@ -7786,6 +7786,8 @@
     "Server URL (without /v1)": "Адрес сервера (без /v1)",
     "Only use this if your client automatically adds /v1.": "Используйте только для клиентов, которые автоматически добавляют /v1.",
     "Site source code and license": "Исходный код и лицензия сайта",
+    "Order": "Заказ",
+    "Payment method": "Способ оплаты",
     "Hosting plans": "Тарифы размещения",
     "Hosting plans and orders": "Тарифы и заказы",
     "Buy a hosting seat": "Купить место",

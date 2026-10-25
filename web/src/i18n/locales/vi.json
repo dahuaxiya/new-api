@@ -7786,6 +7786,8 @@
     "Server URL (without /v1)": "Địa chỉ máy chủ (không có /v1)",
     "Only use this if your client automatically adds /v1.": "Chỉ dùng nếu ứng dụng tự động thêm /v1.",
     "Site source code and license": "Mã nguồn và giấy phép của trang",
+    "Order": "Đơn hàng",
+    "Payment method": "Phương thức thanh toán",
     "Hosting plans": "Gói lưu trữ",
     "Hosting plans and orders": "Gói và đơn hàng",
     "Buy a hosting seat": "Mua suất lưu trữ",

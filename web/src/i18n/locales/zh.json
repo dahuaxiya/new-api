@@ -7786,6 +7786,8 @@
     "Server URL (without /v1)": "服务器地址（不含 /v1）",
     "Only use this if your client automatically adds /v1.": "仅供会自动添加 /v1 的客户端使用。",
     "Site source code and license": "本站源码与许可证",
+    "Order": "订单",
+    "Payment method": "支付方式",
     "Hosting plans": "托管套餐",
     "Hosting plans and orders": "托管套餐与订单",
     "Buy a hosting seat": "购买托管名额",

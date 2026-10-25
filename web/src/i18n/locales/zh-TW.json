@@ -7786,6 +7786,8 @@
     "Server URL (without /v1)": "伺服器位址（不含 /v1）",
     "Only use this if your client automatically adds /v1.": "僅供會自動加入 /v1 的用戶端使用。",
     "Site source code and license": "本站原始碼與授權條款",
+    "Order": "訂單",
+    "Payment method": "付款方式",
     "Hosting plans": "託管方案",
     "Hosting plans and orders": "託管方案與訂單",
     "Buy a hosting seat": "購買託管名額",

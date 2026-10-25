@@ -29,6 +29,8 @@ import zh from '@/i18n/locales/zh.json'
 
 const locales = { en, fr, ja, ru, vi, zhTW, zh }
 const messages = [
+  'Order',
+  'Payment method',
   'Hosting plans',
   'Hosting payments are not available yet.',
   'Paid, awaiting review',

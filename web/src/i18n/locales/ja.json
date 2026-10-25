@@ -7786,6 +7786,8 @@
     "Server URL (without /v1)": "サーバー URL（/v1 なし）",
     "Only use this if your client automatically adds /v1.": "/v1 を自動で追加するクライアントでのみ使用してください。",
     "Site source code and license": "当サイトのソースコードとライセンス",
+    "Order": "注文",
+    "Payment method": "支払方法",
     "Hosting plans": "ホスティングプラン",
     "Hosting plans and orders": "プランと注文",
     "Buy a hosting seat": "ホスティング枠を購入",

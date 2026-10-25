@@ -7786,6 +7786,8 @@
     "Server URL (without /v1)": "Server URL (without /v1)",
     "Only use this if your client automatically adds /v1.": "Only use this if your client automatically adds /v1.",
     "Site source code and license": "Site source code and license",
+    "Order": "Order",
+    "Payment method": "Payment method",
     "Hosting plans": "Hosting plans",
     "Hosting plans and orders": "Hosting plans and orders",
     "Buy a hosting seat": "Buy a hosting seat",
