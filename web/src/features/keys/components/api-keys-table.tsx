@@ -52,7 +52,6 @@ import {
   ERROR_MESSAGES,
 } from '../constants'
 import type { ApiKey } from '../types'
-import { ApiKeyQuotaCell } from './api-key-quota-cell'
 import { ApiKeyActivityCell } from './api-key-timestamp-cell'
 import {
   ApiKeyCell,
@@ -183,7 +182,6 @@ function ApiKeysMobileList({
                     groupCell.getContext()
                   )}
               </div>
-              <ApiKeyQuotaCell apiKey={apiKey} now={now} variant='card' />
             </div>
 
             <div className='flex flex-wrap items-center gap-x-5 gap-y-1'>

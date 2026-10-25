@@ -25,11 +25,6 @@ import {
   RouterProvider,
 } from '@tanstack/react-router'
 import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-} from '@tanstack/react-table'
-import {
   act,
   cleanup,
   render,
@@ -52,7 +47,6 @@ import {
 
 import { apiKeySchema, type ApiKey } from '../../types'
 import { ApiKeyQuotaCell } from '../api-key-quota-cell'
-import { useApiKeysColumns } from '../api-keys-columns'
 import { ApiKeysProvider } from '../api-keys-provider'
 import { ApiKeysTable } from '../api-keys-table'
 
@@ -79,46 +73,6 @@ await i18n.init({
 })
 const clients: QueryClient[] = []
 
-function QuotaTable(props: { apiKey: ApiKey }) {
-  const columns = useApiKeysColumns(now).filter(
-    (column) => column.id === 'quota'
-  )
-  const table = useReactTable({
-    columns,
-    data: [props.apiKey],
-    getCoreRowModel: getCoreRowModel(),
-  })
-  return (
-    <table>
-      <thead>
-        {table.getHeaderGroups().map((group) => (
-          <tr key={group.id}>
-            {group.headers.map((header) => (
-              <th key={header.id}>
-                {flexRender(
-                  header.column.columnDef.header,
-                  header.getContext()
-                )}
-              </th>
-            ))}
-          </tr>
-        ))}
-      </thead>
-      <tbody>
-        {table.getRowModel().rows.map((row) => (
-          <tr key={row.id}>
-            {row.getVisibleCells().map((cell) => (
-              <td key={cell.id}>
-                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
-
 function renderQuota(apiKey: ApiKey = key) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, enabled: false } },
@@ -127,7 +81,7 @@ function renderQuota(apiKey: ApiKey = key) {
   return render(
     <I18nextProvider i18n={i18n}>
       <QueryClientProvider client={client}>
-        <QuotaTable apiKey={apiKey} />
+        <ApiKeyQuotaCell apiKey={apiKey} now={now} />
       </QueryClientProvider>
     </I18nextProvider>
   )
@@ -151,11 +105,8 @@ afterEach(() => {
     .setConfig({ currency: { ...DEFAULT_CURRENCY_CONFIG } })
 })
 
-it('shows desktop remaining and used amounts side by side without labels, with the currency only in the header', () => {
+it('renders standalone remaining and used amounts without repeating currency', () => {
   renderQuota()
-  expect(
-    screen.getByRole('columnheader', { name: 'Quota ($)' })
-  ).toBeInTheDocument()
   const trigger = screen.getByRole('button', {
     name: /Remaining 80; Remaining percentage 40%; Used amount 120/,
   })
@@ -221,9 +172,6 @@ it('keeps small custom-currency amounts exact and shows full values in the detai
     },
   })
   renderQuota({ ...key, remain_quota: 1900, used_quota: 1100 })
-  expect(
-    screen.getByRole('columnheader', { name: 'Quota (🐱)' })
-  ).toBeInTheDocument()
   const button = screen.getByRole('button')
   expect(button).toHaveTextContent('0.0038')
   expect(button).not.toHaveTextContent('🐱')
@@ -360,12 +308,12 @@ it('combines creation and last use while keeping expiry, models and IP restricti
   ).toBeInTheDocument()
   const timeCell = screen.getByRole('cell', { name: /Created.*Last Used/ })
   expect(within(timeCell).getByText('Last Used')).toBeInTheDocument()
-  const quotaHeader = screen.getByRole('columnheader', { name: 'Quota ($)' })
-  const quotaTrigger = screen.getByRole('button', {
-    name: /Remaining 80; Remaining percentage 40%; Used amount 120/,
-  })
-  expect(quotaHeader).not.toHaveClass('pr-8')
-  expect(quotaTrigger.closest('td')).not.toHaveClass('pr-8')
+  expect(
+    screen.queryByRole('columnheader', { name: /Quota/ })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: /Remaining 80;/ })
+  ).not.toBeInTheDocument()
 })
 
 it('restores dates hidden by the old default and preserves unrelated column preferences', async () => {
@@ -446,7 +394,7 @@ it.each([true, false])(
   }
 )
 
-it('keeps full mobile information without group or quota section headings', async () => {
+it('keeps mobile key information without quota displays', async () => {
   const matchMedia = window.matchMedia
   vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
     ...matchMedia(query),
@@ -458,10 +406,11 @@ it('keeps full mobile information without group or quota section headings', asyn
     await renderKeysPage()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByText('额度 ($)')).not.toBeInTheDocument()
-    expect(screen.getByText('($)')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /剩余 80;/ })).toBeInTheDocument()
-    expect(screen.getByText('80')).toBeInTheDocument()
-    expect(screen.getByText('120')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /剩余 80;/ })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('80')).not.toBeInTheDocument()
+    expect(screen.queryByText('120')).not.toBeInTheDocument()
     expect(screen.getByText(zh.translation['Created'])).toBeInTheDocument()
     expect(screen.getByText(zh.translation['Last Used'])).toBeInTheDocument()
     expect(screen.getByText(zh.translation['Expires'])).toBeInTheDocument()
@@ -479,7 +428,7 @@ it('keeps full mobile information without group or quota section headings', asyn
   }
 })
 
-it('keeps mobile quota readable and opens complete model and IP restrictions by tapping', async () => {
+it('hides unlimited mobile quota while keeping model and IP details accessible', async () => {
   const matchMedia = window.matchMedia
   vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
     ...matchMedia(query),
@@ -493,26 +442,10 @@ it('keeps mobile quota readable and opens complete model and IP restrictions by 
     model_limits: 'model-alpha,model-beta-with-a-long-name',
     allow_ips: '192.0.2.1\n2001:db8::1',
   })
-  const quota = screen.getByRole('button', {
-    name: /Unlimited; Used amount 4,490.16/,
-  })
-  expect(quota).toHaveTextContent('Remaining($)UnlimitedUsed amount4,490.16')
-  expect(quota.parentElement).toHaveClass('w-full')
-  expect(quota.parentElement).not.toHaveClass('max-w-45')
-  expect(quota.querySelector('[data-slot="api-key-quota-values"]')).toHaveClass(
-    'grid-cols-[auto_minmax(0,1fr)]'
-  )
-  expect(within(quota).getByText('Unlimited')).toHaveClass(
-    'text-right',
-    'text-sm',
-    'font-normal'
-  )
-  expect(within(quota).getByText('4,490.16')).toHaveClass(
-    'tabular-nums',
-    'text-sm',
-    'font-normal',
-    'text-right'
-  )
+  expect(
+    screen.queryByRole('button', { name: /Unlimited; Used amount/ })
+  ).not.toBeInTheDocument()
+  expect(screen.queryByText('4,490.16')).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /Models: 2 model/ }))
   let details = await screen.findByRole('dialog')
   expect(within(details).getByText('model-alpha')).toBeVisible()

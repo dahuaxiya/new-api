@@ -19,14 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
-import { GptQuotaCard } from '@/features/gpt-quota/GptQuotaCard'
 
 import { ApiKeysDialogs } from './components/api-keys-dialogs'
 import { ApiKeysPrimaryButtons } from './components/api-keys-primary-buttons'
 import { ApiKeysProvider } from './components/api-keys-provider'
 import { ApiKeysTable } from './components/api-keys-table'
 
-/** Show personal official quota above keys; the table keeps its own responsive layout. */
+/** 展示密钥管理；官方订阅额度统一在数据看板查看。 */
 export function ApiKeys() {
   const { t } = useTranslation()
   return (
@@ -38,7 +37,6 @@ export function ApiKeys() {
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div className='flex h-full flex-col gap-4 overflow-auto'>
-            <GptQuotaCard />
             <div className='min-h-96 flex-1'>
               <ApiKeysTable />
             </div>

@@ -10,10 +10,10 @@
 
 ## 当前定制
 
-用户概览和 API 密钥页面显示本人 GPT 订阅的 5 小时 / 7 天额度及重置时间。额度数据由 vm2api 探测，New API 继续负责用户身份和 API 请求。订阅窗口读数不替代 New API 自身的账单额度。
+用户概览显示本人 GPT 订阅的 5 小时 / 7 天额度及重置时间。API 密钥页面专注密钥管理，不展示官方额度卡片、额度历史图或每把密钥的剩余与已用额度；创建和编辑时的额度设置及后端限制仍保留。额度数据由 vm2api 探测，New API 继续负责用户身份和 API 请求。订阅窗口读数不替代 New API 自身的账单额度。
 
 - 前端组件：`web/src/features/gpt-quota/`。
-- 接入页面：`web/src/features/keys/index.tsx`、`web/src/features/dashboard/components/overview/overview-dashboard.tsx`。
+- 额度接入页面：`web/src/features/dashboard/components/overview/overview-dashboard.tsx`。
 - 原生后端：`service/gptquota`、`controller/gpt_quota.go`；定时探测由 vm2api 负责。部署样例与旧 Python 回退服务在 `integrations/vm2api-quota/`，详见该目录 README。
 - 七种界面的新增翻译键均已登记；简体中文为中文文案，其余语言当前使用英文回退文案。
 
