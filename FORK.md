@@ -2,7 +2,8 @@
 
 本仓库是 dahuaxiya/new-api，fork 自 QuantumNous/new-api。后续 New API 定制开发统一在此仓库进行。
 
-- 二开默认分支：`vm2api`。
+- 二开开发集成分支：`vm2api`；唯一生产发布分支：`release`。
+- 新功能须先合入 `release`，验证并推送 `origin/release` 后才能发布；发布候选必须包含线上前端和后端提交。完整要求见根目录 `AGENTS.md` 的「生产发布基线（强制）」。
 - 起始版本：上游 `v1.0.0-rc.45`，提交 `6cf0d90b`，与首次额度扩展部署基线一致。
 - `origin`：https://github.com/dahuaxiya/new-api.git
 - `upstream`：https://github.com/QuantumNous/new-api.git
