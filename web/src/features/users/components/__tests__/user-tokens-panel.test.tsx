@@ -226,3 +226,23 @@ it('切到后台和更改筛选后隐藏明文', async () => {
   )
   expect(screen.queryByText('sk-fixture-only-secret')).not.toBeInTheDocument()
 })
+
+it('状态筛选器显示可读标签，窄屏卡片明确标注最后使用时间', async () => {
+  vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+    matches: query.includes('max-width: 640px'),
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }))
+  renderPanel()
+  await screen.findByText('sk-test****demo')
+  expect(
+    screen.getByRole('combobox', { name: 'API key status' })
+  ).toHaveTextContent('All statuses')
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  expect(screen.getByText('Last Used: Never used')).toBeInTheDocument()
+})

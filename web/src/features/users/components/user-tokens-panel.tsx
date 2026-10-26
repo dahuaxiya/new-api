@@ -104,7 +104,9 @@ export function UserTokensPanel({
           }}
         >
           <SelectTrigger className='h-8 w-36' aria-label={t('API key status')}>
-            <SelectValue />
+            <SelectValue>
+              {t(statusLabels[Number(status)] || 'All statuses')}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value='0'>{t('All statuses')}</SelectItem>
@@ -309,6 +311,7 @@ function UserTokenResults({
       cell: (token: AdminToken) => (
         <div className='text-muted-foreground space-y-1 text-xs'>
           <p>
+            {isMobile && `${t('Last Used')}: `}
             {token.accessed_time > 0
               ? formatTimestampToDate(token.accessed_time)
               : t('Never used')}
