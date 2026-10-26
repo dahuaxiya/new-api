@@ -18,24 +18,37 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { RefreshCw } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { DataTableRowActionMenu } from '@/components/data-table/core/row-action-menu'
 import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { LoadingState } from '@/components/loading-state'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
-  CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -69,7 +82,7 @@ export function HostingAccount(): React.JSX.Element {
   )
 }
 
-/** 此页只管理本人名额和账号，官方额度统一在数据看板展示；实例与槽位选择始终由后端完成。 */
+/** 将当前名额与账号合并展示，低频说明和管理操作渐进展开；验证和确认状态保留在菜单外，避免关闭菜单时丢失。 */
 function AccountSession(props: { identity: string }): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
@@ -167,6 +180,8 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
     },
   })
   const state = data?.binding?.state ?? 'unbound'
+  const accountPlatform =
+    state === 'unbound' ? platform : data?.binding?.platform
   const canLogin = !!data?.valid && state !== 'cleaning'
   let status = t('Not connected')
   if (state === 'active') {
@@ -178,23 +193,9 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
   if (state === 'prepared') status = t('Finishing connection')
   if (state === 'cleaning') status = t('Cleaning credentials')
   return (
-    <SectionPageLayout stackActionsOnMobile>
+    <SectionPageLayout className='mx-auto w-full max-w-5xl'>
       <SectionPageLayout.Title>{t('Hosted accounts')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
-        {canRenewHostingSeat(data) && (
-          <Button
-            variant='outline'
-            role='link'
-            render={
-              <Link
-                to='/wallet'
-                search={{ tab: 'hosting', seat_id: data?.grant?.seat_id }}
-              />
-            }
-          >
-            {t('Renew this seat')}
-          </Button>
-        )}
         <Button
           role='link'
           render={<Link to='/wallet' search={{ tab: 'hosting' }} />}
@@ -202,23 +203,32 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
           {t('Buy a hosting seat')}
         </Button>
         <Button
-          variant='outline'
+          variant='ghost'
+          size='icon'
+          aria-label={t('Refresh')}
           onClick={() => query.refetch()}
           disabled={query.isFetching}
         >
-          {t('Refresh')}
+          <RefreshCw
+            aria-hidden='true'
+            className={
+              query.isFetching
+                ? 'animate-spin motion-reduce:animate-none'
+                : undefined
+            }
+          />
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='mx-auto max-w-4xl space-y-5'>
-          {!!data?.seats?.length && (
-            <Field>
+        <div className='space-y-4'>
+          {(data?.seats?.length ?? 0) > 1 && (
+            <Field className='sm:max-w-md'>
               <FieldLabel htmlFor='hosting-seat-select'>
                 {t('Hosting seat')}
               </FieldLabel>
               <NativeSelect
                 id='hosting-seat-select'
-                value={data.grant?.seat_id || ''}
+                value={data?.grant?.seat_id || ''}
                 disabled={action.isPending}
                 onChange={(event) => {
                   // 切换名额立即销毁授权输入，旧回调不能提交到新选择的账号。
@@ -229,7 +239,7 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                   setConfirmUnbind(false)
                 }}
               >
-                {data.seats.map((seat, index) => (
+                {data?.seats?.map((seat, index) => (
                   <NativeSelectOption
                     key={seat.grant?.seat_id}
                     value={seat.grant?.seat_id}
@@ -239,26 +249,6 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                     {seat.binding?.platform === 'claude' ? 'Claude' : 'GPT'}
                   </NativeSelectOption>
                 ))}
-              </NativeSelect>
-            </Field>
-          )}
-          {data?.grant && state === 'unbound' && (
-            <Field>
-              <FieldLabel htmlFor='hosting-platform'>
-                {t('Account platform')}
-              </FieldLabel>
-              <NativeSelect
-                id='hosting-platform'
-                value={platform}
-                disabled={action.isPending}
-                onChange={(event) =>
-                  setPlatform(
-                    event.target.value === 'claude' ? 'claude' : 'codex'
-                  )
-                }
-              >
-                <NativeSelectOption value='codex'>GPT</NativeSelectOption>
-                <NativeSelectOption value='claude'>Claude</NativeSelectOption>
               </NativeSelect>
             </Field>
           )}
@@ -279,214 +269,326 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
             />
           )}
           {data?.grant && (
-            <>
-              <Card>
-                <CardHeader>
-                  <div className='flex flex-wrap items-center justify-between gap-3'>
-                    <CardTitle>{t('Hosting seat')}</CardTitle>
-                    <Badge variant={data.valid ? 'default' : 'secondary'}>
-                      {data.valid ? t('Active') : t('Inactive')}
-                    </Badge>
-                  </div>
-                  <CardDescription>
-                    {t(
-                      'Hosting does not include an official subscription or additional official quota.'
-                    )}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className='space-y-3 text-sm'>
-                  <p>
-                    {t('Service period')}:{' '}
-                    {new Date(data.grant.starts_at * 1000).toLocaleString(
-                      locale
-                    )}{' '}
-                    —{' '}
-                    {data.grant.ends_at === HOSTING_PERMANENT_END
-                      ? t('Permanent hosting')
-                      : new Date(data.grant.ends_at * 1000).toLocaleString(
-                          locale
-                        )}
-                  </p>
-                  <p className='text-muted-foreground'>
-                    {t('Times are shown in your device time zone: {{zone}}.', {
-                      zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    })}
-                  </p>
-                  <p>
-                    {data.grant.ends_at === HOSTING_PERMANENT_END
-                      ? t(
-                          'This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.'
-                        )
-                      : t(
-                          'After expiry, access stops immediately. Credentials are retained for {{days}} days for renewal, then cleaned automatically. You may unbind earlier.',
-                          { days: data.grant.retention_days }
-                        )}
-                  </p>
-                  {!data.valid && (
-                    <Alert>
-                      <AlertDescription>
-                        {t(
-                          'Your hosting entitlement is not active. Contact the administrator to renew it.'
-                        )}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <div className='flex flex-wrap items-center justify-between gap-3'>
-                    <CardTitle>
+            <Card className='gap-6 pt-6'>
+              <CardHeader className='px-5 sm:px-6'>
+                <div className='flex items-start justify-between gap-4'>
+                  <div className='min-w-0 space-y-1.5'>
+                    <p className='text-muted-foreground text-xs font-medium tracking-wide'>
+                      {accountPlatform === 'claude' ? 'Claude' : 'GPT'}
+                      {data.binding?.plan && (
+                        <>
+                          {' '}
+                          ·{' '}
+                          <span className='uppercase'>{data.binding.plan}</span>
+                        </>
+                      )}
+                    </p>
+                    <CardTitle className='text-lg break-all sm:text-xl'>
                       {data.binding?.account_label ||
                         t('Connect your own account')}
                     </CardTitle>
-                    <Badge variant='outline'>{status}</Badge>
                   </div>
-                  <CardDescription>
-                    {t(
-                      'Each seat hosts one account. Reauthorization must use the same account; unbind first to change accounts.'
-                    )}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className='space-y-4'>
-                  {data.binding?.plan && (
-                    <p className='text-sm'>
-                      {t('Official subscription')}: {data.binding.plan}
-                    </p>
-                  )}
-                  <p className='text-muted-foreground text-sm'>
-                    {t(
-                      'Connecting or unbinding requires security verification. Manage your verification methods in Security.'
-                    )}{' '}
-                    <Link className='underline' to='/security'>
-                      {t('Security')}
-                    </Link>
-                  </p>
-                  <div className='flex flex-wrap gap-2'>
+                  <Badge
+                    variant={
+                      data.valid && state === 'active' && !data.binding?.paused
+                        ? 'default'
+                        : 'secondary'
+                    }
+                  >
+                    {data.valid ? status : t('Inactive')}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className='space-y-5 px-5 sm:px-6'>
+                <dl className='grid grid-cols-2 gap-x-6 gap-y-3 text-sm'>
+                  <div className='space-y-1'>
+                    <dt className='text-muted-foreground'>
+                      {t('Hosting seat')}
+                    </dt>
+                    <dd className='font-medium'>
+                      {t('Seat {{number}}', {
+                        number:
+                          Math.max(
+                            0,
+                            data.seats?.findIndex(
+                              (seat) =>
+                                seat.grant?.seat_id === data.grant?.seat_id
+                            ) ?? 0
+                          ) + 1,
+                      })}
+                    </dd>
+                  </div>
+                  <div className='space-y-1'>
+                    <dt className='text-muted-foreground'>{t('Expires at')}</dt>
+                    <dd className='font-medium'>
+                      {data.grant.ends_at === HOSTING_PERMANENT_END
+                        ? t('Permanent hosting')
+                        : new Date(data.grant.ends_at * 1000).toLocaleString(
+                            locale,
+                            {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            }
+                          )}
+                    </dd>
+                  </div>
+                </dl>
+                {!data.valid && (
+                  <Alert>
+                    <AlertDescription>
+                      {t(
+                        'Your hosting entitlement is not active. Contact the administrator to renew it.'
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {state === 'unbound' && (
+                  <Field className='sm:max-w-xs'>
+                    <FieldLabel htmlFor='hosting-platform'>
+                      {t('Account platform')}
+                    </FieldLabel>
+                    <NativeSelect
+                      id='hosting-platform'
+                      value={platform}
+                      disabled={action.isPending}
+                      onChange={(event) =>
+                        setPlatform(
+                          event.target.value === 'claude' ? 'claude' : 'codex'
+                        )
+                      }
+                    >
+                      <NativeSelectOption value='codex'>GPT</NativeSelectOption>
+                      <NativeSelectOption value='claude'>
+                        Claude
+                      </NativeSelectOption>
+                    </NativeSelect>
+                  </Field>
+                )}
+                <div className='flex flex-wrap items-center gap-2'>
+                  {state === 'unbound' && (
                     <Button
                       disabled={!canLogin || action.isPending}
                       onClick={() => action.mutate('login')}
                     >
-                      {state === 'unbound'
-                        ? t('Connect account')
-                        : t('Sign in again')}
+                      {t('Connect account')}
                     </Button>
-                    {state === 'active' && (
-                      <Button
-                        variant='outline'
-                        disabled={
-                          action.isPending ||
-                          (!data.valid && data.binding?.paused)
-                        }
-                        onClick={() => action.mutate('pause')}
-                      >
-                        {data.binding?.paused
-                          ? t('Resume access')
-                          : t('Pause access')}
-                      </Button>
-                    )}
-                    {(state === 'prepared' || state === 'authorizing') && (
-                      <Button
-                        variant='outline'
-                        disabled={!data.valid || action.isPending}
-                        onClick={() => action.mutate('retry')}
-                      >
-                        {t('Recover connection')}
-                      </Button>
-                    )}
-                    {state !== 'unbound' && (
-                      <Button
-                        variant='outline'
-                        disabled={action.isPending || state === 'cleaning'}
-                        onClick={() => setConfirmUnbind(true)}
-                      >
-                        {t('Unbind account')}
-                      </Button>
-                    )}
-                  </div>
-                  {action.isError && (
-                    <Alert variant='destructive'>
-                      <AlertDescription>
-                        {action.error.message}
-                      </AlertDescription>
-                    </Alert>
                   )}
-                  {state === 'cleaning' && (
-                    <p role='status' className='text-sm'>
-                      {t(
-                        'Credential cleanup is still in progress. The slot remains reserved.'
-                      )}
-                    </p>
+                  {state === 'active' && (
+                    <Button role='link' render={<Link to='/keys' />}>
+                      {t('API Keys')}
+                    </Button>
                   )}
-                  {login && (
-                    <div className='space-y-4 rounded-lg border p-4'>
-                      <p className='text-sm'>
-                        {t(
-                          'Sign in on the official provider page. Never enter your account password in this form.'
-                        )}
-                      </p>
-                      <Button
-                        nativeButton={false}
-                        role='link'
-                        render={
-                          <a
-                            href={login.auth_url}
-                            target='_blank'
-                            rel='noopener noreferrer'
-                          />
-                        }
-                      >
-                        {t('Open official authorization')}
-                      </Button>
-                      <p className='text-muted-foreground text-sm'>
-                        {login.platform === 'claude'
-                          ? t(
-                              'Paste the complete authorization code from Claude, including the part after #. Do not share it.'
-                            )
-                          : t(
-                              'If the browser opens a localhost address that cannot load, copy its full address and paste it below. Do not share that address.'
-                            )}
-                      </p>
-                      <Field>
-                        <FieldLabel htmlFor='hosting-callback'>
-                          {login.platform === 'claude'
-                            ? t('Authorization code including #state')
-                            : t('Authorization callback URL')}
-                        </FieldLabel>
-                        <Input
-                          id='hosting-callback'
-                          autoComplete='off'
-                          spellCheck={false}
-                          value={callbackValue}
-                          onChange={(e) => {
-                            setCallbackValue(e.target.value)
-                            callback.current = e.target.value
+                  {state === 'active' && data.binding?.paused && (
+                    <Button
+                      variant='outline'
+                      disabled={!data.valid || action.isPending}
+                      onClick={() => action.mutate('pause')}
+                    >
+                      {t('Resume access')}
+                    </Button>
+                  )}
+                  {(state === 'prepared' || state === 'authorizing') && (
+                    <Button
+                      disabled={!data.valid || action.isPending}
+                      onClick={() => action.mutate('retry')}
+                    >
+                      {t('Recover connection')}
+                    </Button>
+                  )}
+                  {canRenewHostingSeat(data) && (
+                    <Button
+                      variant='outline'
+                      role='link'
+                      render={
+                        <Link
+                          to='/wallet'
+                          search={{
+                            tab: 'hosting',
+                            seat_id: data.grant.seat_id,
                           }}
                         />
-                      </Field>
-                      <Button
-                        disabled={action.isPending || !callbackValue.trim()}
-                        onClick={() => action.mutate('finish')}
-                      >
-                        {t('Complete account sign-in')}
-                      </Button>
-                    </div>
+                      }
+                    >
+                      {t('Renew this seat')}
+                    </Button>
                   )}
-                  <p className='text-muted-foreground text-sm'>
+                  {state !== 'unbound' && (
+                    <DataTableRowActionMenu
+                      ariaLabel={t('Manage')}
+                      modal={false}
+                    >
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem
+                          disabled={!canLogin || action.isPending}
+                          onSelect={() => action.mutate('login')}
+                        >
+                          {t('Sign in again')}
+                        </DropdownMenuItem>
+                        {state === 'active' && !data.binding?.paused && (
+                          <DropdownMenuItem
+                            disabled={action.isPending}
+                            onSelect={() => action.mutate('pause')}
+                          >
+                            {t('Pause access')}
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuGroup>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem
+                          variant='destructive'
+                          disabled={action.isPending || state === 'cleaning'}
+                          onSelect={() => setConfirmUnbind(true)}
+                        >
+                          {t('Unbind account')}
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    </DataTableRowActionMenu>
+                  )}
+                </div>
+                {/* 故障、清理进度和正在进行的授权不能随说明折叠，否则用户无法继续或判断状态。 */}
+                {action.isError && (
+                  <Alert variant='destructive'>
+                    <AlertDescription>{action.error.message}</AlertDescription>
+                  </Alert>
+                )}
+                {state === 'cleaning' && (
+                  <p role='status' className='text-sm'>
                     {t(
-                      'Choose this account for a New API key on the API Keys page. Each key uses only its selected account.'
-                    )}{' '}
-                    <Link to='/keys' className='underline'>
-                      {t('API Keys')}
-                    </Link>{' '}
-                    ·{' '}
-                    <Link to='/docs' className='underline'>
-                      {t('User guide')}
-                    </Link>
+                      'Credential cleanup is still in progress. The slot remains reserved.'
+                    )}
                   </p>
-                </CardContent>
-              </Card>
-            </>
+                )}
+                {login && (
+                  <div className='space-y-4 rounded-lg border p-4'>
+                    <p className='text-sm'>
+                      {t(
+                        'Sign in on the official provider page. Never enter your account password in this form.'
+                      )}
+                    </p>
+                    <Button
+                      nativeButton={false}
+                      role='link'
+                      render={
+                        <a
+                          href={login.auth_url}
+                          target='_blank'
+                          rel='noopener noreferrer'
+                        />
+                      }
+                    >
+                      {t('Open official authorization')}
+                    </Button>
+                    <p className='text-muted-foreground text-sm'>
+                      {login.platform === 'claude'
+                        ? t(
+                            'Paste the complete authorization code from Claude, including the part after #. Do not share it.'
+                          )
+                        : t(
+                            'If the browser opens a localhost address that cannot load, copy its full address and paste it below. Do not share that address.'
+                          )}
+                    </p>
+                    <Field>
+                      <FieldLabel htmlFor='hosting-callback'>
+                        {login.platform === 'claude'
+                          ? t('Authorization code including #state')
+                          : t('Authorization callback URL')}
+                      </FieldLabel>
+                      <Input
+                        id='hosting-callback'
+                        autoComplete='off'
+                        spellCheck={false}
+                        value={callbackValue}
+                        onChange={(e) => {
+                          setCallbackValue(e.target.value)
+                          callback.current = e.target.value
+                        }}
+                      />
+                    </Field>
+                    <Button
+                      disabled={action.isPending || !callbackValue.trim()}
+                      onClick={() => action.mutate('finish')}
+                    >
+                      {t('Complete account sign-in')}
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+              <CardFooter className='block bg-transparent p-0'>
+                {/* 每个名额独立重建说明展开状态；确认弹窗仍由 AccountSession 持有。 */}
+                <Accordion key={data.grant.seat_id}>
+                  <AccordionItem value='hosting-details'>
+                    <AccordionTrigger className='px-5 py-4 text-sm sm:px-6'>
+                      {t('Hosting details')}
+                    </AccordionTrigger>
+                    <AccordionContent className='px-5 pb-5 sm:px-6'>
+                      <div className='text-muted-foreground space-y-3 text-sm leading-relaxed'>
+                        <p>
+                          {t('Service period')}:{' '}
+                          {new Date(data.grant.starts_at * 1000).toLocaleString(
+                            locale
+                          )}{' '}
+                          —{' '}
+                          {data.grant.ends_at === HOSTING_PERMANENT_END
+                            ? t('Permanent hosting')
+                            : new Date(
+                                data.grant.ends_at * 1000
+                              ).toLocaleString(locale)}
+                        </p>
+                        <p>
+                          {t(
+                            'Times are shown in your device time zone: {{zone}}.',
+                            {
+                              zone: Intl.DateTimeFormat().resolvedOptions()
+                                .timeZone,
+                            }
+                          )}
+                        </p>
+                        <p>
+                          {t(
+                            'Hosting does not include an official subscription or additional official quota.'
+                          )}
+                        </p>
+                        <p>
+                          {data.grant.ends_at === HOSTING_PERMANENT_END
+                            ? t(
+                                'This hosting entitlement has no automatic expiry. The administrator can disable it or change its term, and you may unbind your account.'
+                              )
+                            : t(
+                                'After expiry, access stops immediately. Credentials are retained for {{days}} days for renewal, then cleaned automatically. You may unbind earlier.',
+                                { days: data.grant.retention_days }
+                              )}
+                        </p>
+                        <p>
+                          {t(
+                            'Each seat hosts one account. Reauthorization must use the same account; unbind first to change accounts.'
+                          )}
+                        </p>
+                        <p>
+                          {t(
+                            'Connecting or unbinding requires security verification. Manage your verification methods in Security.'
+                          )}{' '}
+                          <Link className='underline' to='/security'>
+                            {t('Security')}
+                          </Link>
+                        </p>
+                        <p>
+                          {t(
+                            'Choose this account for a New API key on the API Keys page. Each key uses only its selected account.'
+                          )}{' '}
+                          <Link to='/docs' className='underline'>
+                            {t('User guide')}
+                          </Link>
+                        </p>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              </CardFooter>
+            </Card>
           )}
         </div>
         <ConfirmDialog

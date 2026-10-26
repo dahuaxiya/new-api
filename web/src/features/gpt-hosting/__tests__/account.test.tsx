@@ -246,7 +246,8 @@ it('requires verification and never caches callback credentials or upstream keys
   expect(JSON.stringify(sessionStorage)).not.toContain('private-fixture-code')
 })
 
-it('unbind requires a separate destructive confirmation and can be cancelled', async () => {
+/** 说明默认折叠；解绑经管理菜单打开独立确认，菜单卸载后确认仍存在且可取消。 */
+it('keeps details collapsed and preserves the unbind confirmation after closing the menu', async () => {
   const user = userEvent.setup()
   const post = vi.spyOn(api, 'post')
   mountPage({
@@ -258,8 +259,18 @@ it('unbind requires a separate destructive confirmation and can be cancelled', a
       plan: '',
     },
   })
+  const details = await screen.findByRole('button', { name: 'Hosting details' })
+  expect(details).toHaveAttribute('aria-expanded', 'false')
+  expect(
+    screen.queryByText(/After expiry, access stops/)
+  ).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Hosting seat')).not.toBeInTheDocument()
+  await user.click(details)
+  expect(await screen.findByText(/After expiry, access stops/)).toBeVisible()
+  await user.click(details)
+  await user.click(screen.getByRole('button', { name: 'Manage' }))
   await user.click(
-    await screen.findByRole('button', { name: 'Unbind account' })
+    await screen.findByRole('menuitem', { name: 'Unbind account' })
   )
   const dialog = await screen.findByRole('alertdialog')
   expect(
@@ -287,7 +298,9 @@ it('strips request config and uses fixed account mismatch messages', async () =>
   }
 })
 
+/** 永久名额在主卡片直接可见，解绑继续由管理菜单提供，不能因折叠说明丢失。 */
 it('permanent hosting displays no expiry while still allowing the user to unbind', async () => {
+  const user = userEvent.setup()
   mountPage({
     ...granted,
     grant: { ...granted.grant, ends_at: -1 },
@@ -302,7 +315,34 @@ it('permanent hosting displays no expiry while still allowing the user to unbind
   expect(
     screen.queryByText(/After expiry, access stops/)
   ).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Unbind account' })).toBeEnabled()
+  await user.click(screen.getByRole('button', { name: 'Manage' }))
+  expect(
+    await screen.findByRole('menuitem', { name: 'Unbind account' })
+  ).toBeEnabled()
+})
+
+/** 重新登录从菜单进入验证弹窗，关闭菜单不能卸载二次验证，也不能提前发起授权。 */
+it('keeps security verification open after selecting reauthorization from the menu', async () => {
+  const user = userEvent.setup()
+  const post = vi.spyOn(api, 'post')
+  mountPage({
+    ...granted,
+    binding: {
+      ...granted.binding,
+      state: 'active',
+      account_label: 'GPT owner',
+      plan: 'pro',
+    },
+  })
+  await user.click(await screen.findByRole('button', { name: 'Manage' }))
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Sign in again' })
+  )
+  expect(
+    await screen.findByLabelText('Password', { selector: 'input' })
+  ).toBeVisible()
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  expect(post).not.toHaveBeenCalled()
 })
 
 it('selects a seat and clears the authorization form before switching accounts', async () => {

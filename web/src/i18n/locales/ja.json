@@ -7815,6 +7815,7 @@
     "Price (CNY)": "価格（人民元）",
     "Prices are CNY per seat. Changing a plan does not alter existing orders. Payment setup and available slots are required before selling.": "価格は1枠あたり人民元です。変更は既存の注文に影響しません。販売には決済設定と空き枠が必要です。",
     "No hosting slots are available for this account type.": "このアカウント種別の空き枠がありません。",
-    "This order can no longer be paid. Refresh the order list.": "この注文は支払えません。一覧を更新してください。"
+    "This order can no longer be paid. Refresh the order list.": "この注文は支払えません。一覧を更新してください。",
+    "Hosting details": "ホスティングの詳細"
   }
 }

@@ -7815,6 +7815,7 @@
     "Price (CNY)": "价格（人民币元）",
     "Prices are CNY per seat. Changing a plan does not alter existing orders. Payment setup and available slots are required before selling.": "价格按每个名额以人民币计价，修改套餐不影响已下单订单。销售前需配置收款渠道并准备可用槽位。",
     "No hosting slots are available for this account type.": "该账号类型暂无可用托管槽位，请稍后重试。",
-    "This order can no longer be paid. Refresh the order list.": "该订单已无法支付，请刷新订单列表。"
+    "This order can no longer be paid. Refresh the order list.": "该订单已无法支付，请刷新订单列表。",
+    "Hosting details": "托管说明"
   }
 }

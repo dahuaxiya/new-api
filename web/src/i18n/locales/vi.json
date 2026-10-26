@@ -7815,6 +7815,7 @@
     "Price (CNY)": "Giá (CNY)",
     "Prices are CNY per seat. Changing a plan does not alter existing orders. Payment setup and available slots are required before selling.": "Giá CNY cho mỗi suất. Thay đổi không ảnh hưởng đơn đã tạo. Cần cấu hình thanh toán và có chỗ trống trước khi bán.",
     "No hosting slots are available for this account type.": "Không có chỗ trống cho loại tài khoản này.",
-    "This order can no longer be paid. Refresh the order list.": "Không thể thanh toán đơn này. Hãy làm mới danh sách."
+    "This order can no longer be paid. Refresh the order list.": "Không thể thanh toán đơn này. Hãy làm mới danh sách.",
+    "Hosting details": "Chi tiết lưu trữ"
   }
 }

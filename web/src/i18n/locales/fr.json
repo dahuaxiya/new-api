@@ -7815,6 +7815,7 @@
     "Price (CNY)": "Prix (CNY)",
     "Prices are CNY per seat. Changing a plan does not alter existing orders. Payment setup and available slots are required before selling.": "Prix en CNY par place. Les changements n’affectent pas les commandes existantes. Configurez le paiement et préparez des places avant la vente.",
     "No hosting slots are available for this account type.": "Aucune place pour ce type de compte.",
-    "This order can no longer be paid. Refresh the order list.": "Cette commande ne peut plus être payée. Actualisez la liste."
+    "This order can no longer be paid. Refresh the order list.": "Cette commande ne peut plus être payée. Actualisez la liste.",
+    "Hosting details": "Détails de l’hébergement"
   }
 }

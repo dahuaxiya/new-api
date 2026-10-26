@@ -7815,6 +7815,7 @@
     "Price (CNY)": "Цена (CNY)",
     "Prices are CNY per seat. Changing a plan does not alter existing orders. Payment setup and available slots are required before selling.": "Цена в CNY за место. Изменения не влияют на созданные заказы. Перед продажей настройте оплату и подготовьте свободные места.",
     "No hosting slots are available for this account type.": "Нет мест для этого типа аккаунта.",
-    "This order can no longer be paid. Refresh the order list.": "Этот заказ уже нельзя оплатить. Обновите список."
+    "This order can no longer be paid. Refresh the order list.": "Этот заказ уже нельзя оплатить. Обновите список.",
+    "Hosting details": "Условия размещения"
   }
 }

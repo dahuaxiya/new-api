@@ -7815,6 +7815,7 @@
     "Price (CNY)": "價格（人民幣元）",
     "Prices are CNY per seat. Changing a plan does not alter existing orders. Payment setup and available slots are required before selling.": "價格按每個名額以人民幣計價，修改方案不影響已下單訂單。銷售前需設定收款管道並準備可用槽位。",
     "No hosting slots are available for this account type.": "該帳號類型暫無可用託管槽位，請稍後重試。",
-    "This order can no longer be paid. Refresh the order list.": "該訂單已無法付款，請重新整理訂單列表。"
+    "This order can no longer be paid. Refresh the order list.": "該訂單已無法付款，請重新整理訂單列表。",
+    "Hosting details": "託管說明"
   }
 }
