@@ -51,12 +51,12 @@ import { handleServerError } from '@/lib/handle-server-error'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  canRenewHostingSeat,
   getHosting,
   postHosting,
   type HostingLogin,
   type HostingSelf,
 } from './api'
-import { HostingStore } from './store'
 
 /** 会话变化时卸载授权表单，避免上一个用户的回调、验证结果和缓存被复用。 */
 export function HostingAccount(): React.JSX.Element {
@@ -179,9 +179,29 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
   if (state === 'prepared') status = t('Finishing connection')
   if (state === 'cleaning') status = t('Cleaning credentials')
   return (
-    <SectionPageLayout>
+    <SectionPageLayout stackActionsOnMobile>
       <SectionPageLayout.Title>{t('Hosted accounts')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
+        {canRenewHostingSeat(data) && (
+          <Button
+            variant='outline'
+            role='link'
+            render={
+              <Link
+                to='/wallet'
+                search={{ tab: 'hosting', seat_id: data?.grant?.seat_id }}
+              />
+            }
+          >
+            {t('Renew this seat')}
+          </Button>
+        )}
+        <Button
+          role='link'
+          render={<Link to='/wallet' search={{ tab: 'hosting' }} />}
+        >
+          {t('Buy a hosting seat')}
+        </Button>
         <Button
           variant='outline'
           onClick={() => query.refetch()}
@@ -192,11 +212,6 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='mx-auto max-w-4xl space-y-5'>
-          <HostingStore
-            identity={props.identity}
-            seat={data}
-            platform={platform}
-          />
           {!!data?.seats?.length && (
             <Field>
               <FieldLabel htmlFor='hosting-seat-select'>

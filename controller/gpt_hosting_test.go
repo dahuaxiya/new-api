@@ -287,7 +287,7 @@ func TestHostingStoreCallbackBoundary(t *testing.T) {
 	require.True(t, checkout.Success, purchaseResponse.Body.String())
 	require.Equal(t, "40.00", checkout.Data.Params["money"])
 	require.Equal(t, "https://portal.test/api/gpt-hosting/payment/notify", checkout.Data.Params["notify_url"])
-	require.Equal(t, "https://portal.test/account/gpt", checkout.Data.Params["return_url"])
+	require.Equal(t, "https://portal.test/wallet?tab=hosting", checkout.Data.Params["return_url"])
 	// 有会话的订单查询仍忽略外部 user_id；普通用户不能读取管理视图或跨站发起付款。
 	foreign := model.HostingOrder{ID: "other-user-order", UserID: user.Id + 1, RequestUser: user.Id + 1, RequestID: uuid.NewString(), Status: "paid"}
 	require.NoError(t, model.DB.Create(&foreign).Error)

@@ -208,7 +208,9 @@ func RequestHostingPayment(c *gin.Context) {
 	notify := *base
 	notify.Path = strings.TrimRight(notify.Path, "/") + "/api/gpt-hosting/payment/notify"
 	back := *base
-	back.Path = strings.TrimRight(back.Path, "/") + "/account/gpt"
+	// 浏览器返回只打开账单中的托管订单；名额发放仍只接受已验签的服务端通知。
+	back.Path = strings.TrimRight(back.Path, "/") + "/wallet"
+	back.RawQuery = "tab=hosting"
 	uri, params, err := GetEpayClient().Purchase(&epay.PurchaseArgs{Type: order.Method, ServiceTradeNo: order.ID, Name: fmt.Sprintf("Hosting %d days", order.Days), Money: fmt.Sprintf("%d.%02d", order.PriceCents/100, order.PriceCents%100), Device: epay.PC, NotifyUrl: &notify, ReturnUrl: &back})
 	if err != nil {
 		hostingError(c, err)

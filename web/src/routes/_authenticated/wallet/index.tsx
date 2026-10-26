@@ -23,6 +23,8 @@ import { Wallet } from '@/features/wallet'
 
 const walletSearchSchema = z.object({
   show_history: z.boolean().optional(),
+  tab: z.enum(['balance', 'hosting', 'referral']).optional(),
+  seat_id: z.string().uuid().optional(),
 })
 
 export const Route = createFileRoute('/_authenticated/wallet/')({
@@ -30,7 +32,14 @@ export const Route = createFileRoute('/_authenticated/wallet/')({
   validateSearch: walletSearchSchema,
 })
 
+/** 只接受固定账单分区和名额 UUID；URL 参数不携带价格、付款状态或授权凭据。 */
 function RouteComponent() {
-  const { show_history } = Route.useSearch()
-  return <Wallet initialShowHistory={show_history} />
+  const { show_history, tab, seat_id } = Route.useSearch()
+  return (
+    <Wallet
+      initialShowHistory={show_history}
+      initialTab={tab}
+      hostingSeatId={seat_id}
+    />
+  )
 }

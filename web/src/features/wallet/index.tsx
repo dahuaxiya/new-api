@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { HostingBilling } from '@/features/gpt-hosting/billing'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
@@ -57,11 +58,14 @@ import type {
 
 interface WalletProps {
   initialShowHistory?: boolean
+  initialTab?: 'balance' | 'hosting' | 'referral'
+  hostingSeatId?: string
 }
 
-/** 将兑换充值和邀请返利分区展示，支付与兑换仍由原有服务校验。 */
+/** 将充值、托管购买续费和邀请返利分区展示；跳转只选择账单分区，不代表支付成功。 */
 export function Wallet(props: WalletProps) {
   const { t } = useTranslation()
+  const [tab, setTab] = useState(props.initialTab || 'balance')
   const [user, setUser] = useState<UserWalletData | null>(null)
   const [userLoading, setUserLoading] = useState(true)
   const [topupAmount, setTopupAmount] = useState(0)
@@ -128,6 +132,11 @@ export function Wallet(props: WalletProps) {
   useEffect(() => {
     fetchUser()
   }, [fetchUser])
+
+  // 同一路由的入口参数变化时切换分区；名额归属由托管接口按当前会话验证。
+  useEffect(() => {
+    setTab(props.initialTab || 'balance')
+  }, [props.initialTab])
 
   useEffect(() => {
     if (props.initialShowHistory) {
@@ -285,11 +294,23 @@ export function Wallet(props: WalletProps) {
           <div className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-5'>
             <WalletStatsCard user={user} loading={userLoading} />
 
-            <Tabs defaultValue='balance'>
-              <TabsList className='mb-4'>
+            <Tabs
+              value={tab}
+              onValueChange={(value) => {
+                if (
+                  value === 'balance' ||
+                  value === 'hosting' ||
+                  value === 'referral'
+                ) {
+                  setTab(value)
+                }
+              }}
+            >
+              <TabsList className='mb-4 max-w-full overflow-x-auto'>
                 <TabsTrigger value='balance'>
                   {t('Balance and redemption')}
                 </TabsTrigger>
+                <TabsTrigger value='hosting'>{t('Hosting plans')}</TabsTrigger>
                 <TabsTrigger value='referral'>
                   {t('Referral rewards')}
                 </TabsTrigger>
@@ -328,6 +349,9 @@ export function Wallet(props: WalletProps) {
                     }
                   />
                 </div>
+              </TabsContent>
+              <TabsContent value='hosting'>
+                <HostingBilling seatId={props.hostingSeatId} />
               </TabsContent>
               <TabsContent value='referral'>
                 <AffiliateRewardsCard

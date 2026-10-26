@@ -51,6 +51,18 @@ export type HostingSelf = {
     plan: string
   } | null
 }
+
+/** 账号入口和账单页共用续费展示条件；归属、期限和并发状态仍由付款接口再次校验。 */
+export function canRenewHostingSeat(seat?: HostingSelf): boolean {
+  return !!(
+    seat?.grant?.seat_id &&
+    seat.grant.enabled &&
+    seat.grant.ends_at !== HOSTING_PERMANENT_END &&
+    !seat.binding?.paused &&
+    !['cleaning', 'takeover'].includes(seat.binding?.state || '')
+  )
+}
+
 export type HostingAdmin = {
   grants: HostingGrant[]
   instances: Array<{

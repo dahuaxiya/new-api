@@ -39,9 +39,9 @@ import { submitPaymentForm } from '@/features/wallet/lib/payment'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import {
+  canRenewHostingSeat,
   getHostingStore,
   postHosting,
-  HOSTING_PERMANENT_END,
   type HostingCheckout,
   type HostingSelf,
   type HostingStore as StoreData,
@@ -53,7 +53,7 @@ function hostingPrice(cents: number): string {
   return `¥${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
 }
 
-/** 购买和续费放在托管账号页；弹窗每次打开重新生成请求标识，网络重试复用同一标识。 */
+/** 账单页集中展示套餐、购买续费与订单；弹窗每次打开重建请求标识，网络重试复用同一标识。 */
 export function HostingStore(props: {
   identity: string
   seat?: HostingSelf
@@ -65,11 +65,7 @@ export function HostingStore(props: {
     queryKey: ['hosting-store', props.identity],
     queryFn: ({ signal }) => getHostingStore<StoreData>('store', 1, signal),
   })
-  const canRenew =
-    props.seat?.grant?.enabled &&
-    props.seat.grant.ends_at !== HOSTING_PERMANENT_END &&
-    !props.seat.binding?.paused &&
-    !['cleaning', 'takeover'].includes(props.seat.binding?.state || '')
+  const canRenew = canRenewHostingSeat(props.seat)
   return (
     <Card>
       <CardHeader>

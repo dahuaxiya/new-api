@@ -43,6 +43,7 @@ let client: QueryClient
 const binding = '00000000-0000-4000-8000-000000000001'
 const granted = {
   grant: {
+    seat_id: '00000000-0000-4000-8000-000000000002',
     user_id: 2,
     starts_at: 1,
     ends_at: 4102444800,
@@ -113,6 +114,48 @@ function mountPage(data: HostingSelf): void {
     </QueryClientProvider>
   )
 }
+
+/** 账号页只提供跳转入口，套餐价格和订单详情由账单页集中展示。 */
+it('keeps purchase and selected-seat renewal links without showing billing details', async () => {
+  mountPage(granted)
+  const renew = await screen.findByRole('link', { name: 'Renew this seat' })
+  const renewal = new URL(
+    renew.getAttribute('href') || '',
+    'https://portal.test'
+  )
+  expect(renewal.pathname).toBe('/wallet')
+  expect(renewal.searchParams.get('tab')).toBe('hosting')
+  expect(renewal.searchParams.get('seat_id')).toBe(granted.grant.seat_id)
+  const purchase = screen.getByRole('link', { name: 'Buy a hosting seat' })
+  const destination = new URL(
+    purchase.getAttribute('href') || '',
+    'https://portal.test'
+  )
+  expect(destination.pathname).toBe('/wallet')
+  expect(destination.searchParams.get('tab')).toBe('hosting')
+  expect(destination.searchParams.has('seat_id')).toBe(false)
+  expect(screen.queryByText('Hosting plans')).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('region', { name: 'Hosting orders' })
+  ).not.toBeInTheDocument()
+  expect(
+    vi
+      .mocked(api.get)
+      .mock.calls.some(([url]) => url === '/api/gpt-hosting/store')
+  ).toBe(false)
+})
+
+/** 永久名额保留购买入口，但不能出现会误导用户的续费入口。 */
+it('keeps only the purchase link for a permanent seat', async () => {
+  mountPage({ ...granted, grant: { ...granted.grant, ends_at: -1 } })
+  expect(await screen.findByText(/Permanent hosting/)).toBeInTheDocument()
+  expect(
+    screen.getByRole('link', { name: 'Buy a hosting seat' })
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByRole('link', { name: 'Renew this seat' })
+  ).not.toBeInTheDocument()
+})
 
 it('explains missing entitlement and blocks new login for expired users', async () => {
   mountPage({ grant: null, binding: null })
