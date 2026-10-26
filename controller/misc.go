@@ -216,45 +216,56 @@ func GetHomePageContent(c *gin.Context) {
 	serveRevalidatedJSON(c, homePageContent)
 }
 
+// SendEmailVerification 仅在开放邮箱注册时发信；挑战、预算和错误次数由共享数据库控制。
 func SendEmailVerification(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if !common.RegisterEnabled || !common.PasswordRegisterEnabled || !common.EmailVerificationEnabled {
+		common.ApiErrorT(c, "New user registration has been disabled by administrator")
+		return
+	}
 	email, err := service.ValidateAccountEmail(c.Query("email"))
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return
 	}
-
-	if model.IsEmailAlreadyTaken(email) {
-		common.ApiErrorT(c, "Email address is already in use")
+	code, err := model.BeginRegistrationEmail(email, c.ClientIP())
+	if err != nil {
+		if errors.Is(err, model.ErrRegistrationRateLimit) {
+			writeAccountStatusError(c, http.StatusTooManyRequests, model.ErrRegistrationRateLimit.Error())
+		} else {
+			common.ApiErrorT(c, "Database error, please contact the administrator")
+		}
 		return
 	}
-	code := common.GenerateVerificationCode(6)
-	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
-	// The address may not belong to an account yet, so the mail follows the
-	// request language.
+	// 已注册地址同样收到验证码，响应和 SMTP 路径一致，避免公开接口枚举用户。
 	systemName := map[string]any{"SystemName": common.SystemName}
 	subject := i18n.T(c, i18n.MsgEmailVerificationSubject, systemName)
-	content := fmt.Sprintf("<p>%s</p>"+
-		"<p>%s</p>"+
-		"<p>%s</p>",
+	content := fmt.Sprintf("<p>%s</p><p>%s</p><p>%s</p>",
 		i18n.T(c, i18n.MsgEmailVerificationGreeting, systemName),
 		i18n.T(c, i18n.MsgEmailVerificationCode, map[string]any{"Code": code}),
-		i18n.T(c, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
-	err = common.SendEmail(subject, email, content)
-	if err != nil {
-		common.ApiError(c, err)
+		i18n.T(c, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": int(model.RegistrationCodeTTL.Minutes())}))
+	if err := common.SendEmail(subject, email, content); err != nil {
+		// 不回传供应商错误或激活未发送成功的验证码，也不退回发送预算。
+		common.ApiErrorT(c, "Verification email could not be sent. Start email verification again.")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
-	return
+	if err := model.MarkRegistrationEmailDelivered(email, code); err != nil {
+		common.ApiErrorT(c, "Verification email could not be sent. Start email verification again.")
+		return
+	}
+	common.ApiSuccess(c, nil)
 }
 
+// SendPasswordResetEmail 与注册共用匿名邮件预算，避免通过重置入口消耗全部发信额度。
 func SendPasswordResetEmail(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	email := model.NormalizeEmail(c.Query("email"))
 	if err := common.Validate.Var(email, "required,email"); err != nil {
 		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	if err := model.ReservePublicEmail(email, c.ClientIP()); err != nil {
+		writeAccountStatusError(c, http.StatusTooManyRequests, model.ErrRegistrationRateLimit.Error())
 		return
 	}
 	if user, err := model.GetUniqueUserByEmail(email); err == nil {

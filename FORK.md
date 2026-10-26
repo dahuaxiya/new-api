@@ -218,3 +218,16 @@ Claude 走现有 vm2api 官方 `claude auth login`，用户完成官方登录后
 部署只新增 hosting_plans、hosting_orders 两张表及原有迁移注册，不重建账号、渠道或 API Key。付款后名额分组缓存即时刷新，上游期限策略沿用 30 秒维护任务重试。前端继续复用 Dialog、Sheet、StaticDataTable、DataTablePagination、支付表单及安全验证组件；独立商城组件仅负责套餐/订单业务。
 
 验证命令：`GOTOOLCHAIN=auto go test ./model -run 'Test(HostingStore|GPTHosting|HostingSeats|VM2APIEnrollmentDatabases)' -count=1 -v`，需提供独立 enrollment_test 的 MySQL/PostgreSQL DSN；已覆盖 SQLite 3.50.4、MySQL 5.7.44、PostgreSQL 16.13 的新建、从不含商城表的现有结构升级、重复迁移、重复回调、库存竞争、跨用户隔离与事务回滚。控制器覆盖签名/金额/商户篡改、CSRF、root 权限及一次性证明。安全边界依据 OWASP ASVS 5.0 与 Authentication、Session Management、CSRF Cheat Sheet；沿用会话认证与来源检查，不记录商户密钥或原始到账签名。真实支付端到端验收必须另有有效商户配置，合成回调测试不能替代真实收款验证。
+
+
+## 邮箱验证注册与防刷（2026-10-27）
+
+公共密码注册必须同时启用注册、密码注册和邮箱验证；关闭任何一项都不能发送注册验证码，关闭邮箱验证也不能降级为免验证注册。新注册密码使用已有开户规则：15–128 个字符及本地常见密码名单；已有账号登录不受此变更影响。
+
+验证码使用安全随机六位数字，只保存绑定邮箱的 HMAC，发送成功后生效，10 分钟过期；邮箱重发间隔 60 秒，重发不会清零未过期挑战的错误次数，输错 5 次后需等待该挑战过期。消费验证码、创建用户和成功注册计数在同一数据库事务内完成；数据库故障时拒绝操作，重启不会清零。
+
+匿名注册和密码重置邮件共用持久化预算：每邮箱每日 5 封、每 IP 每小时 10 封/每日 30 封、全站每日 80 封/每月 2500 封，日/月按 UTC。注册尝试每 IP 每小时 20 次，成功注册每日最多 3 个；IPv6 按 /64 归并，IPv4 映射地址归一。邮件失败不返还发送预算，避免故障重试刷爆供应商。这里的全站预算仅覆盖匿名注册和密码重置邮件，其他已登录安全通知继续使用原逻辑。SMTP 建连超时 10 秒，连接后的完整会话限 30 秒。
+
+复用现有 `auth_flows` 表，不新增 schema；公开发信不区分邮箱是否已注册，只有正确验证码持有者能获得地址占用结果。反向代理必须覆盖真实客户端 IP，服务端沿用可信代理解析，禁止直接信任用户提供的 X-Forwarded-For。
+
+验证：真实 SQLite 3.50.4、MySQL 5.7.44、PostgreSQL 16.15 的 HTTP 注册/SMTP、关闭保护、角色注入拒绝、错误次数、过期、重发、回滚、并发单次消费、邮箱/IP/全站限额和重复迁移；Go race；前端注册密码与既有登录兼容测试、类型检查、lint 和生产构建。参考 OWASP ASVS 5.0.0 与 Authentication、Session Management、Forgot Password Cheat Sheets 的验证、限流、重放和错误响应要求；不宣称完整 ASVS 合规。公开注册只在真实邮件投递与运行时防刷检查完成后启用。

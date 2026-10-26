@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/service/onboarding"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -214,13 +215,24 @@ func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBu
 	})
 }
 
+// Register 在服务端检查邮箱挑战并原子创建普通用户，防止重放和并发超额注册。
 func Register(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if !common.RegisterEnabled {
 		common.ApiErrorT(c, "New user registration has been disabled by administrator")
 		return
 	}
 	if !common.PasswordRegisterEnabled {
 		common.ApiErrorT(c, "Password registration has been disabled by administrator, please use third-party account verification")
+		return
+	}
+	// 必须邮箱验证是本门户的注册约束；关闭邮件配置时不能降级为免验证注册。
+	if !common.EmailVerificationEnabled {
+		common.ApiErrorT(c, "Email verification is required for registration.")
+		return
+	}
+	if err := model.ReserveRegistrationAttempt(c.ClientIP()); err != nil {
+		writeAccountStatusError(c, http.StatusTooManyRequests, model.ErrRegistrationRateLimit.Error())
 		return
 	}
 	var user model.User
@@ -239,36 +251,16 @@ func Register(c *gin.Context) {
 		common.ApiErrorT(c, "Invalid input {{error}}", map[string]any{"error": err.Error()})
 		return
 	}
-	if common.EmailVerificationEnabled {
-		if user.Email == "" || user.VerificationCode == "" {
-			common.ApiErrorT(c, "Email verification is enabled, please enter email address and verification code")
-			return
-		}
-		if !common.VerifyCodeWithKey(user.Email, user.VerificationCode, common.EmailVerificationPurpose) {
-			common.ApiErrorT(c, "Verification code is incorrect or has expired")
-			return
-		}
-		if err := model.EnsureEmailAvailable(user.Email, 0); err != nil {
-			if errors.Is(err, model.ErrEmailAlreadyTaken) {
-				common.ApiErrorT(c, "Email address is already in use")
-				return
-			}
-			common.ApiErrorT(c, "Database error, please contact the administrator")
-			return
-		}
-	}
-	emailForExistCheck := ""
-	if common.EmailVerificationEnabled {
-		emailForExistCheck = user.Email
-	}
-	exist, err := model.CheckUserExistOrDeleted(user.Username, emailForExistCheck)
-	if err != nil {
-		common.ApiErrorT(c, "Database error, please contact the administrator")
-		common.SysLog(common.LogText("CheckUserExistOrDeleted error: %v", err))
+	if err := onboarding.ValidatePassword(user.Password); err != nil {
+		common.ApiErrorT(c, err.Error())
 		return
 	}
-	if exist {
-		common.ApiErrorT(c, "Username already exists or has been deleted")
+	if user.Email == "" || user.VerificationCode == "" {
+		common.ApiErrorT(c, "Email verification is enabled, please enter email address and verification code")
+		return
+	}
+	if _, err := service.ValidateAccountEmail(user.Email); err != nil {
+		writeSecurityOperationError(c, err)
 		return
 	}
 	affCode := user.AffCode // this code is the inviter's code, not the user's own code
@@ -280,15 +272,21 @@ func Register(c *gin.Context) {
 		InviterId:   inviterId,
 		Role:        common.RoleCommonUser, // 明确设置角色为普通用户
 	}
-	if common.EmailVerificationEnabled {
-		cleanUser.Email = user.Email
-	}
-	if err := cleanUser.Insert(inviterId); err != nil {
+	cleanUser.Email = user.Email
+	if err := model.RegisterUserWithEmail(&cleanUser, user.VerificationCode, c.ClientIP()); err != nil {
+		if errors.Is(err, model.ErrRegistrationRateLimit) {
+			writeAccountStatusError(c, http.StatusTooManyRequests, model.ErrRegistrationRateLimit.Error())
+			return
+		}
+		if errors.Is(err, model.ErrRegistrationCode) {
+			common.ApiErrorT(c, model.ErrRegistrationCode.Error())
+			return
+		}
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorT(c, "Email address is already in use")
 			return
 		}
-		common.ApiError(c, err)
+		common.ApiErrorT(c, "User registration failed. Check your details and try again.")
 		return
 	}
 

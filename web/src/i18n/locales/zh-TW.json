@@ -7840,6 +7840,11 @@
     "You do not have permission to manage this user's API keys": "你沒有管理該使用者 API 金鑰的權限",
     "An expired or exhausted API key cannot be enabled": "已到期或額度耗盡的金鑰無法啟用",
     "All statuses": "全部狀態",
-    "Hosted account": "託管帳號"
+    "Hosted account": "託管帳號",
+    "Too many registration requests. Please try again later.": "Too many registration requests. Please try again later.",
+    "User registration failed. Check your details and try again.": "User registration failed. Check your details and try again.",
+    "Enter password (15–128 characters)": "Enter password (15–128 characters)",
+    "Password must contain between 15 and 128 characters.": "Password must contain between 15 and 128 characters.",
+    "Email verification is required for registration.": "Email verification is required for registration."
   }
 }

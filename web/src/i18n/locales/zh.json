@@ -7569,7 +7569,7 @@
     "Refresh the slot status before continuing.": "请刷新槽位状态后继续。",
     "Edit account details": "修改开户资料",
     "User access is enabled only after every setup step succeeds.": "全部配置成功后，用户才可使用服务。",
-    "This password is too common. Choose a different password.": "这个密码过于常见，请换一个密码。",
+    "This password is too common. Choose a different password.": "这个密码过于常见，请换一个。",
     "After expiry, access stops immediately. Credentials are retained for {{days}} days for renewal, then cleaned automatically. You may unbind earlier.": "到期后立即停止接入，凭据保留 {{days}} 天供续期使用，之后自动清理。你可以提前解绑。",
     "All your New API keys share this account, its official quota and hosting expiry.": "你创建的所有 New API Key 共用这个账号、官方额度和托管期限。",
     "Allow self-service assignment": "允许自助分配",
@@ -7840,6 +7840,11 @@
     "You do not have permission to manage this user's API keys": "你没有管理该用户 API 密钥的权限",
     "An expired or exhausted API key cannot be enabled": "已过期或额度耗尽的密钥不能启用",
     "All statuses": "全部状态",
-    "Hosted account": "托管账号"
+    "Hosted account": "托管账号",
+    "Too many registration requests. Please try again later.": "请求过于频繁或已达到注册限额，请稍后再试。",
+    "User registration failed. Check your details and try again.": "注册失败，请检查填写的信息后重试。",
+    "Enter password (15–128 characters)": "请输入 15–128 个字符的密码",
+    "Password must contain between 15 and 128 characters.": "密码须为 15–128 个字符。",
+    "Email verification is required for registration.": "注册必须先验证邮箱，请联系管理员检查邮件配置。"
   }
 }

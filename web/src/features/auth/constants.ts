@@ -18,8 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
-import { accountPasswordSchema } from '@/lib/password-policy'
-
 // ============================================================================
 // Form Schemas
 // ============================================================================
@@ -33,7 +31,11 @@ export const registerFormSchema = z
   .object({
     username: z.string().min(1, 'Please enter your username'),
     email: z.string().optional(),
-    password: accountPasswordSchema,
+    // Public registration has no MFA yet, so match the server's stronger new-account policy.
+    password: z.string().refine((password) => {
+      const length = [...password].length
+      return length >= 15 && length <= 128
+    }, 'Password must contain between 15 and 128 characters.'),
     confirmPassword: z.string().min(1, 'Please confirm your password'),
   })
   .refine((data) => data.password === data.confirmPassword, {
@@ -66,7 +68,7 @@ export const OTP_REGEX = /^\d{6}$/
 // Countdown Constants
 // ============================================================================
 
-export const EMAIL_VERIFICATION_COUNTDOWN = 30 // seconds
+export const EMAIL_VERIFICATION_COUNTDOWN = 60 // seconds
 export const PASSWORD_RESET_COUNTDOWN = 30 // seconds
 
 // ============================================================================

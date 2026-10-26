@@ -7840,6 +7840,11 @@
     "You do not have permission to manage this user's API keys": "Vous ne pouvez pas gérer les clés API de cet utilisateur",
     "An expired or exhausted API key cannot be enabled": "Une clé expirée ou épuisée ne peut pas être activée",
     "All statuses": "Tous les états",
-    "Hosted account": "Compte hébergé"
+    "Hosted account": "Compte hébergé",
+    "Too many registration requests. Please try again later.": "Too many registration requests. Please try again later.",
+    "User registration failed. Check your details and try again.": "User registration failed. Check your details and try again.",
+    "Enter password (15–128 characters)": "Enter password (15–128 characters)",
+    "Password must contain between 15 and 128 characters.": "Password must contain between 15 and 128 characters.",
+    "Email verification is required for registration.": "Email verification is required for registration."
   }
 }

@@ -55,6 +55,7 @@ import { AuthOperationError } from '@/lib/secure-verification'
 import { createServerError } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
+/** Reuse the existing registration form and require the server-configured email challenge before submission. */
 export function SignUpForm({
   className,
   ...props
@@ -275,7 +276,7 @@ export function SignUpForm({
               <FormLabel>{t('Password')}</FormLabel>
               <FormControl>
                 <PasswordInput
-                  placeholder={t('Enter password (8–128 characters)')}
+                  placeholder={t('Enter password (15–128 characters)')}
                   {...field}
                 />
               </FormControl>
