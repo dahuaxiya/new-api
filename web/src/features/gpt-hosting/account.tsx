@@ -44,7 +44,6 @@ import {
   useSecureVerification,
 } from '@/features/auth/secure-verification'
 import { HOSTING_PERMANENT_END } from '@/features/gpt-hosting/api'
-import { GptQuotaCard } from '@/features/gpt-quota/GptQuotaCard'
 import { isOfficialAuthorizationURL } from '@/features/onboarding/lib/schema'
 import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -70,7 +69,7 @@ export function HostingAccount(): React.JSX.Element {
   )
 }
 
-/** 用户只管理自己的账号；实例与槽位选择始终由后端完成。 */
+/** 此页只管理本人名额和账号，官方额度统一在数据看板展示；实例与槽位选择始终由后端完成。 */
 function AccountSession(props: { identity: string }): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
@@ -487,9 +486,6 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                   </p>
                 </CardContent>
               </Card>
-              {state === 'active' && data.binding?.platform !== 'claude' && (
-                <GptQuotaCard seatId={data.grant.seat_id} />
-              )}
             </>
           )}
         </div>
