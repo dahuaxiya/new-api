@@ -24,7 +24,8 @@ import { Wallet } from '@/features/wallet'
 const walletSearchSchema = z.object({
   show_history: z.boolean().optional(),
   tab: z.enum(['balance', 'hosting', 'referral']).optional(),
-  seat_id: z.string().uuid().optional(),
+  // 旧账号迁入的名额是 legacy-<用户 ID>，新名额才是 UUID；按数据库长度接收不透明 ID，归属由服务端核验。
+  seat_id: z.string().min(1).max(36).optional(),
 })
 
 export const Route = createFileRoute('/_authenticated/wallet/')({
@@ -32,7 +33,7 @@ export const Route = createFileRoute('/_authenticated/wallet/')({
   validateSearch: walletSearchSchema,
 })
 
-/** 只接受固定账单分区和名额 UUID；URL 参数不携带价格、付款状态或授权凭据。 */
+/** 只接受固定账单分区和名额标识；URL 参数不携带价格、付款状态或授权凭据。 */
 function RouteComponent() {
   const { show_history, tab, seat_id } = Route.useSearch()
   return (

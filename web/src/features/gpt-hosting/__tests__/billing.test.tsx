@@ -29,13 +29,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { Wallet } from '@/features/wallet'
 import { api } from '@/lib/api'
+import { Route as WalletRoute } from '@/routes/_authenticated/wallet'
 import { useAuthStore } from '@/stores/auth-store'
 
 import type { HostingSelf } from '../api'
 import { HostingBilling } from '../billing'
 
 let client: QueryClient
-const gptSeat = '00000000-0000-4000-8000-000000000001'
+const gptSeat = 'legacy-2'
 const claudeSeat = '00000000-0000-4000-8000-000000000002'
 const seats: HostingSelf[] = [
   {
@@ -120,6 +121,24 @@ afterEach(() => {
   useAuthStore.getState().auth.reset()
   localStorage.clear()
   vi.restoreAllMocks()
+})
+
+/** 旧名额使用 legacy 编号；账单路由必须原样保留它与新名额 UUID，避免续费链接失效。 */
+it('preserves legacy and new seat identifiers in wallet search validation', () => {
+  const schema = WalletRoute.options.validateSearch
+  if (!schema || !('parse' in schema)) {
+    throw new Error('Wallet search parser is missing')
+  }
+  for (const seatId of [gptSeat, claudeSeat]) {
+    expect(schema.parse({ tab: 'hosting', seat_id: seatId })).toEqual({
+      tab: 'hosting',
+      seat_id: seatId,
+    })
+  }
+  // 非法目标应明确失败，不可丢弃参数后静默续费默认名额。
+  for (const seatId of ['', 'x'.repeat(37), 2]) {
+    expect(() => schema.parse({ tab: 'hosting', seat_id: seatId })).toThrow()
+  }
 })
 
 /** 从账号页进入账单后必须选中同一个名额，并用它的账号类型发起续费。 */
