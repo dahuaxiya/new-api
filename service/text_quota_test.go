@@ -1601,9 +1601,11 @@ func runHostingBalanceCases(t *testing.T, db *gorm.DB) {
 		name                                                                     string
 		wallet, pre, tokenQuota                                                  int
 		ordinary, expired, paused, wrongChannel, wrongOwner, missingSeat, refund bool
+		beforeChannelMeta                                                        bool
 		wantError                                                                bool
 	}{
 		{name: "zero wallet hosted free", tokenQuota: 100},
+		{name: "text preconsume before channel metadata", tokenQuota: 100, beforeChannelMeta: true},
 		{name: "negative wallet hosted free", wallet: -10, tokenQuota: 100},
 		{name: "hosted records configured charge without balance gate", pre: 10, tokenQuota: 100},
 		{name: "hosted failed request restores accounting", pre: 10, tokenQuota: 100, refund: true},
@@ -1652,6 +1654,10 @@ func runHostingBalanceCases(t *testing.T, db *gorm.DB) {
 			}
 			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 			ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+			common.SetContextKey(ctx, constant.ContextKeyChannelId, channel.Id)
+			if tc.beforeChannelMeta {
+				info.ChannelMeta = nil
+			}
 			apiErr := PreConsumeBilling(ctx, tc.pre, info)
 			if tc.wantError {
 				require.NotNil(t, apiErr)

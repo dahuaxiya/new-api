@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
@@ -391,7 +392,10 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		return nil, types.NewErrorWithStatusCode(errors.New("GPT hosting is inactive or expired"), types.ErrorCodeInvalidRequest, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 	}
 	if hostingChannel != 0 {
-		if relayInfo.ChannelMeta == nil || relayInfo.ChannelId != hostingChannel || relayInfo.UsingGroup != hostingGroup {
+		// 文本请求在适配器 InitChannelMeta 之前预扣；使用分发中间件已写入的渠道 ID，
+		// 不能把此时尚未初始化的 ChannelMeta 当成无授权，也不能只信任分组名称。
+		selectedChannel := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+		if selectedChannel != hostingChannel || relayInfo.UsingGroup != hostingGroup || (relayInfo.ChannelMeta != nil && relayInfo.ChannelId != hostingChannel) {
 			return nil, types.NewErrorWithStatusCode(errors.New("GPT hosting channel mismatch"), types.ErrorCodeInvalidRequest, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 		}
 		// 托管使用用户自己的订阅账号，不应依赖站内钱包或另购站内订阅。
