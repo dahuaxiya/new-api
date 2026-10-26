@@ -40,6 +40,7 @@ export type SecurityProofScope =
   | 'account.password.set'
   | 'account.password.change'
   | 'account.delete'
+  | 'admin.user.token'
   | 'admin.user.create'
   | 'admin.user.update'
   | 'admin.user.delete'
@@ -61,6 +62,14 @@ export type VerificationOperation =
   | {
       scope: 'gpt.hosting.manage'
       context: { action: 'login' | 'unbind' | 'store-plan'; binding_id: string }
+    }
+  | {
+      scope: 'admin.user.token'
+      context: {
+        user_id: number
+        token_id: number
+        action: 'view' | 'copy' | 'enable' | 'disable'
+      }
     }
   | { scope: 'admin.user.create'; context: { role: number } }
   | {

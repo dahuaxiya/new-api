@@ -220,6 +220,7 @@ var accessTokenVerificationScopes = map[string]string{
 	// 托管授权和套餐配置必须在门户会话内完成，不提供 PAT 证明签发。
 	VerificationScopeGPTHosting:            "",
 	VerificationScopeChannelKeyRead:        AccessTokenScopeOf(authz.ChannelSecretView),
+	VerificationScopeAdminUserToken:        "", // 跨用户密钥操作只允许浏览器会话。
 	VerificationScopeAdminUserCreate:       "user:write",
 	VerificationScopeAdminUserUpdate:       "user:write",
 	VerificationScopeAdminUserDelete:       "user:write",

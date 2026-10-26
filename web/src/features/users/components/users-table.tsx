@@ -20,17 +20,19 @@ import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { OnChangeFn, SortingState } from '@tanstack/react-table'
 import { RefreshCw } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
   DataTablePage,
+  DataTableRow,
   DataTableCardGrid,
   useDataTable,
 } from '@/components/data-table'
 import { Button } from '@/components/ui/button'
+import { TableRow, TableCell } from '@/components/ui/table'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import {
@@ -47,9 +49,11 @@ import {
   isUserDeleted,
 } from '../constants'
 import { getHostingSummaries, hostingStatusLabels } from '../hosting-api'
+import { getUserTokenCounts } from '../token-api'
 import type { User, UserSortBy } from '../types'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 import { HostingTermNotice } from './hosting-term-notice'
+import { UserTokensPanel } from './user-tokens-panel'
 import { useUsersColumns } from './users-columns'
 import { UsersMobileCard } from './users-mobile-card'
 import { useUsers } from './users-provider'
@@ -77,7 +81,7 @@ export function UsersTable() {
     (s) => `${s.auth.user?.id}:${s.auth.session?.sid}`
   )
   const navigate = route.useNavigate()
-  const columns = useUsersColumns()
+
   const { refreshTrigger, triggerRefresh } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [sorting, setSorting] = useState<SortingState>([])
@@ -118,6 +122,34 @@ export function UsersTable() {
     (columnFilters.find((filter) => filter.id === 'group')?.value as
       | string[]
       | undefined) ?? []
+
+  // 保存展开时的列表上下文，翻页、筛选或换登录身份后不再渲染旧用户的凭据。
+  const contextKey = JSON.stringify([
+    identity,
+    pagination,
+    globalFilter,
+    columnFilters,
+    sorting,
+    refreshTrigger,
+  ])
+  const [expanded, setExpanded] = useState<{
+    id: number
+    context: string
+  } | null>(null)
+  const expandedId = expanded?.context === contextKey ? expanded.id : null
+  const keyControls = useMemo(
+    () => ({
+      expandedId,
+      toggle: (id: number) =>
+        setExpanded((prev) =>
+          prev?.id === id && prev.context === contextKey
+            ? null
+            : { id, context: contextKey }
+        ),
+    }),
+    [expandedId, contextKey]
+  )
+  const columns = useUsersColumns(keyControls)
 
   const { data: groupsData } = useQuery({
     queryKey: ['groups'],
@@ -196,12 +228,16 @@ export function UsersTable() {
 
       const items = result.data?.items || []
       // 汇总接口故障时仍显示全部用户，不能把未知托管状态误显示成未开通。
-      const summaries = await getHostingSummaries(
-        items.map((user) => user.id)
-      ).catch(() => [])
+      const [summaries, tokenCounts] = await Promise.all([
+        getHostingSummaries(items.map((user) => user.id)).catch(() => []),
+        getUserTokenCounts(items.map((user) => user.id)).catch(
+          () => ({}) as Record<string, number>
+        ),
+      ])
       return {
         items: items.map((user) => ({
           ...user,
+          token_count: tokenCounts[String(user.id)],
           hosting: summaries.find((summary) => summary.user_id === user.id),
         })),
         total: result.data?.total || 0,
@@ -281,9 +317,48 @@ export function UsersTable() {
             getRowClassName={(row) =>
               isDisabledUserRow(row.original) ? DISABLED_ROW_MOBILE : undefined
             }
-            renderCard={(row) => <UsersMobileCard row={row} />}
+            renderCard={(row) => (
+              <>
+                <UsersMobileCard row={row} />
+                {expandedId === row.original.id && (
+                  <UserTokensPanel
+                    key={`${identity}:${row.original.id}`}
+                    user={row.original}
+                    onClose={() => setExpanded(null)}
+                  />
+                )}
+              </>
+            )}
           />
         }
+        renderRow={(row, helpers) => (
+          <Fragment key={row.id}>
+            <DataTableRow
+              row={row}
+              getColumnClassName={(id) => helpers.getCellClassName(id)}
+              cellRenderColumns={table.options.columns}
+              className={
+                isDisabledUserRow(row.original)
+                  ? DISABLED_ROW_DESKTOP
+                  : undefined
+              }
+            />
+            {expandedId === row.original.id && (
+              <TableRow className='hover:bg-transparent'>
+                <TableCell
+                  colSpan={row.getVisibleCells().length}
+                  className='p-0'
+                >
+                  <UserTokensPanel
+                    key={`${identity}:${row.original.id}`}
+                    user={row.original}
+                    onClose={() => setExpanded(null)}
+                  />
+                </TableCell>
+              </TableRow>
+            )}
+          </Fragment>
+        )}
         table={table}
         columns={columns}
         isLoading={isLoading}

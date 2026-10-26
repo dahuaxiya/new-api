@@ -17,11 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { LongText } from '@/components/long-text'
 import { StatusBadge } from '@/components/status-badge'
+import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Tooltip,
@@ -29,6 +31,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { getCurrencyDisplay } from '@/lib/currency'
+import { useAuthStore } from '@/stores/auth-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
@@ -43,7 +46,11 @@ import { HostingCell } from './hosting-cells'
 import { UserQuotaCell } from './user-quota-cell'
 
 /** 桌面表格和手机卡片复用同一列定义，避免管理操作或额度含义分叉。 */
-export function useUsersColumns(): ColumnDef<User>[] {
+export function useUsersColumns(keys?: {
+  expandedId: number | null
+  toggle: (id: number) => void
+}): ColumnDef<User>[] {
+  const actor = useAuthStore((s) => s.auth.user)
   const { t } = useTranslation()
   const currencyConfig = useSystemConfigStore((state) => state.config.currency)
   const { meta: currency } = getCurrencyDisplay()
@@ -134,6 +141,42 @@ export function useUsersColumns(): ColumnDef<User>[] {
         enableHiding: false,
         size: 220,
         meta: { mobileTitle: true },
+      },
+      {
+        id: 'api_keys',
+        header: t('API Keys'),
+        enableSorting: false,
+        size: 120,
+        cell: ({ row }) => {
+          const canManage =
+            actor &&
+            !isUserDeleted(row.original) &&
+            (actor.role === 100 ||
+              actor.id === row.original.id ||
+              actor.role > row.original.role)
+          if (!canManage) {
+            return <span className='text-muted-foreground'>—</span>
+          }
+          const expanded = keys?.expandedId === row.original.id
+          return (
+            <Button
+              variant={expanded ? 'secondary' : 'ghost'}
+              size='sm'
+              aria-expanded={expanded ?? false}
+              aria-controls={`user-keys-${row.original.id}`}
+              onClick={() => keys?.toggle(row.original.id)}
+            >
+              {expanded ? (
+                <ChevronDown aria-hidden='true' />
+              ) : (
+                <ChevronRight aria-hidden='true' />
+              )}
+              {row.original.token_count == null
+                ? t('View API keys')
+                : t('{{count}} keys', { count: row.original.token_count })}
+            </Button>
+          )
+        },
       },
       {
         accessorKey: 'status',
@@ -227,6 +270,6 @@ export function useUsersColumns(): ColumnDef<User>[] {
     ],
     // formatQuota reads the currency configuration from the store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [t, quotaUnit, currencyConfig]
+    [t, quotaUnit, currencyConfig, keys, actor]
   )
 }

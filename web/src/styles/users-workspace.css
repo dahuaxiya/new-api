@@ -234,3 +234,21 @@
 .users-workspace [data-slot='tabs-trigger'][data-active]::after {
   background: var(--primary);
 }
+
+/* 行内详情沿用用户管理配色，手机卡片共享同一个详情组件。 */
+.user-keys-panel {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: var(--muted);
+  border-inline-start: 3px solid var(--primary);
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .user-keys-panel {
+    padding: 0.875rem;
+    margin-top: 0.75rem;
+    border-radius: 0.5rem;
+  }
+}

@@ -25,6 +25,11 @@ it('七种语言均能在实际命名空间中加载用户页和旧 Key 确认�
       '{{count}} users have no hosting term',
       'View and set terms',
       'Refresh data',
+      'API keys for {{user}}',
+      '{{count}} keys',
+      'View full API key',
+      "You do not have permission to manage this user's API keys",
+      'An expired or exhausted API key cannot be enabled',
       'GPT sign-in is not required. Existing direct keys and credentials are retained; all retained keys share this hosting term. New API keeps using its existing upstream key.',
     ]) {
       expect(instance.exists(key, { count: 3 })).toBe(true)

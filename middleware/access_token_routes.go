@@ -139,6 +139,10 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"DELETE /api/user/oauth/bindings/:provider_id": accessTokenScopeRule("account_security:write"),
 
 	// router/api-router.go: /api/user (admin)
+	"GET /api/user/token_counts":                       accessTokenSessionRule,
+	"GET /api/user/:id/tokens":                         accessTokenSessionRule,
+	"POST /api/user/:id/tokens/:token_id/key":          accessTokenSessionRule,
+	"PATCH /api/user/:id/tokens/:token_id/status":      accessTokenSessionRule,
 	"GET /api/user/":                                   accessTokenScopeRule("user:read"),
 	"GET /api/user/topup":                              accessTokenScopeRule("billing:read"),
 	"POST /api/user/topup/complete":                    accessTokenScopeRule("billing:write"),

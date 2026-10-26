@@ -36,6 +36,7 @@ export type UserRole = z.infer<typeof userRoleSchema>
 
 export const userSchema = z.object({
   hosting: z.custom<HostingSummary>().optional(),
+  token_count: z.number().optional(),
   id: z.number(),
   username: z.string(),
   display_name: z.string(),
