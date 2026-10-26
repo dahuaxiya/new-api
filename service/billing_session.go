@@ -377,10 +377,34 @@ func (s *BillingSession) syncRelayInfo() {
 // NewBillingSession 工厂 — 根据计费偏好创建会话并处理回退
 // ---------------------------------------------------------------------------
 
-// NewBillingSession 根据用户计费偏好创建 BillingSession，处理 subscription_first / wallet_first 的回退。
+// NewBillingSession 创建请求计费会话。有效托管账号不以站内余额作为调用门槛，普通渠道按计费偏好预扣。
+// 托管豁免必须重新核对数据库中的用户、Key、名额和实际渠道，不能信任客户端分组或旧缓存。
+// 只放开钱包余额门槛；定价、Token 限额、结算与退款仍沿用原有账务规则。
 func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preConsumedQuota int) (*BillingSession, *types.NewAPIError) {
 	if relayInfo == nil {
 		return nil, types.NewError(fmt.Errorf("relayInfo is nil"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	// 分发层已校验并固定托管渠道，这里再次读取，防止计费前改绑、停用或过期后仍获得余额豁免。
+	hostingGroup, hostingChannel, hostingErr := model.GetTokenHostingRoute(relayInfo.UserId, relayInfo.TokenId)
+	if hostingErr != nil {
+		return nil, types.NewErrorWithStatusCode(errors.New("GPT hosting is inactive or expired"), types.ErrorCodeInvalidRequest, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+	}
+	if hostingChannel != 0 {
+		if relayInfo.ChannelMeta == nil || relayInfo.ChannelId != hostingChannel || relayInfo.UsingGroup != hostingGroup {
+			return nil, types.NewErrorWithStatusCode(errors.New("GPT hosting channel mismatch"), types.ErrorCodeInvalidRequest, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+		}
+		// 托管使用用户自己的订阅账号，不应依赖站内钱包或另购站内订阅。
+		// 仍建立真实计费会话，避免跳过 Key 限额、使用量记录及失败退款。
+		session := &BillingSession{
+			relayInfo: relayInfo,
+			funding:   &WalletFunding{userId: relayInfo.UserId, hostingBalanceExempt: true},
+			lang:      i18n.StatedLang(c),
+		}
+		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
+			return nil, apiErr
+		}
+		return session, nil
 	}
 
 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)

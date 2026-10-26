@@ -33,14 +33,26 @@ type FundingSource interface {
 var ErrInsufficientWalletQuota = errors.New("wallet quota insufficient")
 
 type WalletFunding struct {
-	userId   int
-	consumed int // 实际预扣的用户额度
+	userId               int
+	consumed             int  // 实际预扣的用户额度
+	hostingBalanceExempt bool // 仅由已核验的托管路由设置；普通渠道不得启用
 }
 
 func (w *WalletFunding) Source() string { return BillingSourceWallet }
 
+// PreConsume 为请求记账；普通渠道原子检查余额，已核验托管渠道不以钱包余额阻断调用。
+// 托管仍按当前价格记账，当前零价格不会改变余额；失败退款必须与实际扣减一致。
 func (w *WalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
+		return nil
+	}
+	if w.hostingBalanceExempt {
+		// 与后结算补扣使用同一账务路径，允许余额不足但绝不凭空赠送余额。
+		// 累加预扣保证后续追加额度失败时能退回全部已扣金额。
+		if err := model.DecreaseUserQuota(w.userId, amount, false); err != nil {
+			return err
+		}
+		w.consumed += amount
 		return nil
 	}
 	reserved, err := model.TryReserveUserQuota(w.userId, amount)

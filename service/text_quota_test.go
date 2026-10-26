@@ -90,6 +90,7 @@ func TestFixedPriceBillingDatabaseMatrix(t *testing.T) {
 			require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
 			t.Logf("database: %s", version)
 			runFixedPriceAccountingCases(t, db, logDB)
+			t.Run("hosting_balance", func(t *testing.T) { runHostingBalanceCases(t, db) })
 		})
 	}
 }
@@ -1581,4 +1582,110 @@ func TestPostTextConsumeQuotaLogsMissingUsageAsStructuredContent(t *testing.T) {
 	assert.Equal(t, []any{
 		map[string]any{"key": "Upstream returned no usage, so nothing was charged (possibly an upstream timeout)"},
 	}, other["content_parts"])
+}
+
+// runHostingBalanceCases 验证托管余额豁免只授予本人有效名额，且普通付费渠道与 Key 限额保持生效。
+// 三种数据库共用真实路由、预扣与结算，不通过伪造客户端标记获得豁免。
+func runHostingBalanceCases(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	t.Setenv("GPT_HOSTING_ENABLED", "true")
+	// 初始化生产使用的方言列名，避免限额失败后的 Token 回读走未初始化的 SQL 标识。
+	t.Setenv("LOG_SQL_DSN", "")
+	oldLogDB, oldMaster := model.LOG_DB, common.IsMasterNode
+	common.IsMasterNode = false
+	require.NoError(t, model.InitLogDB())
+	common.IsMasterNode = oldMaster
+	t.Cleanup(func() { model.LOG_DB = oldLogDB })
+	require.NoError(t, db.AutoMigrate(&model.GPTHostingGrant{}, &model.GPTHostingBinding{}))
+	for index, tc := range []struct {
+		name                                                                     string
+		wallet, pre, tokenQuota                                                  int
+		ordinary, expired, paused, wrongChannel, wrongOwner, missingSeat, refund bool
+		wantError                                                                bool
+	}{
+		{name: "zero wallet hosted free", tokenQuota: 100},
+		{name: "negative wallet hosted free", wallet: -10, tokenQuota: 100},
+		{name: "hosted records configured charge without balance gate", pre: 10, tokenQuota: 100},
+		{name: "hosted failed request restores accounting", pre: 10, tokenQuota: 100, refund: true},
+		{name: "ordinary paid retains balance gate", ordinary: true, pre: 10, tokenQuota: 100, wantError: true},
+		{name: "expired seat denied", expired: true, tokenQuota: 100, wantError: true},
+		{name: "paused account denied", paused: true, tokenQuota: 100, wantError: true},
+		{name: "different channel denied", wrongChannel: true, tokenQuota: 100, wantError: true},
+		{name: "another users key denied", wrongOwner: true, tokenQuota: 100, wantError: true},
+		{name: "deleted seat denied", missingSeat: true, tokenQuota: 100, wantError: true},
+		{name: "token quota still enforced", pre: 10, tokenQuota: 1, wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			user := model.User{Username: fmt.Sprintf("hostwallet%d", index), Quota: tc.wallet, Status: common.UserStatusEnabled}
+			require.NoError(t, db.Create(&user).Error)
+			seat := fmt.Sprintf("balance-seat-%d", user.Id)
+			token := model.Token{UserId: user.Id, Key: fmt.Sprintf("hosting-wallet-test-%d", user.Id), Status: common.TokenStatusEnabled, RemainQuota: tc.tokenQuota, HostingSeatID: seat}
+			if tc.ordinary {
+				token.HostingSeatID = ""
+			}
+			require.NoError(t, db.Create(&token).Error)
+			channel := model.Channel{Name: "hosted-balance", Key: "unused", Status: common.ChannelStatusEnabled}
+			require.NoError(t, db.Create(&channel).Error)
+			grant := model.GPTHostingGrant{SeatID: seat, UserID: user.Id, Enabled: true, StartsAt: time.Now().Unix() - 60, EndsAt: model.HostingPermanentEnd, Group: fmt.Sprintf("hosting_balance_%d", user.Id)}
+			if tc.expired {
+				grant.EndsAt = time.Now().Unix() - 1
+			}
+			inventory := fmt.Sprintf("inventory-%d", user.Id)
+			binding := model.GPTHostingBinding{SeatID: seat, UserID: user.Id, BindingID: seat, State: "active", ChannelID: channel.Id, InventoryID: &inventory, Paused: tc.paused}
+			if !tc.ordinary && !tc.missingSeat {
+				require.NoError(t, db.Create(&grant).Error)
+				require.NoError(t, db.Create(&binding).Error)
+			}
+			t.Cleanup(func() {
+				require.NoError(t, db.Delete(&binding).Error)
+				require.NoError(t, db.Delete(&grant).Error)
+				require.NoError(t, db.Unscoped().Delete(&token).Error)
+				require.NoError(t, db.Unscoped().Delete(&user).Error)
+				require.NoError(t, db.Delete(&channel).Error)
+			})
+			info := &relaycommon.RelayInfo{UserId: user.Id, TokenId: token.Id, TokenKey: token.Key, ChannelMeta: &relaycommon.ChannelMeta{ChannelId: channel.Id}, UsingGroup: grant.Group, UserSetting: dto.UserSetting{BillingPreference: "wallet_only"}, ForcePreConsume: true}
+			if tc.wrongChannel {
+				info.ChannelId++
+			}
+			if tc.wrongOwner {
+				info.UserId++
+			}
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+			apiErr := PreConsumeBilling(ctx, tc.pre, info)
+			if tc.wantError {
+				require.NotNil(t, apiErr)
+				if tc.ordinary {
+					assert.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
+				} else if tc.pre > tc.tokenQuota {
+					assert.Equal(t, types.ErrorCodePreConsumeTokenQuotaFailed, apiErr.GetErrorCode())
+				} else {
+					assert.Equal(t, types.ErrorCodeInvalidRequest, apiErr.GetErrorCode())
+				}
+			} else {
+				require.Nil(t, apiErr)
+				if tc.refund {
+					info.Billing.Refund(ctx)
+					require.Eventually(t, func() bool {
+						var u model.User
+						var k model.Token
+						return db.First(&u, user.Id).Error == nil && db.First(&k, token.Id).Error == nil && u.Quota == tc.wallet && k.RemainQuota == tc.tokenQuota
+					}, time.Second*3, time.Millisecond*10)
+				} else {
+					require.NoError(t, info.Billing.Settle(tc.pre))
+					require.NoError(t, info.Billing.Settle(tc.pre))
+				}
+			}
+			var savedUser model.User
+			var savedToken model.Token
+			require.NoError(t, db.First(&savedUser, user.Id).Error)
+			require.NoError(t, db.First(&savedToken, token.Id).Error)
+			charge := 0
+			if !tc.wantError && !tc.refund {
+				charge = tc.pre
+			}
+			assert.Equal(t, tc.wallet-charge, savedUser.Quota)
+			assert.Equal(t, tc.tokenQuota-charge, savedToken.RemainQuota)
+		})
+	}
 }
