@@ -7871,11 +7871,12 @@
     "Value exceeds the allowed range": "Value exceeds the allowed range",
     "Check the resend interval and hourly, daily, and monthly email limits": "Check the resend interval and hourly, daily, and monthly email limits",
     "Invalid registration and email abuse settings": "Invalid registration and email abuse settings",
-    "Registration and email abuse limits are outside the allowed range": "Registration and email abuse limits are outside the allowed range"
-  },
-  "Slot not assigned": "Emplacement non attribué",
-  "Connection details unavailable": "Détails de connexion indisponibles",
-  "No outbound connection configured": "Aucune connexion sortante configurée",
-  "Bound slot not found": "Emplacement associé introuvable",
-  "Outbound connection disabled": "Connexion sortante désactivée"
+    "Registration and email abuse limits are outside the allowed range": "Registration and email abuse limits are outside the allowed range",
+    "Slot not assigned": "Emplacement non attribué",
+    "Connection details unavailable": "Détails de connexion indisponibles",
+    "No outbound connection configured": "Aucune connexion sortante configurée",
+    "Bound slot not found": "Emplacement associé introuvable",
+    "Outbound connection disabled": "Connexion sortante désactivée",
+    "Slot": "Emplacement"
+  }
 }

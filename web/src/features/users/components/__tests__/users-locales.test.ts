@@ -9,7 +9,8 @@ import vi from '@/i18n/locales/vi.json'
 import zhTW from '@/i18n/locales/zh-TW.json'
 import zh from '@/i18n/locales/zh.json'
 
-it('七种语言均能在实际命名空间中加载用户页和旧 Key 确认文案', async () => {
+/** 验证真实 i18next 命名空间，避免翻译误放到 JSON 顶层后只显示英文键。 */
+it('七种语言均能加载用户页、连接状态和旧 Key 确认文案', async () => {
   const resources = { en, fr, ja, ru, vi, zh, 'zh-TW': zhTW }
   const instance = createInstance()
   await instance.init({
@@ -25,6 +26,12 @@ it('七种语言均能在实际命名空间中加载用户页和旧 Key 确认�
       '{{count}} users have no hosting term',
       'View and set terms',
       'Refresh data',
+      'Slot',
+      'Slot not assigned',
+      'Connection details unavailable',
+      'No outbound connection configured',
+      'Bound slot not found',
+      'Outbound connection disabled',
       'API keys for {{user}}',
       '{{count}} keys',
       'View full API key',
@@ -37,4 +44,6 @@ it('七种语言均能在实际命名空间中加载用户页和旧 Key 确认�
   }
   await instance.changeLanguage('zh')
   expect(instance.t('View and set terms')).toBe('查看并设置')
+  expect(instance.t('Slot')).toBe('槽位')
+  expect(instance.t('Slot not assigned')).toBe('尚未分配槽位')
 })
