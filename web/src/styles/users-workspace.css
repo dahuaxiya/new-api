@@ -172,6 +172,10 @@
 .users-mobile-fields [data-field='status'] {
   grid-column: 1 / -1;
 }
+/* 账号包含实例、槽位和出口，使用整行避免在手机双列中被裁切。 */
+.users-mobile-fields [data-field='gpt_account'] {
+  grid-column: 1 / -1;
+}
 .users-mobile-fields [data-field='official_quota'] {
   grid-column: 1 / -1;
   padding-top: 14px;

@@ -145,7 +145,7 @@ export function HostingCell(props: {
     // 每个名额有独立绑定；多账号不能沿用首名额的实例、出口或官方读数。
     const accounts = v.seats && v.seats.length > 1 ? v.seats : [v]
     return (
-      <ul className='grid max-w-80 min-w-52 gap-3 text-sm'>
+      <ul className='grid max-w-80 min-w-0 gap-3 text-sm sm:min-w-52'>
         {accounts.map((account, index) => {
           const label =
             account.binding?.account_label ||
