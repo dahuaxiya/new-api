@@ -7872,5 +7872,10 @@
     "Check the resend interval and hourly, daily, and monthly email limits": "Check the resend interval and hourly, daily, and monthly email limits",
     "Invalid registration and email abuse settings": "Invalid registration and email abuse settings",
     "Registration and email abuse limits are outside the allowed range": "Registration and email abuse limits are outside the allowed range"
-  }
+  },
+  "Slot not assigned": "スロット未割り当て",
+  "Connection details unavailable": "接続情報を取得できません",
+  "No outbound connection configured": "外向き接続が未設定です",
+  "Bound slot not found": "紐付け済みスロットが見つかりません",
+  "Outbound connection disabled": "外向き接続が無効です"
 }

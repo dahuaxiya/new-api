@@ -30,6 +30,7 @@ type hostingUserSummary struct {
 	InstanceID       string                   `json:"instance_id,omitempty"`
 	InstanceName     string                   `json:"instance_name,omitempty"`
 	SlotID           string                   `json:"slot_id,omitempty"`
+	Connection       *vm2api.SlotConnection   `json:"connection,omitempty"`
 	Grant            *model.GPTHostingGrant   `json:"grant"`
 	Binding          *model.GPTHostingBinding `json:"binding"`
 	Quota            *gptquota.View           `json:"quota"`
@@ -38,13 +39,91 @@ type hostingUserSummary struct {
 
 // hostingSeatView 绑定与期限按名额组织，用户看不到机器凭据和官方身份哈希。
 type hostingSeatView struct {
-	Status     string                   `json:"status"`
-	InstanceID string                   `json:"instance_id,omitempty"`
-	SlotID     string                   `json:"slot_id,omitempty"`
-	Grant      *model.GPTHostingGrant   `json:"grant"`
-	Binding    *model.GPTHostingBinding `json:"binding"`
-	BindingID  string                   `json:"binding_id"`
-	Valid      bool                     `json:"valid"`
+	Status       string                   `json:"status"`
+	InstanceID   string                   `json:"instance_id,omitempty"`
+	InstanceName string                   `json:"instance_name,omitempty"`
+	SlotID       string                   `json:"slot_id,omitempty"`
+	Connection   *vm2api.SlotConnection   `json:"connection,omitempty"`
+	Grant        *model.GPTHostingGrant   `json:"grant"`
+	Binding      *model.GPTHostingBinding `json:"binding"`
+	BindingID    string                   `json:"binding_id"`
+	Valid        bool                     `json:"valid"`
+}
+
+// attachHostingConnections 仅供已鉴权管理员摘要使用，按实例批量读出口，不向个人托管接口补充运维信息。
+// summaries 已确定账号归属；每台实例最多查询一次，失败保留明确未知状态，不能串用其他实例的同名槽位。
+func attachHostingConnections(ctx context.Context, summaries []hostingUserSummary) {
+	type instanceConnections struct {
+		id, name  string
+		slots     map[string]vm2api.SlotConnection
+		available bool
+	}
+	registry, err := onboardingRegistry()
+	instances := map[string]*instanceConnections{}
+	if err == nil {
+		for _, instance := range registry.Instances() {
+			instances[instance.ID] = &instanceConnections{id: instance.ID, name: instance.Name}
+		}
+	}
+	wanted := map[string]bool{}
+	for _, summary := range summaries {
+		if summary.SlotID != "" {
+			wanted[summary.InstanceID] = true
+		}
+		for _, seat := range summary.Seats {
+			if seat.SlotID != "" {
+				wanted[seat.InstanceID] = true
+			}
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	work := make(chan *instanceConnections, len(wanted))
+	for id := range wanted {
+		if instance := instances[id]; instance != nil {
+			work <- instance
+		}
+	}
+	close(work)
+	var workers sync.WaitGroup
+	for range min(4, len(wanted)) {
+		workers.Go(func() {
+			for instance := range work {
+				client, e := registry.Client(instance.id)
+				if e == nil {
+					instance.slots, e = client.SlotConnections(ctx)
+					instance.available = e == nil
+				}
+			}
+		})
+	}
+	workers.Wait()
+	// 所有远端读取结束后再写摘要，避免多个工作器修改同一用户的不同名额产生数据竞争。
+	connectionFor := func(instanceID, slotID string) *vm2api.SlotConnection {
+		if slotID == "" {
+			return nil
+		}
+		value := vm2api.SlotConnection{Status: "unavailable"}
+		if instance := instances[instanceID]; instance != nil && instance.available {
+			if connection, exists := instance.slots[slotID]; exists {
+				value = connection
+			} else {
+				value.Status = "missing"
+			}
+		}
+		return &value
+	}
+	for i := range summaries {
+		summary := &summaries[i]
+		summary.Connection = connectionFor(summary.InstanceID, summary.SlotID)
+		for j := range summary.Seats {
+			seat := &summary.Seats[j]
+			seat.Connection = connectionFor(seat.InstanceID, seat.SlotID)
+			if instance := instances[seat.InstanceID]; instance != nil {
+				seat.InstanceName = instance.name
+			}
+		}
+	}
 }
 
 // hostingSeatViews 从鉴权后的用户 ID 读取全部名额，缺失绑定视为数据错误而非空名额。
@@ -226,7 +305,7 @@ func hostingSummary(user *model.User) hostingUserSummary {
 	return view
 }
 
-// GetGPTHostingUsers 为当前分页汇总账号和缓存额度；最多 100 个用户、4 个工作器和 3 秒读预算。
+// GetGPTHostingUsers 为当前分页汇总账号、缓存额度和配置连接；最多 100 个用户、4 个工作器，额度与连接各限 3 秒。
 // 这里只读 vm2api 保存的额度，不触发官方探测；错误保留为未知，不能当成未绑定或 0%。
 func GetGPTHostingUsers(c *gin.Context) {
 	if _, ok := hostingActor(c, false); !ok {
@@ -288,6 +367,7 @@ func GetGPTHostingUsers(c *gin.Context) {
 		})
 	}
 	wg.Wait()
+	attachHostingConnections(c.Request.Context(), result)
 	c.JSON(200, gin.H{"success": true, "data": result})
 }
 

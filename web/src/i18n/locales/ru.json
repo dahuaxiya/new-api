@@ -7872,5 +7872,10 @@
     "Check the resend interval and hourly, daily, and monthly email limits": "Check the resend interval and hourly, daily, and monthly email limits",
     "Invalid registration and email abuse settings": "Invalid registration and email abuse settings",
     "Registration and email abuse limits are outside the allowed range": "Registration and email abuse limits are outside the allowed range"
-  }
+  },
+  "Slot not assigned": "Слот не назначен",
+  "Connection details unavailable": "Сведения о подключении недоступны",
+  "No outbound connection configured": "Исходящее подключение не настроено",
+  "Bound slot not found": "Привязанный слот не найден",
+  "Outbound connection disabled": "Исходящее подключение отключено"
 }

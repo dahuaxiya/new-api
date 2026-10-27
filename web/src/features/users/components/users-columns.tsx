@@ -224,7 +224,7 @@ export function useUsersColumns(keys?: {
       { accessorKey: 'group', header: t('User Group'), enableSorting: false },
       {
         id: 'gpt_account',
-        header: t('GPT account'),
+        header: t('Hosted accounts'),
         cell: ({ row }) => (
           <HostingCell summary={row.original.hosting} kind='account' />
         ),

@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,7 +61,7 @@ func TestGPTHostingSessionBoundary(t *testing.T) {
 	own := request("GET", "/self?user_id=999", token, "")
 	require.Equal(t, 200, own.Code, own.Body.String())
 	require.Contains(t, own.Body.String(), `"binding_id"`)
-	for _, private := range []string{"account_hash", "subject_hash", "slot_id", "instance_id", "operation_token", "key_id"} {
+	for _, private := range []string{"account_hash", "subject_hash", "slot_id", "instance_id", "operation_token", "key_id", "connection", "exit_id"} {
 		require.NotContains(t, own.Body.String(), `"`+private+`"`)
 	}
 	// 用户即使知道他人的名额编号，也不能读取其身份或授权状态。
@@ -84,6 +85,126 @@ func TestGPTHostingSessionBoundary(t *testing.T) {
 	denied := request("POST", "/login", token, "http://portal.test")
 	require.Contains(t, denied.Body.String(), "hosting_expired")
 	require.Equal(t, common.RoleCommonUser, user.Role)
+}
+
+// TestHostingConnectionsAdminView 验证真实会话与面板协议下，多平台、多名额及同名跨实例槽位不会串线。
+// 上游故障必须保留未知状态；出口可分配容量与已绑定连接无关，代理凭据永不序列化给浏览器。
+func TestHostingConnectionsAdminView(t *testing.T) {
+	actor, identity := setupSecurityEnrollmentTest(t)
+	t.Setenv("GPT_HOSTING_ENABLED", "true")
+	require.NoError(t, model.DB.AutoMigrate(&model.GPTHostingGrant{}, &model.GPTHostingBinding{}, &model.VM2APIEnrollment{}))
+	var failCC atomic.Bool
+	var callsBW, callsCC atomic.Int32
+	newPanel := func(name string, calls *atomic.Int32) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			var value any
+			switch r.URL.Path {
+			case "/api/panel/login":
+				value = map[string]any{"ok": true, "token": "fixture-panel-token", "role": "admin", "expires_in": 3600}
+			case "/api/panel/vms":
+				calls.Add(1)
+				value = map[string]any{"ok": true, "data": map[string]any{"items": []any{
+					map[string]any{"id": "same-slot", "name": name + " account slot", "family": "claude", "proxy_id": "same-exit", "proxy_cli_enabled": true, "proxy": map[string]any{"password": "private-proxy-password", "host": "private-host", "username": "private-proxy-user"}},
+					map[string]any{"id": "same-slot", "name": "wrong-remote-slot", "node_id": "remote-node", "family": "codex", "proxy_id": "remote-exit", "proxy_cli_enabled": true},
+					map[string]any{"id": "no-exit", "family": "codex"},
+					map[string]any{"id": "disabled-exit", "family": "codex", "proxy_id": "same-exit", "proxy_cli_enabled": false},
+				}}}
+			case "/api/panel/proxies":
+				if name == "CC" && failCC.Load() {
+					w.WriteHeader(503)
+					_, _ = w.Write([]byte(`{"ok":false,"error":"private-upstream-error"}`))
+					return
+				}
+				value = map[string]any{"ok": true, "data": map[string]any{"proxies": []any{map[string]any{"id": "same-exit", "label": name + " IPv6", "kind": "socks5", "enabled": true, "status": "ok", "bind_limit": 1, "bound_count": 1, "password": "private-proxy-password", "url": "socks5://private-user:private-password@private-host:1080"}}}}
+			default:
+				w.WriteHeader(404)
+				return
+			}
+			encoded, err := common.Marshal(value)
+			require.NoError(t, err)
+			_, _ = w.Write(encoded)
+		}))
+	}
+	bw, cc := newPanel("BW", &callsBW), newPanel("CC", &callsCC)
+	t.Cleanup(bw.Close)
+	t.Cleanup(cc.Close)
+	registry, err := vm2api.New(vm2api.Config{Instances: []vm2api.InstanceConfig{
+		{ID: "bw", Name: "Bandwagon", BaseURL: bw.URL, Username: "fixture", Password: "private-panel-password", Models: []string{"gpt-test"}},
+		{ID: "cc", Name: "CloudCone", BaseURL: cc.URL, Username: "fixture", Password: "private-panel-password", Models: []string{"gpt-test"}},
+	}})
+	require.NoError(t, err)
+	oldRegistry, oldSvc := onboardingRegistry, quotaService
+	onboardingRegistry = func() (*vm2api.Registry, error) { return registry, nil }
+	quotaService = func() (*gptquota.Service, error) { return nil, errors.New("offline") }
+	t.Cleanup(func() { onboardingRegistry, quotaService = oldRegistry, oldSvc })
+	target := model.User{Username: "connections-owner", AffCode: "connections-owner", Role: common.RoleCommonUser, Status: 1}
+	require.NoError(t, model.DB.Create(&target).Error)
+	fixtures := []struct{ seat, instance, slot, platform string }{
+		{"legacy-" + strconv.Itoa(target.Id), "bw", "same-slot", "codex"},
+		{uuid.NewString(), "cc", "same-slot", "claude"},
+		{uuid.NewString(), "bw", "no-exit", "codex"},
+		{uuid.NewString(), "bw", "disabled-exit", "codex"},
+		{uuid.NewString(), "bw", "missing-slot", "codex"},
+		{uuid.NewString(), "", "", "codex"},
+	}
+	for _, fixture := range fixtures {
+		require.NoError(t, model.DB.Create(&model.GPTHostingGrant{SeatID: fixture.seat, UserID: target.Id, StartsAt: 1, EndsAt: -1, Enabled: true, Group: "acct_" + fixture.seat}).Error)
+		require.NoError(t, model.DB.Create(&model.GPTHostingBinding{SeatID: fixture.seat, UserID: target.Id, BindingID: uuid.NewString(), InstanceID: fixture.instance, SlotID: fixture.slot, State: "active", Platform: fixture.platform, AccountLabel: fixture.platform + " owner"}).Error)
+	}
+	token, _, err := service.IssueAccessToken(identity)
+	require.NoError(t, err)
+	router := gin.New()
+	router.GET("/users", middleware.AdminAuth(), GetGPTHostingUsers)
+	request := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/users?ids="+strconv.Itoa(target.Id), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, req)
+		return out
+	}
+	require.Equal(t, 403, request().Code)
+	require.Zero(t, callsBW.Load())
+	require.NoError(t, model.DB.Model(actor).Update("role", common.RoleAdminUser).Error)
+	require.NoError(t, model.PublishUserAuthCache(actor.Id))
+	out := request()
+	require.Equal(t, 200, out.Code, out.Body.String())
+	var body struct {
+		Data []hostingUserSummary `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(out.Body.Bytes(), &body))
+	require.Len(t, body.Data, 1)
+	require.Len(t, body.Data[0].Seats, len(fixtures))
+	bySeat := map[string]hostingSeatView{}
+	for _, seat := range body.Data[0].Seats {
+		bySeat[seat.Grant.SeatID] = seat
+	}
+	require.Equal(t, "BW IPv6", bySeat[fixtures[0].seat].Connection.ExitName)
+	require.Equal(t, "CC IPv6", bySeat[fixtures[1].seat].Connection.ExitName)
+	require.Equal(t, "CloudCone", bySeat[fixtures[1].seat].InstanceName)
+	require.Equal(t, "configured", bySeat[fixtures[0].seat].Connection.Status, "binding capacity is not connection health")
+	require.Equal(t, "unconfigured", bySeat[fixtures[2].seat].Connection.Status)
+	require.Equal(t, "disabled", bySeat[fixtures[3].seat].Connection.Status)
+	require.Equal(t, "missing", bySeat[fixtures[4].seat].Connection.Status)
+	require.Nil(t, bySeat[fixtures[5].seat].Connection)
+	require.EqualValues(t, 1, callsBW.Load(), "one VM read per instance, not per seat")
+	require.EqualValues(t, 1, callsCC.Load())
+	for _, secret := range []string{"private-", "fixture-panel-token", "wrong-remote-slot", "127.0.0.1", "username", "password", "url"} {
+		require.NotContains(t, out.Body.String(), secret)
+	}
+	failCC.Store(true)
+	out = request()
+	require.Equal(t, 200, out.Code)
+	body.Data = nil
+	require.NoError(t, common.Unmarshal(out.Body.Bytes(), &body))
+	for _, seat := range body.Data[0].Seats {
+		if seat.InstanceID == "cc" {
+			require.Equal(t, "unavailable", seat.Connection.Status)
+			require.Empty(t, seat.Connection.ExitID)
+		}
+	}
+	require.Equal(t, "configured", body.Data[0].Connection.Status)
+	require.NotContains(t, out.Body.String(), "private-upstream-error")
 }
 
 // TestUnifiedHostingAdminBoundary 验证旧绑定立即可见、错误归属不会回退，以及普通用户与无证明写入均被拒绝。

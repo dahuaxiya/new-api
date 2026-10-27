@@ -45,6 +45,12 @@ async function renderPanel(
     source: status === 'undated' ? 'legacy' : 'hosting',
     slot_id: 'old-slot',
     instance_name: 'CloudCone',
+    connection: {
+      status: 'configured',
+      exit_id: 'old-exit',
+      exit_name: 'Old IPv6',
+      exit_type: 'socks5',
+    },
     grant:
       status === 'undated'
         ? null
@@ -70,6 +76,10 @@ async function renderPanel(
             paused: false,
           },
           binding_id: 'b1',
+          instance_id: 'cc',
+          instance_name: 'CloudCone',
+          slot_id: 'old-slot',
+          connection: summary.connection,
           valid: true,
         },
         {
@@ -82,6 +92,15 @@ async function renderPanel(
             paused: false,
           },
           binding_id: 'b2',
+          instance_id: 'bw',
+          instance_name: 'Bandwagon',
+          slot_id: 'claude-slot',
+          connection: {
+            status: 'configured',
+            exit_id: 'new-exit',
+            exit_name: 'Claude IPv6',
+            exit_type: 'socks5',
+          },
           valid: true,
         },
       ]
@@ -316,6 +335,7 @@ it('saved permanent hosting reloads without an epoch date and requires a date wh
 
 it('shows independent seat terms and opens a blank form when adding another seat', async () => {
   await renderPanel('active', 100, undefined, true)
+  expect(screen.getByText('Old IPv6 · SOCKS5')).toBeInTheDocument()
   const picker = screen.getByLabelText(/Hosting seats/)
   await userEvent.selectOptions(picker, 'second')
   await waitFor(() =>
@@ -326,6 +346,9 @@ it('shows independent seat terms and opens a blank form when adding another seat
   expect(
     screen.getByText(/Claude owner/, { selector: 'p' })
   ).toBeInTheDocument()
+  expect(screen.getByText('Bandwagon / claude-slot')).toBeInTheDocument()
+  expect(screen.getByText('Claude IPv6 · SOCKS5')).toBeInTheDocument()
+  expect(screen.queryByText('Old IPv6 · SOCKS5')).not.toBeInTheDocument()
   await userEvent.click(
     screen.getByRole('button', { name: 'Add hosting seat' })
   )
@@ -334,4 +357,6 @@ it('shows independent seat terms and opens a blank form when adding another seat
   ).not.toBeChecked()
   expect(screen.getByLabelText('Ends at')).toHaveValue('')
   expect(picker).toHaveValue('__new')
+  expect(screen.getByText('Slot not assigned')).toBeInTheDocument()
+  expect(screen.queryByText('Claude IPv6 · SOCKS5')).not.toBeInTheDocument()
 })

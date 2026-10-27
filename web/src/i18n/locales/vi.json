@@ -7872,5 +7872,10 @@
     "Check the resend interval and hourly, daily, and monthly email limits": "Check the resend interval and hourly, daily, and monthly email limits",
     "Invalid registration and email abuse settings": "Invalid registration and email abuse settings",
     "Registration and email abuse limits are outside the allowed range": "Registration and email abuse limits are outside the allowed range"
-  }
+  },
+  "Slot not assigned": "Chưa cấp khe",
+  "Connection details unavailable": "Không thể tải thông tin kết nối",
+  "No outbound connection configured": "Chưa cấu hình kết nối đầu ra",
+  "Bound slot not found": "Không tìm thấy khe đã liên kết",
+  "Outbound connection disabled": "Kết nối đầu ra chưa được bật"
 }

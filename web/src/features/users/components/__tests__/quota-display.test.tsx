@@ -318,7 +318,7 @@ async function renderUsersList(emptyInvitation = false) {
 it('sends site balance sorting to the server in the unified user table', async () => {
   const get = await renderUsersList()
   expect(
-    screen.getByRole('columnheader', { name: 'GPT account' })
+    screen.getByRole('columnheader', { name: 'Hosted accounts' })
   ).toBeInTheDocument()
   await userEvent.click(
     screen.getByRole('button', { name: 'Site balance ($)' })

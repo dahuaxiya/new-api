@@ -48,6 +48,7 @@ import {
   renewedHostingEnd,
 } from '../hosting-api'
 import type { User } from '../types'
+import { HostingConnection } from './hosting-cells'
 import { useUsers } from './users-provider'
 
 const grantForm = z
@@ -102,6 +103,9 @@ export function HostingUserPanel(props: { user: User }) {
       binding: null,
       quota: null,
       slot_id: undefined,
+      instance_id: undefined,
+      instance_name: undefined,
+      connection: undefined,
       status: 'unopened',
     }
   } else if (isAdditional && query.data && selected) {
@@ -111,7 +115,8 @@ export function HostingUserPanel(props: { user: User }) {
       binding: selected.binding,
       slot_id: selected.slot_id,
       instance_id: selected.instance_id,
-      instance_name: undefined,
+      instance_name: selected.instance_name,
+      connection: selected.connection,
       quota: undefined,
       quota_unavailable: false,
       status: selected.status || (selected.valid ? 'active' : 'expired'),
@@ -289,11 +294,7 @@ export function HostingUserPanel(props: { user: User }) {
             (quota?.bound ? quota.plan : undefined) ||
             '—'}
         </p>
-        {data?.slot_id && (
-          <p className='text-muted-foreground text-xs'>
-            {data.instance_name || data.instance_id} / {data.slot_id}
-          </p>
-        )}
+        {data && <HostingConnection summary={data} detailed />}
         {data?.status === 'undated' && (
           <p className='text-muted-foreground text-sm'>
             {t(
