@@ -7,14 +7,25 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react'
+import { createInstance } from 'i18next'
 import { useState } from 'react'
 import { beforeEach, expect, test, vi } from 'vitest'
 
 import { useEmailVerification } from '@/features/auth/hooks/use-email-verification'
+import en from '@/i18n/locales/en.json'
+import fr from '@/i18n/locales/fr.json'
+import ja from '@/i18n/locales/ja.json'
+import ru from '@/i18n/locales/ru.json'
+import viLocale from '@/i18n/locales/vi.json'
+import zhTW from '@/i18n/locales/zh-TW.json'
+import zh from '@/i18n/locales/zh.json'
 import { api } from '@/lib/api'
 
 import { SettingsPageProvider } from '../../components/settings-page-context'
-import { REGISTRATION_ABUSE_DEFAULTS } from '../lib/registration-abuse-schema'
+import {
+  REGISTRATION_ABUSE_DEFAULTS,
+  REGISTRATION_ABUSE_GROUPS,
+} from '../lib/registration-abuse-schema'
 import { RegistrationAbuseSection } from '../registration-abuse-section'
 
 /** Provide the real shared save toolbar to exercise the complete form submission. */
@@ -120,4 +131,35 @@ test('registration countdown follows the server cooldown instead of sixty second
   })
   expect(result.current.secondsLeft).toBe(90)
   expect(result.current.isActive).toBe(true)
+})
+
+test('all seven locales load abuse settings from the real translation namespace', async () => {
+  const resources = { en, zh, zhTW, fr, ru, ja, vi: viLocale }
+  const instance = createInstance()
+  await instance.init({
+    resources,
+    lng: 'zh',
+    fallbackLng: false,
+    keySeparator: false,
+  })
+  const keys = [
+    'Registration and email abuse protection',
+    'Save registration and email limits',
+    ...REGISTRATION_ABUSE_GROUPS.flatMap((group) => [
+      group.title,
+      group.description,
+      ...group.fields.map((field) => field.label),
+    ]),
+  ]
+  for (const lng of Object.keys(resources)) {
+    await instance.changeLanguage(lng)
+    for (const key of keys) {
+      expect(instance.exists(key), `${lng}: ${key}`).toBe(true)
+    }
+  }
+  await instance.changeLanguage('zh')
+  expect(instance.t('Registration and email abuse protection')).toBe(
+    '注册与邮件防刷'
+  )
+  expect(instance.t('Resend interval (seconds)')).toBe('重发间隔（秒）')
 })
