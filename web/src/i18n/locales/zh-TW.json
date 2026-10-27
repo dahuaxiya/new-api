@@ -7901,11 +7901,12 @@
     "Value exceeds the allowed range": "Value exceeds the allowed range",
     "Check the resend interval and hourly, daily, and monthly email limits": "Check the resend interval and hourly, daily, and monthly email limits",
     "Invalid registration and email abuse settings": "Invalid registration and email abuse settings",
-    "Registration and email abuse limits are outside the allowed range": "Registration and email abuse limits are outside the allowed range"
-  },
-  "Slot not assigned": "尚未分配槽位",
-  "Connection details unavailable": "暫時無法取得連線資訊",
-  "No outbound connection configured": "未設定出口連線",
-  "Bound slot not found": "找不到已綁定槽位",
-  "Outbound connection disabled": "出口連線未啟用"
+    "Registration and email abuse limits are outside the allowed range": "Registration and email abuse limits are outside the allowed range",
+    "Slot not assigned": "尚未分配槽位",
+    "Connection details unavailable": "暫時無法取得連線資訊",
+    "No outbound connection configured": "未設定出口連線",
+    "Bound slot not found": "找不到已綁定槽位",
+    "Outbound connection disabled": "出口連線未啟用",
+    "Slot": "槽位"
+  }
 }

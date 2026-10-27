@@ -7901,11 +7901,12 @@
     "Value exceeds the allowed range": "数值超过允许范围",
     "Check the resend interval and hourly, daily, and monthly email limits": "重发间隔不能超过验证码有效期；IP 每小时发信量 ≤ IP 每日发信量 ≤ 全站每日发信量 ≤ 全站每月发信量",
     "Invalid registration and email abuse settings": "注册与邮件防刷配置无效",
-    "Registration and email abuse limits are outside the allowed range": "注册与邮件防刷限制超出允许范围"
-  },
-  "Slot not assigned": "尚未分配槽位",
-  "Connection details unavailable": "连接信息暂时无法获取",
-  "No outbound connection configured": "未配置出口连接",
-  "Bound slot not found": "未找到已绑定槽位",
-  "Outbound connection disabled": "出口连接未启用"
+    "Registration and email abuse limits are outside the allowed range": "注册与邮件防刷限制超出允许范围",
+    "Slot not assigned": "尚未分配槽位",
+    "Connection details unavailable": "连接信息暂时无法获取",
+    "No outbound connection configured": "未配置出口连接",
+    "Bound slot not found": "未找到已绑定槽位",
+    "Outbound connection disabled": "出口连接未启用",
+    "Slot": "槽位"
+  }
 }
