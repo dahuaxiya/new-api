@@ -45,20 +45,75 @@ type PoolKey struct {
 }
 
 type upstreamSlot struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Status      string `json:"status"`
-	Family      string `json:"family"`
-	Codex       bool   `json:"codex_kernel"`
-	HasToken    bool   `json:"has_token"`
-	Schedulable bool   `json:"schedulable"`
-	Runtime     string `json:"runtime_type"`
-	NodeID      string `json:"node_id"`
-	ProxyID     string `json:"proxy_id"`
-	Proxy       struct {
-		ID    string `json:"id"`
-		Label string `json:"label"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Status          string `json:"status"`
+	Family          string `json:"family"`
+	Codex           bool   `json:"codex_kernel"`
+	HasToken        bool   `json:"has_token"`
+	Schedulable     bool   `json:"schedulable"`
+	Runtime         string `json:"runtime_type"`
+	NodeID          string `json:"node_id"`
+	ProxyID         string `json:"proxy_id"`
+	ProxyCLIEnabled bool   `json:"proxy_cli_enabled"`
+	Proxy           struct {
+		ID     string `json:"id"`
+		Label  string `json:"label"`
+		Scheme string `json:"scheme"`
 	} `json:"proxy"`
+}
+
+// SlotConnection 只描述槽位配置的出口，不含地址、认证参数，也不代表实测公网 IP 或连通性。
+type SlotConnection struct {
+	Status   string `json:"status"`
+	SlotName string `json:"slot_name,omitempty"`
+	ExitID   string `json:"exit_id,omitempty"`
+	ExitName string `json:"exit_name,omitempty"`
+	ExitType string `json:"exit_type,omitempty"`
+}
+
+// SlotConnections 批量读取本机 GPT/Claude 槽位的配置连接，供管理员按实例及槽位精确关联。
+// ctx 限制两次只读面板请求的总时长；任一步失败返回错误，不能将未知出口当成未配置。
+func (c *Client) SlotConnections(ctx context.Context) (map[string]SlotConnection, error) {
+	var response struct {
+		Data struct {
+			Items []upstreamSlot `json:"items"`
+		} `json:"data"`
+	}
+	if err := c.request(ctx, http.MethodGet, "/api/panel/vms", nil, &response); err != nil {
+		return nil, err
+	}
+	exits, err := c.ListExits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]Exit, len(exits))
+	for _, exit := range exits {
+		byID[exit.ID] = exit
+	}
+	result := make(map[string]SlotConnection, len(response.Data.Items))
+	for _, raw := range response.Data.Items {
+		slot := raw.safeView()
+		// 同名槽位可能存在于历史集群节点；只接受当前独立实例的本机 GPT/Claude 槽位。
+		if slot.nodeID != "" || (slot.Kind != "codex" && slot.Kind != "claude") || !identifier.MatchString(slot.ID) {
+			continue
+		}
+		connection := SlotConnection{Status: "unconfigured", SlotName: slot.Name}
+		if slot.ExitID != "" {
+			connection.Status, connection.ExitID = "configured", slot.ExitID
+			connection.ExitName, connection.ExitType = slot.ExitName, raw.Proxy.Scheme
+			if exit, ok := byID[slot.ExitID]; ok {
+				connection.ExitName, connection.ExitType = exit.Name, exit.Type
+			}
+			// 已绑定的出口可能因容量已满而不可再分配；ListExits.Available 不是此账号的连接状态。
+			// 实际是否启用代理以槽位开关为准，不能只因仍保存 proxy_id 就宣称正在使用。
+			if !raw.ProxyCLIEnabled {
+				connection.Status = "disabled"
+			}
+		}
+		result[slot.ID] = connection
+	}
+	return result, nil
 }
 
 // safeView 显式构建返回字段，防止面板以后新增敏感字段时被自动转发。

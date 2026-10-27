@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -14,7 +15,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import type { HostingSummary } from '../../hosting-api'
 import type { User } from '../../types'
-import { HostingCell } from '../hosting-cells'
+import { HostingCell, HostingConnection } from '../hosting-cells'
 import { HostingTermNotice } from '../hosting-term-notice'
 import { useUsersColumns } from '../users-columns'
 import { UsersMobileCard } from '../users-mobile-card'
@@ -40,6 +41,110 @@ afterEach(() => {
   clients.splice(0).forEach((c) => c.clear())
   useAuthStore.getState().auth.reset()
   vi.restoreAllMocks()
+})
+
+/** 多账号行分别显示自己的实例和出口，同名槽位也不得复用首账号信息。 */
+it('multiple hosted accounts keep their own slot and outbound connection', () => {
+  render(
+    <HostingCell
+      kind='account'
+      summary={{
+        user_id: 2,
+        status: 'active',
+        seats: [
+          {
+            binding_id: 'one',
+            valid: true,
+            instance_id: 'bw',
+            instance_name: 'Bandwagon',
+            slot_id: 'same-slot',
+            binding: {
+              state: 'active',
+              account_label: 'GPT owner',
+              platform: 'codex',
+              plan: 'pro',
+              paused: false,
+            },
+            connection: {
+              status: 'configured',
+              exit_id: 'same-exit',
+              exit_name: 'BW IPv6',
+              exit_type: 'socks5',
+            },
+          },
+          {
+            binding_id: 'two',
+            valid: true,
+            instance_id: 'cc',
+            instance_name: 'CloudCone',
+            slot_id: 'same-slot',
+            binding: {
+              state: 'active',
+              account_label: 'Claude owner',
+              platform: 'claude',
+              plan: 'max',
+              paused: false,
+            },
+            connection: {
+              status: 'configured',
+              exit_id: 'same-exit',
+              exit_name: 'CC IPv6',
+              exit_type: 'socks5',
+            },
+          },
+        ],
+      }}
+    />
+  )
+  const gpt = within(screen.getByRole('listitem', { name: 'GPT owner' }))
+  const claude = within(screen.getByRole('listitem', { name: 'Claude owner' }))
+  expect(gpt.getByText('Bandwagon / same-slot')).toBeInTheDocument()
+  expect(gpt.getByText('BW IPv6 · SOCKS5')).toBeInTheDocument()
+  expect(gpt.queryByText('CC IPv6 · SOCKS5')).not.toBeInTheDocument()
+  expect(claude.getByText('CloudCone / same-slot')).toBeInTheDocument()
+  expect(claude.getByText('CC IPv6 · SOCKS5')).toBeInTheDocument()
+})
+
+/** 后端读取失败、未配置、已禁用和未分配是不同状态，管理员不能被误导为可以直连。 */
+it('connection read failure stays distinct from no configured connection or no slot', () => {
+  const view = render(
+    <HostingConnection
+      summary={{
+        instance_id: 'cc',
+        slot_id: 'slot',
+        connection: { status: 'unavailable' },
+      }}
+    />
+  )
+  expect(screen.getByText('Connection details unavailable')).toBeInTheDocument()
+  expect(
+    screen.queryByText('No outbound connection configured')
+  ).not.toBeInTheDocument()
+  view.rerender(
+    <HostingConnection
+      summary={{ slot_id: 'slot', connection: { status: 'unconfigured' } }}
+    />
+  )
+  expect(
+    screen.getByText('No outbound connection configured')
+  ).toBeInTheDocument()
+  view.rerender(
+    <HostingConnection
+      summary={{
+        slot_id: 'slot',
+        connection: {
+          status: 'disabled',
+          exit_id: 'proxy',
+          exit_name: 'Saved exit',
+        },
+      }}
+    />
+  )
+  expect(screen.getByText('Saved exit')).toBeInTheDocument()
+  expect(screen.getByText('Outbound connection disabled')).toBeInTheDocument()
+  view.rerender(<HostingConnection summary={{}} />)
+  expect(screen.getByText('Slot not assigned')).toBeInTheDocument()
+  expect(screen.queryByText('Saved exit')).not.toBeInTheDocument()
 })
 
 it('未设期限提示使用服务端总数，点击后交给列表切换筛选', async () => {

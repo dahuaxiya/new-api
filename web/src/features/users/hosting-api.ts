@@ -22,6 +22,20 @@ import { quotaSchema } from '@/features/gpt-quota/schema'
 import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
+const hostingConnectionSchema = z.object({
+  status: z.enum([
+    'configured',
+    'disabled',
+    'unconfigured',
+    'unavailable',
+    'missing',
+  ]),
+  slot_name: z.string().optional(),
+  exit_id: z.string().optional(),
+  exit_name: z.string().optional(),
+  exit_type: z.string().optional(),
+})
+
 const baseHostingSummarySchema = z.object({
   user_id: z.number(),
   status: z.string(),
@@ -29,6 +43,7 @@ const baseHostingSummarySchema = z.object({
   instance_id: z.string().optional(),
   instance_name: z.string().optional(),
   slot_id: z.string().optional(),
+  connection: hostingConnectionSchema.optional(),
   grant: z
     .object({
       seat_id: z.string().optional(),
@@ -70,7 +85,9 @@ export const hostingSummarySchema = baseHostingSummarySchema.extend({
         binding_id: z.string(),
         status: z.string().optional(),
         instance_id: z.string().optional(),
+        instance_name: z.string().optional(),
         slot_id: z.string().optional(),
+        connection: hostingConnectionSchema.optional(),
         migration_state: z.string().optional(),
         migration_target_instance_id: z.string().optional(),
         migration_target_slot_id: z.string().optional(),
