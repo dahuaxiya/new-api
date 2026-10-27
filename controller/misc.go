@@ -228,7 +228,7 @@ func SendEmailVerification(c *gin.Context) {
 		writeSecurityOperationError(c, err)
 		return
 	}
-	code, err := model.BeginRegistrationEmail(email, c.ClientIP())
+	challenge, err := model.BeginRegistrationEmail(email, c.ClientIP())
 	if err != nil {
 		if errors.Is(err, model.ErrRegistrationRateLimit) {
 			writeAccountStatusError(c, http.StatusTooManyRequests, model.ErrRegistrationRateLimit.Error())
@@ -242,18 +242,18 @@ func SendEmailVerification(c *gin.Context) {
 	subject := i18n.T(c, i18n.MsgEmailVerificationSubject, systemName)
 	content := fmt.Sprintf("<p>%s</p><p>%s</p><p>%s</p>",
 		i18n.T(c, i18n.MsgEmailVerificationGreeting, systemName),
-		i18n.T(c, i18n.MsgEmailVerificationCode, map[string]any{"Code": code}),
-		i18n.T(c, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": int(model.RegistrationCodeTTL.Minutes())}))
+		i18n.T(c, i18n.MsgEmailVerificationCode, map[string]any{"Code": challenge.Code}),
+		i18n.T(c, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": challenge.ValidMinutes}))
 	if err := common.SendEmail(subject, email, content); err != nil {
 		// 不回传供应商错误或激活未发送成功的验证码，也不退回发送预算。
 		common.ApiErrorT(c, "Verification email could not be sent. Start email verification again.")
 		return
 	}
-	if err := model.MarkRegistrationEmailDelivered(email, code); err != nil {
+	if err := model.MarkRegistrationEmailDelivered(email, challenge.Code); err != nil {
 		common.ApiErrorT(c, "Verification email could not be sent. Start email verification again.")
 		return
 	}
-	common.ApiSuccess(c, nil)
+	common.ApiSuccess(c, gin.H{"resend_seconds": challenge.ResendSeconds})
 }
 
 // SendPasswordResetEmail 与注册共用匿名邮件预算，避免通过重置入口消耗全部发信额度。

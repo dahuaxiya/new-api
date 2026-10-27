@@ -393,6 +393,7 @@ export type OperationsSettings = {
 }
 
 export type SecuritySettings = {
+  RegistrationAbusePolicy: string
   ModelRequestRateLimitEnabled: boolean
   ModelRequestRateLimitCount: number
   ModelRequestRateLimitSuccessCount: number

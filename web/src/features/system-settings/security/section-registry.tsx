@@ -21,8 +21,16 @@ import { SSRFSection } from '../request-limits/ssrf-section'
 import { TokenLimitSection } from '../request-limits/token-limit-section'
 import type { SecuritySettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { RegistrationAbuseSection } from './registration-abuse-section'
 
 const SECURITY_SECTIONS = [
+  {
+    id: 'registration-abuse',
+    titleKey: 'Registration and email abuse protection',
+    build: (settings: SecuritySettings) => (
+      <RegistrationAbuseSection value={settings.RegistrationAbusePolicy} />
+    ),
+  },
   {
     id: 'rate-limit',
     titleKey: 'Rate Limiting',

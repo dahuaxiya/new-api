@@ -254,11 +254,11 @@ export async function register(payload: RegisterPayload): Promise<ApiResponse> {
   return res.data
 }
 
-// Send email verification code
+/** Send a registration code and return the cooldown used by this challenge. */
 export async function sendEmailVerification(
   email: string,
   turnstile?: string
-): Promise<ApiResponse> {
+): Promise<ApiResponse<{ resend_seconds: number }>> {
   const res = await api.get('/api/verification', {
     params: { email, turnstile },
   })

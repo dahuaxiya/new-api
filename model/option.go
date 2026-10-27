@@ -30,9 +30,12 @@ func AllOption() ([]*Option, error) {
 	return options, err
 }
 
+// InitOptionMap 初始化默认值后加载持久设置；注册防刷以完整策略发布。
 func InitOptionMap() {
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
+	registrationPolicy, _ := common.Marshal(DefaultRegistrationAbusePolicy())
+	common.OptionMap[RegistrationAbusePolicyKey] = string(registrationPolicy)
 
 	// 添加原有的系统配置
 	common.OptionMap["FileUploadPermission"] = strconv.Itoa(common.FileUploadPermission)
@@ -195,7 +198,10 @@ func InitOptionMap() {
 	loadOptionsFromDatabase()
 }
 
+// loadOptionsFromDatabase 串行读取安全策略，避免定时同步覆盖并发保存。
 func loadOptionsFromDatabase() {
+	registrationPolicyOptionMutex.Lock()
+	defer registrationPolicyOptionMutex.Unlock()
 	requestPolicyOptionMutex.Lock()
 	defer requestPolicyOptionMutex.Unlock()
 	defer func() {
@@ -228,7 +234,12 @@ func SyncOptions(frequency int) {
 	}
 }
 
+// validateOptionValue 在数据库写入前校验配置，非法安全阈值不得落库。
 func validateOptionValue(key string, value string) error {
+	if key == RegistrationAbusePolicyKey {
+		_, err := ParseRegistrationAbusePolicy(value)
+		return err
+	}
 	if key == legacyAccessTokenRetireAtKey {
 		return errLegacyRetireAtReadOnly
 	}
@@ -250,7 +261,11 @@ func validateOptionValue(key string, value string) error {
 	return nil
 }
 
+// UpdateOption 按选项类型保存；注册防刷必须经过检查数据库错误的原子保存路径。
 func UpdateOption(key string, value string) error {
+	if key == RegistrationAbusePolicyKey {
+		return UpdateOptionsBulk(map[string]string{key: value})
+	}
 	if IsRequestPolicyOption(key) {
 		return UpdateRequestPolicyOptions(map[string]string{key: value})
 	}
@@ -285,6 +300,11 @@ func UpdateOption(key string, value string) error {
 // is touched — safe for callers that must commit a set of related options
 // atomically (e.g. payment gateway binding).
 func UpdateOptionsBulk(values map[string]string) error {
+	if _, ok := values[RegistrationAbusePolicyKey]; ok {
+		// 与定时回读共用锁，保持数据库提交与内存发布的先后顺序。
+		registrationPolicyOptionMutex.Lock()
+		defer registrationPolicyOptionMutex.Unlock()
+	}
 	if len(values) == 0 {
 		return nil
 	}
@@ -346,7 +366,13 @@ func UpdateOptionsBulk(values map[string]string) error {
 	return nil
 }
 
+// updateOptionMap 发布已经持久化的设置；坏的防刷配置保留最后一次有效值。
 func updateOptionMap(key string, value string) (err error) {
+	if key == RegistrationAbusePolicyKey {
+		if _, err := ParseRegistrationAbusePolicy(value); err != nil {
+			return err
+		}
+	}
 	if key == retiredThemeOptionKey || key == legacyAccessTokenRetireAtKey {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)

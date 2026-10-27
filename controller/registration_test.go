@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -21,6 +22,18 @@ import (
 func setupRegistrationTest(t *testing.T) *securityMailbox {
 	t.Helper()
 	setupSecurityEnrollmentTest(t)
+	common.OptionMapRWMutex.Lock()
+	oldPolicy := common.OptionMap[model.RegistrationAbusePolicyKey]
+	if common.OptionMap == nil {
+		common.OptionMap = make(map[string]string)
+	}
+	delete(common.OptionMap, model.RegistrationAbusePolicyKey)
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap[model.RegistrationAbusePolicyKey] = oldPolicy
+		common.OptionMapRWMutex.Unlock()
+	})
 	oldRegister, oldPassword, oldEmail := common.RegisterEnabled, common.PasswordRegisterEnabled, common.EmailVerificationEnabled
 	oldToken, oldQuota := constant.GenerateDefaultToken, common.QuotaForNewUser
 	common.RegisterEnabled, common.PasswordRegisterEnabled, common.EmailVerificationEnabled = true, true, true
@@ -101,7 +114,8 @@ func TestRegistrationCodeBoundaries(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			setupRegistrationTest(t)
 			email := "boundary@example.com"
-			code, err := model.BeginRegistrationEmail(email, "203.0.113.4")
+			challenge, err := model.BeginRegistrationEmail(email, "203.0.113.4")
+			code := challenge.Code
 			require.NoError(t, err)
 			if scenario != "undelivered" {
 				require.NoError(t, model.MarkRegistrationEmailDelivered(email, code))
@@ -126,7 +140,8 @@ func TestRegistrationCodeBoundaries(t *testing.T) {
 			case "resend":
 				require.ErrorIs(t, register("wrong", "wrong"), model.ErrRegistrationCode)
 				require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("purpose = ?", "registration_code").Update("created_at", time.Now().Add(-2*time.Minute)).Error)
-				fresh, err := model.BeginRegistrationEmail(email, "203.0.113.4")
+				freshChallenge, err := model.BeginRegistrationEmail(email, "203.0.113.4")
+				fresh := freshChallenge.Code
 				require.NoError(t, err)
 				require.NoError(t, model.MarkRegistrationEmailDelivered(email, fresh))
 				if fresh != code {
@@ -149,7 +164,8 @@ func TestRegistrationConcurrencyAndLimits(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 4 {
 		wg.Go(func() {
-			code, err := model.BeginRegistrationEmail("race@example.com", "203.0.113.5")
+			challenge, err := model.BeginRegistrationEmail("race@example.com", "203.0.113.5")
+			code := challenge.Code
 			if err == nil {
 				codes <- code
 			} else {
@@ -186,7 +202,8 @@ func TestRegistrationConcurrencyAndLimits(t *testing.T) {
 	// 同一 IP 第四次成功注册被拒绝，即使邮箱不同、进程内没有计数缓存。
 	for i := range 3 {
 		email := fmt.Sprintf("next%d@example.com", i)
-		code, err := model.BeginRegistrationEmail(email, "203.0.113.5")
+		challenge, err := model.BeginRegistrationEmail(email, "203.0.113.5")
+		code := challenge.Code
 		require.NoError(t, err)
 		require.NoError(t, model.MarkRegistrationEmailDelivered(email, code))
 		err = model.RegisterUserWithEmail(&model.User{Username: fmt.Sprintf("next%d", i), Email: email, Password: "private-registration-password", Role: common.RoleCommonUser}, code, "203.0.113.5")
@@ -257,4 +274,142 @@ func TestRegistrationSMTPFailure(t *testing.T) {
 	var flow model.AuthFlow
 	require.NoError(t, model.DB.Where("purpose = ?", "registration_code").First(&flow).Error)
 	require.Contains(t, flow.Payload, `"ready":false`)
+}
+
+// saveRegistrationPolicy 通过实际选项保存路径写入整组策略，返回可用于核对数据库的 JSON。
+func saveRegistrationPolicy(t *testing.T, policy model.RegistrationAbusePolicy) string {
+	t.Helper()
+	raw, err := common.Marshal(policy)
+	require.NoError(t, err)
+	require.NoError(t, model.UpdateOption(model.RegistrationAbusePolicyKey, string(raw)))
+	return string(raw)
+}
+
+// TestRegistrationPolicyValidation 验证整组保存、持久化、非法参数拒绝及写库失败不能提前生效。
+func TestRegistrationPolicyValidation(t *testing.T) {
+	setupRegistrationTest(t)
+	defaults := model.DefaultRegistrationAbusePolicy()
+	require.Equal(t, defaults, model.CurrentRegistrationAbusePolicy())
+	policy := defaults
+	policy.EmailDaily = 2
+	good := saveRegistrationPolicy(t, policy)
+	var stored model.Option
+	require.NoError(t, model.DB.Where(&model.Option{Key: model.RegistrationAbusePolicyKey}).First(&stored).Error)
+	require.Equal(t, good, stored.Value)
+	for _, raw := range []string{`{}`, `null`, `{"email_daily":1.5}`, strings.Replace(good, `"email_daily":2`, `"email_daily":0`, 1), strings.Replace(good, `"code_max_attempts":5`, `"code_max_attempts":11`, 1), strings.Replace(good, `"resend_seconds":60`, `"resend_seconds":601`, 1), strings.Replace(good, `"ip_email_hourly":10`, `"ip_email_hourly":31`, 1)} {
+		require.Error(t, model.UpdateOption(model.RegistrationAbusePolicyKey, raw))
+		require.Equal(t, policy, model.CurrentRegistrationAbusePolicy())
+		require.NoError(t, model.DB.Where(&model.Option{Key: model.RegistrationAbusePolicyKey}).First(&stored).Error)
+		require.Equal(t, good, stored.Value)
+	}
+	// 模拟进程失去内存值并从 options 恢复，数据库中无新增 schema。
+	common.OptionMapRWMutex.Lock()
+	delete(common.OptionMap, model.RegistrationAbusePolicyKey)
+	common.OptionMapRWMutex.Unlock()
+	require.NoError(t, model.UpdateOptionsBulk(map[string]string{model.RegistrationAbusePolicyKey: stored.Value}))
+	require.Equal(t, policy, model.CurrentRegistrationAbusePolicy())
+	require.NoError(t, model.DB.Migrator().DropTable(&model.Option{}))
+	policy.EmailDaily = 3
+	raw, err := common.Marshal(policy)
+	require.NoError(t, err)
+	require.Error(t, model.UpdateOption(model.RegistrationAbusePolicyKey, string(raw)))
+	require.Equal(t, 2, model.CurrentRegistrationAbusePolicy().EmailDaily)
+}
+
+// TestRegistrationPolicyLiveCounters 验证修改阈值不清零计数，注册与密码重置继续共用限制。
+func TestRegistrationPolicyLiveCounters(t *testing.T) {
+	setupRegistrationTest(t)
+	for range 2 {
+		require.NoError(t, model.ReservePublicEmail("saved@example.com", "203.0.113.101"))
+	}
+	policy := model.DefaultRegistrationAbusePolicy()
+	policy.EmailDaily = 2
+	policy.RegistrationIPHourly = 2
+	saveRegistrationPolicy(t, policy)
+	require.ErrorIs(t, model.ReservePublicEmail("saved@example.com", "203.0.113.102"), model.ErrRegistrationRateLimit)
+	require.Equal(t, http.StatusTooManyRequests, registrationRequest(t, "GET", "/api/reset_password?email=saved@example.com", "203.0.113.103", "").Code)
+	policy.EmailDaily = 3
+	saveRegistrationPolicy(t, policy)
+	require.NoError(t, model.ReservePublicEmail("saved@example.com", "203.0.113.104"))
+	require.ErrorIs(t, model.ReservePublicEmail("saved@example.com", "203.0.113.105"), model.ErrRegistrationRateLimit)
+	for range 2 {
+		require.NoError(t, model.ReserveRegistrationAttempt("203.0.113.110"))
+	}
+	saveRegistrationPolicy(t, policy)
+	require.ErrorIs(t, model.ReserveRegistrationAttempt("203.0.113.110"), model.ErrRegistrationRateLimit)
+}
+
+// TestRegistrationPolicyChallenge 验证邮件文案与冷却返回值使用同一快照，现有码过期时间及锁定不能被放宽设置改写。
+func TestRegistrationPolicyChallenge(t *testing.T) {
+	mailbox := setupRegistrationTest(t)
+	policy := model.DefaultRegistrationAbusePolicy()
+	policy.CodeTTLMinutes, policy.ResendSeconds, policy.CodeMaxAttempts = 2, 90, 2
+	saveRegistrationPolicy(t, policy)
+	response := registrationRequest(t, "GET", "/api/verification?email=policy@example.com", "203.0.113.111", "")
+	require.Contains(t, response.Body.String(), `"resend_seconds":90`)
+	code := mailbox.code(t, "policy@example.com")
+	mailbox.mutex.Lock()
+	message := mailbox.mail["policy@example.com"][0]
+	mailbox.mutex.Unlock()
+	require.Regexp(t, `2 (分钟|分鐘|minutes)`, message)
+	var flow model.AuthFlow
+	require.NoError(t, model.DB.Where("purpose = ?", "registration_code").First(&flow).Error)
+	require.InDelta(t, 120, flow.ExpiresAt.Sub(flow.CreatedAt).Seconds(), 1)
+	// 旧的 60 秒硬编码若残留，这个重发会被错误接受。
+	require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("id = ?", flow.Id).Update("created_at", time.Now().Add(-70*time.Second)).Error)
+	_, err := model.BeginRegistrationEmail("policy@example.com", "203.0.113.111")
+	require.ErrorIs(t, err, model.ErrRegistrationRateLimit)
+	user := &model.User{Username: "policyuser", Email: "policy@example.com", Password: "private-registration-password", Role: common.RoleCommonUser}
+	for range 2 {
+		require.ErrorIs(t, model.RegisterUserWithEmail(user, "wrong", "203.0.113.111"), model.ErrRegistrationCode)
+	}
+	policy.CodeTTLMinutes, policy.CodeMaxAttempts, policy.ResendSeconds = 10, 10, 30
+	saveRegistrationPolicy(t, policy)
+	require.ErrorIs(t, model.RegisterUserWithEmail(user, code, "203.0.113.111"), model.ErrRegistrationCode)
+	_, err = model.BeginRegistrationEmail("policy@example.com", "203.0.113.111")
+	require.ErrorIs(t, err, model.ErrRegistrationRateLimit)
+	var after model.AuthFlow
+	require.NoError(t, model.DB.Where("id = ?", flow.Id).First(&after).Error)
+	require.Equal(t, flow.ExpiresAt, after.ExpiresAt)
+	fresh, err := model.BeginRegistrationEmail("freshpolicy@example.com", "203.0.113.111")
+	require.NoError(t, err)
+	require.Equal(t, 10, fresh.ValidMinutes)
+	require.Equal(t, 30, fresh.ResendSeconds)
+}
+
+// TestRegistrationPolicyPermission 验证实际 RootAuth 拒绝普通用户，并允许 root 保存与回读。
+func TestRegistrationPolicyPermission(t *testing.T) {
+	setupRegistrationTest(t)
+	router := gin.New()
+	router.PUT("/api/option/", middleware.RootAuth(), UpdateOption)
+	router.GET("/api/option/", middleware.RootAuth(), GetOptions)
+	policy := model.DefaultRegistrationAbusePolicy()
+	policy.EmailDaily = 4
+	raw, err := common.Marshal(policy)
+	require.NoError(t, err)
+	body, err := common.Marshal(map[string]string{"key": model.RegistrationAbusePolicyKey, "value": string(raw)})
+	require.NoError(t, err)
+	for _, role := range []int{common.RoleCommonUser, common.RoleRootUser} {
+		user := &model.User{Username: fmt.Sprintf("policyrole%d", role), AffCode: fmt.Sprintf("policy%d", role), Password: "unused", Role: role, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1}
+		require.NoError(t, model.DB.Create(user).Error)
+		require.NoError(t, model.PublishUserAuthCache(user.Id))
+		_, token := createAccessTokenTestSession(t, user.Id, fmt.Sprintf("policy-session-%d", role))
+		request := httptest.NewRequest("PUT", "/api/option/", strings.NewReader(string(body)))
+		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if role == common.RoleCommonUser {
+			require.Equal(t, http.StatusForbidden, response.Code)
+			require.Equal(t, model.DefaultRegistrationAbusePolicy(), model.CurrentRegistrationAbusePolicy())
+		} else {
+			require.Contains(t, response.Body.String(), `"success":true`)
+			require.Equal(t, policy, model.CurrentRegistrationAbusePolicy())
+			request = httptest.NewRequest("GET", "/api/option/", nil)
+			request.Header.Set("Authorization", "Bearer "+token)
+			response = httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			require.Contains(t, response.Body.String(), model.RegistrationAbusePolicyKey)
+		}
+	}
 }

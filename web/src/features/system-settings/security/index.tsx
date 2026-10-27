@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { SettingsPage } from '../components/settings-page'
 import type { SecuritySettings } from '../types'
+import { REGISTRATION_ABUSE_DEFAULTS } from './lib/registration-abuse-schema'
 import {
   SECURITY_DEFAULT_SECTION,
   getSecuritySectionContent,
@@ -25,6 +26,7 @@ import {
 } from './section-registry.tsx'
 
 const defaultSecuritySettings: SecuritySettings = {
+  RegistrationAbusePolicy: JSON.stringify(REGISTRATION_ABUSE_DEFAULTS),
   ModelRequestRateLimitEnabled: false,
   ModelRequestRateLimitCount: 0,
   ModelRequestRateLimitSuccessCount: 1000,

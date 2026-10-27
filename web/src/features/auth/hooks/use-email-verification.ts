@@ -62,7 +62,8 @@ export function useEmailVerification(options?: UseEmailVerificationOptions) {
     try {
       const res = await sendEmailVerification(email, options?.turnstileToken)
       if (res?.success) {
-        startCountdown()
+        // Use the policy captured when the server created this challenge.
+        startCountdown(res.data?.resend_seconds ?? EMAIL_VERIFICATION_COUNTDOWN)
         toast.success(i18next.t('Verification email sent'))
         return true
       }
