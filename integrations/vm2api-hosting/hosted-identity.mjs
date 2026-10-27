@@ -17,7 +17,7 @@ async function officialJSON(url, fetchImpl) {
   return res.json()
 }
 
-/** 验证签名、颁发方、受众和期限，分别保留个人主体与 ChatGPT 账号语义，不用邮箱或 user_id 回退。 */
+/** 验证官方签名、颁发方、受众和期限；主体与账号用于归属校验，套餐仅作展示，不决定准入。 */
 export async function verifyHostedIdentity(tokens, proxyUrl, fetchImpl = makeProxyFetch(proxyUrl)) {
   const jwt = String(tokens?.id_token || '')
   if (jwt.length > 32768) throw hostedError('identity_invalid')
@@ -37,8 +37,12 @@ export async function verifyHostedIdentity(tokens, proxyUrl, fetchImpl = makePro
   if (!audiences.includes(CODEX_OAUTH_CLIENT_ID) || (audiences.length > 1 && claims.azp !== CODEX_OAUTH_CLIENT_ID) || (claims.azp && claims.azp !== CODEX_OAUTH_CLIENT_ID) || !Number.isFinite(claims.exp) || claims.exp <= now || !Number.isFinite(claims.iat) || claims.iat > now + 60 || (claims.nbf && claims.nbf > now + 60)) throw hostedError('identity_invalid')
   const auth = claims['https://api.openai.com/auth'] || {}
   const account = auth.chatgpt_account_id
-  const plan = auth.chatgpt_plan_type
-  if (typeof claims.sub !== 'string' || !claims.sub || claims.sub.length > 256 || typeof account !== 'string' || !account || account.length > 256 || !['free', 'plus', 'pro'].includes(plan)) throw hostedError('personal_account_required')
+  if (typeof claims.sub !== 'string' || !claims.sub || claims.sub.length > 256 || typeof account !== 'string' || !account || account.length > 256) throw hostedError('identity_invalid')
+  // 套餐标识会随官方产品变化；不能用固定白名单阻止已验证身份的账号绑定。
+  // 缺失或非字符串只记为 unknown，长度遵循门户 plan 字段的 varchar(32) 存储约束。
+  const plan = typeof auth.chatgpt_plan_type === 'string'
+    ? auth.chatgpt_plan_type.trim().slice(0, 32) || 'unknown'
+    : 'unknown'
   const hash = value => crypto.createHash('sha256').update(value).digest('hex')
   const email = typeof claims.email === 'string' ? claims.email : ''
   const at = email.indexOf('@')

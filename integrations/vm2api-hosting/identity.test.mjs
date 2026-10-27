@@ -21,16 +21,30 @@ async function fetchOfficial(url,opts) {
  assert.equal(opts.redirect,'error')
  return {status:200,json:async()=>url.endsWith('openid-configuration')?{issuer:'https://auth.openai.com',jwks_uri:'https://auth.openai.com/.well-known/jwks.json'}:{keys:[jwk]}}
 }
-test('only signed personal identity for this audience is accepted',async()=>{
+/** 放开套餐后仍必须拒绝失效、伪造、错受众或缺少主体/账号的授权，防止准入变更绕过身份验证。 */
+test('only signed account identity for this audience is accepted',async()=>{
  const result=await verifyHostedIdentity({id_token:token()},'',fetchOfficial)
  assert.equal(result.plan,'plus');assert.equal(result.label,'a***@example.test');assert.equal(result.account_hash.length,64)
- for(const invalid of [{...claims,exp:now-1},{...claims,iss:'https://evil.test'},{...claims,aud:'another-client'},{...claims,iat:now+3600},{...claims,sub:''},{...claims,'https://api.openai.com/auth':{chatgpt_account_id:'account',chatgpt_plan_type:'team'}}]) {
+ for(const invalid of [{...claims,exp:now-1},{...claims,iss:'https://evil.test'},{...claims,aud:'another-client'},{...claims,iat:now+3600},{...claims,nbf:now+3600},{...claims,azp:'another-client'},{...claims,sub:''},{...claims,'https://api.openai.com/auth':{chatgpt_plan_type:'pro_500'}}]) {
   await assert.rejects(verifyHostedIdentity({id_token:token(invalid)},'',fetchOfficial))
  }
  await assert.rejects(verifyHostedIdentity({id_token:token(claims,{alg:'none',kid:'fixture'})},'',fetchOfficial))
  const forged=token().split('.');forged[1]=Buffer.from(JSON.stringify({...claims,sub:'forged'})).toString('base64url')
  await assert.rejects(verifyHostedIdentity({id_token:forged.join('.')},'',fetchOfficial))
  await assert.rejects(verifyHostedIdentity({id_token:token()},'',async()=>({status:200,json:async()=>({issuer:claims.iss,jwks_uri:'http://127.0.0.1/secret'})})))
+})
+
+/** 官方签名与身份不变时，新套餐、无套餐或异常展示值都不得阻断绑定，也不得改变账号归属。 */
+test('subscription labels are optional bounded metadata, not an admission filter',async()=>{
+ const baseline=await verifyHostedIdentity({id_token:token()},'',fetchOfficial)
+ const cases=[['pro_500','pro_500'],['pro500','pro500'],['team','team'],['future-tier','future-tier'],[undefined,'unknown'],[null,'unknown'],['','unknown'],[{},'unknown'],['x'.repeat(80),'x'.repeat(32)]]
+ for(const [raw,expected] of cases) {
+  const payload={...claims,'https://api.openai.com/auth':{chatgpt_account_id:'account',chatgpt_plan_type:raw}}
+  const result=await verifyHostedIdentity({id_token:token(payload)},'',fetchOfficial)
+  assert.equal(result.plan,expected)
+  assert.equal(result.account_hash,baseline.account_hash)
+  assert.equal(result.subject_hash,baseline.subject_hash)
+ }
 })
 
 const {verifyHostedClaudeIdentity}=await import(pathToFileURL(path.join(root,'lib/admin/hosted-claude.mjs')).href)
