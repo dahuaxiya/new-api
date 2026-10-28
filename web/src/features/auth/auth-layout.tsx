@@ -17,8 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import { useTranslation } from 'react-i18next'
 
+import { BrandArtwork } from '@/components/layout/components/brand-artwork'
 import { Footer } from '@/components/layout/components/footer'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSystemConfig } from '@/hooks/use-system-config'
@@ -33,7 +33,6 @@ type AuthLayoutProps = {
  * @return 正文可自然增高、页脚不覆盖表单操作的登录页面。
  */
 export function AuthLayout({ children }: AuthLayoutProps) {
-  const { t } = useTranslation()
   const { systemName, logo, loading } = useSystemConfig()
 
   return (
@@ -42,21 +41,12 @@ export function AuthLayout({ children }: AuthLayoutProps) {
         to='/'
         className='absolute top-4 left-4 z-10 flex items-center gap-2 transition-opacity hover:opacity-80 sm:top-8 sm:left-8'
       >
-        <div className='relative h-8 w-8'>
-          {loading ? (
-            <Skeleton className='absolute inset-0 rounded-full' />
-          ) : (
-            <img
-              src={logo}
-              alt={t('Logo')}
-              className='h-8 w-8 rounded-full object-cover'
-            />
-          )}
-        </div>
         {loading ? (
-          <Skeleton className='h-6 w-24' />
+          <Skeleton className='h-8 w-40' />
         ) : (
-          <h1 className='text-xl font-medium'>{systemName}</h1>
+          <h1>
+            <BrandArtwork logo={logo} name={systemName} />
+          </h1>
         )}
       </Link>
       <div className='container flex items-center pt-16 sm:pt-0'>
