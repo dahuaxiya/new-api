@@ -2,8 +2,8 @@
 <title id="brand-title">luobocode</title>
 <desc id="brand-desc">蜜杏金萝卜猫图形与圆角小写字标组成的品牌标志。</desc>
 <svg width="64" height="64" viewBox="36 32 184 184">
-  
-  
+
+
   <!-- 叶柄先画、猫脸后画，让叶片真正接入头顶，避免悬空或像额外一对耳朵。 -->
   <g fill="#74B79E">
     <path d="M128 86V64" stroke="#74B79E" stroke-width="6" stroke-linecap="round"/>
