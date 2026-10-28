@@ -76,6 +76,14 @@ const grantForm = z
   )
 type GrantValues = z.infer<typeof grantForm>
 
+const migrationStateKeys: Record<string, string> = {
+  reserving: 'Reserving target slot',
+  reserved: 'Target slot reserved',
+  authorizing: 'Waiting for official account authorization',
+  prepared: 'Account verified; ready to switch',
+  switched: 'Switched; waiting to clean up the source slot',
+}
+
 /** 一个用户抽屉内完成额度读取与期限管理；预检、确认和二次验证完成后才写入权益。 */
 export function HostingUserPanel(props: { user: User }) {
   const { t, i18n } = useTranslation()
@@ -226,13 +234,17 @@ export function HostingUserPanel(props: { user: User }) {
           slot_id: slot.id,
         }))
     ) || []
+  const migrationState = data?.migration_state
+    ? t(migrationStateKeys[data.migration_state] || 'Migration in progress')
+    : ''
   const migrationPreflight = useMutation({
     mutationFn: async () => {
       const target = migrationOptions.find(
         (option) => option.value === migrationTarget
       )
-      if (!target || !grant?.seat_id)
+      if (!target || !grant?.seat_id) {
         throw new Error(t('Select a target slot.'))
+      }
       return postHosting<HostingMigrationCheck>('admin/migrate/check', {
         user_id: props.user.id,
         seat_id: grant.seat_id,
@@ -627,7 +639,7 @@ export function HostingUserPanel(props: { user: User }) {
           {data.migration_state && (
             <div className='flex flex-wrap items-center gap-3'>
               <p className='text-muted-foreground text-xs'>
-                {t('Migration state')}: {data.migration_state}
+                {t('Migration state')}: {migrationState}
                 {data.migration_target_instance_id &&
                 data.migration_target_slot_id
                   ? ` · ${data.migration_target_instance_id} / ${data.migration_target_slot_id}`
