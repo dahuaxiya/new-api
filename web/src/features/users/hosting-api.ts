@@ -87,13 +87,10 @@ export const hostingSummarySchema = baseHostingSummarySchema.extend({
         instance_id: z.string().optional(),
         instance_name: z.string().optional(),
         slot_id: z.string().optional(),
-<<<<<<< HEAD
         connection: hostingConnectionSchema.optional(),
-=======
         migration_state: z.string().optional(),
         migration_target_instance_id: z.string().optional(),
         migration_target_slot_id: z.string().optional(),
->>>>>>> 9129228a (feat(hosting): 上线跨实例托管账号迁移)
         valid: z.boolean(),
       })
     )
