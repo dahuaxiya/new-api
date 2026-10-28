@@ -31,7 +31,13 @@ import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { HOSTING_PERMANENT_END, postHosting } from '@/features/gpt-hosting/api'
+import {
+  HOSTING_PERMANENT_END,
+  getHosting,
+  postHosting,
+  type HostingAdmin,
+  type HostingMigrationCheck,
+} from '@/features/gpt-hosting/api'
 import { WindowReading } from '@/features/gpt-quota/quota-reading'
 import { quotaSchema } from '@/features/gpt-quota/schema'
 import { toIntlLocale } from '@/i18n/languages'
@@ -115,8 +121,15 @@ export function HostingUserPanel(props: { user: User }) {
       binding: selected.binding,
       slot_id: selected.slot_id,
       instance_id: selected.instance_id,
+<<<<<<< HEAD
       instance_name: selected.instance_name,
       connection: selected.connection,
+=======
+      instance_name: undefined,
+      migration_state: selected.migration_state,
+      migration_target_instance_id: selected.migration_target_instance_id,
+      migration_target_slot_id: selected.migration_target_slot_id,
+>>>>>>> 9129228a (feat(hosting): 上线跨实例托管账号迁移)
       quota: undefined,
       quota_unavailable: false,
       status: selected.status || (selected.valid ? 'active' : 'expired'),
@@ -185,6 +198,167 @@ export function HostingUserPanel(props: { user: User }) {
     actor?.role === ROLE.SUPER_ADMIN &&
     props.user.role === ROLE.USER &&
     props.user.status === 1
+  const migrationSlots = useQuery({
+    queryKey: ['hosting-migration-slots', actor?.id, sid],
+    queryFn: ({ signal }) => getHosting<HostingAdmin>('admin', signal),
+    enabled: canWrite && data?.status === 'active' && !!data?.binding,
+    retry: false,
+    staleTime: 15_000,
+  })
+  const [migrationTarget, setMigrationTarget] = useState('')
+  const [migrationReview, setMigrationReview] =
+    useState<HostingMigrationCheck | null>(null)
+  const [migrationAuth, setMigrationAuth] = useState<{
+    auth_url: string
+    session_id: string
+    target_instance_id: string
+    target_slot_id: string
+  } | null>(null)
+  const [migrationCallback, setMigrationCallback] = useState('')
+  const [migrationCleanupPending, setMigrationCleanupPending] = useState(false)
+  const migrationOptions =
+    migrationSlots.data?.instances?.flatMap((instance) =>
+      instance.slots
+        .filter(
+          (slot) =>
+            slot.enabled &&
+            slot.empty &&
+            slot.exit_ready &&
+            slot.managed &&
+            slot.state === 'inventory' &&
+            slot.platform === data?.binding?.platform
+        )
+        .map((slot) => ({
+          value: `${instance.id}:${slot.id}`,
+          label: `${instance.name} / ${slot.name || slot.id}`,
+          instance_id: instance.id,
+          slot_id: slot.id,
+        }))
+    ) || []
+  const migrationPreflight = useMutation({
+    mutationFn: async () => {
+      const target = migrationOptions.find(
+        (option) => option.value === migrationTarget
+      )
+      if (!target || !grant?.seat_id)
+        throw new Error(t('Select a target slot.'))
+      return postHosting<HostingMigrationCheck>('admin/migrate/check', {
+        user_id: props.user.id,
+        seat_id: grant.seat_id,
+        target_instance_id: target.instance_id,
+        target_slot_id: target.slot_id,
+      })
+    },
+    retry: false,
+    onError: (error) => handleServerError(error),
+    onSuccess: (result) => setMigrationReview(result),
+  })
+  const migrationStart = useMutation({
+    mutationFn: async () => {
+      if (!migrationReview || !grant?.seat_id) return
+      const proof = await requestVerification({
+        scope: 'admin.user.update',
+        context: { user_id: props.user.id },
+      })
+      if (!proof) return
+      return postHosting<{
+        auth_url: string
+        session_id: string
+        target_instance_id: string
+        target_slot_id: string
+      }>(
+        'admin/migrate/start',
+        {
+          user_id: props.user.id,
+          seat_id: grant.seat_id,
+          target_instance_id: migrationReview.target_instance_id,
+          target_slot_id: migrationReview.target_slot_id,
+        },
+        proof.proof_token
+      )
+    },
+    retry: false,
+    onError: (error) => handleServerError(error),
+    onSuccess: (result) => {
+      if (!result) return
+      setMigrationReview(null)
+      setMigrationAuth(result)
+      setMigrationCallback('')
+      setMigrationCleanupPending(false)
+      window.open(result.auth_url, '_blank', 'noopener,noreferrer')
+    },
+  })
+  const migrationFinish = useMutation({
+    mutationFn: async () => {
+      if (
+        !migrationAuth ||
+        !grant?.seat_id ||
+        (!migrationCallback.trim() && !migrationCleanupPending)
+      ) {
+        return
+      }
+      const proof = await requestVerification({
+        scope: 'admin.user.update',
+        context: { user_id: props.user.id },
+      })
+      if (!proof) return
+      return postHosting<{ cleanup_pending?: boolean }>(
+        'admin/migrate/finish',
+        {
+          user_id: props.user.id,
+          seat_id: grant.seat_id,
+          session_id: migrationAuth.session_id,
+          callback_url: migrationCallback.trim(),
+        },
+        proof.proof_token
+      )
+    },
+    retry: false,
+    onError: (error) => handleServerError(error),
+    onSettled: async () => {
+      await cache.invalidateQueries({ queryKey })
+      triggerRefresh()
+    },
+    onSuccess: (result) => {
+      if (result?.cleanup_pending) {
+        setMigrationCleanupPending(true)
+        setMigrationCallback('')
+        toast.warning(t('Target is active; source cleanup is still pending.'))
+        return
+      }
+      setMigrationAuth(null)
+      setMigrationCallback('')
+      setMigrationCleanupPending(false)
+      toast.success(t('Hosting account migrated'))
+    },
+  })
+  const migrationCancel = useMutation({
+    mutationFn: async () => {
+      if (!migrationAuth || !grant?.seat_id) return
+      const proof = await requestVerification({
+        scope: 'admin.user.update',
+        context: { user_id: props.user.id },
+      })
+      if (!proof) return
+      return postHosting(
+        'admin/migrate/cancel',
+        {
+          user_id: props.user.id,
+          seat_id: grant.seat_id,
+          target_instance_id: migrationAuth.target_instance_id,
+          target_slot_id: migrationAuth.target_slot_id,
+        },
+        proof.proof_token
+      )
+    },
+    retry: false,
+    onError: (error) => handleServerError(error),
+    onSuccess: () => {
+      setMigrationAuth(null)
+      setMigrationCallback('')
+      setMigrationCleanupPending(false)
+    },
+  })
   const save = useMutation({
     mutationFn: async (values: GrantValues) => {
       const proof = await requestVerification({
@@ -395,6 +569,186 @@ export function HostingUserPanel(props: { user: User }) {
           </Button>
         )}
       </div>
+      {canWrite && data?.status === 'active' && data.binding && (
+        <div className='space-y-3 rounded-md border p-4'>
+          <div>
+            <h3 className='text-sm font-semibold'>
+              {t('Move this hosted account')}
+            </h3>
+            <p className='text-muted-foreground text-xs'>
+              {data.migration_state
+                ? t(
+                    'A migration is already in progress. Finish or cancel it before starting another one.'
+                  )
+                : t(
+                    'The account is re-authenticated on the target slot before New API switches traffic.'
+                  )}
+            </p>
+          </div>
+          <div className='flex flex-wrap items-end gap-3'>
+            <Field className='min-w-56 flex-1'>
+              <FieldLabel htmlFor='hosting-migration-target'>
+                {t('Target slot')}
+              </FieldLabel>
+              <NativeSelect
+                id='hosting-migration-target'
+                value={migrationTarget}
+                disabled={
+                  !!data.migration_state ||
+                  migrationPreflight.isPending ||
+                  migrationStart.isPending ||
+                  migrationSlots.isPending
+                }
+                onChange={(event) => setMigrationTarget(event.target.value)}
+              >
+                <NativeSelectOption value=''>
+                  {migrationSlots.isPending
+                    ? t('Loading available slots...')
+                    : t('Select a target slot')}
+                </NativeSelectOption>
+                {migrationOptions.map((option) => (
+                  <NativeSelectOption key={option.value} value={option.value}>
+                    {option.label}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Button
+              type='button'
+              variant='outline'
+              disabled={
+                !migrationTarget ||
+                !!data.migration_state ||
+                migrationPreflight.isPending ||
+                migrationStart.isPending
+              }
+              onClick={() => migrationPreflight.mutate()}
+            >
+              {migrationPreflight.isPending
+                ? t('Checking target slot...')
+                : t('Review migration')}
+            </Button>
+          </div>
+          {data.migration_state && (
+            <div className='flex flex-wrap items-center gap-3'>
+              <p className='text-muted-foreground text-xs'>
+                {t('Migration state')}: {data.migration_state}
+                {data.migration_target_instance_id &&
+                data.migration_target_slot_id
+                  ? ` · ${data.migration_target_instance_id} / ${data.migration_target_slot_id}`
+                  : ''}
+              </p>
+              {data.migration_state === 'switched' &&
+                data.migration_target_instance_id &&
+                data.migration_target_slot_id && (
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='outline'
+                    onClick={() => {
+                      const targetInstanceId = data.migration_target_instance_id
+                      const targetSlotId = data.migration_target_slot_id
+                      if (!targetInstanceId || !targetSlotId) return
+                      setMigrationAuth({
+                        auth_url: '',
+                        session_id: '',
+                        target_instance_id: targetInstanceId,
+                        target_slot_id: targetSlotId,
+                      })
+                      setMigrationCallback('')
+                      setMigrationCleanupPending(true)
+                    }}
+                  >
+                    {t('Retry source cleanup')}
+                  </Button>
+                )}
+            </div>
+          )}
+        </div>
+      )}
+      <ConfirmDialog
+        open={!!migrationReview && !migrationAuth && !verificationActive}
+        onOpenChange={(value) =>
+          !value && !migrationStart.isPending && setMigrationReview(null)
+        }
+        title={t('Confirm account migration')}
+        desc={
+          <div className='space-y-2'>
+            <p>
+              {props.user.username} · {migrationReview?.source_instance_id} /{' '}
+              {migrationReview?.source_slot_id} →{' '}
+              {migrationReview?.target_instance_id} /{' '}
+              {migrationReview?.target_slot_id}
+            </p>
+            <p>
+              {t(
+                'The source slot stays active until the same GPT account is verified on the target. Requests may pause briefly during the switch.'
+              )}
+            </p>
+            <p>{t('You will complete official GPT sign-in in a new tab.')}</p>
+          </div>
+        }
+        handleConfirm={() => migrationStart.mutate()}
+        confirmText={t('Start migration')}
+        isLoading={migrationStart.isPending}
+      />
+      <ConfirmDialog
+        open={!!migrationAuth && !verificationActive}
+        onOpenChange={(value) => {
+          if (
+            !value &&
+            !migrationFinish.isPending &&
+            !migrationCancel.isPending
+          ) {
+            setMigrationAuth(null)
+            setMigrationCallback('')
+            setMigrationCleanupPending(false)
+          }
+        }}
+        title={t('Complete account migration')}
+        desc={
+          <div className='space-y-3'>
+            <p>
+              {migrationCleanupPending
+                ? t(
+                    'The target is active. Retry to finish releasing the old slot.'
+                  )
+                : t(
+                    'Finish the official sign-in in the new tab, then paste the complete callback URL here.'
+                  )}
+            </p>
+            {!migrationCleanupPending && (
+              <Input
+                aria-label={t('Migration callback URL')}
+                value={migrationCallback}
+                onChange={(event) => setMigrationCallback(event.target.value)}
+                placeholder='http://localhost:1455/auth/callback?...'
+                autoComplete='off'
+              />
+            )}
+          </div>
+        }
+        handleConfirm={() => migrationFinish.mutate()}
+        confirmText={
+          migrationCleanupPending
+            ? t('Retry source cleanup')
+            : t('Complete migration')
+        }
+        disabled={!migrationCallback.trim() && !migrationCleanupPending}
+        isLoading={migrationFinish.isPending}
+      >
+        <Button
+          type='button'
+          variant='ghost'
+          className='text-destructive'
+          disabled={migrationCancel.isPending || migrationFinish.isPending}
+          onClick={() => migrationCancel.mutate()}
+        >
+          {migrationCancel.isPending
+            ? t('Cancelling...')
+            : t('Cancel migration')}
+        </Button>
+      </ConfirmDialog>
       {!isNewSeat && data?.binding?.platform !== 'claude' && (
         <div className='space-y-3'>
           <div className='flex flex-wrap items-center justify-between gap-2'>

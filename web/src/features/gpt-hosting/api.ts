@@ -81,6 +81,15 @@ export type HostingAdmin = {
     }>
   }>
 }
+export type HostingMigrationCheck = {
+  source_instance_id: string
+  source_slot_id: string
+  target_instance_id: string
+  target_slot_id: string
+  target_name: string
+  target_platform: 'codex' | 'claude'
+  inventory_id: string
+}
 export type HostingLogin = {
   platform?: string
   auth_url: string
@@ -158,6 +167,10 @@ export async function postHosting<T = HostingSelf>(
     | 'admin/inventory'
     | 'admin/takeover/check'
     | 'admin/takeover'
+    | 'admin/migrate/check'
+    | 'admin/migrate/start'
+    | 'admin/migrate/finish'
+    | 'admin/migrate/cancel'
     | 'payment'
     | 'admin/store/plans',
   body: unknown,
