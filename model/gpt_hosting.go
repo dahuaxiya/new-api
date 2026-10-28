@@ -70,7 +70,18 @@ type GPTHostingBinding struct {
 	OperationToken string  `json:"-" gorm:"type:varchar(36)"`
 	OperationUntil int64   `json:"-"`
 	Generation     int64   `json:"-"`
-	UpdatedAt      int64   `json:"updated_at" gorm:"autoUpdateTime"`
+	// Migration fields keep the source route usable until the target account is
+	// activated. A nullable target key gives each database a portable unique
+	// constraint while allowing every non-migrating binding to remain NULL.
+	MigrationState             string  `json:"-" gorm:"type:varchar(24)"`
+	MigrationTargetKey         *string `json:"-" gorm:"type:varchar(160);uniqueIndex"`
+	MigrationSourceInstanceID  string  `json:"-" gorm:"type:varchar(64)"`
+	MigrationSourceSlotID      string  `json:"-" gorm:"type:varchar(80)"`
+	MigrationSourceInventoryID string  `json:"-" gorm:"type:varchar(36)"`
+	MigrationTargetInstanceID  string  `json:"-" gorm:"type:varchar(64)"`
+	MigrationTargetSlotID      string  `json:"-" gorm:"type:varchar(80)"`
+	MigrationTargetInventoryID string  `json:"-" gorm:"type:varchar(36)"`
+	UpdatedAt                  int64   `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // ValidAt 在每次绑定和调用时检查真实时间，不使用可滞后的客户端计时或用户缓存。
@@ -343,6 +354,180 @@ func UpdateHostingOperation(userID int, token string, changes map[string]any, se
 // ReleaseHostingOperation 不清理任何账号资源，只释放匹配的短期工作锁，过期旧请求不会影响接管者。
 func ReleaseHostingOperation(userID int, token string, seats ...string) {
 	hostingSeatScope(DB.Model(&GPTHostingBinding{}), userID, seats).Where("operation_token = ?", token).Updates(map[string]any{"operation_token": "", "operation_until": 0})
+}
+
+// BeginHostingMigration records the target before touching the remote slot.
+// The source binding remains active, so a failed reservation or OAuth attempt
+// never routes requests to an unverified account. The nullable target key is
+// protected by a unique index, which closes the cross-request target race on
+// SQLite, MySQL, and PostgreSQL alike.
+func BeginHostingMigration(userID int, token, targetInventoryID, targetInstance, targetSlot string, seats ...string) (*GPTHostingBinding, error) {
+	if !validVM2APIIdentifier(targetInstance, 64) || !validVM2APIIdentifier(targetSlot, 80) || targetInventoryID == "" {
+		return nil, ErrHostingConflict
+	}
+	targetKey := targetInstance + "\x00" + targetSlot
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var binding GPTHostingBinding
+		if err := hostingSeatScope(lockForUpdate(tx), userID, seats).First(&binding, "operation_token = ? AND operation_until > ?", token, time.Now().Unix()).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrHostingConflict
+			}
+			return err
+		}
+		if binding.State != "active" || binding.InventoryID == nil || binding.ChannelID == 0 || binding.AccountHash == nil || binding.SubjectHash == nil || binding.MigrationState != "" {
+			return ErrHostingConflict
+		}
+		var inventory GPTHostingInventory
+		if err := lockForUpdate(tx).First(&inventory, "id = ? AND instance_id = ? AND slot_id = ? AND enabled = ?", targetInventoryID, targetInstance, targetSlot, true).Error; err != nil {
+			return err
+		}
+		if inventory.Platform != "" && inventory.Platform != binding.Platform {
+			return ErrHostingConflict
+		}
+		var used int64
+		if err := tx.Model(&GPTHostingBinding{}).Where("(inventory_id = ? OR migration_target_key = ?) AND seat_id <> ?", targetInventoryID, targetKey, binding.SeatID).Count(&used).Error; err != nil {
+			return err
+		}
+		if used != 0 {
+			return ErrHostingConflict
+		}
+		changes := map[string]any{
+			"migration_state":              "reserving",
+			"migration_target_key":         targetKey,
+			"migration_source_instance_id": binding.InstanceID,
+			"migration_source_slot_id":     binding.SlotID,
+			"migration_source_inventory_id": func() string {
+				if binding.InventoryID == nil {
+					return ""
+				}
+				return *binding.InventoryID
+			}(),
+			"migration_target_instance_id":  targetInstance,
+			"migration_target_slot_id":      targetSlot,
+			"migration_target_inventory_id": targetInventoryID,
+		}
+		if err := tx.Model(&binding).Updates(changes).Error; err != nil {
+			return ErrHostingConflict
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return GetHostingBinding(userID, seats...)
+}
+
+// UpdateHostingMigrationState advances the durable migration state under the
+// same short operation lease used by all hosted actions. It deliberately does
+// not clear the target identity, allowing retries after a lost HTTP response.
+func UpdateHostingMigrationState(userID int, token, state string, seats ...string) error {
+	if state != "reserving" && state != "reserved" && state != "authorizing" && state != "prepared" && state != "switched" {
+		return ErrHostingConflict
+	}
+	return UpdateHostingOperation(userID, token, map[string]any{"migration_state": state}, seats...)
+}
+
+// AbortHostingMigration clears only the central migration marker. The caller
+// must have already confirmed that the target remote slot was released.
+func AbortHostingMigration(userID int, token string, seats ...string) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var binding GPTHostingBinding
+		if err := hostingSeatScope(lockForUpdate(tx), userID, seats).First(&binding, "operation_token = ? AND operation_until > ?", token, time.Now().Unix()).Error; err != nil {
+			return err
+		}
+		if binding.MigrationState == "" || binding.MigrationState == "switched" {
+			return ErrHostingConflict
+		}
+		return tx.Model(&binding).Updates(map[string]any{
+			"migration_state": "", "migration_target_key": nil,
+			"migration_source_instance_id": "", "migration_source_slot_id": "", "migration_source_inventory_id": "",
+			"migration_target_instance_id": "", "migration_target_slot_id": "", "migration_target_inventory_id": "",
+		}).Error
+	})
+}
+
+// CompleteHostingMigration switches the channel and binding in one database
+// transaction after the target remote slot has been activated. The old source
+// coordinates stay on the binding until the caller confirms source cleanup.
+func CompleteHostingMigration(userID int, token, baseURL, models, key, keyID, poolID string, seats ...string) (*GPTHostingBinding, error) {
+	if key == "" || keyID == "" || models == "" || baseURL == "" {
+		return nil, ErrHostingConflict
+	}
+	var saved GPTHostingBinding
+	err := DB.Session(&gorm.Session{Logger: logger.Discard}).Transaction(func(tx *gorm.DB) error {
+		now := time.Now().Unix()
+		var binding GPTHostingBinding
+		if err := hostingSeatScope(lockForUpdate(tx), userID, seats).First(&binding, "operation_token = ? AND operation_until > ?", token, now).Error; err != nil {
+			return err
+		}
+		if binding.MigrationState != "prepared" || binding.ChannelID == 0 || binding.AccountHash == nil || binding.SubjectHash == nil || binding.MigrationTargetInventoryID == "" {
+			return ErrHostingConflict
+		}
+		var grant GPTHostingGrant
+		if err := hostingSeatScope(lockForUpdate(tx), userID, seats).First(&grant).Error; err != nil {
+			return err
+		}
+		if !grant.ValidAt(now) {
+			return ErrHostingUnavailable
+		}
+		channelType := 1
+		if binding.Platform == "claude" {
+			channelType = 14
+		}
+		if err := tx.Model(&Channel{}).Where("id = ?", binding.ChannelID).Updates(map[string]any{
+			"type": channelType, "key": key, "status": common.ChannelStatusEnabled,
+			"base_url": baseURL, "models": models, "group": grant.Group,
+		}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("channel_id = ?", binding.ChannelID).Delete(&Ability{}).Error; err != nil {
+			return err
+		}
+		var channel Channel
+		if err := tx.First(&channel, binding.ChannelID).Error; err != nil {
+			return err
+		}
+		if err := channel.AddAbilities(tx); err != nil {
+			return err
+		}
+		inventoryID := binding.MigrationTargetInventoryID
+		changes := map[string]any{
+			"inventory_id": inventoryID, "instance_id": binding.MigrationTargetInstanceID, "slot_id": binding.MigrationTargetSlotID,
+			"state": "active", "channel_id": binding.ChannelID, "key_id": keyID, "pool_id": poolID, "migration_state": "switched",
+			"generation": gorm.Expr("generation + 1"),
+		}
+		if err := tx.Model(&binding).Updates(changes).Error; err != nil {
+			return err
+		}
+		if err := tx.First(&saved, "seat_id = ?", binding.SeatID).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &saved, nil
+}
+
+// FinalizeHostingMigration forgets the source coordinates only after the
+// source vm2api has confirmed release. Routing already uses the target when
+// this function is called, so a failed cleanup can be retried safely.
+func FinalizeHostingMigration(userID int, token string, seats ...string) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var binding GPTHostingBinding
+		if err := hostingSeatScope(lockForUpdate(tx), userID, seats).First(&binding, "operation_token = ? AND operation_until > ?", token, time.Now().Unix()).Error; err != nil {
+			return err
+		}
+		if binding.MigrationState != "switched" {
+			return ErrHostingConflict
+		}
+		return tx.Model(&binding).Updates(map[string]any{
+			"migration_state": "", "migration_target_key": nil,
+			"migration_source_instance_id": "", "migration_source_slot_id": "", "migration_source_inventory_id": "",
+			"migration_target_instance_id": "", "migration_target_slot_id": "", "migration_target_inventory_id": "",
+		}).Error
+	})
 }
 
 // ClaimHostingIdentity 跨实例独占两个明确的官方标识；重新授权必须仍属于同一主体和账号。

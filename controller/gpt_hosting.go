@@ -119,11 +119,15 @@ func GetGPTHostingAdmin(c *gin.Context) {
 		cancel()
 		rows := []gin.H{}
 		for _, slot := range slots {
+			platform := slot.Platform
+			if platform == "" {
+				platform = "codex"
+			}
 			state := "unmanaged"
 			if slot.Hosting != nil {
 				state = slot.Hosting.State
 			}
-			row := gin.H{"platform": slot.Platform, "id": slot.ID, "name": slot.Name, "empty": slot.Empty, "exit_ready": slot.ExitReady, "managed": slot.Managed, "state": state, "enabled": false}
+			row := gin.H{"platform": platform, "id": slot.ID, "name": slot.Name, "empty": slot.Empty, "exit_ready": slot.ExitReady, "managed": slot.Managed, "state": state, "enabled": false}
 			for _, inv := range inventory {
 				if inv.InstanceID == instance.ID && inv.SlotID == slot.ID {
 					row["inventory_id"] = inv.ID
@@ -345,6 +349,10 @@ func StartGPTHostingLogin(c *gin.Context) {
 		hostingError(c, model.ErrHostingConflict)
 		return
 	}
+	if before.MigrationState != "" {
+		hostingError(c, model.ErrHostingConflict)
+		return
+	}
 	if !hostingProof(c, "login", before.BindingID) {
 		return
 	}
@@ -525,6 +533,10 @@ func RetryGPTHostingLogin(c *gin.Context) {
 		hostingError(c, model.ErrHostingConflict)
 		return
 	}
+	if b.MigrationState != "" {
+		hostingError(c, model.ErrHostingConflict)
+		return
+	}
 	if !hostingProof(c, "login", b.BindingID) {
 		return
 	}
@@ -609,6 +621,11 @@ func SetGPTHostingPaused(c *gin.Context) {
 		hostingError(c, model.ErrHostingConflict)
 		return
 	}
+	if b.MigrationState != "" {
+		model.ReleaseHostingOperation(id, lease, b.SeatID)
+		hostingError(c, model.ErrHostingConflict)
+		return
+	}
 	g, e := model.GetHostingGrant(id, b.SeatID)
 	if e != nil || (!input.Paused && !g.ValidAt(time.Now().Unix())) {
 		model.ReleaseHostingOperation(id, lease, b.SeatID)
@@ -676,6 +693,10 @@ func UnbindGPTHosting(c *gin.Context) {
 	}
 	defer model.ReleaseHostingOperation(id, lease, b.SeatID)
 	if b.State == "takeover" {
+		hostingError(c, model.ErrHostingConflict)
+		return
+	}
+	if b.MigrationState != "" {
 		hostingError(c, model.ErrHostingConflict)
 		return
 	}

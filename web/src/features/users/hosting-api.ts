@@ -52,6 +52,9 @@ const baseHostingSummarySchema = z.object({
     })
     .nullable()
     .optional(),
+  migration_state: z.string().optional(),
+  migration_target_instance_id: z.string().optional(),
+  migration_target_slot_id: z.string().optional(),
   quota: quotaSchema.nullable().optional(),
   quota_unavailable: z.boolean().optional(),
 })
@@ -68,6 +71,9 @@ export const hostingSummarySchema = baseHostingSummarySchema.extend({
         status: z.string().optional(),
         instance_id: z.string().optional(),
         slot_id: z.string().optional(),
+        migration_state: z.string().optional(),
+        migration_target_instance_id: z.string().optional(),
+        migration_target_slot_id: z.string().optional(),
         valid: z.boolean(),
       })
     )

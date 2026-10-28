@@ -38,13 +38,16 @@ type hostingUserSummary struct {
 
 // hostingSeatView 绑定与期限按名额组织，用户看不到机器凭据和官方身份哈希。
 type hostingSeatView struct {
-	Status     string                   `json:"status"`
-	InstanceID string                   `json:"instance_id,omitempty"`
-	SlotID     string                   `json:"slot_id,omitempty"`
-	Grant      *model.GPTHostingGrant   `json:"grant"`
-	Binding    *model.GPTHostingBinding `json:"binding"`
-	BindingID  string                   `json:"binding_id"`
-	Valid      bool                     `json:"valid"`
+	Status                    string                   `json:"status"`
+	InstanceID                string                   `json:"instance_id,omitempty"`
+	SlotID                    string                   `json:"slot_id,omitempty"`
+	MigrationState            string                   `json:"migration_state,omitempty"`
+	MigrationTargetInstanceID string                   `json:"migration_target_instance_id,omitempty"`
+	MigrationTargetSlotID     string                   `json:"migration_target_slot_id,omitempty"`
+	Grant                     *model.GPTHostingGrant   `json:"grant"`
+	Binding                   *model.GPTHostingBinding `json:"binding"`
+	BindingID                 string                   `json:"binding_id"`
+	Valid                     bool                     `json:"valid"`
 }
 
 // hostingSeatViews 从鉴权后的用户 ID 读取全部名额，缺失绑定视为数据错误而非空名额。
@@ -59,7 +62,7 @@ func hostingSeatViews(userID int) ([]hostingSeatView, error) {
 		if e != nil {
 			return nil, e
 		}
-		rows = append(rows, hostingSeatView{Grant: &grants[i], Binding: b, BindingID: b.BindingID, Valid: grants[i].ValidAt(time.Now().Unix()), Status: hostingSeatStatus(&grants[i], b)})
+		rows = append(rows, hostingSeatView{Grant: &grants[i], Binding: b, BindingID: b.BindingID, Valid: grants[i].ValidAt(time.Now().Unix()), Status: hostingSeatStatus(&grants[i], b), MigrationState: b.MigrationState, MigrationTargetInstanceID: b.MigrationTargetInstanceID, MigrationTargetSlotID: b.MigrationTargetSlotID})
 	}
 	return rows, nil
 }
