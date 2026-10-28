@@ -144,7 +144,7 @@ func checkHostingMigration(ctx context.Context, userID int, input hostingMigrati
 // CheckGPTHostingMigration exposes a fresh target preview without reserving a
 // slot. The final start endpoint repeats every check under a database lease.
 func CheckGPTHostingMigration(c *gin.Context) {
-	actor, ok := hostingActor(c, true)
+	_, ok := hostingActor(c, true)
 	if !ok {
 		return
 	}
@@ -152,7 +152,9 @@ func CheckGPTHostingMigration(c *gin.Context) {
 	if !onboardingBody(c, &input) {
 		return
 	}
-	result, err := checkHostingMigration(c.Request.Context(), actor, input)
+	// actor 是执行操作的 root 管理员；预检必须校验表单中指定的托管用户，
+	// 否则管理员查看其他用户的槽位会被误判为“用户 ID 不一致”。
+	result, err := checkHostingMigration(c.Request.Context(), input.UserID, input)
 	if err != nil {
 		hostingError(c, err)
 		return
