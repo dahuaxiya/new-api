@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="36 32 184 184" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">luobocode · 网站标志</title>
+  <desc id="desc">圆润的金渐层猫脸平滑收成短萝卜尖，小耳朵和相连的双叶保持紧凑，稍长的眼睛带有同向高光，鼻子下方有轻微的猫嘴弧线。</desc>
+  <!-- 叶柄先画、猫脸后画，让叶片真正接入头顶，避免悬空或像额外一对耳朵。 -->
+  <g id="sprout" fill="#297B67">
+    <path d="M128 86V64" stroke="#297B67" stroke-width="6" stroke-linecap="round"/>
+    <path d="M127 70C109 69 99 51 105 45C120 45 131 57 127 70ZM129 67C129 50 145 40 159 44C158 59 145 71 129 67Z"/>
+  </g>
+  <!-- 脸颊到下巴连续收弧，不再分成两颗腮部和一截长根；耳尖保留圆角。 -->
+  <path id="face" fill="#F0B35B" d="M51 112C47 100 47 82 52 71Q55 64 62 69L86 88C111 80 145 80 170 88L194 69Q201 64 204 71C209 82 209 100 205 112C215 132 214 154 199 170C181 187 154 199 136 204Q128 208 120 204C102 199 75 187 57 170C42 154 41 132 51 112Z"/>
+  <!-- 眼睛稍微拉长，并把高光放在同一侧，让目光方向一致；不增加眉毛等小尺寸下易糊的细节。 -->
+  <g id="features" fill="#624326">
+    <ellipse cx="98" cy="139" rx="9.5" ry="11"/>
+    <ellipse cx="158" cy="139" rx="9.5" ry="11"/>
+    <path d="M121 156H135Q140 156 137 160L132 167Q128 171 124 167L119 160Q116 156 121 156Z"/>
+  </g>
+  <g fill="#FFF8E8" aria-hidden="true">
+    <circle cx="95" cy="135" r="3.2"/>
+    <circle cx="155" cy="135" r="3.2"/>
+  </g>
+  <!-- 短鼻线与两段圆弧组成猫嘴，补足表情但保持闭合、轻微的笑意。 -->
+  <path d="M128 167V175M114 174C117 181 124 181 128 175C132 181 139 181 142 174" fill="none" stroke="#624326" stroke-width="4.8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

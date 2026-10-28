@@ -28,6 +28,8 @@ import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { cn } from '@/lib/utils'
 
+import { BrandArtwork } from './brand-artwork'
+
 type SystemBrandProps = {
   defaultName?: string
   defaultVersion?: string
@@ -40,10 +42,9 @@ type SystemBrandProps = {
 }
 
 /**
- * System brand component
- * Displays current system logo + name.
- * - inline: compact pill in the top app bar; clicking navigates to home (/)
- * - sidebar: stacked card in the sidebar header (display only)
+ * 展示站点品牌，控制台页头与侧栏共享图文比例和主题配色。
+ * @param props 默认站名与版本，以及页头或侧栏布局；保留后台配置优先级。
+ * @return 页头返回首页链接，或可随侧栏折叠的品牌区域。
  */
 export function SystemBrand(props: SystemBrandProps) {
   const { t } = useTranslation()
@@ -61,18 +62,11 @@ export function SystemBrand(props: SystemBrandProps) {
         to='/'
         aria-label={t('Go to home')}
         className={cn(
-          'text-foreground inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-sm font-medium transition-colors outline-none select-none',
+          'text-foreground inline-flex h-9 min-w-0 items-center rounded-md px-1.5 text-sm font-medium transition-colors outline-none select-none',
           'hover:bg-accent focus-visible:ring-ring/40 focus-visible:ring-2'
         )}
       >
-        <div className='flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-md'>
-          <img
-            src={logo}
-            alt={t('Logo')}
-            className='size-full rounded-md object-cover'
-          />
-        </div>
-        <span className='max-w-[12rem] truncate'>{name}</span>
+        <BrandArtwork logo={logo} name={name} />
       </Link>
     )
   }
@@ -85,15 +79,14 @@ export function SystemBrand(props: SystemBrandProps) {
           className='hover:text-sidebar-foreground active:text-sidebar-foreground cursor-default hover:bg-transparent active:bg-transparent'
           render={<div />}
         >
-          <div className='flex aspect-square size-8 items-center justify-center overflow-hidden rounded-lg'>
-            <img
-              src={logo}
-              alt={t('Logo')}
-              className='size-full rounded-lg object-cover'
-            />
-          </div>
+          <BrandArtwork
+            logo={logo}
+            name={name}
+            compact
+            className='hidden group-data-[collapsible=icon]:inline-flex'
+          />
           <div className='grid flex-1 text-start text-sm leading-tight group-data-[collapsible=icon]:hidden'>
-            <span className='truncate font-semibold'>{name}</span>
+            <BrandArtwork logo={logo} name={name} />
             <span className='truncate text-xs'>{version}</span>
           </div>
         </SidebarMenuButton>

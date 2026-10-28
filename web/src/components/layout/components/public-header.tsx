@@ -35,6 +35,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { defaultTopNavLinks } from '../config/top-nav.config'
 import type { TopNavLink } from '../types'
+import { BrandArtwork } from './brand-artwork'
 import { HeaderLogo } from './header-logo'
 
 const AUTH_PROMPT_SECONDS = 5
@@ -61,7 +62,11 @@ export interface PublicHeaderProps {
   className?: string
 }
 
-/** 公共页共享用户导航，去掉开发版本入口并保留原有登录提示。 */
+/**
+ * 公共页共享品牌和用户导航，自定义 Logo、站名和原有登录提示仍优先。
+ * @param props 页面导航及可选品牌覆盖，不改变登录与返回首页行为。
+ * @return 可随窗口宽度切换导航布局的公共页头。
+ */
 export function PublicHeader(props: PublicHeaderProps) {
   const {
     navLinks = defaultTopNavLinks,
@@ -220,19 +225,25 @@ export function PublicHeader(props: PublicHeaderProps) {
                 to={homeUrl}
                 className='group flex min-w-0 items-center gap-2.5'
               >
-                <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
-                  {logoContent}
-                </div>
-                <span
-                  className='max-w-48 truncate text-sm font-semibold tracking-tight'
-                  title={displaySiteName}
-                >
-                  {loading ? (
-                    <Skeleton className='h-4 w-16' />
-                  ) : (
-                    displaySiteName
-                  )}
-                </span>
+                {!loading && !customLogo ? (
+                  <BrandArtwork name={displaySiteName} logo={systemLogo} />
+                ) : (
+                  <>
+                    <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
+                      {logoContent}
+                    </div>
+                    <span
+                      className='max-w-48 truncate text-sm font-semibold tracking-tight'
+                      title={displaySiteName}
+                    >
+                      {loading ? (
+                        <Skeleton className='h-4 w-16' />
+                      ) : (
+                        displaySiteName
+                      )}
+                    </span>
+                  </>
+                )}
               </Link>
             </div>
 
