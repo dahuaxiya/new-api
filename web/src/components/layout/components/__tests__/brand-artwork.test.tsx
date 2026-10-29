@@ -31,16 +31,16 @@ it('内置品牌显示组合标志并只提供一个可访问名称', () => {
   const brand = screen.getByRole('img', { name: 'luobocode' })
   expect(screen.getAllByRole('img')).toHaveLength(1)
   expect(brand.querySelector('img')?.getAttribute('src')).toBe(
-    '/brand/luobocode-lockup-v11.png'
+    '/brand/luobocode-lockup-v12.png'
   )
 })
 
 /** 折叠场景使用方形图形，不把横向字标压进图标容器。 */
-it('紧凑模式使用独立猫脸并保留品牌名称', () => {
+it('紧凑模式使用独立坐姿猫与萝卜并保留品牌名称', () => {
   render(<BrandArtwork name='luobocode' logo={DEFAULT_LOGO} compact />)
   const brand = screen.getByRole('img', { name: 'luobocode' })
   expect(brand.querySelector('img')?.getAttribute('src')).toBe(
-    '/brand/luobocode-mark-v11.png'
+    '/brand/luobocode-mark-v12.png'
   )
 })
 

@@ -23,7 +23,7 @@ For commercial licensing, please contact support@quantumnous.com
 // System Configuration Defaults
 export const DEFAULT_SYSTEM_NAME = 'New API'
 // 使用带版本的路径刷新旧 Logo 缓存；后台配置的自定义 Logo 仍优先。
-export const DEFAULT_LOGO = '/brand/luobocode-mark-v10.svg'
+export const DEFAULT_LOGO = '/brand/luobocode-mark-v12.svg'
 
 // LocalStorage Keys
 export const STORAGE_KEYS = {

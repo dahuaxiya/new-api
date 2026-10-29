@@ -64,7 +64,7 @@ export default defineConfig(({ envMode }) => {
     },
     html: {
       template: './index.html',
-      favicon: './public/brand/luobocode-v10.ico',
+      favicon: './public/brand/luobocode-v12.ico',
     },
     server: {
       host: '0.0.0.0',

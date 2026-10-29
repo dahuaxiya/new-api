@@ -233,3 +233,10 @@ Claude 走现有 vm2api 官方 `claude auth login`，用户完成官方登录后
 复用现有 `auth_flows` 表，不新增 schema；公开发信不区分邮箱是否已注册，只有正确验证码持有者能获得地址占用结果。反向代理必须覆盖真实客户端 IP，服务端沿用可信代理解析，禁止直接信任用户提供的 X-Forwarded-For。
 
 验证：真实 SQLite 3.50.4、MySQL 5.7.44、PostgreSQL 16.15 的 HTTP 注册/SMTP、关闭保护、角色注入拒绝、错误次数、过期、重发、回滚、并发单次消费、邮箱/IP/全站限额和重复迁移；Go race；前端注册密码与既有登录兼容测试、类型检查、lint 和生产构建。参考 OWASP ASVS 5.0.0 与 Authentication、Session Management、Forgot Password Cheat Sheets 的验证、限流、重放和错误响应要求；不宣称完整 ASVS 合规。公开注册只在真实邮件投递与运行时防刷检查完成后启用。
+
+
+## A 版品牌与发布历史归并（2026-10-29）
+
+启用已确认的坐姿金猫、独立萝卜和 luobocode 圆角字标；浅色、深色、折叠导航及浏览器图标共用 v12 素材。保留平滑 SVG 源图与高分辨率透明 PNG，避免直接使用生图的画布和纹理。管理员自定义名称与 Logo 仍优先。
+
+将 vm2api、personal-settings-account、personal-settings-flyout、carrot-logo 的已上线历史归并到 release。重复实现按现行发布版本保留，旧导航样式和旧品牌不回退。以后仅从已推送的 release 确切提交构建和部署；纯前端发布的 release.json 继续记录实际后端提交，不冒写为前后端同版。
