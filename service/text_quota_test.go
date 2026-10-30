@@ -1595,19 +1595,29 @@ func runHostingBalanceCases(t *testing.T, db *gorm.DB) {
 	common.IsMasterNode = false
 	require.NoError(t, model.InitLogDB())
 	common.IsMasterNode = oldMaster
+	model.LOG_DB = oldLogDB
 	t.Cleanup(func() { model.LOG_DB = oldLogDB })
 	require.NoError(t, db.AutoMigrate(&model.GPTHostingGrant{}, &model.GPTHostingBinding{}))
 	for index, tc := range []struct {
 		name                                                                     string
-		wallet, pre, tokenQuota                                                  int
+		wallet, pre, tokenQuota, actual, reserve                                 int
 		ordinary, expired, paused, wrongChannel, wrongOwner, missingSeat, refund bool
 		beforeChannelMeta                                                        bool
+		logUsage, reserveError, fallback                                         bool
 		wantError                                                                bool
 	}{
 		{name: "zero wallet hosted free", tokenQuota: 100},
 		{name: "text preconsume before channel metadata", tokenQuota: 100, beforeChannelMeta: true},
 		{name: "negative wallet hosted free", wallet: -10, tokenQuota: 100},
 		{name: "hosted records configured charge without balance gate", pre: 10, tokenQuota: 100},
+		{name: "positive wallet unchanged on higher actual cost", wallet: 80, pre: 10, actual: 30, tokenQuota: 100},
+		{name: "negative wallet unchanged on lower actual cost", wallet: -80, pre: 20, actual: 5, tokenQuota: 100},
+		{name: "hosted reserves extra before settling", pre: 10, reserve: 40, actual: 30, tokenQuota: 100},
+		{name: "failed reserve never credits wallet", pre: 10, reserve: 100, tokenQuota: 20, reserveError: true, refund: true},
+		{name: "refund after extra reserve only restores key", wallet: 80, pre: 10, reserve: 40, tokenQuota: 100, refund: true},
+		{name: "legacy settlement retains hosted funding", pre: 10, actual: 30, tokenQuota: 100, fallback: true},
+		{name: "real token usage records cost without wallet deduction", wallet: 500, pre: 1000, reserve: 2000, tokenQuota: 5000, actual: 1320, logUsage: true},
+		{name: "ordinary paid still deducts", ordinary: true, wallet: 80, pre: 10, actual: 30, tokenQuota: 100},
 		{name: "hosted failed request restores accounting", pre: 10, tokenQuota: 100, refund: true},
 		{name: "ordinary paid retains balance gate", ordinary: true, pre: 10, tokenQuota: 100, wantError: true},
 		{name: "expired seat denied", expired: true, tokenQuota: 100, wantError: true},
@@ -1670,7 +1680,26 @@ func runHostingBalanceCases(t *testing.T, db *gorm.DB) {
 				}
 			} else {
 				require.Nil(t, apiErr)
+				if !tc.ordinary {
+					require.Equal(t, "hosting", info.BillingSource)
+				}
+				if tc.reserve > 0 {
+					err := info.Billing.Reserve(tc.reserve)
+					if tc.reserveError {
+						require.Error(t, err)
+					} else {
+						require.NoError(t, err)
+					}
+				}
+				if tc.fallback {
+					info.Billing = nil
+				}
+				actual := tc.actual
+				if actual == 0 {
+					actual = tc.pre
+				}
 				if tc.refund {
+					info.Billing.Refund(ctx)
 					info.Billing.Refund(ctx)
 					require.Eventually(t, func() bool {
 						var u model.User
@@ -1678,8 +1707,28 @@ func runHostingBalanceCases(t *testing.T, db *gorm.DB) {
 						return db.First(&u, user.Id).Error == nil && db.First(&k, token.Id).Error == nil && u.Quota == tc.wallet && k.RemainQuota == tc.tokenQuota
 					}, time.Second*3, time.Millisecond*10)
 				} else {
-					require.NoError(t, info.Billing.Settle(tc.pre))
-					require.NoError(t, info.Billing.Settle(tc.pre))
+					if tc.logUsage {
+						// 真实输入/缓存/输出计价：800*1 + 200*0.1 + 100*5 = 1320 quota。
+						info.OriginModelName = "hosted-test"
+						info.StartTime = time.Now()
+						info.RelayFormat = types.RelayFormatOpenAI
+						info.PriceData = hosttypes.PriceData{ModelRatio: 1, CompletionRatio: 5, CacheRatio: 0.1, GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1}}
+						usage := &dto.Usage{PromptTokens: 1000, CompletionTokens: 100, TotalTokens: 1100, PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 200}}
+						PostTextConsumeQuota(ctx, info, usage, nil)
+						var log model.Log
+						require.NoError(t, model.LOG_DB.Where("user_id = ?", user.Id).Last(&log).Error)
+						require.Equal(t, actual, log.Quota)
+						var other map[string]any
+						require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+						require.Equal(t, "hosting", other["billing_source"])
+						require.NoError(t, model.LOG_DB.Delete(&log).Error)
+					} else {
+						require.NoError(t, SettleBilling(ctx, info, actual))
+					}
+					if info.Billing != nil {
+						require.NoError(t, info.Billing.Settle(actual))
+						info.Billing.Refund(ctx) // 成功后退款必须无效，不能凭空增加余额或 Key 额度。
+					}
 				}
 			}
 			var savedUser model.User
@@ -1689,8 +1738,18 @@ func runHostingBalanceCases(t *testing.T, db *gorm.DB) {
 			charge := 0
 			if !tc.wantError && !tc.refund {
 				charge = tc.pre
+				if tc.actual > 0 {
+					charge = tc.actual
+				}
 			}
-			assert.Equal(t, tc.wallet-charge, savedUser.Quota)
+			walletWant := tc.wallet
+			if tc.ordinary {
+				walletWant -= charge
+			}
+			assert.Equal(t, walletWant, savedUser.Quota, "托管费用只能记账；普通付费仍扣钱包")
+			if tc.logUsage {
+				assert.Equal(t, tc.actual, savedUser.UsedQuota)
+			}
 			assert.Equal(t, tc.tokenQuota-charge, savedToken.RemainQuota)
 		})
 	}

@@ -7878,5 +7878,6 @@
     "Bound slot not found": "Привязанный слот не найден",
     "Outbound connection disabled": "Исходящее подключение отключено",
     "Slot": "Слот"
-  }
+  },
+  "No balance deduction": "Без списания баланса"
 }

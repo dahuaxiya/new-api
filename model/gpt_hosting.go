@@ -228,7 +228,9 @@ func persistHostingGrant(tx *gorm.DB, input GPTHostingGrant, takeover *HostingTa
 	if err := common.UnmarshalJsonStr(option.Value, &ratios); err != nil || ratios == nil {
 		return ErrHostingConflict
 	}
-	ratios[saved.Group] = 0
+	// 托管费用按完整模型价格记账；是否扣钱包由已核验的托管资金来源决定。
+	// 新建和续期保持相同倍率，不能再以零倍率实现免扣。
+	ratios[saved.Group] = 1
 	raw, err := common.Marshal(ratios)
 	if err != nil {
 		return err

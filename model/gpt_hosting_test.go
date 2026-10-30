@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -28,8 +29,9 @@ func TestGPTHostingDatabases(t *testing.T) {
 			require.NoError(t, migrateDB())
 			now := time.Now().Unix()
 			for _, u := range users {
-				_, err := PutHostingGrant(GPTHostingGrant{UserID: u.Id, ActorID: 999, StartsAt: now - 10, EndsAt: now + 3600, Enabled: true})
+				created, err := PutHostingGrant(GPTHostingGrant{UserID: u.Id, ActorID: 999, StartsAt: now - 10, EndsAt: now + 3600, Enabled: true})
 				require.NoError(t, err)
+				require.Equal(t, float64(1), ratio_setting.GetGroupRatio(created.Group))
 			}
 			a, b := users[0].Id, users[1].Id
 			require.ErrorIs(t, CheckHostingAccess(a), ErrHostingUnavailable, "有名额但未绑定不能请求公共渠道")
@@ -71,6 +73,8 @@ func TestGPTHostingDatabases(t *testing.T) {
 			renewed, err := PutHostingGrant(GPTHostingGrant{UserID: a, ActorID: 999, StartsAt: now - 10, EndsAt: now + 7200, Enabled: true})
 			require.NoError(t, err)
 			require.Equal(t, before.Group, renewed.Group)
+			require.Equal(t, float64(1), ratio_setting.GetGroupRatio(renewed.Group), "续期不能恢复为零倍率")
+			require.Equal(t, 0.75, ratio_setting.GetGroupRatio("existing"), "不能覆盖其他分组倍率")
 			expired, err := PutHostingGrant(GPTHostingGrant{UserID: a, ActorID: 999, StartsAt: now - 3600, EndsAt: now - 1, Enabled: true})
 			require.NoError(t, err)
 			require.False(t, expired.ValidAt(now))

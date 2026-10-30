@@ -7878,5 +7878,6 @@
     "Bound slot not found": "Emplacement associé introuvable",
     "Outbound connection disabled": "Connexion sortante désactivée",
     "Slot": "Emplacement"
-  }
+  },
+  "No balance deduction": "Aucun débit du solde"
 }

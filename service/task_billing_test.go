@@ -918,6 +918,34 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	assert.Zero(t, getTaskQuota(t, task.ID))
 }
 
+// TestRefundTaskQuota_Hosting 验证异步任务失败只回退记账和 Key，不能给免扣钱包发退款。
+func TestRefundTaskQuota_Hosting(t *testing.T) {
+	truncate(t)
+	const userID, tokenID, channelID = 91, 91, 91
+	const wallet, preConsumed, tokenRemain = 500, 3000, 5000
+	seedUser(t, userID, wallet)
+	seedToken(t, tokenID, userID, "hosted-task-test-key", tokenRemain)
+	seedChannel(t, channelID)
+	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceHosting, 0)
+	require.NoError(t, model.DB.Create(task).Error)
+	// 后台按持久化来源结算，即使原请求已结束也不会回退钱包路径。
+	require.NoError(t, taskAdjustFunding(task, 100))
+	require.NoError(t, taskAdjustFunding(task, -100))
+	assert.Equal(t, wallet, getUserQuota(t, userID))
+	require.True(t, RefundTaskQuota(context.Background(), task, "hosted upstream failed"))
+	assert.Equal(t, wallet, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain+preConsumed, getTokenRemainQuota(t, tokenID))
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(getLastLog(t).Other, &other))
+	assert.Equal(t, "hosting", other["billing_source"])
+	used, _ := getUserUsageAccounting(t, userID)
+	assert.Zero(t, used)
+	RefundTaskQuota(context.Background(), task, "duplicate failure")
+	assert.Equal(t, wallet, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain+preConsumed, getTokenRemainQuota(t, tokenID))
+}
+
 func TestRefundTaskQuota_Subscription(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()

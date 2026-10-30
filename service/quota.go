@@ -85,6 +85,7 @@ func calculateAudioQuota(info QuotaInfo) (int, *common.QuotaClamp) {
 	return common.QuotaFromDecimalChecked(quota)
 }
 
+// PreWssConsumeQuota 对实时音频用量增量结算，已核验托管只约束 Key 额度。
 func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage) error {
 	if relayInfo.UsePrice {
 		return nil
@@ -138,7 +139,7 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	quota, clamp := calculateAudioQuota(quotaInfo)
 	noteQuotaClamp(relayInfo, clamp)
 
-	if userQuota < quota {
+	if relayInfo.BillingSource != BillingSourceHosting && userQuota < quota {
 		return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
 	}
 
@@ -435,6 +436,8 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 	return err
 }
 
+// postConsumeQuotaWithResult 兼容增量和旧结算调用；托管来源由服务端会话写入，
+// 只调整 Key，不能把免扣记录当成钱包付款或退款。
 func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) (result postConsumeQuotaResult, err error) {
 
 	// 1) Consume from wallet quota OR subscription item
@@ -449,7 +452,7 @@ func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, pre
 			}
 			relayInfo.SubscriptionPostDelta += delta
 		}
-	} else {
+	} else if relayInfo.BillingSource != BillingSourceHosting {
 		// Wallet
 		if quota > 0 {
 			err = model.DecreaseUserQuota(relayInfo.UserId, quota, false)
@@ -474,7 +477,7 @@ func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, pre
 		result.TokenApplied = true
 	}
 
-	if sendEmail {
+	if sendEmail && relayInfo.BillingSource != BillingSourceHosting {
 		if (quota + preConsumedQuota) != 0 {
 			checkAndSendQuotaNotify(relayInfo, quota, preConsumedQuota)
 		}

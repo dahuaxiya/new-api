@@ -7878,5 +7878,6 @@
     "Bound slot not found": "紐付け済みスロットが見つかりません",
     "Outbound connection disabled": "外向き接続が無効です",
     "Slot": "スロット"
-  }
+  },
+  "No balance deduction": "残高からの引き落としなし"
 }

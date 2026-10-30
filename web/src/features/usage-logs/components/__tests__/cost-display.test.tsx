@@ -81,6 +81,20 @@ describe('log cost display', () => {
     }
   )
 
+  test('shows hosted cost as accounting only even when funding markers are hidden', () => {
+    renderCost({
+      quota: 5000,
+      other: { billing_source: 'hosting' },
+      showBillingSource: false,
+    })
+
+    expect(screen.getByText('$0.01')).toBeVisible()
+    expect(screen.getByText('No balance deduction')).toBeVisible()
+    expect(
+      screen.queryByRole('img', { name: 'Wallet' })
+    ).not.toBeInTheDocument()
+  })
+
   test('shows wallet cost and source icon without using subscription metadata', () => {
     renderCost({
       quota: 5000,
@@ -115,7 +129,9 @@ describe('log cost display', () => {
 
     expect(screen.getByText('$0.025')).toBeVisible()
     expect(screen.getByRole('img', { name: 'Subscription' })).toBeVisible()
-    expect(screen.queryByRole('img', { name: 'Wallet' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('img', { name: 'Wallet' })
+    ).not.toBeInTheDocument()
   })
 
   test('keeps legacy cost visible without inventing a funding source', () => {

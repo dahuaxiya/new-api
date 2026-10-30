@@ -112,8 +112,12 @@ func taskIsSubscription(task *model.Task) bool {
 	return task.PrivateData.BillingSource == BillingSourceSubscription && task.PrivateData.SubscriptionId > 0
 }
 
-// taskAdjustFunding 调整任务的资金来源（钱包或订阅），delta > 0 表示扣费，delta < 0 表示退还。
+// taskAdjustFunding 按任务提交时保存的资金来源处理差额；托管记账不扣款也不退款。
+// 不能按当前名额重判，避免任务完成前解绑或过期导致资金来源发生改变。
 func taskAdjustFunding(task *model.Task, delta int) error {
+	if task.PrivateData.BillingSource == BillingSourceHosting {
+		return nil
+	}
 	if taskIsSubscription(task) {
 		return model.PostConsumeUserSubscriptionDelta(task.PrivateData.SubscriptionId, int64(delta))
 	}
@@ -212,9 +216,13 @@ func taskDeliveredInline(c *gin.Context, task *model.Task) bool {
 	return ok && pinned.Protocol == jsplugin.ProtocolOpenAIImage
 }
 
+// appendTaskLogInfo 保留任务提交时的计费来源和审计标识，便于区分记账与实际扣款。
 func appendTaskLogInfo(task *model.Task, other *model.LogOther) {
 	if task == nil || other == nil {
 		return
+	}
+	if task.PrivateData.BillingSource != "" {
+		other.SetPublic("billing_source", task.PrivateData.BillingSource)
 	}
 	if task.TaskID != "" {
 		other.SetPublic("task_id", task.TaskID)

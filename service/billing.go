@@ -13,6 +13,7 @@ import (
 
 const (
 	BillingSourceWallet       = "wallet"
+	BillingSourceHosting      = "hosting"
 	BillingSourceSubscription = "subscription"
 )
 
@@ -76,11 +77,11 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 			return err
 		}
 
-		// 发送额度通知（订阅计费使用订阅剩余额度）
+		// 托管只记账，不产生钱包余额变化，也不发送虚假的余额不足通知。
 		if actualQuota != 0 {
 			if relayInfo.BillingSource == BillingSourceSubscription {
 				checkAndSendSubscriptionQuotaNotify(relayInfo)
-			} else {
+			} else if relayInfo.BillingSource != BillingSourceHosting {
 				checkAndSendQuotaNotify(relayInfo, actualQuota-preConsumed, preConsumed)
 			}
 		}

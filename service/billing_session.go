@@ -156,6 +156,7 @@ func (s *BillingSession) GetPreConsumedQuota() int {
 	return s.preConsumedQuota
 }
 
+// Reserve 在发送前追加 Key 与资金预留；托管只预留 Key，不改变钱包。
 func (s *BillingSession) Reserve(targetQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -254,8 +255,12 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	return nil
 }
 
+// reserveFunding 为追加请求量预留资金；托管记账不产生钱包副作用。
 func (s *BillingSession) reserveFunding(delta int, requireAvailableQuota bool) error {
 	switch funding := s.funding.(type) {
+	case *HostingFunding:
+		// 托管没有资金变动；追加预留仍由后续 reserveToken 执行。
+		return nil
 	case *WalletFunding:
 		if requireAvailableQuota {
 			// Image quantity is known before submission, including retries and
@@ -380,7 +385,7 @@ func (s *BillingSession) syncRelayInfo() {
 
 // NewBillingSession 创建请求计费会话。有效托管账号不以站内余额作为调用门槛，普通渠道按计费偏好预扣。
 // 托管豁免必须重新核对数据库中的用户、Key、名额和实际渠道，不能信任客户端分组或旧缓存。
-// 只放开钱包余额门槛；定价、Token 限额、结算与退款仍沿用原有账务规则。
+// 托管费用只用于统计与 Key 限额，不能预扣、结算或退还钱包余额。
 func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preConsumedQuota int) (*BillingSession, *types.NewAPIError) {
 	if relayInfo == nil {
 		return nil, types.NewError(fmt.Errorf("relayInfo is nil"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
@@ -402,7 +407,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		// 仍建立真实计费会话，避免跳过 Key 限额、使用量记录及失败退款。
 		session := &BillingSession{
 			relayInfo: relayInfo,
-			funding:   &WalletFunding{userId: relayInfo.UserId, hostingBalanceExempt: true},
+			funding:   &HostingFunding{},
 			lang:      i18n.StatedLang(c),
 		}
 		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {

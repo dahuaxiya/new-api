@@ -78,8 +78,10 @@ function ToolSurchargeMarker() {
   )
 }
 
+/** 显示计价金额；托管记账必须同时注明不扣余额，避免被误认为钱包支出。 */
 export function LogCostDisplay(props: LogCostDisplayProps) {
   const { t } = useTranslation()
+  const isHosting = props.other?.billing_source === 'hosting'
   const isSubscription = props.other?.billing_source === 'subscription'
   const showToolSurcharge = hasToolSurcharge(props.other)
   const quota = isSubscription
@@ -134,6 +136,11 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
           ) : null}
           <span className='whitespace-nowrap'>{formatLogQuota(quota)}</span>
         </StatusBadge>
+        {isHosting ? (
+          <StatusBadge type='text' variant='neutral' copyable={false}>
+            {t('No balance deduction')}
+          </StatusBadge>
+        ) : null}
         {showToolSurcharge ? <ToolSurchargeMarker /> : null}
       </div>
     </TooltipProvider>
