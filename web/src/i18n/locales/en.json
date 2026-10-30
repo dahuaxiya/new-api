@@ -7877,7 +7877,7 @@
     "No outbound connection configured": "No outbound connection configured",
     "Bound slot not found": "Bound slot not found",
     "Outbound connection disabled": "Outbound connection disabled",
-    "Slot": "Slot"
-  },
-  "No balance deduction": "No balance deduction"
+    "Slot": "Slot",
+    "No balance deduction": "No balance deduction"
+  }
 }

@@ -7907,7 +7907,7 @@
     "Waiting for official account authorization": "等待官方帳號授權",
     "Account verified; ready to switch": "帳號已驗證，準備切換",
     "Switched; waiting to clean up the source slot": "已切換，等待清理原槽位",
-    "Migration in progress": "遷移進行中"
-  },
-  "No balance deduction": "不扣餘額"
+    "Migration in progress": "遷移進行中",
+    "No balance deduction": "不扣餘額"
+  }
 }

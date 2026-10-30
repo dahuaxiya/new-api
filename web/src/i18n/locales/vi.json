@@ -7877,7 +7877,7 @@
     "No outbound connection configured": "Chưa cấu hình kết nối đầu ra",
     "Bound slot not found": "Không tìm thấy khe đã liên kết",
     "Outbound connection disabled": "Kết nối đầu ra chưa được bật",
-    "Slot": "Vị trí"
-  },
-  "No balance deduction": "Không trừ số dư"
+    "Slot": "Vị trí",
+    "No balance deduction": "Không trừ số dư"
+  }
 }

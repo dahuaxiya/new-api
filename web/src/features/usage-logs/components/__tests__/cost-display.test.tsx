@@ -29,6 +29,7 @@ import {
   test,
 } from 'vitest'
 
+import zhResources from '@/i18n/locales/zh.json'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { LogCostDisplay } from '../log-cost-display'
@@ -93,6 +94,21 @@ describe('log cost display', () => {
     expect(
       screen.queryByRole('img', { name: 'Wallet' })
     ).not.toBeInTheDocument()
+  })
+
+  /** 使用真实语言包验证提示，防止英文 key 回退掩盖语言包层级错误。 */
+  test('renders the hosting exemption from the Chinese translation bundle', async () => {
+    const previousLanguage = i18next.language
+    i18next.addResourceBundle('zhCN', 'translation', zhResources.translation)
+    await i18next.changeLanguage('zhCN')
+    try {
+      renderCost({ quota: 2, other: { billing_source: 'hosting' } })
+      expect(screen.getByText('不扣余额')).toBeVisible()
+      expect(screen.queryByText('No balance deduction')).not.toBeInTheDocument()
+    } finally {
+      // 其他日志测试共用 i18next，避免中文状态污染后续英文断言。
+      await i18next.changeLanguage(previousLanguage)
+    }
   })
 
   test('shows wallet cost and source icon without using subscription metadata', () => {

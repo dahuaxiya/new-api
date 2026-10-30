@@ -7877,7 +7877,7 @@
     "No outbound connection configured": "Aucune connexion sortante configurée",
     "Bound slot not found": "Emplacement associé introuvable",
     "Outbound connection disabled": "Connexion sortante désactivée",
-    "Slot": "Emplacement"
-  },
-  "No balance deduction": "Aucun débit du solde"
+    "Slot": "Emplacement",
+    "No balance deduction": "Aucun débit du solde"
+  }
 }
