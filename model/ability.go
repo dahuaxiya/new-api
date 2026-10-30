@@ -47,6 +47,17 @@ func GetGroupEnabledModels(group string) []string {
 	return models
 }
 
+// GetChannelGroupEnabledModels 返回指定渠道和分组当前可用的模型。
+// 托管请求固定到绑定渠道，调用方必须先核实渠道与当前用户的名额归属。
+func GetChannelGroupEnabledModels(channelID int, group string) ([]string, error) {
+	models := []string{}
+	err := DB.Table("abilities").
+		Joins("JOIN channels ON channels.id = abilities.channel_id").
+		Where("abilities."+commonGroupCol+" = ? AND abilities.channel_id = ? AND abilities.enabled = ? AND channels.status = ?", group, channelID, true, common.ChannelStatusEnabled).
+		Distinct("abilities.model").Pluck("abilities.model", &models).Error
+	return models, err
+}
+
 func GetEnabledModels() []string {
 	var models []string
 	// Find distinct models
