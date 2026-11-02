@@ -25,6 +25,12 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
   SecureVerificationDialog,
   useSecureVerification,
 } from '@/features/auth/secure-verification'
@@ -120,26 +126,96 @@ export function HostingResetCredits({
   return (
     <section
       aria-label={t('Reset Credits')}
-      className='space-y-3 border-t pt-4'
+      className='space-y-2 border-t pt-3'
     >
-      <div className='flex items-center justify-between gap-3'>
-        <h2 className='text-sm font-medium'>{t('Reset Credits')}</h2>
-        <Button
-          variant='ghost'
-          size='icon'
-          aria-label={t('Refresh')}
-          disabled={query.isFetching || useCredit.isPending}
-          onClick={() => query.refetch()}
-        >
-          <RefreshCw
-            aria-hidden='true'
-            className={
-              query.isFetching
-                ? 'animate-spin motion-reduce:animate-none'
-                : undefined
-            }
-          />
-        </Button>
+      <div className='flex flex-wrap items-center justify-between gap-x-4 gap-y-2'>
+        <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1'>
+          <h2 className='text-sm font-medium'>{t('Reset Credits')}</h2>
+          {query.data && !query.isError && (
+            <>
+              <p className='text-muted-foreground text-sm'>
+                {t('Available')}:{' '}
+                <span className='text-foreground font-medium tabular-nums'>
+                  {query.data.available_count}
+                </span>
+              </p>
+              {query.data.items.length > 0 && (
+                <Popover>
+                  <PopoverTrigger render={<Button variant='ghost' size='xs' />}>
+                    {t('Details')}
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align='start'
+                    className='max-h-64 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto p-3'
+                  >
+                    <PopoverTitle>{t('Reset Credits')}</PopoverTitle>
+                    <ul className='text-muted-foreground space-y-2 text-sm'>
+                      {[...groups.entries()].map(([key, { item, count }]) => (
+                        <li key={key}>
+                          <p className='text-foreground font-medium'>
+                            {item.label || t('Reset Credits')}
+                            {' · '}
+                            {item.resets_left * count}
+                            {' · '}
+                            {item.redeemable
+                              ? t('Available')
+                              : t('Not available')}
+                          </p>
+                          {item.starts_at && (
+                            <p>
+                              {t('Starts at')}:{' '}
+                              {new Date(item.starts_at).toLocaleString(locale)}
+                            </p>
+                          )}
+                          {item.expires_at && (
+                            <p>
+                              {t('Expires at')}:{' '}
+                              {new Date(item.expires_at).toLocaleString(locale)}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </>
+          )}
+        </div>
+        <div className='flex items-center gap-1'>
+          {query.data && !query.isError && (
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={
+                query.data.available_count <= 0 ||
+                blocked ||
+                unknownWithoutFreshStatus ||
+                useCredit.isPending ||
+                query.isFetching
+              }
+              onClick={() => setConfirm(true)}
+            >
+              {t('Use reset credit')}
+            </Button>
+          )}
+          <Button
+            variant='ghost'
+            size='icon-sm'
+            aria-label={t('Refresh')}
+            disabled={query.isFetching || useCredit.isPending}
+            onClick={() => query.refetch()}
+          >
+            <RefreshCw
+              aria-hidden='true'
+              className={
+                query.isFetching
+                  ? 'animate-spin motion-reduce:animate-none'
+                  : undefined
+              }
+            />
+          </Button>
+        </div>
       </div>
       {query.isPending && (
         <p role='status' className='text-muted-foreground text-sm'>
@@ -150,45 +226,6 @@ export function HostingResetCredits({
         <p role='alert' className='text-destructive text-sm'>
           {query.error.message}
         </p>
-      )}
-      {query.data && !query.isError && (
-        <>
-          <p className='text-sm'>
-            {t('Available reset credits')}:{' '}
-            <span className='font-medium'>{query.data.available_count}</span>
-          </p>
-          {query.data.items.length > 0 && (
-            <ul className='text-muted-foreground space-y-1 text-sm'>
-              {[...groups.entries()].map(([key, { item, count }]) => (
-                <li key={key}>
-                  {item.label || t('Reset Credits')}
-                  {' · '}
-                  {item.resets_left * count}
-                  {' · '}
-                  {item.redeemable ? t('Available') : t('Not available')}
-                  {item.starts_at &&
-                    ` · ${t('Starts at')}: ${new Date(item.starts_at).toLocaleString(locale)}`}
-                  {item.expires_at &&
-                    ` · ${t('Expires at')}: ${new Date(item.expires_at).toLocaleString(locale)}`}
-                </li>
-              ))}
-            </ul>
-          )}
-          <Button
-            variant='outline'
-            size='sm'
-            disabled={
-              query.data.available_count <= 0 ||
-              blocked ||
-              unknownWithoutFreshStatus ||
-              useCredit.isPending ||
-              query.isFetching
-            }
-            onClick={() => setConfirm(true)}
-          >
-            {t('Use reset credit')}
-          </Button>
-        </>
       )}
       {(blocked || outcome === 'unknown') && (
         <Alert>

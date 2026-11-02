@@ -401,7 +401,16 @@ it('queries the selected account and verifies before using a reset credit', asyn
       platform: 'codex',
     },
   })
+  const details = await screen.findByRole('button', { name: 'Details' })
+  expect(details).toHaveAttribute('aria-expanded', 'false')
+  expect(
+    screen.queryByText('Official', { exact: false })
+  ).not.toBeInTheDocument()
+  await user.click(details)
+  expect(details).toHaveAttribute('aria-expanded', 'true')
   expect(await screen.findByText('Official', { exact: false })).toBeVisible()
+  expect(screen.getByText(/Expires at:/)).toBeVisible()
+  await user.click(details)
   await user.click(screen.getByRole('button', { name: 'Use reset credit' }))
   const dialog = await screen.findByRole('alertdialog')
   expect(within(dialog).getByText(/cannot be restored/)).toBeVisible()
