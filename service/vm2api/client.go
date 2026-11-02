@@ -259,6 +259,13 @@ func (c *Client) login(ctx context.Context) (string, error) {
 }
 
 // roundTrip 丢弃所有上游错误正文；管理接口可能回显密码或授权码，不能透传。
+// @param ctx 当前请求的取消及截止时间。
+// @param method 固定面板端点使用的 HTTP 方法。
+// @param path 已约束在面板前缀内的固定路径。
+// @param body 请求内容，允许为空。
+// @param token 服务端缓存的面板会话，仅用于请求头。
+// @param target 可选的受限响应接收对象。
+// @return 上游状态码与安全错误；不返回原始错误正文。
 func (c *Client) roundTrip(ctx context.Context, method, path string, body any, token string, target any) (int, error) {
 	if !strings.HasPrefix(path, "/api/panel/") || strings.ContainsAny(path, "?#\\") || strings.Contains(path, "..") {
 		return 0, &Error{Code: "invalid_path", HTTPStatus: 400}
@@ -296,7 +303,7 @@ func (c *Client) roundTrip(ctx context.Context, method, path string, body any, t
 			}
 			if common.DecodeJson(io.LimitReader(res.Body, 8192), &failure) == nil {
 				switch failure.Error.Code {
-				case "slot_not_empty", "slot_unavailable", "exit_unavailable", "account_changed", "personal_account_required", "identity_invalid", "identity_unavailable", "hosting_busy", "cleanup_pending", "hosting_conflict":
+				case "slot_not_empty", "slot_unavailable", "exit_unavailable", "account_changed", "personal_account_required", "identity_invalid", "identity_unavailable", "hosting_busy", "cleanup_pending", "hosting_conflict", "reset_unavailable", "reset_unsupported":
 					code = failure.Error.Code
 				}
 			}

@@ -1,5 +1,12 @@
 {
   "translation": {
+    "Use reset credit": "使用重置卡",
+    "Reset credits are not supported for this account.": "此账号暂不支持重置卡。",
+    "The previous reset could not be confirmed. Try again after {{time}}.": "上次重置结果尚未确认，{{time}} 后才能再次使用。",
+    "The reset result could not be confirmed. Refresh the status before trying again.": "重置结果尚未确认，请刷新状态后再试。",
+    "Reset credit used successfully.": "重置卡使用成功。",
+    "No reset credit was used. Check the current account status.": "未使用重置卡，请检查当前账号状态。",
+    "Use one official reset credit for this account? Used reset credits cannot be restored.": "确定为此账号使用一张官方重置卡吗？使用后无法恢复。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

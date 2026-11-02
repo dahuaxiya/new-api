@@ -1,5 +1,12 @@
 {
   "translation": {
+    "Use reset credit": "リセットクレジットを使用",
+    "Reset credits are not supported for this account.": "このアカウントはリセットクレジットに対応していません。",
+    "The previous reset could not be confirmed. Try again after {{time}}.": "前回のリセット結果を確認できませんでした。{{time}} 以降に再試行してください。",
+    "The reset result could not be confirmed. Refresh the status before trying again.": "リセット結果を確認できませんでした。状態を更新してから再試行してください。",
+    "Reset credit used successfully.": "リセットクレジットを使用しました。",
+    "No reset credit was used. Check the current account status.": "クレジットは使用されませんでした。アカウントの状態を確認してください。",
+    "Use one official reset credit for this account? Used reset credits cannot be restored.": "このアカウントで公式リセットクレジットを1回使用しますか？使用後は元に戻せません。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

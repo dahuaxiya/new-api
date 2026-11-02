@@ -1,5 +1,12 @@
 {
   "translation": {
+    "Use reset credit": "Use reset credit",
+    "Reset credits are not supported for this account.": "Reset credits are not supported for this account.",
+    "The previous reset could not be confirmed. Try again after {{time}}.": "The previous reset could not be confirmed. Try again after {{time}}.",
+    "The reset result could not be confirmed. Refresh the status before trying again.": "The reset result could not be confirmed. Refresh the status before trying again.",
+    "Reset credit used successfully.": "Reset credit used successfully.",
+    "No reset credit was used. Check the current account status.": "No reset credit was used. Check the current account status.",
+    "Use one official reset credit for this account? Used reset credits cannot be restored.": "Use one official reset credit for this account? Used reset credits cannot be restored.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

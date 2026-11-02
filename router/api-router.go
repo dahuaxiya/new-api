@@ -16,6 +16,7 @@ import (
 
 // SetApiRouter registers management APIs with their required authentication.
 // Personal quota reads share dashboard session revocation and rate limits.
+// @param router 注册 API 路由的 Gin 引擎。
 func SetApiRouter(router *gin.Engine) {
 	apiRouter := router.Group("/api")
 	apiRouter.Use(middleware.RouteTag("api"))
@@ -41,6 +42,8 @@ func SetApiRouter(router *gin.Engine) {
 		// writes before accepting customer passwords or OAuth callback codes.
 		hosting := apiRouter.Group("/gpt-hosting", middleware.UserAuth(), middleware.DisableCache())
 		hosting.GET("/self", controller.GetGPTHostingSelf)
+		hosting.POST("/reset-credits/query", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("hosting-reset-query"), controller.QueryHostingResetCredits)
+		hosting.POST("/reset-credits/use", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("hosting-reset-use"), controller.UseHostingResetCredit)
 		hosting.GET("/store", controller.GetHostingStore)
 		hosting.GET("/orders", controller.GetHostingOrders)
 		hosting.POST("/payment", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("hosting-payment"), controller.RequestHostingPayment)

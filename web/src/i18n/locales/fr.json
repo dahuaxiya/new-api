@@ -1,5 +1,12 @@
 {
   "translation": {
+    "Use reset credit": "Utiliser un crédit de réinitialisation",
+    "Reset credits are not supported for this account.": "Ce compte ne prend pas en charge les crédits de réinitialisation.",
+    "The previous reset could not be confirmed. Try again after {{time}}.": "La réinitialisation précédente n'a pas pu être confirmée. Réessayez après {{time}}.",
+    "The reset result could not be confirmed. Refresh the status before trying again.": "Le résultat n'a pas pu être confirmé. Actualisez l'état avant de réessayer.",
+    "Reset credit used successfully.": "Crédit de réinitialisation utilisé.",
+    "No reset credit was used. Check the current account status.": "Aucun crédit n'a été utilisé. Vérifiez l'état du compte.",
+    "Use one official reset credit for this account? Used reset credits cannot be restored.": "Utiliser un crédit officiel pour ce compte ? Un crédit utilisé ne peut pas être restauré.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

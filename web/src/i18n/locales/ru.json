@@ -1,5 +1,12 @@
 {
   "translation": {
+    "Use reset credit": "Использовать сброс",
+    "Reset credits are not supported for this account.": "Для этого аккаунта сбросы не поддерживаются.",
+    "The previous reset could not be confirmed. Try again after {{time}}.": "Результат предыдущего сброса не подтверждён. Повторите после {{time}}.",
+    "The reset result could not be confirmed. Refresh the status before trying again.": "Результат сброса не подтверждён. Обновите статус перед повторной попыткой.",
+    "Reset credit used successfully.": "Сброс успешно использован.",
+    "No reset credit was used. Check the current account status.": "Сброс не использован. Проверьте статус аккаунта.",
+    "Use one official reset credit for this account? Used reset credits cannot be restored.": "Использовать один официальный сброс для этого аккаунта? Восстановить его будет невозможно.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

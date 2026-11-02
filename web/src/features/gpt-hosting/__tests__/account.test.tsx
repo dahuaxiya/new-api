@@ -277,7 +277,9 @@ it('keeps details collapsed and preserves the unbind confirmation after closing 
     within(dialog).getByText(/Its term does not change/)
   ).toBeInTheDocument()
   await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
-  expect(post).not.toHaveBeenCalled()
+  expect(
+    post.mock.calls.some(([url]) => url === '/api/gpt-hosting/unbind')
+  ).toBe(false)
 })
 
 it('strips request config and uses fixed account mismatch messages', async () => {
@@ -342,7 +344,155 @@ it('keeps security verification open after selecting reauthorization from the me
     await screen.findByLabelText('Password', { selector: 'input' })
   ).toBeVisible()
   expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-  expect(post).not.toHaveBeenCalled()
+  expect(
+    post.mock.calls.some(([url]) => url === '/api/gpt-hosting/login')
+  ).toBe(false)
+})
+
+/** 官方次数只能在确认及二次验证后使用，查询与消费均携带当前名额。 */
+it('queries the selected account and verifies before using a reset credit', async () => {
+  const user = userEvent.setup()
+  const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
+    if (url === '/api/gpt-hosting/reset-credits/query') {
+      return {
+        data: {
+          success: true,
+          data: {
+            platform: 'codex',
+            available_count: 1,
+            items: [
+              {
+                label: 'Official',
+                starts_at: '',
+                expires_at: '2100-01-01T00:00:00Z',
+                resets_left: 1,
+                redeemable: true,
+              },
+            ],
+          },
+        },
+      }
+    }
+    if (url === '/api/verify') {
+      return {
+        data: {
+          success: true,
+          data: {
+            proof_token: 'reset-proof',
+            method: 'password',
+            scope: 'gpt.hosting.manage',
+            expires_at: 4102444800,
+          },
+        },
+      }
+    }
+    if (url === '/api/gpt-hosting/reset-credits/use') {
+      return { data: { success: true, data: { outcome: 'reset' } } }
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  mountPage({
+    ...granted,
+    binding: {
+      state: 'active',
+      paused: false,
+      account_label: 'owner',
+      plan: 'plus',
+      platform: 'codex',
+    },
+  })
+  expect(await screen.findByText('Official', { exact: false })).toBeVisible()
+  await user.click(screen.getByRole('button', { name: 'Use reset credit' }))
+  const dialog = await screen.findByRole('alertdialog')
+  expect(within(dialog).getByText(/cannot be restored/)).toBeVisible()
+  expect(post.mock.calls.some(([url]) => url.endsWith('/use'))).toBe(false)
+  await user.click(
+    within(dialog).getByRole('button', { name: 'Use reset credit' })
+  )
+  await user.type(
+    await screen.findByLabelText('Password', { selector: 'input' }),
+    'fixture-password'
+  )
+  await user.click(screen.getByRole('button', { name: 'Verify' }))
+  expect(
+    await screen.findByText('Reset credit used successfully.')
+  ).toBeVisible()
+  expect(post).toHaveBeenCalledWith(
+    '/api/gpt-hosting/reset-credits/use',
+    {},
+    expect.objectContaining({
+      params: { seat_id: granted.grant.seat_id },
+      headers: { 'X-Security-Proof': 'reset-proof' },
+    })
+  )
+})
+
+/** 消费响应丢失后读取服务端保护状态，不能把结果当作失败并再次提交。 */
+it('blocks another reset when the result is unconfirmed', async () => {
+  const user = userEvent.setup()
+  let blocked = false
+  vi.spyOn(api, 'post').mockImplementation(async (url) => {
+    if (url === '/api/gpt-hosting/reset-credits/query') {
+      return {
+        data: {
+          success: true,
+          data: {
+            platform: 'claude',
+            available_count: 1,
+            items: [],
+            blocked_until: blocked ? Math.floor(Date.now() / 1000) + 3600 : 0,
+          },
+        },
+      }
+    }
+    if (url === '/api/verify') {
+      return {
+        data: {
+          success: true,
+          data: {
+            proof_token: 'reset-proof',
+            method: 'password',
+            scope: 'gpt.hosting.manage',
+            expires_at: 4102444800,
+          },
+        },
+      }
+    }
+    if (url === '/api/gpt-hosting/reset-credits/use') {
+      blocked = true
+      throw new Error('connection lost')
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  mountPage({
+    ...granted,
+    binding: {
+      state: 'active',
+      paused: false,
+      account_label: 'owner',
+      plan: 'max',
+      platform: 'claude',
+    },
+  })
+  await user.click(
+    await screen.findByRole('button', { name: 'Use reset credit' })
+  )
+  await user.click(
+    within(await screen.findByRole('alertdialog')).getByRole('button', {
+      name: 'Use reset credit',
+    })
+  )
+  await user.type(
+    await screen.findByLabelText('Password', { selector: 'input' }),
+    'fixture-password'
+  )
+  await user.click(screen.getByRole('button', { name: 'Verify' }))
+  expect(
+    await screen.findByText(/previous reset could not be confirmed/i)
+  ).toBeVisible()
+  expect(
+    screen.getByRole('button', { name: 'Use reset credit' })
+  ).toBeDisabled()
 })
 
 it('selects a seat and clears the authorization form before switching accounts', async () => {

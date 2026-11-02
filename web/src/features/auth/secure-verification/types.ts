@@ -61,7 +61,10 @@ export type VerificationOperation =
   | { scope: 'account.binding.unbind'; context: { provider_id: number } }
   | {
       scope: 'gpt.hosting.manage'
-      context: { action: 'login' | 'unbind' | 'store-plan'; binding_id: string }
+      context: {
+        action: 'login' | 'unbind' | 'reset' | 'store-plan'
+        binding_id: string
+      }
     }
   | {
       scope: 'admin.user.token'

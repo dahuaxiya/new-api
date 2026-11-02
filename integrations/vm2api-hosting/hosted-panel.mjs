@@ -17,6 +17,7 @@ import { stopCodexKernel, finishCodexRecycle } from '../transport/codex-kernel-s
 import { assertClaudeEmpty, clearClaudeCredentials, verifyHostedClaudeIdentity } from './hosted-claude.mjs'
 import { startClaudeAuthLoginSession, completeClaudeAuthLogin } from '../oauth/claude-auth-login.mjs'
 import { isCodexVm, isClaudeVm } from '../vm/vm-kind.mjs'
+import { hostedResetCredits } from './hosted-reset.mjs'
 const busy = new Set()
 const sessions = new Map()
 const ID = /^[a-zA-Z0-9_-]{1,80}$/
@@ -126,10 +127,29 @@ function inspectLegacy(ctx, vm, body) {
 }
 
 /** 处理单槽动作；所有路径由管理员登记、所有绑定由中央数据库生成，客户端不能提供上游地址。 */
+/**
+ * 在当前槽位的排他锁内执行托管协议，远端状态与代数必须再次校验。
+ * @param ctx 面板上下文，包含私有数据根目录和受限接口。
+ * @param vm 已解析的本机槽位。
+ * @param action 固定托管动作。
+ * @param body 经面板限长解析的请求，身份仍须逐项核对。
+ * @param commit 激活时写入槽位凭据的受控回调。
+ * @return 可返回门户的操作结果，校验失败抛出固定错误。
+ */
 async function operate(ctx, vm, action, body, commit) {
   const db = hostedDb(), root = ctx.cfg.paths.project
   let row = hostedRecord(vm.id)
   const px = ctx.requireSlotProxy(vm, {})
+  if (action === 'reset-query' || action === 'reset-use') {
+    const now = Math.floor(Date.now() / 1000)
+    // 重置是不可撤销的官方账号操作；远端也必须核对绑定、身份和有效期，不能只信门户传来的槽位。
+    if (!row || row.state !== 'active' || row.binding_id !== body.binding_id ||
+        row.account_hash !== body.account_hash || row.subject_hash !== body.subject_hash ||
+        !row.account_hash || !row.subject_hash || !validHostedTerm(row.starts_at, row.ends_at) ||
+        now < row.starts_at || (row.ends_at !== HOSTING_PERMANENT_END && now >= row.ends_at)) throw hostedError()
+    claim(row, body)
+    return hostedResetCredits({ root, vm, action, body })
+  }
   if (action === 'takeover-check') return inspectLegacy(ctx, vm, body)
   if (action === 'takeover') {
     if (!UUID.test(body.binding_id || '') || !Number.isSafeInteger(body.generation) || body.generation < 0) throw hostedError()
@@ -332,7 +352,15 @@ function legacyIdentity(root, vm, managed) {
   return { legacy_account_hashes:[...accounts], legacy_subject_hashes:[...subjects] }
 }
 
-/** 面板扩展入口；非本协议返回 false，错误只返回固定代码，禁止泄露上游返回正文。 */
+/**
+ * 面板扩展入口；错误只返回固定代码，禁止泄露上游返回正文。
+ * @param ctx 面板服务上下文。
+ * @param req 已通过面板认证的请求。
+ * @param res 当前响应对象。
+ * @param url 已解析的请求地址。
+ * @param commit 激活凭据时使用的受控回调。
+ * @return 非托管协议时为 false，已经处理响应时为 true。
+ */
 export async function handleHostedPanel(ctx, req, res, url, commit) {
   const p = url.pathname
   if (!p.startsWith('/api/panel/hosting/')) return false
@@ -348,7 +376,7 @@ export async function handleHostedPanel(ctx, req, res, url, commit) {
       })
       ctx.json(res,200,{ok:true,data:{version:2,slots}}); return true
     }
-    const match = p.match(/^\/api\/panel\/hosting\/slots\/([A-Za-z0-9_-]{1,80})\/(enroll|reserve|login|prepare|activate|policy|release|takeover-check|takeover)$/)
+    const match = p.match(/^\/api\/panel\/hosting\/slots\/([A-Za-z0-9_-]{1,80})\/(enroll|reserve|login|prepare|activate|policy|release|takeover-check|takeover|reset-query|reset-use)$/)
     if (!match || req.method !== 'POST') throw hostedError()
     const id = match[1]
     if (!ID.test(id) || busy.has(id)) throw hostedError('hosting_busy')
@@ -361,7 +389,7 @@ export async function handleHostedPanel(ctx, req, res, url, commit) {
       ctx.json(res,200,{ok:true,data:result})
     } finally { busy.delete(id) }
   } catch (error) {
-    const safe = new Set(['hosting_conflict','hosting_unavailable','hosting_busy','inventory_required','slot_not_empty','slot_unavailable','exit_unavailable','cleanup_pending','invalid_callback','authorization_expired','account_changed','personal_account_required','identity_invalid','identity_unavailable','forbidden'])
+    const safe = new Set(['hosting_conflict','hosting_unavailable','hosting_busy','inventory_required','slot_not_empty','slot_unavailable','exit_unavailable','cleanup_pending','invalid_callback','authorization_expired','account_changed','personal_account_required','identity_invalid','identity_unavailable','forbidden','reset_unavailable','reset_unsupported'])
     ctx.json(res,409,{ok:false,error:{code:safe.has(error.code)?error.code:'hosting_unavailable',message:'Hosted account operation could not be completed'}})
   }
   return true

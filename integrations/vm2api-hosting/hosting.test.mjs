@@ -30,6 +30,8 @@ mock.module(moduleURL('oauth/claude-auth-login.mjs'),{namedExports:{...claudeOAu
 }})
 mock.module(moduleURL('oauth/official-cc-bootstrap.mjs'),{namedExports:{...bootstrap,stopOfficialCcResident:()=>({})}})
 mock.module(moduleURL('oauth/oauth-identity.mjs'),{namedExports:{...claudeIdentity,fetchOauthBootstrapAccount:async()=>({ok:true,identity:{account_uuid:claudeMismatch?claudeOrg:claudeAccount,org_uuid:claudeOrg,email:'owner@example.test',subscription_type:'max'}})}})
+let resetCalls = 0
+mock.module(moduleURL('admin/hosted-reset.mjs'), {namedExports:{hostedResetCredits:async()=>{resetCalls++;return {outcome:'reset'}}}})
 const { handleHostedPanel } = await import(moduleURL('admin/hosted-panel.mjs'))
 const { openDatabase, closeDatabase, getDb } = await import(moduleURL('db/database.mjs'))
 const { hostedDb, hostedRecord, hostedAllows, withHostedWrite, assertHostedWrite } = await import(moduleURL('admin/hosted-store.mjs'))
@@ -38,6 +40,7 @@ const { ApiKeyStore } = await import(moduleURL('admin/api-keys.mjs'))
 const { VmPoolsRepo } = await import(moduleURL('db/repos/vm-pools-repo.mjs'))
 const { keyAllowsVm } = await import(moduleURL('admin/key-scope.mjs'))
 const { getVm } = await import(moduleURL('vm/vm-registry.mjs'))
+const { queryOpenaiQuota } = await import(moduleURL('oauth/openai-quota.mjs'))
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(),'hosting-lifecycle-'))
 process.env.VM2API_DB_SECRET = 'local-hosting-test-secret-only'
 openDatabase({dbPath:path.join(tmp,'hosting.db')})
@@ -57,6 +60,43 @@ async function call(action, body={}, role='admin') {
  return res
 }
 after(()=>{closeDatabase();fs.rmSync(tmp,{recursive:true,force:true});mock.restoreAll()})
+
+test('缺少官方重置读数时保留原缓存，明确返回零次时才更新缓存', async()=>{
+ const id='reset-reading-slot'
+ const file=path.join(tmp,'vms',id+'.json')
+ fs.writeFileSync(file,JSON.stringify({id,platform:'openai',codex:{access_token:'fixture-access',reset_credits:{available_count:4,credits:[]}}}))
+ const missing=async url=>({status:url.includes('rate-limit-reset-credits')?503:200,json:async()=>({})})
+ const unknown=await queryOpenaiQuota({projectRoot:tmp,vmId:id,fetchImpl:missing,rotate:false})
+ assert.equal(unknown.reset_credit_verified,false)
+ assert.equal(JSON.parse(fs.readFileSync(file)).codex.reset_credits.available_count,4)
+ const zero=async url=>({status:url.includes('rate-limit-reset-credits')?503:200,json:async()=>({rate_limit_reset_credits:{available_count:0,credits:[]}})})
+ const known=await queryOpenaiQuota({projectRoot:tmp,vmId:id,fetchImpl:zero,rotate:false})
+ assert.equal(known.reset_credit_verified,true)
+ assert.equal(JSON.parse(fs.readFileSync(file)).codex.reset_credits.available_count,0)
+})
+
+test('重置操作必须匹配远端账号、代数、状态和有效期限', async()=>{
+ const previous = vm.id
+ vm.id = 'reset-slot'
+ fs.writeFileSync(path.join(tmp,'vms',vm.id+'.json'),JSON.stringify(vm))
+ const now = Math.floor(Date.now()/1000)
+ hostedDb().prepare("INSERT INTO hosted_slots (vm_id,binding_id,generation,state,account_hash,subject_hash,starts_at,ends_at) VALUES (?,?,?,'active',?,?,?,?)").run(vm.id,binding,4,official.account_hash,official.subject_hash,now-1,now+3600)
+ const body={binding_id:binding,generation:5,...official,platform:'codex',operation_id:'00000000-0000-4000-8000-000000000009'}
+ const before=resetCalls
+ assert.equal((await call('reset-use',body,'viewer')).status,409)
+ assert.equal((await call('reset-use',{...body,account_hash:'c'.repeat(64)})).status,409)
+ assert.equal((await call('reset-use',{...body,binding_id:'00000000-0000-4000-8000-000000000008'})).status,409)
+ assert.equal((await call('reset-use',{...body,generation:3})).status,409)
+ hostedDb().prepare("UPDATE hosted_slots SET state='paused' WHERE vm_id=?").run(vm.id)
+ assert.equal((await call('reset-use',body)).status,409)
+ hostedDb().prepare("UPDATE hosted_slots SET state='active',ends_at=? WHERE vm_id=?").run(now-1,vm.id)
+ assert.equal((await call('reset-use',body)).status,409)
+ assert.equal(resetCalls,before)
+ hostedDb().prepare('UPDATE hosted_slots SET ends_at=? WHERE vm_id=?').run(now+3600,vm.id)
+ assert.equal((await call('reset-use',body)).status,200)
+ assert.equal(resetCalls,before+1)
+ vm.id=previous
+})
 
 test('prepare, activate, pause, fencing and verified cleanup preserve the prebuilt slot', async()=>{
  assert.equal((await call('enroll',{},'viewer')).status,409)

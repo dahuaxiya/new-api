@@ -69,6 +69,7 @@ import {
   type HostingLogin,
   type HostingSelf,
 } from './api'
+import { HostingResetCredits } from './reset-credits'
 
 /** 会话变化时卸载授权表单，避免上一个用户的回调、验证结果和缓存被复用。 */
 export function HostingAccount(): React.JSX.Element {
@@ -82,7 +83,11 @@ export function HostingAccount(): React.JSX.Element {
   )
 }
 
-/** 将当前名额与账号合并展示，低频说明和管理操作渐进展开；验证和确认状态保留在菜单外，避免关闭菜单时丢失。 */
+/**
+ * 展示当前名额与账号，验证和确认状态保留在菜单外，避免关闭菜单时丢失。
+ * @param props 当前用户及会话的缓存隔离标识。
+ * @return 当前会话的托管账号页面。
+ */
 function AccountSession(props: { identity: string }): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
@@ -367,6 +372,18 @@ function AccountSession(props: { identity: string }): React.JSX.Element {
                     </NativeSelect>
                   </Field>
                 )}
+                {data.valid &&
+                  state === 'active' &&
+                  !data.binding?.paused &&
+                  data.grant.seat_id &&
+                  data.binding_id && (
+                    <HostingResetCredits
+                      key={`${props.identity}:${data.grant.seat_id}:${data.binding_id}`}
+                      identity={props.identity}
+                      seatId={data.grant.seat_id}
+                      bindingId={data.binding_id}
+                    />
+                  )}
                 <div className='flex flex-wrap items-center gap-2'>
                   {state === 'unbound' && (
                     <Button

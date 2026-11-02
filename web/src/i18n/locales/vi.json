@@ -1,5 +1,12 @@
 {
   "translation": {
+    "Use reset credit": "Dùng lượt đặt lại",
+    "Reset credits are not supported for this account.": "Tài khoản này không hỗ trợ lượt đặt lại.",
+    "The previous reset could not be confirmed. Try again after {{time}}.": "Chưa xác nhận được lần đặt lại trước. Hãy thử lại sau {{time}}.",
+    "The reset result could not be confirmed. Refresh the status before trying again.": "Chưa xác nhận được kết quả. Hãy làm mới trạng thái trước khi thử lại.",
+    "Reset credit used successfully.": "Đã dùng lượt đặt lại.",
+    "No reset credit was used. Check the current account status.": "Chưa dùng lượt đặt lại nào. Hãy kiểm tra trạng thái tài khoản.",
+    "Use one official reset credit for this account? Used reset credits cannot be restored.": "Dùng một lượt đặt lại chính thức cho tài khoản này? Lượt đã dùng không thể khôi phục.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

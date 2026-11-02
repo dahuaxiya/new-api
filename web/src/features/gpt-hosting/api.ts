@@ -97,6 +97,23 @@ export type HostingLogin = {
   expires_at: string
 }
 
+export type HostingResetCredits = {
+  platform?: 'codex' | 'claude'
+  available_count: number
+  items: Array<{
+    label: string
+    starts_at: string
+    expires_at: string
+    resets_left: number
+    redeemable: boolean
+  }>
+  fetched_at?: string
+  cooldown_until?: string
+  blocked_until?: number
+  outcome?: 'reset' | 'not_used' | 'unknown'
+  reason?: string
+}
+
 /** 只读取会话对应的安全视图，调用方不能拼接任意管理接口。 */
 export async function getHosting<T extends HostingSelf | HostingAdmin>(
   view: 'self' | 'admin',
@@ -150,12 +167,23 @@ function hostingMessage(error: unknown): string {
       return t(
         'Credential cleanup is still in progress. The slot remains reserved.'
       )
+    case 'reset_unsupported':
+      return t('Reset credits are not supported for this account.')
+    case 'reset_unavailable':
+      return t('Failed to fetch reset credit details. Please try again later')
     default:
       return getServerErrorMessage(error)
   }
 }
 
-/** 敏感提交只在当前调用中保留 proof 和回调；自动重试必须由业务状态恢复接口处理。 */
+/**
+ * 敏感提交只在当前调用中保留 proof 和回调；自动重试必须由业务状态恢复接口处理。
+ * @param action 服务端允许的固定托管操作。
+ * @param body 此次操作的请求数据，不应写入持久缓存。
+ * @param proof 高风险操作的一次性验证证明。
+ * @param seatId 用户当前选择的托管名额，省略时由服务端选择默认名额。
+ * @return 服务端返回的受限结果。
+ */
 export async function postHosting<T = HostingSelf>(
   action:
     | 'login'
@@ -172,6 +200,8 @@ export async function postHosting<T = HostingSelf>(
     | 'admin/migrate/finish'
     | 'admin/migrate/cancel'
     | 'payment'
+    | 'reset-credits/query'
+    | 'reset-credits/use'
     | 'admin/store/plans',
   body: unknown,
   proof?: string,

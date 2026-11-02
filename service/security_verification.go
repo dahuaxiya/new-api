@@ -165,6 +165,8 @@ type VerificationBinding struct {
 }
 
 // BindVerificationOperation 严格校验各操作上下文并生成绑定摘要，禁止证明跨用户、资源或动作复用。
+// @param operation 包含验证范围及范围对应的严格上下文。
+// @return 规范化上下文绑定摘要；范围或上下文无效时返回错误。
 func BindVerificationOperation(operation VerificationOperation) (VerificationBinding, error) {
 	var fields map[string]json.RawMessage
 	if len(operation.Context) > 0 {
@@ -208,7 +210,7 @@ func BindVerificationOperation(operation VerificationOperation) (VerificationBin
 			Action    string `json:"action"`
 			BindingID string `json:"binding_id"`
 		}
-		if len(fields) != 2 || common.Unmarshal(operation.Context, &context) != nil || !slices.Contains([]string{"login", "unbind", "store-plan"}, context.Action) {
+		if len(fields) != 2 || common.Unmarshal(operation.Context, &context) != nil || !slices.Contains([]string{"login", "unbind", "reset", "store-plan"}, context.Action) {
 			return VerificationBinding{}, ErrVerificationContextInvalid
 		}
 		// 套餐操作使用固定产品编号；账号操作仍强制 UUID，两个动作的证明不能互换。

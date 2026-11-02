@@ -14,7 +14,10 @@ def replace_once(text, old, new):
 
 
 def install(root):
-    """先验证全部变更再写入；调用者负责在停用控制面后构建/发布新镜像。"""
+    """先验证全部变更再写入；调用者负责在停用控制面后构建/发布新镜像。
+
+    @param root 待安装覆盖的 vm2api 源码根目录，必须由调用者指定。
+    """
     root = root.resolve()
     files = {}
     target = root / 'lib/admin/key-scope.mjs'
@@ -39,6 +42,50 @@ def install(root):
     s = "import { hostedRecord } from '../admin/hosted-store.mjs'\n" + s if "import { hostedRecord }" not in s else s
     anchor = 'async function queryUpstream(slot, { fetchImpl, rotate = true, projectRoot, vmId, policy = null } = {}) {'
     s = replace_once(s, anchor, anchor + '\n  // 托管账号只读官方额度，避免探测与内核同时旋转 refresh token。\n  if (hostedRecord(vmId)) rotate = false')
+    anchor = 'async function queryUpstream(slot, { fetchImpl, rotate = true, projectRoot, vmId, policy = null } = {}) {'
+    s = replace_once(s, anchor, '''/**
+ * 判断官方响应是否明确提供次数或有效列表，不能将缺失数据解析为零次。
+ * @param value 官方次数接口的响应内容。
+ * @return 有可识别次数或有效列表时为 true。
+ */
+export function hasResetCreditReading(value) {
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value) } catch { return false }
+  }
+  const validList = list => Array.isArray(list) && list.every(item => item && typeof item === 'object' && !Array.isArray(item))
+  if (Array.isArray(value)) return validList(value)
+  if (!value || typeof value !== 'object') return false
+  const rawCount = value.available_count ?? value.availableCount
+  const count = typeof rawCount === 'number' || typeof rawCount === 'string' ? num(rawCount) : null
+  return (count != null && Number.isSafeInteger(count) && count >= 0) ||
+    ['credits', 'rate_limit_reset_credits', 'items', 'data'].some(key => validList(value[key]))
+}
+
+''' + anchor)
+    anchor = '''  const usageCredits = pack.usage.payload?.rate_limit_reset_credits || pack.usage.payload?.rateLimitResetCredits
+  const detailCredits = pack.details?.ok ? parseResetCreditDetails(pack.details.payload) : null
+  const resetCredits = mergeResetCredits(
+    usageCredits && typeof usageCredits === 'object'
+      ? {
+          available_count: num(usageCredits.available_count ?? usageCredits.availableCount) || 0,
+          credits: asCreditList(usageCredits.credits)
+            .map((row) => ({ expires_at: creditExpiresAt(row) }))
+            .filter((row) => row.expires_at),
+        }
+      : null,
+    detailCredits,
+  )'''
+    replacement = '''  const usageCredits = pack.usage.payload?.rate_limit_reset_credits || pack.usage.payload?.rateLimitResetCredits
+  // 上游偶尔没有返回该字段，不能把解析器的默认 0 当成已确认的空卡列表。
+  const usageReading = hasResetCreditReading(usageCredits) ? parseResetCreditDetails(usageCredits) : null
+  const detailCredits = pack.details?.ok && hasResetCreditReading(pack.details.payload) ? parseResetCreditDetails(pack.details.payload) : null
+  const resetCreditVerified = !!(usageReading || detailCredits)
+  const resetCredits = mergeResetCredits(usageReading, detailCredits)'''
+    s = replace_once(s, anchor, replacement)
+    anchor = '  const persistable = resetCredits.available_count <= 0 || resetCredits.credits.length > 0 ? resetCredits : null'
+    s = replace_once(s, anchor, '  // 缺失读数不能覆盖已有缓存，否则托管用户查询会把未知状态写成零次。\n  const persistable = resetCreditVerified && (resetCredits.available_count <= 0 || resetCredits.credits.length > 0) ? resetCredits : null')
+    anchor = '    ...publicUsage(extra, persistable || resetCredits, credits, pack.usage.payload || {}),\n    fetched_at: resetCredits.fetched_at,'
+    s = replace_once(s, anchor, '    ...publicUsage(extra, persistable || resetCredits, credits, pack.usage.payload || {}),\n    reset_credit_verified: resetCreditVerified,\n    fetched_at: resetCredits.fetched_at,')
     files[target] = s
     target = root / 'lib/protocol/handle-codex.mjs'
     s = target.read_text()
@@ -53,7 +100,7 @@ def install(root):
     s = replace_once(s, "live.error === 'upstream_auth' && rotate && refreshToken", "live.error === 'upstream_auth' && rotate && refreshToken && !hostedRecord(target.id)")
     s = replace_once(s, "codex && !result?.ok && looksLikeCodexUnauthorized(result)", "codex && !hostedRecord(vmId) && !result?.ok && looksLikeCodexUnauthorized(result)")
     files[target] = s
-    for name in ['hosted-store.mjs', 'hosted-identity.mjs', 'hosted-panel.mjs', 'hosted-claude.mjs']:
+    for name in ['hosted-store.mjs', 'hosted-identity.mjs', 'hosted-panel.mjs', 'hosted-claude.mjs', 'hosted-reset.mjs']:
         files[root / 'lib/admin' / name] = (Path(__file__).parent / name).read_text()
     for target, content in files.items():
         target.write_text(content)
