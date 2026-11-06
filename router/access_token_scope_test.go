@@ -58,6 +58,7 @@ var accessTokenExemptRoutes = []string{
 	// Payment callbacks.
 	"GET /api/gpt-hosting/payment/notify",
 	"POST /api/gpt-hosting/payment/notify",
+	"POST /api/gpt-hosting/payment/alipay/notify",
 	"POST /api/stripe/webhook",
 	"POST /api/creem/webhook",
 	"POST /api/waffo/webhook",

@@ -7809,6 +7809,7 @@
     "Renewal extends an active seat from its expiry date. An expired seat starts again when payment is received. Permanent seats do not need renewal.": "有効な枠は元の期限から延長し、期限切れの枠は入金時から再開します。無期限の枠は更新不要です。",
     "Slots are checked before checkout and reserved for 15 minutes. Returning from payment does not confirm receipt; check your order status.": "購入前に空き枠を確認し15分間確保します。サイトへ戻るだけでは入金確認になりません。注文状況をご確認ください。",
     "Hosting orders": "ホスティング注文",
+    "Verify payment": "支払いを確認",
     "Refresh orders": "注文を更新",
     "No hosting orders yet": "注文はまだありません",
     "Awaiting payment": "支払い待ち",

@@ -28,9 +28,8 @@ func hostingPaymentURL(raw string) (*url.URL, error) {
 
 // hostingPaymentReady 只决定新订单是否可售；回调独立验签，关闭销售不能丢弃已经支付的订单。
 func hostingPaymentReady() bool {
-	_, gatewayErr := hostingPaymentURL(operation_setting.PayAddress)
 	_, callbackErr := hostingPaymentURL(service.GetCallbackAddress())
-	return operation_setting.IsPaymentComplianceConfirmed() && gatewayErr == nil && callbackErr == nil && GetEpayClient() != nil
+	return operation_setting.IsPaymentComplianceConfirmed() && callbackErr == nil && len(hostingPaymentMethods()) > 0
 }
 
 // GetHostingStore 展示套餐和可用支付方式；不把商户 ID、密钥或服务器地址返回到目录接口。
@@ -43,13 +42,7 @@ func GetHostingStore(c *gin.Context) {
 		hostingError(c, err)
 		return
 	}
-	methods := []string{}
-	for _, m := range []string{"wxpay", "alipay"} {
-		if operation_setting.ContainsPayMethod(m) {
-			methods = append(methods, m)
-		}
-	}
-	c.JSON(200, gin.H{"success": true, "data": gin.H{"plans": plans, "payment_ready": hostingPaymentReady(), "methods": methods}})
+	c.JSON(200, gin.H{"success": true, "data": gin.H{"plans": plans, "payment_ready": hostingPaymentReady(), "methods": hostingPaymentMethods()}})
 }
 
 // hostingOrderPage 限制分页范围，避免恶意大 offset；固定每页二十笔。
@@ -68,6 +61,12 @@ func GetHostingOrders(c *gin.Context) {
 	if err != nil {
 		hostingError(c, err)
 		return
+	}
+	client, loadErr := hostingAlipayClient()
+	if loadErr == nil && client != nil && client.Production() {
+		for i := range rows {
+			rows[i].CanQueryPayment = rows[i].Method == "alipay" && rows[i].Merchant == client.Merchant()
+		}
 	}
 	c.JSON(200, gin.H{"success": true, "data": gin.H{"items": rows, "total": total}})
 }
@@ -173,7 +172,8 @@ func RequestHostingPayment(c *gin.Context) {
 	if input.OrderID != "" {
 		order, err = model.GetHostingOrder(id, input.OrderID)
 	} else {
-		if !operation_setting.ContainsPayMethod(input.Method) || (input.Method != "wxpay" && input.Method != "alipay") {
+		merchant, available := hostingPaymentMerchant(input.Method)
+		if !available {
 			hostingError(c, model.ErrHostingConflict)
 			return
 		}
@@ -190,7 +190,7 @@ func RequestHostingPayment(c *gin.Context) {
 		if needsSlot {
 			candidates = hostingPurchaseCandidates(c.Request.Context(), input.Platform)
 		}
-		order, err = model.CreateHostingOrder(id, input.RequestID, input.PlanID, input.SeatID, input.Platform, input.Method, operation_setting.EpayId, candidates)
+		order, err = model.CreateHostingOrder(id, input.RequestID, input.PlanID, input.SeatID, input.Platform, input.Method, merchant, candidates)
 	}
 	if err != nil {
 		if err == model.ErrHostingSoldOut {
@@ -200,7 +200,7 @@ func RequestHostingPayment(c *gin.Context) {
 		}
 		return
 	}
-	if order.Status != "pending" || order.ExpiresAt <= time.Now().Unix() || order.Merchant != operation_setting.EpayId || !operation_setting.ContainsPayMethod(order.Method) {
+	if order.Status != "pending" || order.ExpiresAt <= time.Now().Unix() {
 		common.ApiErrorT(c, "This order can no longer be paid. Refresh the order list.")
 		return
 	}
@@ -211,6 +211,26 @@ func RequestHostingPayment(c *gin.Context) {
 	// 浏览器返回只打开账单中的托管订单；名额发放仍只接受已验签的服务端通知。
 	back.Path = strings.TrimRight(back.Path, "/") + "/wallet"
 	back.RawQuery = "tab=hosting"
+	if strings.HasPrefix(order.Merchant, "alipay:") {
+		client, loadErr := hostingAlipayClient()
+		if loadErr != nil || client == nil || !client.Enabled() || !client.Production() || order.Method != "alipay" || order.Merchant != client.Merchant() {
+			common.ApiErrorT(c, "This order can no longer be paid. Refresh the order list.")
+			return
+		}
+		notify.Path = strings.TrimRight(base.Path, "/") + "/api/gpt-hosting/payment/alipay/notify"
+		uri, params, err := client.PagePay(order.ID, order.PriceCents, order.Days, order.ExpiresAt, notify.String(), back.String())
+		if err != nil {
+			hostingError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"url": uri, "params": params, "order": order}})
+		return
+	}
+	// 已有 Epay 订单继续按原商户付款，启用官方支付宝不能把旧订单重新签给新收款方。
+	if order.Merchant != operation_setting.EpayId || !operation_setting.ContainsPayMethod(order.Method) || GetEpayClient() == nil {
+		common.ApiErrorT(c, "This order can no longer be paid. Refresh the order list.")
+		return
+	}
 	uri, params, err := GetEpayClient().Purchase(&epay.PurchaseArgs{Type: order.Method, ServiceTradeNo: order.ID, Name: fmt.Sprintf("Hosting %d days", order.Days), Money: fmt.Sprintf("%d.%02d", order.PriceCents/100, order.PriceCents%100), Device: epay.PC, NotifyUrl: &notify, ReturnUrl: &back})
 	if err != nil {
 		hostingError(c, err)

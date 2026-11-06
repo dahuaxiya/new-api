@@ -7809,6 +7809,7 @@
     "Renewal extends an active seat from its expiry date. An expired seat starts again when payment is received. Permanent seats do not need renewal.": "Une place active est prolongée depuis son échéance. Une place expirée repart à réception du paiement. Les places permanentes ne nécessitent pas de renouvellement.",
     "Slots are checked before checkout and reserved for 15 minutes. Returning from payment does not confirm receipt; check your order status.": "Les places sont vérifiées puis réservées 15 minutes. Le retour sur le site ne confirme pas le paiement : consultez la commande.",
     "Hosting orders": "Commandes d’hébergement",
+    "Verify payment": "Vérifier le paiement",
     "Refresh orders": "Actualiser les commandes",
     "No hosting orders yet": "Aucune commande d’hébergement",
     "Awaiting payment": "En attente de paiement",

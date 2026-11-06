@@ -33,6 +33,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import type { HostingSelf } from '../api'
 import { HostingStore } from '../store'
 import { HostingStoreAdmin } from '../store-admin'
+import { HostingOrderList } from '../store-orders'
 
 let client: QueryClient
 const plans = [
@@ -265,4 +266,104 @@ it('requires security verification before an administrator can save plan changes
     await screen.findByLabelText('Password', { selector: 'input' })
   ).toBeInTheDocument()
   expect(post).not.toHaveBeenCalled()
+})
+
+it.each(['pending', 'expired'])(
+  'verifies a %s Alipay order on the server and refreshes fulfilled status',
+  async (initialStatus) => {
+    const user = userEvent.setup()
+    let status = initialStatus
+    vi.spyOn(api, 'get').mockImplementation(async () => ({
+      data: {
+        success: true,
+        data: {
+          items: [
+            {
+              id: 'my-alipay-order',
+              seat_id: 'seat-one',
+              user_id: 2,
+              kind: 'renew',
+              platform: 'codex',
+              method: 'alipay',
+              days: 30,
+              price_cents: 4000,
+              status,
+              created_at: 100,
+              expires_at: 200,
+              ends_at: 4102444800,
+              can_query_payment: true,
+            },
+          ],
+          total: 1,
+        },
+      },
+    }))
+    const post = vi.spyOn(api, 'post').mockImplementation(async () => {
+      status = 'paid'
+      return { data: { success: true, data: {} } }
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <HostingOrderList identity='buyer-session' paymentReady={false} />
+      </QueryClientProvider>
+    )
+    // 关闭新销售后仍能核实已经支付的旧订单，付款结果只取回读的服务端状态。
+    await user.click(
+      await screen.findByRole('button', { name: 'Verify payment' })
+    )
+    expect(post).toHaveBeenCalledWith(
+      '/api/gpt-hosting/payment/query',
+      {
+        order_id: 'my-alipay-order',
+      },
+      expect.any(Object)
+    )
+    expect(await screen.findByText('Paid and fulfilled')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Verify payment' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Continue to payment' })
+    ).not.toBeInTheDocument()
+  }
+)
+
+it('keeps an order unpaid and permits retry when Alipay verification fails', async () => {
+  const user = userEvent.setup()
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        items: [
+          {
+            id: 'pending-order',
+            seat_id: 'seat-one',
+            kind: 'renew',
+            platform: 'codex',
+            method: 'alipay',
+            days: 30,
+            price_cents: 4000,
+            status: 'pending',
+            created_at: 100,
+            expires_at: 4102444800,
+            can_query_payment: true,
+          },
+        ],
+        total: 1,
+      },
+    },
+  })
+  vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: false, message: 'Unable to verify payment' },
+  })
+  render(
+    <QueryClientProvider client={client}>
+      <HostingOrderList identity='buyer-session' paymentReady />
+    </QueryClientProvider>
+  )
+  const verify = await screen.findByRole('button', { name: 'Verify payment' })
+  await user.click(verify)
+  await waitFor(() => expect(verify).toBeEnabled())
+  expect(screen.getByText('Awaiting payment')).toBeInTheDocument()
+  expect(screen.queryByText('Paid and fulfilled')).not.toBeInTheDocument()
 })

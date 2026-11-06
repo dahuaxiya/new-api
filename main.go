@@ -288,6 +288,7 @@ func InjectGoogleAnalytics() {
 	indexPage = bytes.ReplaceAll(indexPage, placeholder, analyticsInject)
 }
 
+// InitResources 初始化数据库、认证和后台维护；支付补偿复用已初始化的订单库与固定商户配置。
 func InitResources() error {
 	// Initialize resources here if needed
 	// This is a placeholder function for future resource initialization
@@ -375,6 +376,7 @@ func InitResources() error {
 
 	service.StartAuthArtifactCleanup()
 	controller.StartGPTHostingMaintenance()
+	controller.StartHostingAlipayReconciliation()
 	controller.StartGPTQuotaHistory()
 
 	return nil

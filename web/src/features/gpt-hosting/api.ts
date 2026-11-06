@@ -200,6 +200,7 @@ export async function postHosting<T = HostingSelf>(
     | 'admin/migrate/finish'
     | 'admin/migrate/cancel'
     | 'payment'
+    | 'payment/query'
     | 'reset-credits/query'
     | 'reset-credits/use'
     | 'admin/store/plans',
@@ -241,6 +242,7 @@ export type HostingOrder = {
   expires_at: number
   paid_at: number
   ends_at: number
+  can_query_payment?: boolean
 }
 export type HostingStore = {
   plans: HostingPlan[]

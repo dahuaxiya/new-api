@@ -7809,6 +7809,7 @@
     "Renewal extends an active seat from its expiry date. An expired seat starts again when payment is received. Permanent seats do not need renewal.": "未到期名额从原到期日顺延，已过期名额从到账时重新计算。永久名额无需续费。",
     "Slots are checked before checkout and reserved for 15 minutes. Returning from payment does not confirm receipt; check your order status.": "下单前检查可用槽位并预留 15 分钟。支付后请查看订单状态，返回本站不代表已到账。",
     "Hosting orders": "托管订单",
+    "Verify payment": "核实付款",
     "Refresh orders": "刷新订单",
     "No hosting orders yet": "暂无托管订单",
     "Awaiting payment": "待支付",

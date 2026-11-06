@@ -79,6 +79,17 @@ export function HostingOrderList(props: {
     onError: handleServerError,
     onSettled: () => cache.invalidateQueries({ queryKey: prefix }),
   })
+  // 查询始终由后端验签并检查订单归属；页面不依据支付宝回跳参数展示“已付款”。
+  const verifyPayment = useMutation({
+    mutationFn: (orderId: string) =>
+      postHosting('payment/query', { order_id: orderId }),
+    retry: false,
+    onError: handleServerError,
+    onSettled: async () => {
+      await cache.invalidateQueries({ queryKey: prefix })
+      await cache.invalidateQueries({ queryKey: ['gpt-hosting'] })
+    },
+  })
   const table = useReactTable({
     data: query.data?.items || [],
     columns: [],
@@ -189,17 +200,31 @@ export function HostingOrderList(props: {
                     {
                       id: 'action',
                       header: t('Actions'),
-                      cell: (row: HostingOrders['items'][number]) =>
-                        row.status === 'pending' ? (
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            disabled={!props.paymentReady || pay.isPending}
-                            onClick={() => pay.mutate(row.id)}
-                          >
-                            {t('Continue to payment')}
-                          </Button>
-                        ) : null,
+                      cell: (row: HostingOrders['items'][number]) => (
+                        <div className='flex flex-wrap gap-2'>
+                          {row.status === 'pending' && (
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              disabled={!props.paymentReady || pay.isPending}
+                              onClick={() => pay.mutate(row.id)}
+                            >
+                              {t('Continue to payment')}
+                            </Button>
+                          )}
+                          {row.can_query_payment &&
+                            ['pending', 'expired'].includes(row.status) && (
+                              <Button
+                                size='sm'
+                                variant='ghost'
+                                disabled={verifyPayment.isPending}
+                                onClick={() => verifyPayment.mutate(row.id)}
+                              >
+                                {t('Verify payment')}
+                              </Button>
+                            )}
+                        </div>
+                      ),
                     },
                   ]
                 : []),

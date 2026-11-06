@@ -126,6 +126,47 @@ func TestHostingStoreDatabases(t *testing.T) {
 			unchanged, err = GetHostingGrant(user.Id, purchased.SeatID)
 			require.NoError(t, err)
 			require.Equal(t, expired.EndsAt, unchanged.EndsAt)
+			// 官方退款先于付款通知到达时，数据库必须持久化拦截，重放付款不能发放权益。
+			require.NoError(t, db.Model(binding).Update("paused", false).Error)
+			refund, err := CreateHostingOrder(user.Id, uuid.NewString(), "monthly", purchased.SeatID, "codex", "alipay", "official-merchant", nil)
+			require.NoError(t, err)
+			require.ErrorIs(t, ReviewHostingPayment(refund.ID, "foreign", "official-refund", 5000), ErrHostingConflict)
+			require.ErrorIs(t, ReviewHostingPayment(refund.ID, "official-merchant", "official-refund", 1), ErrHostingConflict)
+			for range 2 {
+				require.NoError(t, ReviewHostingPayment(refund.ID, "official-merchant", "official-refund", 5000))
+			}
+			refund, err = CompleteHostingOrder(refund.ID, "official-merchant", "alipay", "official-refund", 5000)
+			require.NoError(t, err)
+			require.Equal(t, "paid_review", refund.Status)
+			unchanged, err = GetHostingGrant(user.Id, purchased.SeatID)
+			require.NoError(t, err)
+			require.Equal(t, expired.EndsAt, unchanged.EndsAt)
+			require.ErrorIs(t, ReviewHostingPayment(refund.ID, "official-merchant", "other-trade", 5000), ErrHostingConflict)
+			// 补偿分页只遍历当前商户最近七天待支付订单；过期订单仍查询但不得重复发权益。
+			now := time.Now().Unix()
+			candidates := []HostingOrder{
+				{ID: "scan-a", Merchant: "scan-merchant", Method: "alipay", Status: "pending", CreatedAt: now - 20},
+				{ID: "scan-b", Merchant: "scan-merchant", Method: "alipay", Status: "pending", CreatedAt: now - 100, ExpiresAt: now - 10},
+				{ID: "scan-c", Merchant: "scan-merchant", Method: "alipay", Status: "paid_review", CreatedAt: now - 20},
+				{ID: "scan-d", Merchant: "other-merchant", Method: "alipay", Status: "pending", CreatedAt: now - 20},
+				{ID: "scan-e", Merchant: "scan-merchant", Method: "alipay", Status: "pending", CreatedAt: now - 8*86400},
+				{ID: "scan-f", Merchant: "scan-merchant", Method: "wxpay", Status: "pending", CreatedAt: now - 20},
+				{ID: "scan-g", Merchant: "scan-merchant", Method: "alipay", Status: "pending", CreatedAt: now - 1},
+			}
+			for i := range candidates {
+				candidates[i].RequestUser, candidates[i].UserID = user.Id, user.Id
+				candidates[i].RequestID = candidates[i].ID
+				require.NoError(t, db.Create(&candidates[i]).Error)
+			}
+			scanned, err := PendingHostingPayments("scan-merchant", "", now)
+			require.NoError(t, err)
+			require.Len(t, scanned, 2)
+			require.Equal(t, "scan-a", scanned[0].ID)
+			require.Equal(t, "scan-b", scanned[1].ID)
+			scanned, err = PendingHostingPayments("scan-merchant", "scan-a", now)
+			require.NoError(t, err)
+			require.Len(t, scanned, 1)
+			require.Equal(t, "scan-b", scanned[0].ID)
 			// 超时释放占位，新用户可抢占；旧回调即便真实到账也不得占用后来者的库存。
 			inv, err := PutHostingInventory("cc", "race-slot", true, "claude")
 			require.NoError(t, err)

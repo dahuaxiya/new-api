@@ -213,13 +213,32 @@ Claude 走现有 vm2api 官方 `claude auth login`，用户完成官方登录后
 
 普通用户在「账单与兑换 → 托管套餐」查看价格、购买续费和订单；「托管账号」只保留购买、续费跳转按钮，续费链接携带当前名额。账单页通过本人名额接口重新核验目标，查询失败时不回退到其他名额，永久名额不显示续费入口。支付返回地址统一为 `/wallet?tab=hosting`，不通过浏览器返回发放权益。复用原 Tabs、购买弹窗和订单组件；充值兑换与邀请返利保留原分区。root 从「用户管理 → 托管套餐与订单」配置价格、上下架并查看订单。三档默认价格为人民币 40 元 / 30 天、99 元 / 90 天、350 元 / 365 天，首次迁移默认下架。期限按固定天数计算，未到期续费接原到期日，过期续费从已验签付款通知的接收时间起算；永久、暂停、停用或清理中的名额拒绝收取续费款。多名额逐个购买，用户继续为每把 API Key 选择指定账号。
 
-支付复用现有 Epay 协议的微信、支付宝配置；现有支付声明确认、HTTPS 网关和 HTTPS 回调地址均有效后才能下单。Epay 是接口协议，商户服务商是否接受个人主体和具体业务需另行审核，不能用个人收款码代替已验签支付通知。未配置商户时显示「托管支付暂未开通」，不生成假支付码、不自动勾选声明、不创建真实订单。
+支付支持支付宝官方网页收款，并保留 Epay 协议的微信、支付宝配置。设置 `ALIPAY_HOSTING_CONFIG` 后，新支付宝订单只使用官方通道；配置错误时不自动降级到另一收款方。Epay 老订单继续检查原商户快照，不能转换成官方支付宝订单。现有支付声明确认、HTTPS 网关和 HTTPS 回调地址均有效后才能下单。未配置商户时显示「托管支付暂未开通」，不生成假支付码、不自动勾选声明、不创建真实订单。
+
+官方支付宝使用第三方 Go SDK `smartwalle/alipay/v3`，调用官方 `alipay.trade.page.pay` 和 `alipay.trade.query`，使用 RSA2 签名和支付宝公钥验签。服务端通过 `ALIPAY_HOSTING_CONFIG=/run/alipay/hosting.json` 指定配置文件，私有文件在容器中只读挂载；配置与应用私钥必须为普通文件、绝对路径及 `0600` 或 `0400` 权限，不能是符号链接。私钥由站点负责人自行配置，不提交到仓库或通过聊天传递。示例中的 ID 需替换为实际已开通应用和收款人：
+
+```json
+{
+  "enabled": false,
+  "environment": "production",
+  "app_id": "YOUR_ALIPAY_APP_ID",
+  "seller_id": "YOUR_ALIPAY_SELLER_ID",
+  "app_private_key_file": "/run/alipay/app-private.pem",
+  "alipay_public_key_file": "/run/alipay/alipay-public.pem"
+}
+```
+
+配置在进程启动时读取，变更后需重启。`enabled=false` 关闭新销售，但保留同一商户的到账通知与查单能力。官方通知地址为站点回调源地址加 `/api/gpt-hosting/payment/alipay/notify`，必须公开 HTTPS 可达；浏览器回跳仅回到 `/wallet?tab=hosting`。通知完整验签、收款人/应用/金额/订单核对之后进入原交付事务。普通用户可在订单中「核实付款」，后台每 30 秒按游标补查最近七天待支付订单，网络或验签失败不改变订单。退款先到时转人工核对，防止后续付款通知重放再发名额；已交付订单的退款仍由管理员在商户侧和托管管理中核对处理，不自动回收权益。本版不提供在线退款、退款查询或关单管理界面。
+
+生产商城拒绝 `environment=sandbox` 的配置给真实用户发权益。支付宝 Skill 当前的项目识别器不支持 Go 项目，本次代码依据官方协议手工适配；这不等于 Skill 全流程校验或支付宝联调已通过。开通审核、正式公钥配置、公网通知及一笔真实付款验收完成后，才能启用销售。
 
 订单金额用人民币分保存，套餐和天数在下单时保存快照。新购名额或清理后续费会先检查远端空槽与出口，并在数据库中预留 15 分钟，所有分配入口共用库存锁。付款回调校验签名、商户、渠道、精确金额、订单号和唯一交易流水，订单与名额一起提交；重复通知只返回同一结果。浏览器支付返回只展示订单，不能发放权益。超过订单期限到账、管理员改变名额或库存交付冲突时记录为 paid_review，不覆盖管理动作，需管理员凭订单号在商户侧核实并处理退款或发放；本版不实现自动退款。
 
 部署只新增 hosting_plans、hosting_orders 两张表及原有迁移注册，不重建账号、渠道或 API Key。付款后名额分组缓存即时刷新，上游期限策略沿用 30 秒维护任务重试。前端继续复用 Dialog、Sheet、StaticDataTable、DataTablePagination、支付表单及安全验证组件；独立商城组件仅负责套餐/订单业务。
 
 验证命令：`GOTOOLCHAIN=auto go test ./model -run 'Test(HostingStore|GPTHosting|HostingSeats|VM2APIEnrollmentDatabases)' -count=1 -v`，需提供独立 enrollment_test 的 MySQL/PostgreSQL DSN；已覆盖 SQLite 3.50.4、MySQL 5.7.44、PostgreSQL 16.13 的新建、从不含商城表的现有结构升级、重复迁移、重复回调、库存竞争、跨用户隔离与事务回滚。控制器覆盖签名/金额/商户篡改、CSRF、root 权限及一次性证明。安全边界依据 OWASP ASVS 5.0 与 Authentication、Session Management、CSRF Cheat Sheet；沿用会话认证与来源检查，不记录商户密钥或原始到账签名。真实支付端到端验收必须另有有效商户配置，合成回调测试不能替代真实收款验证。
+
+2026-11-06 官方支付宝适配验证：`GOTOOLCHAIN=auto go test ./controller -run '^TestHosting(Alipay|Store)' -count=1` 使用临时 RSA 密钥、内存 HTTP 边界和 SQLite 验证验签、重复通知、退款先到、金额不符、跨用户查询、CSRF 与沙箱隔离。`VM2API_ENROLLMENT_TEST_MYSQL_DSN=... VM2API_ENROLLMENT_TEST_POSTGRES_DSN=... GOTOOLCHAIN=auto go test ./model -run '^TestHostingStoreDatabases$' -count=1 -v` 在隔离 `enrollment_test` 数据库上通过 SQLite 3.50.4、MySQL 8.4.13、PostgreSQL 16.15 的重复迁移、既有订单保留、交付幂等、退款事件与补偿查询测试。未以模拟验签结果替代支付宝沙箱或真实交易。
 
 
 ## 邮箱验证注册与防刷（2026-10-27）

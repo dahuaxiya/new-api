@@ -47,6 +47,8 @@ func SetApiRouter(router *gin.Engine) {
 		hosting.GET("/store", controller.GetHostingStore)
 		hosting.GET("/orders", controller.GetHostingOrders)
 		hosting.POST("/payment", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("hosting-payment"), controller.RequestHostingPayment)
+		hosting.POST("/payment/query", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("hosting-payment-query"), controller.QueryHostingAlipayPayment)
+		apiRouter.POST("/gpt-hosting/payment/alipay/notify", anonymousRequestBodyLimit, controller.HostingAlipayNotify)
 		// 网关通知独立验签，不能套登录或浏览器 Origin 校验。
 		apiRouter.POST("/gpt-hosting/payment/notify", anonymousRequestBodyLimit, controller.HostingPaymentNotify)
 		apiRouter.GET("/gpt-hosting/payment/notify", controller.HostingPaymentNotify)

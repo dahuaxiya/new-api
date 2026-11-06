@@ -25,25 +25,26 @@ type HostingPlan struct {
 // HostingOrder 只记录支付与权益交付证据，不保存网关签名、商户密钥和原始回调。
 // InventoryID 是有时限的库存占用，已付款后由名额绑定继续独占该槽位。
 type HostingOrder struct {
-	ID            string  `json:"id" gorm:"type:varchar(40);primaryKey"`
-	UserID        int     `json:"user_id" gorm:"index"`
-	RequestID     string  `json:"-" gorm:"type:varchar(36);uniqueIndex:idx_hosting_order_request,priority:2"`
-	RequestUser   int     `json:"-" gorm:"uniqueIndex:idx_hosting_order_request,priority:1"`
-	Kind          string  `json:"kind" gorm:"type:varchar(12)"`
-	SeatID        string  `json:"seat_id" gorm:"type:varchar(36);index"`
-	PlanID        string  `json:"plan_id" gorm:"type:varchar(36)"`
-	Days          int     `json:"days"`
-	PriceCents    int64   `json:"price_cents"`
-	Platform      string  `json:"platform" gorm:"type:varchar(16)"`
-	Method        string  `json:"method" gorm:"type:varchar(12)"`
-	Merchant      string  `json:"-" gorm:"type:varchar(128)"`
-	ProviderTrade *string `json:"-" gorm:"type:varchar(128);uniqueIndex:idx_hosting_provider_trade"`
-	InventoryID   string  `json:"-" gorm:"type:varchar(36);index"`
-	Status        string  `json:"status" gorm:"type:varchar(24);index"`
-	CreatedAt     int64   `json:"created_at" gorm:"autoCreateTime"`
-	ExpiresAt     int64   `json:"expires_at"`
-	PaidAt        int64   `json:"paid_at"`
-	EndsAt        int64   `json:"ends_at"`
+	ID              string  `json:"id" gorm:"type:varchar(40);primaryKey"`
+	UserID          int     `json:"user_id" gorm:"index"`
+	RequestID       string  `json:"-" gorm:"type:varchar(36);uniqueIndex:idx_hosting_order_request,priority:2"`
+	RequestUser     int     `json:"-" gorm:"uniqueIndex:idx_hosting_order_request,priority:1"`
+	Kind            string  `json:"kind" gorm:"type:varchar(12)"`
+	SeatID          string  `json:"seat_id" gorm:"type:varchar(36);index"`
+	PlanID          string  `json:"plan_id" gorm:"type:varchar(36)"`
+	Days            int     `json:"days"`
+	PriceCents      int64   `json:"price_cents"`
+	Platform        string  `json:"platform" gorm:"type:varchar(16)"`
+	Method          string  `json:"method" gorm:"type:varchar(12)"`
+	Merchant        string  `json:"-" gorm:"type:varchar(128)"`
+	ProviderTrade   *string `json:"-" gorm:"type:varchar(128);uniqueIndex:idx_hosting_provider_trade"`
+	InventoryID     string  `json:"-" gorm:"type:varchar(36);index"`
+	Status          string  `json:"status" gorm:"type:varchar(24);index"`
+	CreatedAt       int64   `json:"created_at" gorm:"autoCreateTime"`
+	ExpiresAt       int64   `json:"expires_at"`
+	PaidAt          int64   `json:"paid_at"`
+	EndsAt          int64   `json:"ends_at"`
+	CanQueryPayment bool    `json:"can_query_payment" gorm:"-"`
 }
 
 // MigrateHostingStore 仅初始化缺失套餐，重启和升级不覆盖管理员的价格或上下架状态。
@@ -231,6 +232,53 @@ func GetHostingOrder(userID int, id string) (*HostingOrder, error) {
 	var order HostingOrder
 	err := DB.Where("id = ? AND user_id = ?", id, userID).First(&order).Error
 	return &order, err
+}
+
+// GetHostingPaymentOrder 仅供已验签的服务端通知核对订单；浏览器接口必须使用带 userID 的查询。
+func GetHostingPaymentOrder(id string) (*HostingOrder, error) {
+	var order HostingOrder
+	err := DB.Where("id = ?", id).First(&order).Error
+	return &order, err
+}
+
+// PendingHostingPayments 按稳定订单号分页；过期但可能迟到到账的订单仍保留七天查询机会。
+func PendingHostingPayments(merchant, after string, now int64) ([]HostingOrder, error) {
+	rows := []HostingOrder{}
+	err := DB.Where("merchant = ? AND method = ? AND status = ? AND id > ? AND created_at >= ? AND created_at <= ?", merchant, "alipay", "pending", after, now-7*86400, now-10).Order("id").Limit(20).Find(&rows).Error
+	return rows, err
+}
+
+// ReviewHostingPayment 处理先抵达的退款事件，只冻结尚未交付的订单，不自动回收已授予的权益。
+// 使用与到账交付相同的用户行、订单行锁顺序，阻止查询补偿和事件通知竞争发放。
+func ReviewHostingPayment(id, merchant, trade string, cents int64) error {
+	if trade == "" || len(trade) > 128 {
+		return ErrHostingConflict
+	}
+	vm2apiEnrollmentCommitMutex.Lock()
+	defer vm2apiEnrollmentCommitMutex.Unlock()
+	order, err := GetHostingPaymentOrder(id)
+	if err != nil {
+		return err
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).First(&user, "id = ?", order.UserID).Error; err != nil {
+			return err
+		}
+		if err := lockForUpdate(tx).First(order, "id = ?", id).Error; err != nil {
+			return err
+		}
+		if order.Merchant != merchant || order.Method != "alipay" || order.PriceCents != cents || cents <= 0 {
+			return ErrHostingConflict
+		}
+		if order.ProviderTrade != nil && *order.ProviderTrade != trade {
+			return ErrHostingConflict
+		}
+		if order.Status == "paid" || order.Status == "paid_review" {
+			return nil
+		}
+		return tx.Model(order).Updates(map[string]any{"status": "paid_review", "provider_trade": trade, "paid_at": time.Now().Unix()}).Error
+	})
 }
 
 // ListHostingOrders 为用户或已鉴权管理员分页，超时状态由服务端时间推导，不依赖浏览器付款返回参数。
