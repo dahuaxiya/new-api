@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -47,6 +48,7 @@ var buildFS embed.FS
 //go:embed web/dist/index.html
 var indexPage []byte
 
+// main 初始化服务并等待退出信号；本地预览可限定监听地址，退出时等待在途请求结束。
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "plugin" {
 		os.Exit(jsplugin.RunCLI(os.Args[2:], os.Stdout, os.Stderr))
@@ -212,7 +214,8 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:    ":" + port,
+		// 默认仍监听全部网卡；预览实例可通过 BIND_ADDRESS 只接受回环连接。
+		Addr:    net.JoinHostPort(os.Getenv("BIND_ADDRESS"), port),
 		Handler: server,
 	}
 

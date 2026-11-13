@@ -27,6 +27,24 @@
 
 详细配置、故障账务处理、测试版本和开售前步骤见 [商业 API 说明](docs/retail-api.md)。此记录不是发布回执，生产发布继续遵循根目录 `AGENTS.md`。
 
+### 本地可操作预览
+
+在本仓库运行以下命令；首次需要已安装 Go、Python 3 和前端依赖：
+
+```sh
+cd web
+bun run build
+cd ..
+go build -ldflags='-s -w' -o .local-tests/retail-preview/new-api .
+python3 scripts/retail-preview.py
+```
+
+用户入口为 `http://127.0.0.1:18400/keys`，账号 `preview`；管理员入口为 `http://localhost:18400/channels`，账号 `previewadmin`。演示密码均为 `LuoboPreview2026!`。两个来源的登录状态独立，可同时查看用户页和管理员页。终端按 Ctrl+C 停止本次启动的预览服务，下次启动保留本地数据。
+
+预览在 `.local-tests/retail-preview/` 创建独立 SQLite 和配置，仅监听回环地址。初始钱包为 $50；一次性兑换码 `luobopreview202611140000000000001` 增加 $10。可创建“余额计费 API”密钥，调用 `gpt-4o-mini` 的 Chat Completions / Responses 或 `claude-sonnet-4-5` 的 Messages 接口，再查看日志与余额。网关执行真实本地结算，上游只返回标注过的合成文本，不使用真实订阅账号；演示上游只支持非流式请求。
+
+预置 `DEMO-` 订单用于查看状态，未配置支付宝商户，不能真实付款。支付声明开关只写入隔离演示库作为兑换测试夹具，不代表站点负责人已确认生产声明。预览以启动时至少 512 MiB 可用空间替代磁盘占用百分比检查，CPU 和内存保护沿用默认配置；该设置仅适用于这个轻量本地预览。
+
 ### 原有托管与额度展示
 
 用户概览显示本人 GPT 订阅的 5 小时 / 7 天额度及重置时间。API 密钥页面专注密钥管理，不展示官方额度卡片、额度历史图或每把密钥的剩余与已用额度；创建和编辑时的额度设置及后端限制仍保留。额度数据由 vm2api 探测，New API 继续负责用户身份和 API 请求。订阅窗口读数不替代 New API 自身的账单额度。

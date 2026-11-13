@@ -46,6 +46,11 @@ export const STATUS_CONFIG: Record<TopupStatus, StatusConfig> = {
     variant: 'danger',
     label: 'Expired',
   },
+  // 已收到付款但尚未入账的订单需人工核对，不能显示成普通待付款状态。
+  paid_review: {
+    variant: 'warning',
+    label: 'Paid, awaiting review',
+  },
 }
 
 /**
@@ -61,6 +66,7 @@ export function getStatusConfig(status: TopupStatus): StatusConfig {
 export const PAYMENT_METHOD_NAMES: Record<string, string> = {
   stripe: 'Stripe',
   alipay: 'Alipay',
+  alipay_official: 'Alipay',
   wxpay: 'WeChat Pay',
   waffo: 'Waffo',
 }
