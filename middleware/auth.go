@@ -525,6 +525,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 	}
 }
 
+// TokenAuth 校验 API Key、用户与当前服务授权；商业 Key 的协议范围由服务端固定，不能切换为托管计费。
 func TokenAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// 先检测是否为ws
@@ -623,9 +624,29 @@ func TokenAuth() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusForbidden, "GPT hosting is inactive or expired")
 			return
 		}
+		retailGroup, retailErr := model.RetailTokenGroup(token.UserId, token.Id)
+		if retailErr != nil {
+			abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgRetailUnavailable))
+			return
+		}
 		userCache.WriteContext(c)
 
 		userGroup := userCache.Group
+		if retailGroup != "" {
+			// 商业账本首期只覆盖同步文本协议；异步任务和长连接需独立验收，不能绕过账本。
+			path := c.Request.URL.Path
+			if !(c.Request.Method == http.MethodPost && (path == "/v1/responses" || path == "/v1/messages" || path == "/v1/chat/completions")) && !(c.Request.Method == http.MethodGet && (path == "/v1/models" || strings.HasPrefix(path, "/v1/models/"))) {
+				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgRetailEndpointUnsupported))
+				return
+			}
+			// 只替换本次请求的有效组，不放宽用户原有 acct_ 专属授权。
+			copy := *token
+			copy.Group, copy.AutoGroups, copy.CrossGroupRetry = "", "", false
+			token = &copy
+			userGroup = retailGroup
+			common.SetContextKey(c, constant.ContextKeyUserGroup, retailGroup)
+			c.Set("retail_request", true)
+		}
 		if hostingGroup != "" {
 			// 不修改共享缓存对象；旧 Key 的分组和重试字段只在当前请求中跟随中央绑定。
 			copy := *token

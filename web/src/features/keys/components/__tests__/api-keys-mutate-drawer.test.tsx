@@ -34,6 +34,15 @@ await i18n.use(initReactI18next).init({
   resources: { en: { translation: {} } },
 })
 
+/** 使用实际语言包核对命名空间，避免 JSON 有文案但界面仍退回英文。 */
+test('retail service labels load from the actual Chinese translation namespace', async () => {
+  const locale = await import('@/i18n/locales/zh.json')
+  const translated = createInstance()
+  await translated.init({ lng: 'zh', resources: { zh: locale.default } })
+  expect(translated.t('API service')).toBe('API 服务')
+  expect(translated.t('Pay as you go API')).toBe('余额计费 API')
+})
+
 type ApiMethod = (url: string, data?: unknown) => Promise<{ data: unknown }>
 type MockableApi = {
   get: ApiMethod
@@ -96,6 +105,13 @@ function installApiFixtures(
               default: { desc: 'Standard access', ratio: 1 },
               vip: { desc: 'Priority access', ratio: 2 },
             },
+          },
+        }
+      case '/api/token/service-modes':
+        return {
+          data: {
+            success: true,
+            data: { retail: true, models: ['retail-model'] },
           },
         }
       case '/api/token/auto-groups':
@@ -358,4 +374,27 @@ test('multiple hosted accounts require an explicit target and submit only the ch
     group: '',
     cross_group_retry: false,
   })
+})
+
+/** 商业 Key 可由多托管名额用户创建，不带出隐藏账号及 Auto 路由。 */
+test('retail mode skips hosted account selection and submits wallet service', async () => {
+  const payloads: Array<Record<string, unknown>> = []
+  installApiFixtures(payloads, true)
+  await renderCreateDrawer()
+  fireEvent.change(await screen.findByLabelText('API service'), {
+    target: { value: 'retail' },
+  })
+  expect(screen.queryByLabelText('Hosted account for this key')).toBeNull()
+  fireEvent.change(screen.getByLabelText('Name'), {
+    target: { value: 'Wallet API' },
+  })
+  fireEvent.click(findButton('Save changes', true))
+  await waitFor(() => expect(payloads.length).toBe(1))
+  expect(payloads[0]).toMatchObject({
+    service_mode: 'retail',
+    group: '',
+    auto_groups: [],
+    cross_group_retry: false,
+  })
+  expect(payloads[0].hosting_seat_id).toBeUndefined()
 })

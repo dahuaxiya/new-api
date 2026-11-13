@@ -101,7 +101,14 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         accessorKey: 'name',
         header: t('Name'),
         cell: ({ row }) => (
-          <span className='font-medium'>{row.getValue('name')}</span>
+          <div>
+            <span className='font-medium'>{row.getValue('name')}</span>
+            {row.original.service_mode === 'retail' && (
+              <div className='text-muted-foreground text-xs'>
+                {t('Pay as you go API')}
+              </div>
+            )}
+          </div>
         ),
         size: 180,
         meta: { mobileTitle: true },

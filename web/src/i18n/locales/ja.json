@@ -7848,7 +7848,7 @@
     "You do not have permission to manage this user's API keys": "このユーザーの API キーを管理する権限がありません",
     "An expired or exhausted API key cannot be enabled": "期限切れまたは割当量を使い切ったキーは有効にできません",
     "All statuses": "すべての状態",
-    "Hosted account": "ホストアカウント",
+    "Hosted account": "ホスト済みアカウント",
     "Too many registration requests. Please try again later.": "Too many registration requests. Please try again later.",
     "User registration failed. Check your details and try again.": "User registration failed. Check your details and try again.",
     "Enter password (15–128 characters)": "Enter password (15–128 characters)",
@@ -7886,6 +7886,17 @@
     "Bound slot not found": "紐付け済みスロットが見つかりません",
     "Outbound connection disabled": "外向き接続が無効です",
     "Slot": "スロット",
-    "No balance deduction": "残高からの引き落としなし"
+    "No balance deduction": "残高からの引き落としなし",
+    "API service": "API サービス",
+    "Existing account service": "既存のアカウントサービス",
+    "Pay as you go API": "従量課金 API",
+    "Uses platform supply and charges your wallet. Hosted accounts are not used.": "プラットフォームの供給元を使用し、利用量をウォレット残高から差し引きます。ホスト済みアカウントは使用しません。",
+    "Keeps your existing account routing and billing.": "既存のアカウントのルーティングと課金設定を維持します。",
+    "Create a new API key to change its service mode": "サービス種別を変更するには、新しい API キーを作成してください。",
+    "Wallet payments are unavailable": "ウォレットへのチャージは現在利用できません",
+    "Wallet payment could not be verified": "ウォレットの支払いを確認できませんでした",
+    "Retail API is unavailable": "従量課金 API は現在利用できません",
+    "Retail balance or API key quota is insufficient": "ウォレット残高または API キーの利用枠が不足しています",
+    "Retail settlement requires review": "この API 料金は確認が必要です"
   }
 }

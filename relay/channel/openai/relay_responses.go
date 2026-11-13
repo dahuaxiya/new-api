@@ -19,6 +19,7 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+// OaiResponsesHandler 转发完整 Responses 响应；商业请求缺失实报用量时不按工具附加价收费。
 func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
@@ -45,6 +46,10 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	// compute usage
 	usage := &dto.Usage{}
 	service.ApplyResponsesUsage(usage, responsesResponse.Usage)
+	if c.GetBool("retail_request") && !dto.HasOpenAIUsageTokens(responsesResponse.Usage) {
+		// 空 usage 不能证明采购或消费量，工具调用计数也不能替代上游用量凭据。
+		common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+	}
 	// Count actual tool invocations from Output (not tool declarations).
 	for _, output := range responsesResponse.Output {
 		switch output.Type {
@@ -67,6 +72,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	return usage, nil
 }
 
+// OaiResponsesStreamHandler 透传 SSE 并汇总用量；商业计费排除断流后本地补算的 token。
 func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	if resp == nil || resp.Body == nil {
 		logger.LogError(c, common.LogText("invalid response or response body"))
@@ -88,6 +94,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 		if streamResponse.Response != nil {
 			data = string(rewriteSGLangResponsesCreatedAt(info, []byte(data), "response.created_at", streamResponse.Response.CreatedAt))
+			if c.GetBool("retail_request") && streamResponse.Response.Usage != nil {
+				// 原始 Responses usage 不一定携带内部快照；在补算前保存，供 Finish 标记估算。
+				streamResponse.Response.Usage.BillingUsage = dto.NewOpenAIResponsesBillingUsage(streamResponse.Response.Usage)
+			}
 		}
 		sendResponsesStreamData(c, streamResponse, data)
 		accumulator.Observe(&streamResponse, common.StringToByteSlice(data))
@@ -95,7 +105,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
 	info.StreamStatus.RequireTerminal()
-	return accumulator.Finish(), nil
+	usage := accumulator.Finish()
+	if c.GetBool("retail_request") && (usage.BillingUsage == nil || usage.BillingUsage.Estimated) {
+		// Finish 为旧计费补算 token，但商业钱包只能依据上游明确返回的用量结算。
+		common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+	}
+	return usage, nil
 }
 
 func rewriteSGLangResponsesCreatedAt(info *relaycommon.RelayInfo, payload []byte, path string, createdAt dto.IntValue) []byte {

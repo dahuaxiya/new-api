@@ -7886,6 +7886,17 @@
     "Bound slot not found": "Bound slot not found",
     "Outbound connection disabled": "Outbound connection disabled",
     "Slot": "Slot",
-    "No balance deduction": "No balance deduction"
+    "No balance deduction": "No balance deduction",
+    "API service": "API service",
+    "Existing account service": "Existing account service",
+    "Pay as you go API": "Pay as you go API",
+    "Uses platform supply and charges your wallet. Hosted accounts are not used.": "Uses platform supply and charges your wallet. Hosted accounts are not used.",
+    "Keeps your existing account routing and billing.": "Keeps your existing account routing and billing.",
+    "Create a new API key to change its service mode": "Create a new API key to change its service mode",
+    "Wallet payments are unavailable": "Wallet payments are unavailable",
+    "Wallet payment could not be verified": "Wallet payment could not be verified",
+    "Retail API is unavailable": "Retail API is unavailable",
+    "Retail balance or API key quota is insufficient": "Retail balance or API key quota is insufficient",
+    "Retail settlement requires review": "Retail settlement requires review"
   }
 }

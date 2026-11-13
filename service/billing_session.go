@@ -29,6 +29,7 @@ import (
 // BillingSession 封装单次请求的预扣费/结算/退款生命周期。
 // 实现 relaycommon.BillingSettler 接口。
 type BillingSession struct {
+	retail           bool // 商业余额和 Key 由同一持久化事务结算。
 	relayInfo        *relaycommon.RelayInfo
 	funding          FundingSource
 	preConsumedQuota int    // 实际预扣额度（信任用户可能为 0）
@@ -50,6 +51,16 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	defer s.mu.Unlock()
 	if s.settled {
 		return nil
+	}
+	if s.retail {
+		// 包括 delta=0 也必须提交状态，否则崩溃恢复会把已结算请求视为预留。
+		err := model.ChangeRetailCharge(s.relayInfo.RequestId, s.relayInfo.UserId, s.relayInfo.TokenId, actualQuota, "settled")
+		if err == nil {
+			s.settled = true
+		} else {
+			s.fundingSettled = true
+		}
+		return err
 	}
 	delta := actualQuota - s.preConsumedQuota
 	if delta == 0 {
@@ -89,6 +100,17 @@ func (s *BillingSession) Settle(actualQuota int) error {
 func (s *BillingSession) Refund(c *gin.Context) {
 	s.mu.Lock()
 	if s.settled || s.refunded || !s.needsRefundLocked() {
+		s.mu.Unlock()
+		return
+	}
+	if s.retail {
+		// 同步记录退款结果；失败保留可重试的持久化预留，不能先宣称退款成功。
+		err := model.ChangeRetailCharge(s.relayInfo.RequestId, s.relayInfo.UserId, s.relayInfo.TokenId, 0, "refunded")
+		if err == nil {
+			s.refunded = true
+		} else {
+			logger.LogError(c, common.LogText("Retail refund remains pending"))
+		}
 		s.mu.Unlock()
 		return
 	}
@@ -136,10 +158,15 @@ func (s *BillingSession) NeedsRefund() bool {
 	return s.needsRefundLocked()
 }
 
+// needsRefundLocked 在持有会话锁时判断是否还可退款；商业请求以持久化预留为依据。
+// 结算失败被标记待核对后也不能自动退款，避免上游已经完成却重复释放资金。
 func (s *BillingSession) needsRefundLocked() bool {
 	if s.settled || s.refunded || s.fundingSettled {
 		// fundingSettled 时资金来源已提交结算，不能再退预扣费
 		return false
+	}
+	if s.retail {
+		return true
 	}
 	if s.tokenConsumed > 0 {
 		return true
@@ -170,6 +197,14 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 		return nil
 	}
 
+	if s.retail {
+		if err := model.ChangeRetailCharge(s.relayInfo.RequestId, s.relayInfo.UserId, s.relayInfo.TokenId, targetQuota, ""); err != nil {
+			return err
+		}
+		s.preConsumedQuota = targetQuota
+		s.syncRelayInfo()
+		return nil
+	}
 	delta := targetQuota - s.preConsumedQuota
 	if delta <= 0 {
 		return nil
@@ -417,6 +452,27 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 	}
 
 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
+	retailGroup, retailErr := model.RetailTokenGroup(relayInfo.UserId, relayInfo.TokenId)
+	if retailErr != nil || retailGroup != "" && retailGroup != relayInfo.UsingGroup {
+		return nil, types.NewErrorWithStatusCode(errors.New(i18n.T(c, i18n.MsgRetailUnavailable)), types.ErrorCodeInvalidRequest, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+	}
+	if retailGroup != "" {
+		if !relayInfo.PriceData.FreeModel {
+			// 关闭本地计数或极短输入可能使预估为零；付费模型仍需正余额，不能先执行后赊账。
+			preConsumedQuota = max(preConsumedQuota, 1)
+		}
+		// 快照保留本次售价；真实使用量由已有协议适配器计算，客户 Key 与钱包原子结算。
+		snapshot, err := common.Marshal(map[string]any{"price": relayInfo.PriceData, "other_ratios": relayInfo.PriceData.OtherRatios(), "tiered": relayInfo.TieredBillingSnapshot, "model": relayInfo.OriginModelName})
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+		}
+		if err = model.ReserveRetailCharge(relayInfo.RequestId, relayInfo.UserId, relayInfo.TokenId, preConsumedQuota, string(snapshot)); err != nil {
+			return nil, types.NewErrorWithStatusCode(errors.New(i18n.T(c, i18n.MsgRetailInsufficientQuota)), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+		}
+		session := &BillingSession{retail: true, relayInfo: relayInfo, funding: &WalletFunding{userId: relayInfo.UserId}, preConsumedQuota: preConsumedQuota, lang: i18n.StatedLang(c)}
+		session.syncRelayInfo()
+		return session, nil
+	}
 
 	// 钱包路径需要先检查用户额度
 	tryWallet := func() (*BillingSession, *types.NewAPIError) {

@@ -131,8 +131,11 @@ func GetTokenHostingRoute(userID, tokenID int) (string, int, error) {
 		return GetHostingRoute(userID)
 	}
 	var token Token
-	if err := DB.Select("id", "user_id", "hosting_seat_id").First(&token, "id = ? AND user_id = ?", tokenID, userID).Error; err != nil {
+	if err := DB.Select("id", "user_id", "hosting_seat_id", "service_mode").First(&token, "id = ? AND user_id = ?", tokenID, userID).Error; err != nil {
 		return "", 0, ErrHostingUnavailable
+	}
+	if token.ServiceMode == TokenServiceRetail {
+		return "", 0, nil
 	}
 	return GetHostingRoute(userID, token.HostingSeatID)
 }

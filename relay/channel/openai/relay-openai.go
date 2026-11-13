@@ -249,6 +249,7 @@ func observeStreamChoices(info *relaycommon.RelayInfo, data string, seen map[str
 	}
 }
 
+// OpenaiHandler 转发非流式兼容响应并提取用量；商业计费必须区分上游实报与本地补算。
 func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
@@ -306,6 +307,10 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 
 	usageModified := false
 	if simpleResponse.Usage.PromptTokens == 0 {
+		if c.GetBool("retail_request") {
+			// 原适配器会补算缺失用量；保留响应兼容，但商业结算不能把补算值作为供应商实报。
+			common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+		}
 		completionTokens := simpleResponse.Usage.CompletionTokens
 		if completionTokens == 0 {
 			for _, choice := range simpleResponse.Choices {

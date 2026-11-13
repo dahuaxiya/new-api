@@ -7886,6 +7886,17 @@
     "Bound slot not found": "Emplacement associé introuvable",
     "Outbound connection disabled": "Connexion sortante désactivée",
     "Slot": "Emplacement",
-    "No balance deduction": "Aucun débit du solde"
+    "No balance deduction": "Aucun débit du solde",
+    "API service": "Service API",
+    "Existing account service": "Service du compte existant",
+    "Pay as you go API": "API à la consommation",
+    "Uses platform supply and charges your wallet. Hosted accounts are not used.": "Utilise les fournisseurs de la plateforme et débite votre portefeuille selon la consommation. Vos comptes hébergés ne sont pas utilisés.",
+    "Keeps your existing account routing and billing.": "Conserve le routage et la facturation de votre compte existant.",
+    "Create a new API key to change its service mode": "Créez une nouvelle clé API pour changer de type de service.",
+    "Wallet payments are unavailable": "Le rechargement du portefeuille est indisponible",
+    "Wallet payment could not be verified": "Le paiement du portefeuille n’a pas pu être vérifié",
+    "Retail API is unavailable": "L’API à la consommation est indisponible",
+    "Retail balance or API key quota is insufficient": "Le solde du portefeuille ou le quota de la clé API est insuffisant",
+    "Retail settlement requires review": "Ces frais API doivent être vérifiés"
   }
 }

@@ -342,3 +342,40 @@ func TestHostingAlipayQueryCompensation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(30*86400), grant.EndsAt-grant.StartsAt)
 }
+
+// TestWalletAlipayNotification 验证真实 RSA2 通知串、篡改拒绝及重复回调仅入账一次。
+func TestWalletAlipayNotification(t *testing.T) {
+	f := newAlipayFixture(t)
+	user, _ := setupSecurityEnrollmentTest(t)
+	oldClient := walletAlipayClient
+	walletAlipayClient = func() (*hostingpay.Client, error) { return f.client, nil }
+	t.Cleanup(func() { walletAlipayClient = oldClient })
+	require.NoError(t, model.DB.AutoMigrate(&model.WalletPayment{}, &model.TopUp{}))
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", 100).Error)
+	order, err := model.CreateWalletPayment(user.Id, f.client.Merchant(), 4000, 500, 1)
+	require.NoError(t, err)
+	values := url.Values{"app_id": {f.config.AppID}, "seller_id": {f.config.SellerID}, "notify_type": {"trade_status_sync"}, "notify_id": {"wallet-notice"}, "charset": {"utf-8"}, "out_trade_no": {order.OrderID}, "trade_no": {"2026111400000001"}, "trade_status": {"TRADE_SUCCESS"}, "total_amount": {"40.00"}, "sign_type": {"RSA2"}}
+	values.Set("sign", alipayTestSign(t, f.alipayKey, alipayTestCanonical(values, true)))
+	r := gin.New()
+	r.POST("/notify", WalletAlipayNotify)
+	for _, amount := range []string{"80.00", "40.00", "40.00"} {
+		copy := maps.Clone(values)
+		copy.Set("total_amount", amount)
+		req := httptest.NewRequest("POST", "/notify", strings.NewReader(copy.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if amount == "80.00" {
+			require.Equal(t, 400, w.Code)
+		} else {
+			require.Equal(t, 200, w.Code)
+		}
+	}
+	require.NoError(t, model.DB.First(&user, user.Id).Error)
+	require.Equal(t, 600, user.Quota)
+	_, params, err := f.client.WalletPagePay(order.OrderID, 4000, time.Now().Unix()+600, "https://portal.test/api/wallet/alipay/notify", "https://portal.test/wallet")
+	require.NoError(t, err)
+	var biz map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(params["biz_content"], &biz))
+	require.Equal(t, "luobocode API 余额充值", biz["subject"])
+}

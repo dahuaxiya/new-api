@@ -7886,6 +7886,17 @@
     "Bound slot not found": "Привязанный слот не найден",
     "Outbound connection disabled": "Исходящее подключение отключено",
     "Slot": "Слот",
-    "No balance deduction": "Без списания баланса"
+    "No balance deduction": "Без списания баланса",
+    "API service": "Сервис API",
+    "Existing account service": "Существующий сервис аккаунта",
+    "Pay as you go API": "API с оплатой по использованию",
+    "Uses platform supply and charges your wallet. Hosted accounts are not used.": "Использует поставщиков платформы и списывает плату с кошелька по объёму использования. Ваши размещённые аккаунты не используются.",
+    "Keeps your existing account routing and billing.": "Сохраняет маршрутизацию и оплату существующего аккаунта.",
+    "Create a new API key to change its service mode": "Чтобы изменить тип сервиса, создайте новый ключ API.",
+    "Wallet payments are unavailable": "Пополнение кошелька временно недоступно",
+    "Wallet payment could not be verified": "Не удалось проверить платёж кошелька",
+    "Retail API is unavailable": "API с оплатой по использованию временно недоступен",
+    "Retail balance or API key quota is insufficient": "Недостаточно средств в кошельке или квоты ключа API",
+    "Retail settlement requires review": "Требуется проверка этой платы за API"
   }
 }

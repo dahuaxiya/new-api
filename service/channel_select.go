@@ -112,6 +112,9 @@ func (p *RetryParam) ResetRetryNextTry() {
 //	Retry=3: GroupB, priority1 (startRetryIndex=2, priorityRetry=1)
 //	         分组B, 优先级1
 func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
+	if err := ApplyRetailRouting(param.Ctx, param); err != nil {
+		return nil, "", err
+	}
 	var channel *model.Channel
 	var err error
 	selectGroup := param.TokenGroup
@@ -282,6 +285,9 @@ type ChannelSelectError struct {
 // callers. The caller still applies SetupContextForSelectedChannel.
 func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam) (*model.Channel, string, *ChannelSelectError) {
 	constraints := GetChannelConstraints(c)
+	if err := ApplyRetailRouting(c, retry); err != nil {
+		return nil, "", &ChannelSelectError{StatusCode: http.StatusForbidden, Message: i18n.T(c, i18n.MsgRetailUnavailable)}
+	}
 	// Responses WebSocket 在每条消息中直接调用这里，不经过 Distribute。
 	// 每次选择及重试都重新校验权益和专属渠道，不能仅依赖握手时的分组或历史 pin。
 	hostingGroup, hostingChannel, hostingErr := model.GetTokenHostingRoute(c.GetInt("id"), c.GetInt("token_id"))

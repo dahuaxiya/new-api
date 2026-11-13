@@ -377,6 +377,7 @@ func InitResources() error {
 	service.StartAuthArtifactCleanup()
 	controller.StartGPTHostingMaintenance()
 	controller.StartHostingAlipayReconciliation()
+	controller.StartWalletAlipayReconciliation()
 	controller.StartGPTQuotaHistory()
 
 	return nil

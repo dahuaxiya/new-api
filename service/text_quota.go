@@ -387,7 +387,13 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 	return "openai"
 }
 
+// PostTextConsumeQuota 结算文本用量；商业请求单独保存尝试用量，不把销售额当采购成本。
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []*common.Message) {
+	if attemptID := ctx.GetInt("retail_attempt_id"); attemptID > 0 {
+		if err := model.RecordRetailAttemptUsage(attemptID, usage); err != nil {
+			logger.LogError(ctx, common.LogText("Retail usage record remains pending"))
+		}
+	}
 	originUsage := usage
 	billingUsage := effectiveBillingUsage(usage)
 	if usage == nil {
@@ -445,16 +451,31 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, common.NewMessage("Audio input cost {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaFromDecimal(q))}))
 	}
 
+	if ctx.GetBool("retail_request") && (originUsage == nil || common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens) || originUsage.BillingUsage != nil && originUsage.BillingUsage.Estimated) {
+		// 缺少可核对的上游用量时不向客户收费；采购尝试保持 unknown 等待供应商账单。
+		summary.Quota = 0
+	}
 	if !summary.hasBillableUsage() {
 		extraContent = append(extraContent, common.NewMessage("Upstream returned no usage, so nothing was charged (possibly an upstream timeout)"))
 		logger.LogError(ctx, common.LogText("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
-	} else {
+	} else if !ctx.GetBool("retail_request") {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
+	retailBillingState := "settled"
+	calculatedQuota := summary.Quota
 	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
 		logger.LogError(ctx, common.LogText("error settling billing: %s", err.Error()))
+		if ctx.GetBool("retail_request") {
+			// 预留仍在账本里，不能把计算价记成已结算收入；页面标记待核对，管理员看原计算额。
+			retailBillingState = "pending_review"
+			summary.Quota = 0
+			extraContent = append(extraContent, common.NewMessage("Retail settlement requires review"))
+		}
+	} else if ctx.GetBool("retail_request") && summary.hasBillableUsage() {
+		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
+		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
 	logModel := summary.ModelName
@@ -479,6 +500,10 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		other.SetPublic("usage_semantic", "anthropic")
 	} else {
 		other = GenerateTextOtherInfo(ctx, relayInfo, summary.ModelRatio, summary.GroupRatio, summary.CompletionRatio, summary.CacheTokens, summary.CacheRatio, summary.ModelPrice, relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio)
+	}
+	if ctx.GetBool("retail_request") {
+		other.SetPublic("retail_billing_status", retailBillingState)
+		other.SetAdmin("retail_calculated_quota", calculatedQuota)
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
 	if adminRejectReason != "" {

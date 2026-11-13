@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
@@ -188,6 +189,13 @@ type modelListGroups struct {
 
 // getModelListGroups 使用与请求分发相同的当前托管权益解析模型可见范围；无托管名额的用户保留原分组规则。
 func getModelListGroups(c *gin.Context) (modelListGroups, error) {
+	retailGroup, retailErr := model.RetailTokenGroup(c.GetInt("id"), c.GetInt("token_id"))
+	if retailErr != nil {
+		return modelListGroups{}, retailErr
+	}
+	if retailGroup != "" {
+		return modelListGroups{userGroup: retailGroup, tokenGroup: retailGroup, ownerGroups: []string{retailGroup}}, nil
+	}
 	hostingGroup, hostingChannel, err := model.GetTokenHostingRoute(c.GetInt("id"), c.GetInt("token_id"))
 	if err != nil {
 		// 已有托管但过期、暂停或读取失败时不能回退旧组；也不向客户端暴露绑定或数据库细节。
@@ -268,7 +276,28 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 	models := service.GetGroupsEnabledModels(ownerGroups)
+	retailIDs := []int(nil)
+	if c.GetBool("retail_request") {
+		var err error
+		retailIDs, err = model.RetailSupplyIDs(groups.userGroup)
+		if err != nil {
+			c.JSON(503, gin.H{"error": gin.H{"message": i18n.T(c, i18n.MsgRetailSupplyUnavailable)}})
+			return
+		}
+	}
 	for _, modelName := range models {
+		if c.GetBool("retail_request") {
+			allowed := false
+			for _, id := range retailIDs {
+				if model.IsChannelEnabledForGroupModel(groups.userGroup, modelName, id) {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				continue
+			}
+		}
 		if modelLimitEnable {
 			matchingName := ratio_setting.RoutingMatchModelName(modelName)
 			if !tokenModelLimit[modelName] && !tokenModelLimit[matchingName] {

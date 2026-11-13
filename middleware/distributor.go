@@ -31,6 +31,7 @@ type ModelRequest struct {
 	Group string `json:"group,omitempty"`
 }
 
+// Distribute 核验请求模型及路由约束后选渠道；商业供货不接受依赖原上游账号的会话状态。
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// 所有调用每次读取当前权益和绑定。历史用户没有名额时继续走原有路径。
@@ -55,6 +56,31 @@ func Distribute() func(c *gin.Context) {
 		if err != nil {
 			abortWithOpenAiMessage(c, invalidRequestStatus(err), i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
+		}
+		if c.GetBool("retail_request") {
+			// 当前公共供货允许跨账号选择，不能转发仅原账号可解密或可续接的状态。
+			var body map[string]any
+			if err := common.UnmarshalBodyReusable(c, &body); err != nil {
+				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgRetailInvalidRequest))
+				return
+			}
+			pending := []any{body}
+			for len(pending) > 0 {
+				item := pending[len(pending)-1]
+				pending = pending[:len(pending)-1]
+				switch value := item.(type) {
+				case map[string]any:
+					for key, child := range value {
+						if (key == "previous_response_id" || key == "encrypted_content" || key == "conversation") && child != nil && child != "" {
+							abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgRetailStateUnsupported))
+							return
+						}
+						pending = append(pending, child)
+					}
+				case []any:
+					pending = append(pending, value...)
+				}
+			}
 		}
 		if hostingChannel != 0 {
 			// 强制专属渠道并禁止跨组重试，防止旧令牌缓存、Playground 分组或手动改组访问他人账号。

@@ -8,14 +8,15 @@ import (
 )
 
 var filterEvalOrder = []dto.ChannelFilterKind{
+	dto.FilterRetailSupply,
 	dto.FilterRequestPath,
 	dto.FilterTaskPluginIdentity,
 	dto.FilterResponsesWebSocket,
 }
 
 // ChannelSatisfiesFilters reports whether ch passes every filter.
-// On false, it returns the kind of the first violated filter (request_path
-// then task_plugin_identity) for error attribution.
+// On false, it returns the first violated filter in filterEvalOrder;
+// commercial supply isolation runs before protocol and plugin checks.
 func ChannelSatisfiesFilters(ch *Channel, modelName string, filters []dto.ChannelFilter) (bool, dto.ChannelFilterKind) {
 	if ch == nil {
 		return false, ""
@@ -87,8 +88,12 @@ func candidatePassesKindFilters(ch *Channel, exists bool, modelName string, kind
 	return true
 }
 
+// channelMatchesFilter 核对单个渠道约束，调用方负责先排除空渠道。
 func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilter) bool {
 	switch filter.Kind {
+	case dto.FilterRetailSupply:
+		// nil 白名单用于旧 Key 的排除模式；显式空白名单必须拒绝全部渠道。
+		return !slices.Contains(filter.ExcludedChannelIDs, ch.Id) && (filter.AllowedChannelIDs == nil || slices.Contains(filter.AllowedChannelIDs, ch.Id))
 	case dto.FilterRequestPath:
 		if filter.RequestPath == "" {
 			return true

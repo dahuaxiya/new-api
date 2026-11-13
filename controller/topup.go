@@ -23,6 +23,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// GetTopUpInfo 返回当前可下单的收款方式；官方支付宝只有商户及支付声明均有效时才展示。
 func GetTopUpInfo(c *gin.Context) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
 
@@ -32,6 +33,9 @@ func GetTopUpInfo(c *gin.Context) {
 		payMethods = []map[string]string{}
 	}
 
+	if walletAlipayEnabled() {
+		payMethods = append(append([]map[string]string{}, payMethods...), map[string]string{"name": "Alipay", "type": model.PaymentProviderAlipayOfficial, "color": "#1677ff", "min_topup": strconv.FormatInt(getMinTopup(), 10)})
+	}
 	// 如果启用了 Stripe 支付，添加到支付方法列表
 	if isStripeTopUpEnabled() {
 		// 检查是否已经包含 Stripe
@@ -99,6 +103,7 @@ func GetTopUpInfo(c *gin.Context) {
 
 	data := gin.H{
 		"enable_online_topup":              isEpayTopUpEnabled(),
+		"enable_alipay_official_topup":     walletAlipayEnabled(),
 		"enable_stripe_topup":              isStripeTopUpEnabled(),
 		"enable_creem_topup":               isCreemTopUpEnabled(),
 		"enable_waffo_topup":               enableWaffo,
@@ -280,11 +285,16 @@ func rejectInvalidTopUpQuota(c *gin.Context, userId int, amount int64) bool {
 	return false
 }
 
+// RequestEpay 根据明确的付款类型分发，官方支付宝订单不能经过易支付交付。
 func RequestEpay(c *gin.Context) {
 	var req EpayRequest
 	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		paymentError(c, common.NewMessage("Invalid parameters"))
+		return
+	}
+	if req.PaymentMethod == model.PaymentProviderAlipayOfficial {
+		requestWalletAlipay(c, req.Amount)
 		return
 	}
 	if req.Amount < getMinTopup() {

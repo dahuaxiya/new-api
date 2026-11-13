@@ -81,6 +81,7 @@ import {
   updateApiKey,
   getApiKey,
   getTokenAutoGroups,
+  getTokenServiceModes,
 } from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
@@ -131,6 +132,12 @@ export function ApiKeysMutateDrawer({
     meta: { errorToast: false },
   })
   const seats = hosting.data?.seats || []
+  const modes = useQuery({
+    queryKey: ['key-service-modes', viewer, sid],
+    queryFn: async () => requireServerSuccess(await getTokenServiceModes()),
+    enabled: open,
+    retry: false,
+  })
 
   // Fetch models
   const { data: modelsData } = useQuery({
@@ -175,7 +182,7 @@ export function ApiKeysMutateDrawer({
     staleTime: 0,
   })
 
-  const models = modelsData?.data || []
+  const hostedModels = modelsData?.data || []
   const groups = useMemo<ApiKeyGroupOption[]>(
     () =>
       Object.entries(groupsData?.data || {}).map(([key, info]) => ({
@@ -279,6 +286,8 @@ export function ApiKeysMutateDrawer({
     isUpdate && currentRow ? `update:${currentRow.id}` : 'create'
   const isFormInitialized = initializedTarget === formTarget
   const selectedGroup = form.watch('group')
+  const retailMode = form.watch('service_mode') === 'retail'
+  const models = retailMode ? modes.data?.data?.models || [] : hostedModels
 
   // Correct group after groups load: if the form value is not in available groups, fall back
   useEffect(() => {
@@ -302,14 +311,18 @@ export function ApiKeysMutateDrawer({
   const onSubmit = async (data: ApiKeyFormValues) => {
     setIsSubmitting(true)
     try {
-      if (seats.length > 1 && !data.hosting_seat_id) {
+      if (
+        data.service_mode !== 'retail' &&
+        seats.length > 1 &&
+        !data.hosting_seat_id
+      ) {
         form.setError('hosting_seat_id', {
           message: t('Select a hosted account'),
         })
         return
       }
       const basePayload = transformFormDataToPayload(data)
-      if (seats.length) {
+      if (data.service_mode !== 'retail' && seats.length) {
         basePayload.hosting_seat_id =
           data.hosting_seat_id || seats[0]?.grant?.seat_id
         basePayload.group = ''
@@ -447,7 +460,52 @@ export function ApiKeysMutateDrawer({
                 )}
               />
 
-              {!!seats.length && (
+              {(modes.data?.data?.retail || retailMode) && (
+                <FormField
+                  control={form.control}
+                  name='service_mode'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('API service')}</FormLabel>
+                      <FormControl>
+                        <NativeSelect
+                          value={field.value}
+                          disabled={isUpdate}
+                          onChange={field.onChange}
+                        >
+                          <NativeSelectOption value=''>
+                            {t('Existing account service')}
+                          </NativeSelectOption>
+                          <NativeSelectOption value='retail'>
+                            {t('Pay as you go API')}
+                          </NativeSelectOption>
+                          {field.value === 'hosting' && (
+                            <NativeSelectOption value='hosting'>
+                              {t('Hosted account')}
+                            </NativeSelectOption>
+                          )}
+                        </NativeSelect>
+                      </FormControl>
+                      <FormDescription>
+                        {retailMode
+                          ? t(
+                              'Uses platform supply and charges your wallet. Hosted accounts are not used.'
+                            )
+                          : t(
+                              'Keeps your existing account routing and billing.'
+                            )}
+                      </FormDescription>
+                      {isUpdate && (
+                        <FormDescription>
+                          {t('Create a new API key to change its service mode')}
+                        </FormDescription>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+              {!retailMode && !!seats.length && (
                 <FormField
                   control={form.control}
                   name='hosting_seat_id'
@@ -489,7 +547,7 @@ export function ApiKeysMutateDrawer({
                   )}
                 />
               )}
-              {!seats.length && (
+              {!retailMode && !seats.length && (
                 <FormField
                   control={form.control}
                   name='group'

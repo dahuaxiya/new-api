@@ -6,10 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/constant"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -1014,4 +1018,84 @@ func verifyAPITokenAudit(t *testing.T) {
 		require.NoError(t, model.DB.Model(&model.Token{}).Where("name = ?", "audit-down").Count(&count).Error)
 		assert.EqualValues(t, 1, count)
 	})
+}
+
+// TestRetailKeyRoutesAndBilling 验证托管用户创建商业 Key 后不继承专属渠道，且钱包与 Key 同步扣减。
+func TestRetailKeyRoutesAndBilling(t *testing.T) {
+	user := setupTokenAutoGroupsControllerTest(t)
+	t.Setenv("LOG_SQL_DSN", "")
+	require.NoError(t, model.InitLogDB())
+	require.NoError(t, model.DB.AutoMigrate(&model.GPTHostingGrant{}, &model.GPTHostingBinding{}, &model.GPTHostingInventory{}, &model.Channel{}, &model.RetailCharge{}))
+	t.Setenv("GPT_HOSTING_ENABLED", "true")
+	oldRatios := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() { _ = ratio_setting.UpdateGroupRatioByJSONString(oldRatios) })
+	oldBatch := common.BatchUpdateEnabled
+	common.BatchUpdateEnabled = false
+	t.Cleanup(func() { common.BatchUpdateEnabled = oldBatch })
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"retail":1}`))
+	path := filepath.Join(t.TempDir(), "retail.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"enabled":true,"group":"retail","supplies":[{"channel_id":1,"kind":"subscription"}]}`), 0600))
+	t.Setenv("RETAIL_RELAY_CONFIG", path)
+	require.NoError(t, model.DB.Model(user).Updates(map[string]any{"group": "acct_12345678901234567890123456789012", "quota": 1000}).Error)
+	payload := baseAutoTokenRequest("retail-key")
+	payload["service_mode"] = "retail"
+	ctx, w := newAuthenticatedContext(t, "POST", "/api/token/", payload, user.Id)
+	AddToken(ctx)
+	require.True(t, decodeAPIResponse(t, w).Success, w.Body.String())
+	var token model.Token
+	require.NoError(t, model.DB.Where("name = ?", "retail-key").First(&token).Error)
+	require.Empty(t, token.HostingSeatID)
+	require.Empty(t, token.Group)
+	require.False(t, token.CrossGroupRetry)
+	group, ch, err := model.GetTokenHostingRoute(user.Id, token.Id)
+	require.NoError(t, err)
+	require.Empty(t, group)
+	require.Zero(t, ch)
+	payload["id"] = token.Id
+	payload["service_mode"] = "hosting"
+	ctx, w = newAuthenticatedContext(t, "PUT", "/api/token/", payload, user.Id)
+	UpdateToken(ctx)
+	require.False(t, decodeAPIResponse(t, w).Success)
+	router := gin.New()
+	router.Use(middleware.TokenAuth())
+	router.POST("/v1/messages", func(c *gin.Context) {
+		c.JSON(200, gin.H{"group": common.GetContextKeyString(c, constant.ContextKeyUsingGroup)})
+	})
+	router.GET("/v1/responses", func(c *gin.Context) { c.Status(200) })
+	req := httptest.NewRequest("POST", "/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer sk-"+token.Key)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "retail")
+	req = httptest.NewRequest("GET", "/v1/responses", nil)
+	req.Header.Set("Authorization", "Bearer sk-"+token.Key)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, 400, w.Code)
+	ctx, _ = newAuthenticatedContext(t, "POST", "/v1/messages", nil, user.Id)
+	info := &relaycommon.RelayInfo{UserId: user.Id, TokenId: token.Id, TokenKey: token.Key, TokenUnlimited: true, UsingGroup: "retail", RequestId: "billing-retail-test"}
+	session, apiErr := service.NewBillingSession(ctx, info, 500)
+	require.Nil(t, apiErr)
+	require.NotNil(t, session)
+	require.NoError(t, session.Settle(200))
+	require.NoError(t, session.Settle(200))
+	session.Refund(ctx)
+	require.NoError(t, model.DB.First(user, user.Id).Error)
+	require.Equal(t, 800, user.Quota)
+	var charge model.RetailCharge
+	require.NoError(t, model.DB.First(&charge, "id = ?", info.RequestId).Error)
+	require.Equal(t, "settled", charge.Status)
+	info.RequestId = "billing-retail-refund"
+	session, apiErr = service.NewBillingSession(ctx, info, 100)
+	require.Nil(t, apiErr)
+	session.Refund(ctx)
+	session.Refund(ctx)
+	require.NoError(t, model.DB.First(user, user.Id).Error)
+	require.Equal(t, 800, user.Quota)
+	// 输入预估为零也不能让余额已空的商业 Key 执行付费模型。
+	require.NoError(t, model.DB.Model(user).Update("quota", 0).Error)
+	info.RequestId = "billing-retail-no-credit"
+	_, apiErr = service.NewBillingSession(ctx, info, 0)
+	require.NotNil(t, apiErr)
 }

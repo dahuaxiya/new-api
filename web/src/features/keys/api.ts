@@ -125,3 +125,11 @@ export async function fetchTokenKeysBatch(ids: number[]): Promise<{
   const res = await api.post('/api/token/batch/keys', { ids })
   return res.data
 }
+
+/** 读取服务器允许创建的 Key 类型及商业模型；前端不能自行放宽供货范围。 */
+export async function getTokenServiceModes(): Promise<
+  ApiResponse<{ retail: boolean; models: string[] }>
+> {
+  const response = await api.get('/api/token/service-modes')
+  return response.data
+}

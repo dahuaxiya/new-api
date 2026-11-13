@@ -38,6 +38,7 @@ type tokenRequest struct {
 	// 指针区分“未传”和显式 false：新建时未传即开启，更新时未传则保留原值。
 	AllowUserQuotaQuery *bool   `json:"allow_user_quota_query"`
 	HostingSeatID       *string `json:"hosting_seat_id"`
+	ServiceMode         *string `json:"service_mode"`
 }
 
 type tokenResponse struct {
@@ -310,13 +311,16 @@ func AddToken(c *gin.Context) {
 	if request.HostingSeatID != nil {
 		seatID = *request.HostingSeatID
 	}
-	seatID, err = model.SelectTokenHostingSeat(c.GetInt("id"), seatID)
+	if request.ServiceMode != nil {
+		token.ServiceMode = *request.ServiceMode
+	}
+	seatID, err = model.NormalizeTokenService(c.GetInt("id"), token.ServiceMode, seatID)
 	if err != nil {
 		hostingError(c, err)
 		return
 	}
 
-	if seatID != "" {
+	if seatID != "" || token.ServiceMode == model.TokenServiceRetail {
 		token.Group = ""
 		token.CrossGroupRetry = false
 	}
@@ -365,6 +369,7 @@ func AddToken(c *gin.Context) {
 	}
 	cleanToken := model.Token{
 		HostingSeatID:      seatID,
+		ServiceMode:        token.ServiceMode,
 		UserId:             c.GetInt("id"),
 		Name:               token.Name,
 		Key:                key,
@@ -466,9 +471,14 @@ func UpdateToken(c *gin.Context) {
 	if statusOnly != "" {
 		cleanToken.Status = token.Status
 	} else {
+		// 已发放的 Key 不允许切换计费语义；创建新 Key 可明确让客户端选择。
+		if request.ServiceMode != nil && *request.ServiceMode != cleanToken.ServiceMode {
+			common.ApiErrorT(c, "Create a new API key to change its service mode")
+			return
+		}
 		// 未传选择字段保留旧 Key 指向，显式修改必须校验名额属于当前用户。
 		if request.HostingSeatID != nil {
-			seatID, e := model.SelectTokenHostingSeat(userId, *request.HostingSeatID)
+			seatID, e := model.NormalizeTokenService(userId, cleanToken.ServiceMode, *request.HostingSeatID)
 			if e != nil {
 				hostingError(c, e)
 				return
@@ -486,7 +496,7 @@ func UpdateToken(c *gin.Context) {
 		if request.AllowUserQuotaQuery != nil {
 			cleanToken.AllowUserQuotaQuery = *request.AllowUserQuotaQuery
 		}
-		if cleanToken.HostingSeatID != "" {
+		if cleanToken.HostingSeatID != "" || cleanToken.ServiceMode == model.TokenServiceRetail {
 			token.Group = ""
 			token.CrossGroupRetry = false
 		}

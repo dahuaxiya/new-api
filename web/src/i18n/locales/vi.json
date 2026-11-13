@@ -7848,7 +7848,7 @@
     "You do not have permission to manage this user's API keys": "Bạn không có quyền quản lý khóa API của người dùng này",
     "An expired or exhausted API key cannot be enabled": "Không thể bật khóa hết hạn hoặc hết hạn mức",
     "All statuses": "Tất cả trạng thái",
-    "Hosted account": "Tài khoản lưu trữ",
+    "Hosted account": "Tài khoản được lưu trữ",
     "Too many registration requests. Please try again later.": "Too many registration requests. Please try again later.",
     "User registration failed. Check your details and try again.": "User registration failed. Check your details and try again.",
     "Enter password (15–128 characters)": "Enter password (15–128 characters)",
@@ -7886,6 +7886,17 @@
     "Bound slot not found": "Không tìm thấy khe đã liên kết",
     "Outbound connection disabled": "Kết nối đầu ra chưa được bật",
     "Slot": "Vị trí",
-    "No balance deduction": "Không trừ số dư"
+    "No balance deduction": "Không trừ số dư",
+    "API service": "Dịch vụ API",
+    "Existing account service": "Dịch vụ tài khoản hiện có",
+    "Pay as you go API": "API trả theo mức sử dụng",
+    "Uses platform supply and charges your wallet. Hosted accounts are not used.": "Dùng nguồn cung của nền tảng và trừ số dư ví theo mức sử dụng. Không dùng tài khoản được lưu trữ của bạn.",
+    "Keeps your existing account routing and billing.": "Giữ nguyên cách định tuyến và tính phí của tài khoản hiện có.",
+    "Create a new API key to change its service mode": "Hãy tạo khóa API mới để thay đổi loại dịch vụ.",
+    "Wallet payments are unavailable": "Tạm thời không thể nạp ví",
+    "Wallet payment could not be verified": "Không thể xác minh khoản thanh toán ví",
+    "Retail API is unavailable": "API trả theo mức sử dụng tạm thời không khả dụng",
+    "Retail balance or API key quota is insufficient": "Số dư ví hoặc hạn mức khóa API không đủ",
+    "Retail settlement requires review": "Cần kiểm tra khoản phí API này"
   }
 }

@@ -7916,6 +7916,17 @@
     "Account verified; ready to switch": "账号已验证，准备切换",
     "Switched; waiting to clean up the source slot": "已切换，等待清理原槽位",
     "Migration in progress": "迁移进行中",
-    "No balance deduction": "不扣余额"
+    "No balance deduction": "不扣余额",
+    "API service": "API 服务",
+    "Existing account service": "现有账号服务",
+    "Pay as you go API": "余额计费 API",
+    "Uses platform supply and charges your wallet. Hosted accounts are not used.": "使用平台供货渠道，按用量扣除钱包余额，不使用你的托管账号。",
+    "Keeps your existing account routing and billing.": "沿用现有账号的路由和计费规则。",
+    "Create a new API key to change its service mode": "如需更换服务类型，请创建新的 API 密钥。",
+    "Wallet payments are unavailable": "钱包充值暂不可用",
+    "Wallet payment could not be verified": "钱包支付信息核验失败",
+    "Retail API is unavailable": "余额计费 API 暂不可用",
+    "Retail balance or API key quota is insufficient": "钱包余额或 API 密钥额度不足",
+    "Retail settlement requires review": "此笔 API 费用需要核对"
   }
 }

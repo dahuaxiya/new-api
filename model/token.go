@@ -12,6 +12,7 @@ import (
 )
 
 type Token struct {
+	ServiceMode        string         `json:"service_mode" gorm:"type:varchar(16)"`
 	HostingSeatID      string         `json:"hosting_seat_id" gorm:"type:varchar(36);index"`
 	Id                 int            `json:"id"`
 	UserId             int            `json:"user_id" gorm:"index"`
@@ -317,7 +318,7 @@ func (token *Token) Update() (err error) {
 	}
 	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups",
-		"allow_user_quota_query", "hosting_seat_id").Updates(token).Error
+		"allow_user_quota_query", "hosting_seat_id", "service_mode").Updates(token).Error
 }
 
 func (token *Token) SelectUpdate() (err error) {

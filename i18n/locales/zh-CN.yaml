@@ -1,4 +1,10 @@
 # Chinese (Simplified) translations
+retail.unavailable: "余额计费 API 暂不可用"
+retail.endpoint_unsupported: "此接口暂不支持余额计费 API 密钥"
+retail.invalid_request: "余额计费 API 请求格式无效"
+retail.state_unsupported: "请提交完整对话，不要携带上游账号的会话状态"
+retail.supply_unavailable: "商业供货渠道暂不可用"
+retail.insufficient_quota: "钱包余额或 API 密钥额度不足"
 # 中文（简体）翻译文件
 
 # Errors returned to AI clients

@@ -24,6 +24,7 @@ import { z } from 'zod'
 
 export const apiKeySchema = z.object({
   hosting_seat_id: z.string().nullish().optional(),
+  service_mode: z.enum(['', 'hosting', 'retail']).optional(),
   id: z.number(),
   name: z.string(),
   key: z.string(),
@@ -87,6 +88,7 @@ export interface SearchApiKeysParams {
 
 export interface ApiKeyFormData {
   hosting_seat_id?: string
+  service_mode?: '' | 'hosting' | 'retail'
   name: string
   remain_quota: number
   expired_time: number

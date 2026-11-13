@@ -469,6 +469,9 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 			return common.NewMessage("Top-up order does not exist")
 		}
 
+		if topUp.PaymentProvider == PaymentProviderAlipayOfficial {
+			return ErrWalletPayment
+		}
 		// 幂等处理：已成功直接返回
 		if topUp.Status == common.TopUpStatusSuccess {
 			return nil

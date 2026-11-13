@@ -1,4 +1,10 @@
 # English translations
+retail.unavailable: "Retail API is unavailable"
+retail.endpoint_unsupported: "This endpoint is not available for retail API keys"
+retail.invalid_request: "Invalid retail request"
+retail.state_unsupported: "Retail requests require full conversation input without upstream account state"
+retail.supply_unavailable: "Retail supply is unavailable"
+retail.insufficient_quota: "Retail balance or API key quota is insufficient"
 
 # Errors returned to AI clients
 common.database_error: "Database error, please contact the administrator"

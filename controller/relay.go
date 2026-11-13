@@ -68,6 +68,8 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 	return err
 }
 
+// Relay 执行已鉴权请求的预留、渠道尝试与最终结算；商业请求在发送上游前持久化每次尝试。
+// 失败退款依据原账单状态，不依赖请求结束时可能已改变的账号或渠道绑定。
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	requestId := c.GetString(common.RequestIdKey)
@@ -188,6 +190,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
 
+		if c.GetBool("retail_request") {
+			attemptID, err := model.BeginRetailAttempt(relayInfo.RequestId, channel.Id)
+			if err != nil {
+				newAPIError = types.NewError(errors.New(i18n.T(c, i18n.MsgRetailUnavailable)), types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+				break
+			}
+			c.Set("retail_attempt_id", attemptID)
+		}
 		switch relayFormat {
 		case types.RelayFormatOpenAIRealtime:
 			newAPIError = relay.WssHelper(c, relayInfo)
@@ -199,6 +209,23 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError = relayHandler(c, relayInfo)
 		}
 
+		if c.GetBool("retail_request") {
+			status, state := 200, "completed"
+			if newAPIError != nil {
+				status, state = newAPIError.StatusCode, "failed"
+			} else if stream := relayInfo.StreamStatus; stream != nil {
+				// HTTP 200 只代表已开始传输；断流或协议失败不能在采购尝试中记成成功。
+				outcome := stream.OutcomeSnapshot()
+				if outcome.Response != "" && outcome.Response != "completed" {
+					state = string(outcome.Response)
+				} else if !stream.IsNormalEnd() || outcome.HasErrors || outcome.ExpectsTerminal && outcome.Response == "" {
+					state = "interrupted"
+				}
+			}
+			if err := model.FinishRetailAttempt(c.GetInt("retail_attempt_id"), status, state); err != nil {
+				logger.LogError(c, common.LogText("Retail attempt outcome remains pending"))
+			}
+		}
 		if newAPIError == nil {
 			service.MarkRequestPolicySuccess(c, relayInfo.StreamStatus)
 			relayInfo.LastError = nil
@@ -263,6 +290,7 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// getChannel 为本次尝试选择并初始化渠道；商业重试保持请求首次计算的售价分组。
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	if info.ChannelMeta == nil {
 		autoBan := c.GetBool("auto_ban")
@@ -287,7 +315,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, types.NewError(errors.New(i18n.T(c, i18n.MsgRelayRetryNoAvailableChannel, map[string]any{"Group": selectGroup, "Model": info.OriginModelName})), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
-	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
+	if !c.GetBool("retail_request") {
+		info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
+	}
 
 	service.RequestPolicy(c).BeginAttempt(channel, selectGroup)
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)

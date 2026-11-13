@@ -161,7 +161,20 @@ func AmountCents(value string) (int64, error) {
 
 // PagePay 根据数据库订单生成 POST 表单字段；订单有效期固定，重试不能延长库存占用。
 func (c *Client) PagePay(id string, cents int64, days int, expires int64, notifyURL, returnURL string) (string, map[string]string, error) {
-	if !c.Enabled() || id == "" || len(id) > 40 || cents < 1 || cents > 10000000 || days < 1 || expires <= time.Now().Unix() {
+	if days < 1 {
+		return "", nil, ErrPayment
+	}
+	return c.pagePay(id, cents, fmt.Sprintf("luobocode 账号托管 %d 天", days), expires, notifyURL, returnURL)
+}
+
+// WalletPagePay 为余额充值签名，独立主题避免把充值显示成托管购买。
+func (c *Client) WalletPagePay(id string, cents, expires int64, notifyURL, returnURL string) (string, map[string]string, error) {
+	return c.pagePay(id, cents, "luobocode API 余额充值", expires, notifyURL, returnURL)
+}
+
+// pagePay 只接受服务器构造的商品说明及固定回调地址，共用官方 SDK 的签名和 TLS 约束。
+func (c *Client) pagePay(id string, cents int64, subject string, expires int64, notifyURL, returnURL string) (string, map[string]string, error) {
+	if !c.Enabled() || id == "" || len(id) > 40 || cents < 1 || cents > 10000000 || expires <= time.Now().Unix() {
 		return "", nil, ErrPayment
 	}
 	for _, raw := range []string{notifyURL, returnURL} {
@@ -171,7 +184,7 @@ func (c *Client) PagePay(id string, cents int64, days int, expires int64, notify
 		}
 	}
 	u, err := c.sdk.TradePagePay(alipay.TradePagePay{Trade: alipay.Trade{
-		Subject: fmt.Sprintf("luobocode 账号托管 %d 天", days), OutTradeNo: id,
+		Subject: subject, OutTradeNo: id,
 		TotalAmount: fmt.Sprintf("%d.%02d", cents/100, cents%100), ProductCode: "FAST_INSTANT_TRADE_PAY",
 		SellerId: c.config.SellerID, TimeExpire: time.Unix(expires, 0).In(time.FixedZone("Asia/Shanghai", 8*3600)).Format("2006-01-02 15:04:05"),
 		NotifyURL: notifyURL, ReturnURL: returnURL,

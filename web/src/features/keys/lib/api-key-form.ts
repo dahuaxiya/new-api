@@ -42,6 +42,7 @@ export function getApiKeyFormSchema(t: TFunction, maxAutoGroups = 5) {
       allow_ips: z.string().optional(),
       allow_user_quota_query: z.boolean(),
       hosting_seat_id: z.string().optional(),
+      service_mode: z.enum(['', 'hosting', 'retail']),
       group: z.string().optional(),
       auto_groups_mode: z.enum(['inherit', 'custom']),
       auto_groups: z.array(z.string()),
@@ -49,7 +50,7 @@ export function getApiKeyFormSchema(t: TFunction, maxAutoGroups = 5) {
       tokenCount: z.number().min(1).optional(),
     })
     .superRefine((data, ctx) => {
-      if (data.group === 'auto') {
+      if (data.service_mode !== 'retail' && data.group === 'auto') {
         if (
           data.auto_groups_mode === 'custom' &&
           data.auto_groups.length === 0
@@ -107,6 +108,7 @@ export type ApiKeyFormValues = z.infer<ReturnType<typeof getApiKeyFormSchema>>
 
 export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   name: '',
+  service_mode: '',
   remain_quota_dollars: 10,
   expired_time: undefined,
   unlimited_quota: true,
@@ -155,13 +157,22 @@ export function transformFormDataToPayload(
     model_limits: data.model_limits.join(','),
     allow_ips: data.allow_ips || '',
     allow_user_quota_query: data.allow_user_quota_query,
-    hosting_seat_id: data.hosting_seat_id || undefined,
-    group: data.group || '',
+    hosting_seat_id:
+      data.service_mode === 'retail'
+        ? undefined
+        : data.hosting_seat_id || undefined,
+    service_mode: data.service_mode,
+    group: data.service_mode === 'retail' ? '' : data.group || '',
     auto_groups:
-      data.group === 'auto' && data.auto_groups_mode === 'custom'
+      data.service_mode !== 'retail' &&
+      data.group === 'auto' &&
+      data.auto_groups_mode === 'custom'
         ? data.auto_groups
         : [],
-    cross_group_retry: data.group === 'auto' ? !!data.cross_group_retry : false,
+    cross_group_retry:
+      data.service_mode !== 'retail' && data.group === 'auto'
+        ? !!data.cross_group_retry
+        : false,
   }
 }
 
@@ -196,6 +207,7 @@ export function transformApiKeyToFormDefaults(
     allow_ips: apiKey.allow_ips || '',
     allow_user_quota_query: !!apiKey.allow_user_quota_query,
     hosting_seat_id: apiKey.hosting_seat_id || undefined,
+    service_mode: apiKey.service_mode || '',
     group: apiKey.group || DEFAULT_GROUP,
     auto_groups_mode: autoGroupsMode,
     auto_groups: autoGroups,

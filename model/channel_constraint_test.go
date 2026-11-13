@@ -1,6 +1,7 @@
 package model
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -10,6 +11,33 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestRetailFilterModes 验证白名单和排除模式一致用于单渠道与缓存候选，空白名单不能放行。
+func TestRetailFilterModes(t *testing.T) {
+	channelSyncLock.Lock()
+	previous := channelsIDM
+	channelsIDM = map[int]*Channel{1: {Id: 1}, 2: {Id: 2}}
+	t.Cleanup(func() { channelsIDM = previous; channelSyncLock.Unlock() })
+	for _, scenario := range []struct {
+		name   string
+		filter dto.ChannelFilter
+		want   []int
+	}{
+		{"allow", dto.ChannelFilter{Kind: dto.FilterRetailSupply, AllowedChannelIDs: []int{1}}, []int{1}},
+		{"empty_allow", dto.ChannelFilter{Kind: dto.FilterRetailSupply, AllowedChannelIDs: []int{}}, []int{}},
+		{"exclude", dto.ChannelFilter{Kind: dto.FilterRetailSupply, ExcludedChannelIDs: []int{1}}, []int{2}},
+		{"exclude_wins", dto.ChannelFilter{Kind: dto.FilterRetailSupply, AllowedChannelIDs: []int{1}, ExcludedChannelIDs: []int{1}}, []int{}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			kept, _ := filterCandidateIDs([]int{1, 2}, "model", []dto.ChannelFilter{scenario.filter})
+			require.Equal(t, scenario.want, kept)
+			for id, channel := range channelsIDM {
+				ok, _ := ChannelSatisfiesFilters(channel, "model", []dto.ChannelFilter{scenario.filter})
+				require.Equal(t, slices.Contains(scenario.want, id), ok)
+			}
+		})
+	}
+}
 
 func TestFilterCandidateIDs(t *testing.T) {
 	alphaSetting := `{"task_plugin_key":"alpha"}`

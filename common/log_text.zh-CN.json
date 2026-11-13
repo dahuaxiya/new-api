@@ -850,5 +850,8 @@
   "zhipu_image_get_b64_failed: %s": "智谱图片转 b64 失败: %s",
   "zhipu_image_missing_url": "智谱图片接口没有返回 URL",
   "¥%.6f quota": "¥%.6f 额度",
-  "＄%.6f quota": "＄%.6f 额度"
+  "＄%.6f quota": "＄%.6f 额度",
+  "Retail refund remains pending": "商业请求退款尚未完成，需要核对",
+  "Retail usage record remains pending": "商业请求用量尚未保存，需要核对",
+  "Retail attempt outcome remains pending": "商业上游尝试结果尚未保存，需要核对"
 }
