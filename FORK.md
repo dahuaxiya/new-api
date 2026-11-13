@@ -9,6 +9,14 @@
 - `upstream`：https://github.com/QuantumNous/new-api.git
 - `main` 保留上游快照；升级时先在独立分支合并选定上游版本，验证后再合入 `vm2api`，不要覆盖定制分支。
 
+## 本机开发目录（2026-11-14）
+
+- `/Users/dxm/github/new-api`：现有 `vm2api` 开发集成分支，保留其他任务的提交与工作树。
+- `/Users/dxm/github/new-api-retail`：商业中转开发工作树，分支 `codex/luobocode-retail`；后续中转开发在此目录继续。它与上一目录共用 Git 对象，不是另一套线上版本。
+- `/Users/dxm/github/vm2api`：账号接入服务，仓库为 `dahuaxiya/vm2api`，定制分支 `luobocode`；生产运行源码清单见该仓库 `deploy/luobocode-source.json`。
+
+本次核对的 New API 线上版本为 `83ae027bedcf4ad6ea4e61d6587863de80412ae7`，已在 `origin/release`；线上保留的源码包共 2,827 个文件，逐文件 SHA-256 与该提交一致。商业中转提交仍在功能分支，归档与目录迁移不代表部署。后续修改使用上述 Git 目录，不再把服务器发布目录或本次聊天的临时目录作为开发入口。
+
 ## 当前定制
 
 ### 商业 API 中转增量（开发完成，尚未生产发布）
