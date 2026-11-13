@@ -6,6 +6,7 @@ package i18n
 
 // Errors returned to AI clients
 const (
+	MsgTokenSiteUnavailable      = "token.site_unavailable"
 	MsgRetailUnavailable         = "retail.unavailable"
 	MsgRetailEndpointUnsupported = "retail.endpoint_unsupported"
 	MsgRetailInvalidRequest      = "retail.invalid_request"

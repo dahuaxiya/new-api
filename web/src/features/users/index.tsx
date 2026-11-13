@@ -25,6 +25,7 @@ import { SectionPageLayout } from '@/components/layout'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { HostingStoreAdmin } from '@/features/gpt-hosting/store-admin'
 import { UserUsageOverview } from '@/features/user-usage'
+import { useStatus } from '@/hooks/use-status'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -40,6 +41,8 @@ const route = getRouteApi('/_authenticated/users/')
 /** 用户管理只有一个导航入口，查询参数兼容旧收藏并保留权限边界。 */
 function UsersContent() {
   const { t } = useTranslation()
+  const { status } = useStatus()
+  const retail = status?.site_mode === 'retail'
   const { open, setOpen, currentRow } = useUsers()
   const search = route.useSearch()
   const navigate = route.useNavigate()
@@ -74,7 +77,9 @@ function UsersContent() {
         className='users-workspace'
         stackActionsOnMobile
         description={t(
-          'View accounts, renew hosting and manage quotas in one place.'
+          retail
+            ? 'Manage API users, balances and access keys.'
+            : 'View accounts, renew hosting and manage quotas in one place.'
         )}
       >
         <SectionPageLayout.Title>{t('Users')}</SectionPageLayout.Title>
@@ -113,7 +118,7 @@ function UsersContent() {
         currentRow={open === 'update' ? currentRow || undefined : undefined}
       />
       <UsersDeleteDialog />
-      {isRoot && (
+      {isRoot && !retail && (
         <>
           <HostingResources open={resources} onOpenChange={setResources} />
           <HostingStoreAdmin open={store} onOpenChange={setStore} />

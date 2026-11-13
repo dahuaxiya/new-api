@@ -165,14 +165,15 @@ export async function manageUser(
 }
 
 /**
- * Adjust user quota atomically (add/subtract/override)
+ * 两站共用余额调整入口；必须携带绑定目标用户的一次性二次验证凭证。
+ * 请求不可由刷新拦截器重放，账务边界仍由服务端统一验证。
  */
 export async function adjustUserQuota(
   payload: ManageUserQuotaPayload,
-  proofToken?: string
+  proofToken: string
 ): Promise<ApiResponse<Partial<User>>> {
   const res = await api.post(
-    proofToken ? '/api/gpt-hosting/wallet' : '/api/user/manage',
+    '/api/user/wallet',
     payload,
     securityProofConfig(proofToken)
   )

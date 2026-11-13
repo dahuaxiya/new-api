@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { useStatus } from '@/hooks/use-status'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -45,6 +46,7 @@ interface UserQuotaDialogProps {
 /** 在提交前展示金额前后值并验证管理员，原因与原钱包审计一起保存。 */
 export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const { t } = useTranslation()
+  const { status } = useStatus()
   const [mode, setMode] = useState<QuotaAdjustMode>('add')
   const [amount, setAmount] = useState('')
   const [reason, setReason] = useState('')
@@ -148,7 +150,9 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
         <div className='text-muted-foreground text-sm'>{getPreviewText()}</div>
         <p className='text-muted-foreground text-xs'>
           {t(
-            'Changing the site balance does not extend hosting or reset official quota.'
+            status?.site_mode === 'retail'
+              ? 'Balance available for API usage'
+              : 'Changing the site balance does not extend hosting or reset official quota.'
           )}
         </p>
         <div className='space-y-2'>

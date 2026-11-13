@@ -1022,6 +1022,7 @@ func verifyAPITokenAudit(t *testing.T) {
 
 // TestRetailKeyRoutesAndBilling 验证托管用户创建商业 Key 后不继承专属渠道，且钱包与 Key 同步扣减。
 func TestRetailKeyRoutesAndBilling(t *testing.T) {
+	t.Setenv("SITE_MODE", "retail")
 	user := setupTokenAutoGroupsControllerTest(t)
 	t.Setenv("LOG_SQL_DSN", "")
 	require.NoError(t, model.InitLogDB())
@@ -1098,4 +1099,53 @@ func TestRetailKeyRoutesAndBilling(t *testing.T) {
 	info.RequestId = "billing-retail-no-credit"
 	_, apiErr = service.NewBillingSession(ctx, info, 0)
 	require.NotNil(t, apiErr)
+}
+
+// TestSiteTokenBoundary 验证省略业务类型仍创建商业 Key，误挂旧库也不能跨站调用或查询余额。
+func TestSiteTokenBoundary(t *testing.T) {
+	user := setupTokenAutoGroupsControllerTest(t)
+	t.Setenv("LOG_SQL_DSN", "")
+	require.NoError(t, model.InitLogDB())
+	oldRatios := ratio_setting.GroupRatio2JSONString()
+	oldBatch := common.BatchUpdateEnabled
+	common.BatchUpdateEnabled = false
+	t.Cleanup(func() {
+		common.BatchUpdateEnabled = oldBatch
+		_ = ratio_setting.UpdateGroupRatioByJSONString(oldRatios)
+	})
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"retail":1}`))
+	path := filepath.Join(t.TempDir(), "retail.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"enabled":true,"group":"retail","supplies":[{"channel_id":1,"kind":"reseller"}]}`), 0600))
+	t.Setenv("RETAIL_RELAY_CONFIG", path)
+	t.Setenv("SITE_MODE", "retail")
+	ctx, w := newAuthenticatedContext(t, "POST", "/api/token/", baseAutoTokenRequest("default-retail"), user.Id)
+	AddToken(ctx)
+	require.True(t, decodeAPIResponse(t, w).Success, w.Body.String())
+	var commercial model.Token
+	require.NoError(t, model.DB.Where("name = ?", "default-retail").First(&commercial).Error)
+	require.Equal(t, "retail", commercial.ServiceMode)
+	require.Empty(t, commercial.HostingSeatID)
+	legacy := seedToken(t, model.DB, user.Id, "legacy-hosted", "legacyboundarykey")
+	for _, mode := range []string{"hosting", "retail"} {
+		t.Setenv("SITE_MODE", mode)
+		payload := baseAutoTokenRequest("wrong-site")
+		payload["service_mode"] = "retail"
+		rejected := &commercial
+		if mode == "retail" {
+			payload["service_mode"] = "hosting"
+			rejected = legacy
+		}
+		ctx, w = newAuthenticatedContext(t, "POST", "/api/token/", payload, user.Id)
+		AddToken(ctx)
+		require.False(t, decodeAPIResponse(t, w).Success)
+		for _, auth := range []gin.HandlerFunc{middleware.TokenAuth(), middleware.TokenAuthReadOnly()} {
+			r := gin.New()
+			r.POST("/v1/messages", auth, func(c *gin.Context) { c.Status(204) })
+			req := httptest.NewRequest("POST", "/v1/messages", nil)
+			req.Header.Set("Authorization", "Bearer sk-"+rejected.Key)
+			w = httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			require.Equal(t, 403, w.Code, w.Body.String())
+		}
+	}
 }

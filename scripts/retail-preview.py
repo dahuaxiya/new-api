@@ -1,4 +1,6 @@
-"""启动仅供本机查看的商业中转预览；使用独立 SQLite 和本地合成上游，不接入真实账号或支付。"""
+"""启动托管站或中转站的本机预览；两站使用独立 SQLite、密钥和主机名，不接入真实账号或支付。"""
+
+import argparse
 
 import json
 import os
@@ -16,7 +18,10 @@ from urllib.request import Request, build_opener, ProxyHandler
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SITE = "retail"
 STATE = ROOT / ".local-tests/retail-preview"
+BINARY = STATE / "new-api"
+PORT = "18400"
 APP_URL = "http://127.0.0.1:18400"
 UPSTREAM_URL = "http://127.0.0.1:18401"
 PASSWORD = "LuoboPreview2026!"
@@ -90,17 +95,19 @@ class DemoUpstream(BaseHTTPRequestHandler):
 def start_app(log):
     """用最小环境启动本地二进制，不继承生产 DSN、商户或托管配置。"""
     env = {key: os.environ[key] for key in ("PATH", "HOME", "TMPDIR") if key in os.environ}
-    env.update({"BIND_ADDRESS": "127.0.0.1", "PORT": "18400", "GIN_MODE": "release",
+    env.update({"BIND_ADDRESS": "127.0.0.1", "PORT": PORT, "SITE_MODE": SITE, "GIN_MODE": "release",
                 "SQLITE_PATH": str(STATE / "new-api.db"), "SESSION_SECRET": (STATE / "session-secret").read_text(),
-                "RETAIL_RELAY_CONFIG": str(STATE / "retail.json"), "GPT_HOSTING_ENABLED": "false",
+                "GPT_HOSTING_ENABLED": "true" if SITE == "hosting" else "false",
                 "DEFAULT_LANGUAGE": "zh-CN", "BATCH_UPDATE_ENABLED": "false", "MEMORY_CACHE_ENABLED": "false",
                 "VERSION": "luobocode-local-preview", "SHUTDOWN_TIMEOUT_SECONDS": "3"})
-    process = subprocess.Popen([str(STATE / "new-api"), "--log-dir", str(STATE / "logs")],
+    if SITE == "retail":
+        env["RETAIL_RELAY_CONFIG"] = str(STATE / "retail.json")
+    process = subprocess.Popen([str(BINARY), "--log-dir", str(STATE / "logs")],
                                cwd=STATE, env=env, stdout=log, stderr=log)
     try:
         for _ in range(100):
             if process.poll() is not None:
-                raise RuntimeError("本地后端启动失败，请查看 .local-tests/retail-preview/server.log")
+                raise RuntimeError(f"本地后端启动失败，请查看 {STATE / 'server.log'}")
             try:
                 api("/api/setup")
                 return process
@@ -130,7 +137,7 @@ def seed_database():
     access = api("/api/user/login", {"username": "previewadmin", "password": PASSWORD})["data"]["access_token"]
     user_id = api("/api/user/", {"username": "preview", "password": PASSWORD,
                                "display_name": "预览用户", "role": 1}, access)["data"]["id"]
-    options = {"SystemName": "luobocode · 本地预览", "RegisterEnabled": "false",
+    options = {"SystemName": "luobocode · 中转站预览" if SITE == "retail" else "luobocode · 托管站预览", "RegisterEnabled": "false",
                "GroupRatio": json.dumps({"default": 1, "retail": 1}),
                "ModelRatio": json.dumps({"gpt-4o-mini": 0.075, "claude-sonnet-4-5": 1.5}),
                "CompletionRatio": json.dumps({"gpt-4o-mini": 4, "claude-sonnet-4-5": 5}),
@@ -140,6 +147,13 @@ def seed_database():
                "performance_setting.monitor_disk_threshold": "0"}
     for key, value in options.items():
         api("/api/option/", {"key": key, "value": value}, access, method="PUT")
+    if SITE == "hosting":
+        # 托管预览只展示默认套餐与空账号；不创建供货渠道、充值订单或虚假的已授权账号。
+        with sqlite3.connect(STATE / "new-api.db") as db:
+            db.execute("UPDATE users SET quota = 0")
+            db.execute("UPDATE hosting_plans SET enabled = 1")
+        (STATE / "initialized").write_text("luobocode-hosting-preview-v1\n")
+        return
     channels = [(1, "自有订阅 · 本地演示", "gpt-4o-mini"), (14, "第三方中转 · 本地演示", "claude-sonnet-4-5")]
     for channel_type, name, models in channels:
         api("/api/channel/", {"mode": "single", "channel": {"type": channel_type, "name": name,
@@ -167,12 +181,21 @@ def seed_database():
 
 
 def main():
-    """保留本地预览数据并运行两个回环服务；收到退出信号时关闭自建进程与监听端口。"""
+    """按固定站点选择隔离目录和端口；同一二进制可运行两站，Cookie 由主机名隔离。"""
+    global SITE, STATE, APP_URL, PORT
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--site", choices=("hosting", "retail"), default="retail")
+    SITE = parser.parse_args().site
+    if SITE == "hosting":
+        STATE = ROOT / ".local-tests/hosting-preview"
+        PORT = "18410"
+        # Cookie 不按端口隔离，因此两个站不能只使用同一主机名加不同端口。
+        APP_URL = "http://localhost:18410"
     os.umask(0o077)
     STATE.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(STATE).free < 512 * 1024 * 1024:
         raise SystemExit("本地预览至少需要 512 MiB 可用磁盘空间，请先清理开发盘。")
-    if not (STATE / "new-api").is_file():
+    if not BINARY.is_file():
         raise SystemExit("先执行 go build -ldflags='-s -w' -o .local-tests/retail-preview/new-api .")
     fresh = not (STATE / "new-api.db").exists()
     if not fresh and not (STATE / "initialized").is_file():
@@ -180,8 +203,10 @@ def main():
     if fresh:
         (STATE / "session-secret").write_text(secrets.token_hex(32))
         (STATE / "retail.json").write_text('{"enabled":false,"supplies":[]}')
-    upstream = ThreadingHTTPServer(("127.0.0.1", 18401), DemoUpstream)
-    threading.Thread(target=upstream.serve_forever, daemon=True).start()
+    upstream = None
+    if SITE == "retail":
+        upstream = ThreadingHTTPServer(("127.0.0.1", 18401), DemoUpstream)
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
     process = None
     def interrupt(_signum, _frame):
         """把系统退出信号转成统一清理路径，避免遗留后台演示服务。"""
@@ -195,17 +220,27 @@ def main():
                 # 重新读取刚写入的演示余额与渠道配置，避免旧的用户缓存影响第一次试用。
                 stop_app(process)
                 process = start_app(log)
-            print(f"预览已启动：{APP_URL}/keys", flush=True)
+            # 仅更新此脚本拥有的名称和回环地址，保留已产生的请求记录、余额和密钥。
+            # 文档从 ServerAddress 生成客户端地址，不能沿用默认的 3000 端口。
+            access = api("/api/user/login", {"username": "previewadmin", "password": PASSWORD})["data"]["access_token"]
+            name = "luobocode · 中转站预览" if SITE == "retail" else "luobocode · 托管站预览"
+            api("/api/option/", {"key": "SystemName", "value": name}, access, method="PUT")
+            api("/api/option/", {"key": "ServerAddress", "value": APP_URL}, access, method="PUT")
+            print(f"{name}已启动：{APP_URL}/dashboard/overview", flush=True)
             print(f"用户：preview；管理员：previewadmin；演示密码：{PASSWORD}", flush=True)
-            print(f"演示兑换码：{REDEMPTION}；支付宝未配置，订单记录均为演示数据。", flush=True)
+            if SITE == "retail":
+                print(f"演示兑换码：{REDEMPTION}（一次有效）；支付宝未配置，订单记录均为演示数据。", flush=True)
+            else:
+                print("空托管账号与演示套餐；未连接真实账号、节点或支付。", flush=True)
             process.wait()
     except KeyboardInterrupt:
         pass
     finally:
         if process is not None:
             stop_app(process)
-        upstream.shutdown()
-        upstream.server_close()
+        if upstream is not None:
+            upstream.shutdown()
+            upstream.server_close()
 
 
 if __name__ == "__main__":

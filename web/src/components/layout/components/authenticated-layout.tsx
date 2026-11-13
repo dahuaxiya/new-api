@@ -24,6 +24,7 @@ import { SkipToMain } from '@/components/skip-to-main'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { LayoutProvider } from '@/context/layout-provider'
 import { SearchProvider } from '@/context/search-provider'
+import { useStatus } from '@/hooks/use-status'
 import { getCookie } from '@/lib/cookies'
 import { isRetiredPortalPage } from '@/lib/portal-navigation'
 import { cn } from '@/lib/utils'
@@ -45,7 +46,8 @@ type AuthenticatedLayoutProps = {
 export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
   const pathname = useLocation({ select: (location) => location.pathname })
   const role = useAuthStore((state) => state.auth.user?.role ?? 0)
-  const retired = isRetiredPortalPage(pathname, role)
+  const { status } = useStatus()
+  const retired = isRetiredPortalPage(pathname, role, status?.site_mode)
   const defaultOpen = getCookie('sidebar_state') !== 'false'
 
   return (

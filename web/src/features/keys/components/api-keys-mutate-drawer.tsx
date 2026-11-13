@@ -105,6 +105,7 @@ type ApiKeyMutateDrawerProps = {
   currentRow?: ApiKey
 }
 
+/** 根据站点固定 Key 的业务类型，编辑只修改限额和访问约束，不跨站转换计费。 */
 export function ApiKeysMutateDrawer({
   open,
   onOpenChange,
@@ -115,6 +116,7 @@ export function ApiKeysMutateDrawer({
   const currentRowId = currentRow?.id
   const { triggerRefresh } = useApiKeys()
   const { status, loading: statusLoading } = useStatus()
+  const retailSite = status?.site_mode === 'retail'
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [initializedTarget, setInitializedTarget] = useState<string | null>(
@@ -127,7 +129,7 @@ export function ApiKeysMutateDrawer({
   const hosting = useQuery({
     queryKey: ['gpt-hosting', 'key-choices', viewer, sid],
     queryFn: ({ signal }) => getHosting<HostingSelf>('self', signal),
-    enabled: open,
+    enabled: open && !statusLoading && !retailSite,
     retry: false,
     meta: { errorToast: false },
   })
@@ -257,9 +259,12 @@ export function ApiKeysMutateDrawer({
         setInitializedTarget(target)
       }
     } else {
-      form.reset(
-        getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto)
-      )
+      form.reset({
+        ...getApiKeyFormDefaultValues(
+          !retailSite && defaultUseAutoGroup && backendHasAuto
+        ),
+        service_mode: retailSite ? 'retail' : '',
+      })
       setInitializedTarget(target)
     }
   }, [
@@ -269,6 +274,7 @@ export function ApiKeysMutateDrawer({
     form,
     defaultUseAutoGroup,
     statusLoading,
+    retailSite,
     backendHasAuto,
     groupsFetched,
     groupsFetching,
@@ -460,7 +466,7 @@ export function ApiKeysMutateDrawer({
                 )}
               />
 
-              {(modes.data?.data?.retail || retailMode) && (
+              {!retailSite && (modes.data?.data?.retail || retailMode) && (
                 <FormField
                   control={form.control}
                   name='service_mode'
@@ -504,6 +510,13 @@ export function ApiKeysMutateDrawer({
                     </FormItem>
                   )}
                 />
+              )}
+              {retailSite && (
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'API usage is charged to your wallet at the listed model prices.'
+                  )}
+                </p>
               )}
               {!retailMode && !!seats.length && (
                 <FormField

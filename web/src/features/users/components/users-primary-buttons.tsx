@@ -20,6 +20,7 @@ import { Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { useStatus } from '@/hooks/use-status'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -34,6 +35,7 @@ export function UsersPrimaryButtons(props: {
   onStore: () => void
 }) {
   const { t } = useTranslation()
+  const { status } = useStatus()
   const canOpenAccount = useAuthStore(
     (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
   )
@@ -46,7 +48,7 @@ export function UsersPrimaryButtons(props: {
 
   return (
     <div className='users-primary-actions flex flex-wrap gap-2'>
-      {canOpenAccount && (
+      {canOpenAccount && status?.site_mode !== 'retail' && (
         <>
           <Button size='sm' variant='outline' onClick={props.onStore}>
             {t('Hosting plans and orders')}

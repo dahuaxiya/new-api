@@ -34,6 +34,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { TableRow, TableCell } from '@/components/ui/table'
 import { useMediaQuery } from '@/hooks'
+import { useStatus } from '@/hooks/use-status'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import {
   createServerError,
@@ -77,6 +78,8 @@ function isDisabledUserRow(user: User) {
 /** 服务端分页和筛选保持唯一数据源，窄屏只切换展示方式。 */
 export function UsersTable() {
   const { t } = useTranslation()
+  const { status } = useStatus()
+  const retail = status?.site_mode === 'retail'
   const identity = useAuthStore(
     (s) => `${s.auth.user?.id}:${s.auth.session?.sid}`
   )
@@ -149,7 +152,19 @@ export function UsersTable() {
     }),
     [expandedId, contextKey]
   )
-  const columns = useUsersColumns(keyControls)
+  const allColumns = useUsersColumns(keyControls)
+  const columns = useMemo(
+    () =>
+      retail
+        ? allColumns.filter(
+            (column) =>
+              !['gpt_account', 'hosting', 'official_quota'].includes(
+                column.id ?? ''
+              )
+          )
+        : allColumns,
+    [allColumns, retail]
+  )
 
   const { data: groupsData } = useQuery({
     queryKey: ['groups'],
@@ -188,6 +203,7 @@ export function UsersTable() {
       pagination.pageSize,
       globalFilter,
       hostingFilter,
+      retail,
       statusFilter,
       roleFilter,
       groupFilter,
@@ -197,7 +213,7 @@ export function UsersTable() {
     queryFn: async () => {
       const hasFilter = globalFilter?.trim()
       const hasColumnFilter =
-        hostingFilter.length > 0 ||
+        (!retail && hostingFilter.length > 0) ||
         statusFilter.length > 0 ||
         roleFilter.length > 0 ||
         groupFilter.length > 0
@@ -213,7 +229,7 @@ export function UsersTable() {
               ...params,
               keyword: globalFilter,
               status: statusFilter[0] ?? '',
-              hosting: hostingFilter[0] ?? '',
+              hosting: retail ? '' : (hostingFilter[0] ?? ''),
               role: roleFilter[0] ?? '',
               group: groupFilter[0] ?? '',
             })
@@ -229,7 +245,9 @@ export function UsersTable() {
       const items = result.data?.items || []
       // 汇总接口故障时仍显示全部用户，不能把未知托管状态误显示成未开通。
       const [summaries, tokenCounts] = await Promise.all([
-        getHostingSummaries(items.map((user) => user.id)).catch(() => []),
+        !status || retail
+          ? Promise.resolve([])
+          : getHostingSummaries(items.map((user) => user.id)).catch(() => []),
         getUserTokenCounts(items.map((user) => user.id)).catch(
           () => ({}) as Record<string, number>
         ),
@@ -283,22 +301,24 @@ export function UsersTable() {
 
   return (
     <>
-      <HostingTermNotice
-        onShowUndated={() => {
-          // 提示是全局计数，清空旧筛选后再跳到第一页，避免只展示其中一部分。
-          void navigate({
-            search: (prev) => ({
-              ...prev,
-              page: 1,
-              filter: undefined,
-              status: undefined,
-              role: undefined,
-              group: undefined,
-              hosting: ['undated'],
-            }),
-          })
-        }}
-      />
+      {!retail && (
+        <HostingTermNotice
+          onShowUndated={() => {
+            // 提示是全局计数，清空旧筛选后再跳到第一页，避免只展示其中一部分。
+            void navigate({
+              search: (prev) => ({
+                ...prev,
+                page: 1,
+                filter: undefined,
+                status: undefined,
+                role: undefined,
+                group: undefined,
+                hosting: ['undated'],
+              }),
+            })
+          }}
+        />
+      )}
       <DataTablePage
         className='users-table'
         fixedHeight={false}
@@ -428,7 +448,7 @@ export function UsersTable() {
               })),
               singleSelect: true,
             },
-          ],
+          ].filter((filter) => !retail || filter.columnId !== 'hosting'),
         }}
         getRowClassName={(row, { isMobile }) => {
           if (!isDisabledUserRow(row.original)) return undefined

@@ -7897,6 +7897,15 @@
     "Wallet payment could not be verified": "Le paiement du portefeuille n’a pas pu être vérifié",
     "Retail API is unavailable": "L’API à la consommation est indisponible",
     "Retail balance or API key quota is insufficient": "Le solde du portefeuille ou le quota de la clé API est insuffisant",
-    "Retail settlement requires review": "Ces frais API doivent être vérifiés"
+    "Retail settlement requires review": "Ces frais API doivent être vérifiés",
+    "Balance available for API usage": "Balance available for API usage",
+    "Track API requests, token usage and wallet charges.": "Track API requests, token usage and wallet charges.",
+    "API usage is charged to your wallet at the listed model prices.": "API usage is charged to your wallet at the listed model prices.",
+    "Manage API users, balances and access keys.": "Manage API users, balances and access keys.",
+    "Sign in, open API Keys and create a key. API requests use the models available on this site.": "Sign in, open API Keys and create a key. API requests use the models available on this site.",
+    "Balance and API usage": "Balance and API usage",
+    "View each request and its charge in usage logs. Top up or redeem credit before your balance runs out.": "View each request and its charge in usage logs. Top up or redeem credit before your balance runs out.",
+    "Service is unavailable on this site": "Service is unavailable on this site",
+    "API key is unavailable on this site": "API key is unavailable on this site"
   }
 }

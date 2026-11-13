@@ -455,7 +455,7 @@ func TokenOrUserAuth() func(c *gin.Context) {
 // TokenAuthReadOnly 宽松版本的令牌认证中间件，用于只读查询接口。
 // 只验证令牌 key 是否存在，不检查过期时间和额度。
 // 即使令牌已过期或已耗尽，也允许访问；已禁用的令牌会被拒绝。
-// 仍然检查令牌 IP 白名单和用户是否被封禁。
+// 仍然检查站点业务边界、令牌 IP 白名单和用户是否被封禁。
 func TokenAuthReadOnly() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		key := c.Request.Header.Get("Authorization")
@@ -480,6 +480,12 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 				common.ApiErrorStatus(c, http.StatusInternalServerError, errors.New(common.TranslateMessage(c, i18n.MsgDatabaseError)))
 			}
 			c.Abort()
+			return
+		}
+
+		// 余额与日志查询同样不能接受另一站业务类型的 Key。
+		if !common.SiteAllowsToken(token.ServiceMode, token.HostingSeatID) {
+			abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgTokenSiteUnavailable))
 			return
 		}
 
@@ -618,6 +624,11 @@ func TokenAuth() func(c *gin.Context) {
 			return
 		}
 
+		// 页面隐藏不是授权边界；实际请求必须拒绝来自另一业务类型的 Key。
+		if !common.SiteAllowsToken(token.ServiceMode, token.HostingSeatID) {
+			abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgTokenSiteUnavailable))
+			return
+		}
 		// 托管期限按实际请求校验，创建新客户端 Key 不能绕过暂停或到期。
 		hostingGroup, _, hostingErr := model.GetTokenHostingRoute(token.UserId, token.Id)
 		if hostingErr != nil {

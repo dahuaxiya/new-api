@@ -109,7 +109,10 @@ function Step(props: { number: number; title: string; children: ReactNode }) {
 export function UserDocs() {
   const { t } = useTranslation()
   const { status } = useStatus()
-  const [active, setActive] = useState(currentTopic)
+  const retail = status?.site_mode === 'retail'
+  const [selected, setActive] = useState(currentTopic)
+  // 旧托管书签在中转站回到接入说明；隐藏章节不能通过 hash 再打开。
+  const active = retail && selected === 'gpt-hosting' ? 'quick-start' : selected
   const baseUrl = docsApiBase(status?.server_address, window.location.origin)
   const topic = topics.find((item) => item.id === active) ?? defaultTopic
 
@@ -142,7 +145,11 @@ export function UserDocs() {
                       {t(group)}
                     </p>
                     {topics
-                      .filter((item) => item.group === group)
+                      .filter(
+                        (item) =>
+                          item.group === group &&
+                          (!retail || item.id !== 'gpt-hosting')
+                      )
                       .map((item) => (
                         <a
                           key={item.id}
@@ -228,7 +235,9 @@ export function UserDocs() {
                   <Step number={1} title={t('Open API Keys')}>
                     <p>
                       {t(
-                        'Sign in, open API Keys, then create a key or copy an existing personal key. Keep the group assigned to you.'
+                        retail
+                          ? 'Sign in, open API Keys and create a key. API requests use the models available on this site.'
+                          : 'Sign in, open API Keys, then create a key or copy an existing personal key. Keep the group assigned to you.'
                       )}
                     </p>
                     <a href='/keys'>{t('Go to API Keys')}</a>
@@ -418,7 +427,26 @@ export function UserDocs() {
                   </p>
                 </>
               )}
-              {active === 'quota' && (
+              {active === 'quota' && retail && (
+                <Step number={1} title={t('Balance and API usage')}>
+                  <p>
+                    {t(
+                      'API usage is charged to your wallet at the listed model prices.'
+                    )}
+                  </p>
+                  <p>
+                    {t(
+                      'View each request and its charge in usage logs. Top up or redeem credit before your balance runs out.'
+                    )}
+                  </p>
+                  <a href='/pricing'>{t('Model Square')}</a>
+                  {' · '}
+                  <a href='/usage-logs/common'>{t('View usage logs')}</a>
+                  {' · '}
+                  <a href='/wallet'>{t('Billing and redemption')}</a>
+                </Step>
+              )}
+              {active === 'quota' && !retail && (
                 <>
                   <h3 className='text-xl font-semibold'>
                     {t('Read your subscription windows')}

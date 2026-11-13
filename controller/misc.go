@@ -38,6 +38,7 @@ func TestStatus(c *gin.Context) {
 	return
 }
 
+// GetStatus 返回公开站点配置，站点模式由部署环境决定，不能由管理页面切换。
 func GetStatus(c *gin.Context) {
 
 	cs := console_setting.GetConsoleSetting()
@@ -48,6 +49,7 @@ func GetStatus(c *gin.Context) {
 	legalSetting := system_setting.GetLegalSettings()
 
 	data := gin.H{
+		"site_mode":                   common.SiteMode(),
 		"version":                     common.Version,
 		"start_time":                  common.StartTime,
 		"email_verification":          common.EmailVerificationEnabled,

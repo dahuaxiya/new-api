@@ -83,6 +83,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/gpt-hosting/admin/store":           accessTokenSessionRule,
 	"POST /api/gpt-hosting/admin/store/plans":    accessTokenSessionRule,
 	"GET /api/gpt-hosting/users":                 accessTokenSessionRule,
+	"POST /api/user/wallet":                      accessTokenSessionRule,
 	"POST /api/gpt-hosting/wallet":               accessTokenSessionRule,
 	// router/api-router.go: top level
 	"GET /api/models":                     accessTokenScopeRule("profile:read"),

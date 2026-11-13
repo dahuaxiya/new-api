@@ -89,6 +89,7 @@ func TestRetailSupplyIsolation(t *testing.T) {
 
 // TestRetailHTTPRelay 从客户 Key 走真实鉴权、选路、HTTP 上游和结算，覆盖三种同步协议及缺失用量。
 func TestRetailHTTPRelay(t *testing.T) {
+	t.Setenv("SITE_MODE", "retail")
 	oldTimeout := constant.StreamingTimeout
 	oldRetry := common.RetryTimes
 	constant.StreamingTimeout = 10

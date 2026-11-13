@@ -314,6 +314,14 @@ func AddToken(c *gin.Context) {
 	if request.ServiceMode != nil {
 		token.ServiceMode = *request.ServiceMode
 	}
+	// 中转站默认创建余额计费 Key；老客户端省略类型也不能落入旧渠道计费路径。
+	if common.IsRetailSite() && token.ServiceMode == "" {
+		token.ServiceMode = model.TokenServiceRetail
+	}
+	if !common.SiteAllowsToken(token.ServiceMode, seatID) {
+		common.ApiErrorT(c, "Service is unavailable on this site")
+		return
+	}
 	seatID, err = model.NormalizeTokenService(c.GetInt("id"), token.ServiceMode, seatID)
 	if err != nil {
 		hostingError(c, err)
@@ -457,6 +465,10 @@ func UpdateToken(c *gin.Context) {
 		return
 	}
 	params["name"] = cleanToken.Name
+	if !common.SiteAllowsToken(cleanToken.ServiceMode, cleanToken.HostingSeatID) {
+		common.ApiErrorT(c, "Service is unavailable on this site")
+		return
+	}
 	previous := *cleanToken
 	if token.Status == common.TokenStatusEnabled {
 		if cleanToken.Status == common.TokenStatusExpired && cleanToken.ExpiredTime <= common.GetTimestamp() && cleanToken.ExpiredTime != -1 {

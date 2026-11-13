@@ -29,11 +29,17 @@ function Navigation() {
   )
 }
 /** 设置后台配置与角色，在指定 URL 解析实际工作区。 */
-async function mount(path: string, role: number, modules?: object) {
+async function mount(
+  path: string,
+  role: number,
+  modules?: object,
+  mode: 'hosting' | 'retail' = 'hosting'
+) {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
   client.setQueryData(['status'], {
+    site_mode: mode,
     SidebarModulesAdmin: JSON.stringify(modules ?? {}),
   })
   useAuthStore.getState().auth.setUser({ id: 1, username: 'test', role })
@@ -71,7 +77,7 @@ it('only lists customer functions for ordinary users even on a management URL', 
 it('separates the admin workspace and filters super-admin-only functions', async () => {
   await mount('/user-usage', 10)
   expect(screen.getByText('Back to user center')).toBeInTheDocument()
-  expect(screen.getByText('User usage overview')).toBeInTheDocument()
+  expect(screen.getByText('Users')).toBeInTheDocument()
   expect(screen.queryByText('API Keys')).toBeNull()
   expect(screen.queryByText('System Settings')).toBeNull()
   expect(screen.queryByText('Open account')).toBeNull()
@@ -102,8 +108,21 @@ it('keeps old bookmarks from reopening retired user pages', async () => {
   expect(isRetiredPortalPage('/dashboard/models', 100)).toBe(false)
 })
 
-it('shows account opening only in the super-admin workspace', async () => {
-  await mount('/users/onboarding', 100)
-  expect(screen.getByText('Open account')).toBeInTheDocument()
-  expect(screen.getByText('Back to user center')).toBeInTheDocument()
+/** 两站导航与旧书签使用同一产品边界，管理员也不能打开另一站的业务页。 */
+it('keeps retail navigation and old hosting bookmarks separate', async () => {
+  await mount('/dashboard/overview', 100, undefined, 'retail')
+  expect(screen.getByText('Model Square')).toBeInTheDocument()
+  expect(screen.getByText('Billing and redemption')).toBeInTheDocument()
+  expect(screen.queryByText('Hosted accounts')).toBeNull()
+  for (const path of ['/account/gpt', '/users/hosting', '/users/onboarding']) {
+    expect(isRetiredPortalPage(path, 100, 'retail')).toBe(true)
+    expect(isRetiredPortalPage(path, 100, 'hosting')).toBe(false)
+  }
+})
+
+it('keeps hosted accounts and plans in the hosting user center', async () => {
+  await mount('/dashboard/overview', 1)
+  expect(screen.getByText('Hosted accounts')).toBeInTheDocument()
+  expect(screen.getByText('Hosting plans')).toBeInTheDocument()
+  expect(screen.queryByText('Model Square')).toBeNull()
 })

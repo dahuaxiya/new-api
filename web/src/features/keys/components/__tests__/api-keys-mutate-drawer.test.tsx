@@ -60,11 +60,13 @@ let renderedDrawer: RenderedDrawer | null = null
 /** 模拟管理接口边界；托管场景提供两个可选账号，保留真实表单和提交转换。 */
 function installApiFixtures(
   createdPayloads: Array<Record<string, unknown>>,
-  hosted = false
+  hosted = false,
+  siteMode: 'hosting' | 'retail' = 'hosting'
 ) {
   apiClient.get = async (url) => {
     switch (url) {
       case '/api/gpt-hosting/self':
+        expect(siteMode).toBe('hosting')
         return {
           data: {
             success: true,
@@ -133,14 +135,16 @@ function installApiFixtures(
   }
 }
 
-async function renderCreateDrawer(): Promise<void> {
+async function renderCreateDrawer(
+  siteMode: 'hosting' | 'retail' = 'hosting'
+): Promise<void> {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   const freshAt = Date.now() + 60_000
   queryClient.setQueryData(
     ['status'],
-    { default_use_auto_group: true },
+    { default_use_auto_group: true, site_mode: siteMode },
     { updatedAt: freshAt }
   )
   queryClient.setQueryData(
@@ -376,14 +380,12 @@ test('multiple hosted accounts require an explicit target and submit only the ch
   })
 })
 
-/** 商业 Key 可由多托管名额用户创建，不带出隐藏账号及 Auto 路由。 */
+/** 中转站默认创建余额计费 Key，不请求托管名额或让用户选择另一类服务。 */
 test('retail mode skips hosted account selection and submits wallet service', async () => {
   const payloads: Array<Record<string, unknown>> = []
-  installApiFixtures(payloads, true)
-  await renderCreateDrawer()
-  fireEvent.change(await screen.findByLabelText('API service'), {
-    target: { value: 'retail' },
-  })
+  installApiFixtures(payloads, true, 'retail')
+  await renderCreateDrawer('retail')
+  expect(screen.queryByLabelText('API service')).toBeNull()
   expect(screen.queryByLabelText('Hosted account for this key')).toBeNull()
   fireEvent.change(screen.getByLabelText('Name'), {
     target: { value: 'Wallet API' },

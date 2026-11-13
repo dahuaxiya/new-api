@@ -196,3 +196,26 @@ describe('public user guide', () => {
     expect(docsApiBase(input, 'https://site.example.com')).toBe(expected)
   })
 })
+
+/** 旧托管锚点不能重新打开授权教程；用量章节按本站钱包解释扣费。 */
+it('removes hosting instructions from the retail guide', async () => {
+  client.setQueryData(
+    ['status'],
+    { site_mode: 'retail' },
+    { updatedAt: Date.now() + 60000 }
+  )
+  window.location.hash = 'gpt-hosting'
+  mountDocs()
+  await screen.findByRole('heading', { name: 'Before you start' })
+  expect(screen.queryByRole('link', { name: 'Hosted accounts' })).toBeNull()
+  await act(async () => {
+    window.location.hash = 'quota'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+  })
+  expect(
+    await screen.findByText(
+      'API usage is charged to your wallet at the listed model prices.'
+    )
+  ).toBeInTheDocument()
+  expect(screen.queryByText('Read your subscription windows')).toBeNull()
+})

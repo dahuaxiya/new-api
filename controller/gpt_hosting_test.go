@@ -226,7 +226,7 @@ func TestUnifiedHostingAdminBoundary(t *testing.T) {
 	require.NoError(t, err)
 	r := gin.New()
 	r.GET("/users", middleware.AdminAuth(), GetGPTHostingUsers)
-	r.POST("/wallet", middleware.AdminAuth(), middleware.SessionCookieOriginGuard(), AdjustHostingUserWallet)
+	r.POST("/wallet", middleware.AdminAuth(), middleware.SessionCookieOriginGuard(), AdjustUserWallet)
 	r.POST("/grants", middleware.RootAuth(), middleware.SessionCookieOriginGuard(), PutGPTHostingGrant)
 	r.POST("/takeover", middleware.RootAuth(), middleware.SessionCookieOriginGuard(), TakeoverGPTHosting)
 	request := func(method, path, body string) *httptest.ResponseRecorder {
@@ -468,5 +468,53 @@ func TestHostingPlanProofBoundary(t *testing.T) {
 	for _, context := range []string{`{"action":"store-plan","binding_id":"arbitrary"}`, `{"action":"login","binding_id":"monthly"}`} {
 		_, err := service.BindVerificationOperation(service.VerificationOperation{Scope: service.VerificationScopeGPTHosting, Context: []byte(context)})
 		require.Error(t, err)
+	}
+}
+
+// TestSeparatedSiteWalletProofBoundary 验证两站共用余额入口，关闭托管后仍要求当前会话、同源和单次目标证明。
+func TestSeparatedSiteWalletProofBoundary(t *testing.T) {
+	oldSecure := common.SessionCookieSecure
+	common.SessionCookieSecure = true
+	t.Cleanup(func() { common.SessionCookieSecure = oldSecure })
+	for _, mode := range []string{"hosting", "retail"} {
+		t.Run(mode, func(t *testing.T) {
+			actor, identity := setupSecurityEnrollmentTest(t)
+			t.Setenv("SITE_MODE", mode)
+			t.Setenv("GPT_HOSTING_ENABLED", "false")
+			require.NoError(t, model.DB.Model(actor).Update("role", common.RoleRootUser).Error)
+			require.NoError(t, model.PublishUserAuthCache(actor.Id))
+			target := model.User{Username: "wallet-owner", AffCode: "wallet-owner", Group: "default", Role: common.RoleCommonUser, Status: 1, Quota: 345}
+			require.NoError(t, model.DB.Create(&target).Error)
+			token, _, err := service.IssueAccessToken(identity)
+			require.NoError(t, err)
+			raw, err := common.Marshal(service.AdminUserContext{UserID: target.Id})
+			require.NoError(t, err)
+			binding, err := service.BindVerificationOperation(service.VerificationOperation{Scope: service.VerificationScopeAdminUserUpdate, Context: raw})
+			require.NoError(t, err)
+			proof, err := service.CompleteSecurityVerification(identity, binding, service.VerificationMethodPassword)
+			require.NoError(t, err)
+			r := gin.New()
+			r.Use(middleware.SiteBoundary())
+			r.POST("/api/user/wallet", middleware.AdminAuth(), middleware.SessionCookieOriginGuard(), AdjustUserWallet)
+			request := func(origin, proofToken string) *httptest.ResponseRecorder {
+				body := fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"add","value":99,"reason":"fixture"}`, target.Id)
+				req := httptest.NewRequest("POST", "http://portal.test/api/user/wallet", strings.NewReader(body))
+				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header.Set("Origin", origin)
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-Security-Proof", proofToken)
+				w := httptest.NewRecorder()
+				r.ServeHTTP(w, req)
+				return w
+			}
+			require.NotEqual(t, 200, request("http://portal.test", "").Code)
+			require.Equal(t, 403, request("https://foreign.test", proof.ProofToken).Code)
+			result := request("http://portal.test", proof.ProofToken)
+			require.Equal(t, 200, result.Code, result.Body.String())
+			require.Contains(t, result.Body.String(), `"success":true`)
+			require.NotEqual(t, 200, request("http://portal.test", proof.ProofToken).Code)
+			require.NoError(t, model.DB.First(&target, target.Id).Error)
+			require.Equal(t, 444, target.Quota)
+		})
 	}
 }

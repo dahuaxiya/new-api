@@ -62,6 +62,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { useStatus } from '@/hooks/use-status'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -106,13 +107,15 @@ type UsersMutateDrawerProps = {
   currentRow?: User
 }
 
-/** 在同一侧栏呈现账号、托管与站内余额，保留各操作原有验证和保存边界。 */
+/** 按站点呈现用户资料和余额；仅托管站挂载账号管理，保留各操作的验证和保存边界。 */
 export function UsersMutateDrawer({
   open,
   onOpenChange,
   currentRow,
 }: UsersMutateDrawerProps) {
   const { t } = useTranslation()
+  const { status } = useStatus()
+  const retail = status?.site_mode === 'retail'
   const isUpdate = !!currentRow
   const { triggerRefresh, requestVerification, setCurrentRow, setOpen } =
     useUsers()
@@ -306,13 +309,15 @@ export function UsersMutateDrawer({
             <SheetDescription>
               {isUpdate
                 ? t(
-                    'View accounts, renew hosting and manage quotas in one place.'
+                    retail
+                      ? 'Manage API users, balances and access keys.'
+                      : 'View accounts, renew hosting and manage quotas in one place.'
                   )
                 : t('Add a new user by providing necessary info.')}
             </SheetDescription>
           </SheetHeader>
           <div className='min-h-0 flex-1 overflow-y-auto'>
-            {isUpdate && currentRow && (
+            {!retail && isUpdate && currentRow && (
               <>
                 <HostingUserPanel key={currentRow.id} user={currentRow} />
                 <HostingUserActivity user={currentRow} />

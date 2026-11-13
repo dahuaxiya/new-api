@@ -186,7 +186,7 @@ func StartWalletAlipayReconciliation() {
 // GetTokenServiceModes 只公开服务是否可选及可售模型，不暴露供货渠道、配置路径或凭据。
 func GetTokenServiceModes(c *gin.Context) {
 	cfg, err := retail_setting.Load()
-	enabled := err == nil && cfg.Enabled && !common.RedisEnabled && !common.BatchUpdateEnabled && ratio_setting.ContainsGroupRatio(cfg.Group)
+	enabled := common.IsRetailSite() && err == nil && cfg.Enabled && !common.RedisEnabled && !common.BatchUpdateEnabled && ratio_setting.ContainsGroupRatio(cfg.Group)
 	models := []string{}
 	if enabled {
 		ids, e := model.RetailSupplyIDs(cfg.Group)

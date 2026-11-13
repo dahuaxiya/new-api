@@ -374,9 +374,12 @@ func GetGPTHostingUsers(c *gin.Context) {
 	c.JSON(200, gin.H{"success": true, "data": result})
 }
 
-// AdjustHostingUserWallet 对统一详情中的余额变更要求原因与当前会话的二次验证，复用已有账务事务。
-func AdjustHostingUserWallet(c *gin.Context) {
-	if _, ok := hostingActor(c, false); !ok {
+// AdjustUserWallet 要求当前管理会话、原因和一次性二次验证，复用已有账务事务。
+// 此操作属于站内钱包，不依赖托管开关；旧托管入口保留为同一处理器的兼容别名。
+func AdjustUserWallet(c *gin.Context) {
+	c.Header("Cache-Control", "no-store, private")
+	if c.GetInt("id") <= 0 || c.GetString("session_id") == "" {
+		c.AbortWithStatusJSON(401, gin.H{"success": false, "message": "Authentication required"})
 		return
 	}
 	if c.GetInt("role") < common.RoleAdminUser {

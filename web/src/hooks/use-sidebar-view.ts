@@ -22,11 +22,13 @@ import { useTranslation } from 'react-i18next'
 
 import { resolveSidebarView } from '@/components/layout/lib/sidebar-view-registry'
 import type { NavGroup, ResolvedSidebarView } from '@/components/layout/types'
+import { isRetiredPortalPage } from '@/lib/portal-navigation'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { useSidebarConfig } from './use-sidebar-config'
 import { useSidebarData } from './use-sidebar-data'
+import { useStatus } from './use-status'
 
 /** Sentinel key used for the root navigation in animation `key=` props */
 const ROOT_VIEW_KEY = '__root'
@@ -37,6 +39,7 @@ const ROOT_VIEW_KEY = '__root'
  */
 export function useSidebarView(): ResolvedSidebarView {
   const { t } = useTranslation()
+  const { status } = useStatus()
   const pathname = useLocation({ select: (l) => l.pathname })
   const userRole = useAuthStore((s) => s.auth.user?.role)
   const rootSidebarData = useSidebarData()
@@ -69,8 +72,13 @@ export function useSidebarView(): ResolvedSidebarView {
           ...group,
           items: group.items.filter(
             (item) =>
-              item.requiredRole === undefined ||
-              (userRole ?? ROLE.GUEST) >= item.requiredRole
+              !isRetiredPortalPage(
+                item.url ?? '',
+                userRole ?? ROLE.GUEST,
+                status?.site_mode
+              ) &&
+              (item.requiredRole === undefined ||
+                (userRole ?? ROLE.GUEST) >= item.requiredRole)
           ),
         }))
         .filter((group) => group.items.length > 0),

@@ -19,6 +19,7 @@ import (
 // @param router 注册 API 路由的 Gin 引擎。
 func SetApiRouter(router *gin.Engine) {
 	apiRouter := router.Group("/api")
+	apiRouter.Use(middleware.SiteBoundary())
 	apiRouter.Use(middleware.RouteTag("api"))
 	apiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
 	apiRouter.Use(middleware.AccessTokenAudit())
@@ -39,7 +40,7 @@ func SetApiRouter(router *gin.Engine) {
 		// The existing dashboard auth chain checks session revocation before reading quota.
 		apiRouter.GET("/gpt-quota/self/history", middleware.DisableCache(), middleware.UserAuth(), controller.GetGPTQuotaHistorySelf)
 		apiRouter.GET("/gpt-quota/self", middleware.DisableCache(), middleware.UserAuth(), controller.GetGPTQuotaSelf)
-		apiRouter.POST("/gpt-hosting/wallet", middleware.AdminAuth(), middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting-wallet"), controller.AdjustHostingUserWallet)
+		apiRouter.POST("/gpt-hosting/wallet", middleware.AdminAuth(), middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-hosting-wallet"), controller.AdjustUserWallet)
 		apiRouter.GET("/gpt-hosting/users", middleware.DisableCache(), middleware.AdminAuth(), controller.GetGPTHostingUsers)
 		apiRouter.POST("/gpt-quota/users/:id/refresh", middleware.AdminAuth(), middleware.DisableCache(), middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("gpt-quota-admin"), controller.RefreshGPTQuotaUser)
 		apiRouter.GET("/gpt-quota/users/:id", middleware.DisableCache(), middleware.AdminAuth(), controller.GetGPTQuotaUser)
@@ -223,6 +224,8 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/:id", controller.GetUser)
 				adminRoute.POST("/", controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)
+				// 两站共享余额管理，但仍要求同源会话和一次性二次验证。
+				adminRoute.POST("/wallet", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("user-wallet"), controller.AdjustUserWallet)
 				adminRoute.PUT("/", controller.UpdateUser)
 				adminRoute.DELETE("/:id", controller.DeleteUser)
 				adminRoute.DELETE("/:id/reset_passkey", controller.AdminResetPasskey)

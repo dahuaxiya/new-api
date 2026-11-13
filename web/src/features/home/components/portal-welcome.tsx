@@ -4,11 +4,14 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 
 /** 首页只提供用户接入入口，不展示未经本站数据支持的营销指标。 */
 export function PortalWelcome(props: { isAuthenticated: boolean }) {
   const { t } = useTranslation()
+  const { status } = useStatus()
+  const retail = status?.site_mode === 'retail'
   const { systemName } = useSystemConfig()
   const features = [
     {
@@ -19,7 +22,9 @@ export function PortalWelcome(props: { isAuthenticated: boolean }) {
     {
       title: t('Usage overview'),
       description: t(
-        'Track requests, token usage and your GPT subscription quota.'
+        retail
+          ? 'Track API requests, token usage and wallet charges.'
+          : 'Track requests, token usage and your GPT subscription quota.'
       ),
       icon: Activity,
     },
@@ -34,7 +39,7 @@ export function PortalWelcome(props: { isAuthenticated: boolean }) {
       <div className='max-w-2xl'>
         <p className='text-primary mb-5 text-sm font-medium'>{systemName}</p>
         <h1 className='text-4xl leading-tight font-semibold tracking-tight sm:text-5xl'>
-          {t('Your API workspace')}
+          {retail ? t('Pay as you go API') : t('Hosted accounts')}
         </h1>
         <p className='text-muted-foreground mt-5 max-w-xl text-base leading-7'>
           {t(

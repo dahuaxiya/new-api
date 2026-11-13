@@ -292,6 +292,7 @@ func InjectGoogleAnalytics() {
 }
 
 // InitResources 初始化数据库、认证和后台维护；支付补偿复用已初始化的订单库与固定商户配置。
+// InitResources 先验证进程的站点边界，再连接数据库并启动对应业务的后台任务。
 func InitResources() error {
 	// Initialize resources here if needed
 	// This is a placeholder function for future resource initialization
@@ -304,6 +305,9 @@ func InitResources() error {
 
 	// 加载环境变量
 	common.InitEnv()
+	if err := common.ValidateSiteMode(); err != nil {
+		return err
+	}
 
 	logger.SetupLogger()
 
@@ -378,10 +382,14 @@ func InitResources() error {
 	}
 
 	service.StartAuthArtifactCleanup()
-	controller.StartGPTHostingMaintenance()
-	controller.StartHostingAlipayReconciliation()
-	controller.StartWalletAlipayReconciliation()
-	controller.StartGPTQuotaHistory()
+	// 独立中转站不运行客户账号维护、托管补单或官方额度探测，避免跨业务副作用。
+	if common.IsRetailSite() {
+		controller.StartWalletAlipayReconciliation()
+	} else {
+		controller.StartGPTHostingMaintenance()
+		controller.StartHostingAlipayReconciliation()
+		controller.StartGPTQuotaHistory()
+	}
 
 	return nil
 }

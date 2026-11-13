@@ -33,6 +33,9 @@ beforeEach(() => {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'admin', role: 100 })
   failUsage = false
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    if (url === '/api/status') {
+      return { data: { success: true, data: { site_mode: 'hosting' } } }
+    }
     if (url === '/api/user/self') {
       return {
         data: {
@@ -165,4 +168,23 @@ it('preserves the selected period when opening all usage logs', async () => {
   expect(url.searchParams.get('endTime')).toBe(
     String(params.end_timestamp * 1000)
   )
+})
+
+/** 中转站首页不能请求托管额度，也不能把钱包余额说明成官方订阅额度。 */
+it('shows wallet usage without fetching hosted quota on retail', async () => {
+  client.setQueryData(
+    ['status'],
+    { site_mode: 'retail' },
+    { updatedAt: Date.now() + 60000 }
+  )
+  await mount()
+  await screen.findByText('test-model')
+  expect(
+    screen.getByText('Balance available for API usage')
+  ).toBeInTheDocument()
+  expect(
+    vi
+      .mocked(api.get)
+      .mock.calls.some(([url]) => url.startsWith('/api/gpt-quota/'))
+  ).toBe(false)
 })

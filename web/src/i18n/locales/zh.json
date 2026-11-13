@@ -7927,6 +7927,15 @@
     "Wallet payment could not be verified": "钱包支付信息核验失败",
     "Retail API is unavailable": "余额计费 API 暂不可用",
     "Retail balance or API key quota is insufficient": "钱包余额或 API 密钥额度不足",
-    "Retail settlement requires review": "此笔 API 费用需要核对"
+    "Retail settlement requires review": "此笔 API 费用需要核对",
+    "Balance available for API usage": "可用于 API 调用的余额",
+    "Track API requests, token usage and wallet charges.": "查看 API 请求、Token 用量和余额扣费。",
+    "API usage is charged to your wallet at the listed model prices.": "API 调用按模型标价从本站余额扣费。",
+    "Manage API users, balances and access keys.": "管理 API 用户、余额和密钥。",
+    "Sign in, open API Keys and create a key. API requests use the models available on this site.": "登录后进入「API 密钥」创建密钥，使用本站已开放的模型。",
+    "Balance and API usage": "余额与 API 用量",
+    "View each request and its charge in usage logs. Top up or redeem credit before your balance runs out.": "在使用日志中查看每次请求和扣费，余额不足时可充值或兑换额度。",
+    "Service is unavailable on this site": "本站不提供该服务",
+    "API key is unavailable on this site": "该密钥不能用于本站"
   }
 }

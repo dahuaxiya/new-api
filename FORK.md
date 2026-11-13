@@ -36,14 +36,30 @@ cd web
 bun run build
 cd ..
 go build -ldflags='-s -w' -o .local-tests/retail-preview/new-api .
-python3 scripts/retail-preview.py
+python3 scripts/retail-preview.py --site retail
+# 另开一个终端，运行独立托管站
+python3 scripts/retail-preview.py --site hosting
 ```
 
-用户入口为 `http://127.0.0.1:18400/keys`，账号 `preview`；管理员入口为 `http://localhost:18400/channels`，账号 `previewadmin`。演示密码均为 `LuoboPreview2026!`。两个来源的登录状态独立，可同时查看用户页和管理员页。终端按 Ctrl+C 停止本次启动的预览服务，下次启动保留本地数据。
+中转站入口为 `http://127.0.0.1:18400/dashboard/overview`，托管站入口为 `http://localhost:18410/account/gpt`。两站各有普通账号 `preview` 和管理员 `previewadmin`，演示密码均为 `LuoboPreview2026!`。在各站退出后可切换角色；不要把中转站改用 localhost，因为 Cookie 不按端口隔离。终端按 Ctrl+C 停止对应站点，下次启动保留该站数据。
+
+两站共享编译后的二进制，分别使用 `.local-tests/retail-preview/` 和 `.local-tests/hosting-preview/` 中的数据库、会话密钥与日志。托管预览只展示空账号和演示套餐，不连接真实节点、不开放真实支付。
 
 预览在 `.local-tests/retail-preview/` 创建独立 SQLite 和配置，仅监听回环地址。初始钱包为 $50；一次性兑换码 `luobopreview202611140000000000001` 增加 $10。可创建“余额计费 API”密钥，调用 `gpt-4o-mini` 的 Chat Completions / Responses 或 `claude-sonnet-4-5` 的 Messages 接口，再查看日志与余额。网关执行真实本地结算，上游只返回标注过的合成文本，不使用真实订阅账号；演示上游只支持非流式请求。
 
 预置 `DEMO-` 订单用于查看状态，未配置支付宝商户，不能真实付款。支付声明开关只写入隔离演示库作为兑换测试夹具，不代表站点负责人已确认生产声明。预览以启动时至少 512 MiB 可用空间替代磁盘占用百分比检查，CPU 和内存保护沿用默认配置；该设置仅适用于这个轻量本地预览。
+
+### 托管站与中转站分开运行（2026-11-14）
+
+同一源码和构建产物支持两个进程：`SITE_MODE=hosting`（缺省，兼容现有托管部署）和 `SITE_MODE=retail`（商业中转）。模式由部署环境固定，接口不能切换。前端根据 `/api/status.site_mode` 展示本站导航、首页、Key 表单、账单、文档和用户管理；另一站业务 API（含管理员接口和支付回调）返回 404。中转站只创建和接受 `retail` Key，托管站拒绝这种 Key；只读用量查询也校验业务类型。
+
+部署必须给两站使用独立域名、数据库（含日志库）、SESSION_SECRET、存储目录和商户订单回调。不要复制现有托管数据库来创建中转站，也不要只靠 SITE_MODE 把一个已有数据库改成另一种业务。代码不自动迁移用户、余额、订单或授权，不支持共享钱包或跨站登录。正式部署仍只从已推送的 release 提交构建，目标为搬瓦工。
+
+托管进程配置 `GPT_HOSTING_ENABLED=true`、托管实例/额度及托管商户文件，不能挂 `RETAIL_RELAY_CONFIG` 或 `ALIPAY_WALLET_CONFIG`。中转进程配置 `RETAIL_RELAY_CONFIG`，可选独立 `ALIPAY_WALLET_CONFIG`，必须关闭托管并且不挂托管实例/额度/商户文件；混配在连接数据库前拒绝。中转首版继续要求 `BATCH_UPDATE_ENABLED=false`、不配置 Redis，供货仅登记平台拥有或获授权的独立渠道，禁止使用客户托管库、客户槽位凭据。
+
+管理员余额调整统一使用 `/api/user/wallet`，保留当前会话、同源校验、绑定目标用户的一次性验证、原因及原账务事务；旧 `/api/gpt-hosting/wallet` 仅作为托管站兼容入口。没有更改账务公式或数据库 schema。
+
+安全边界参考 OWASP ASVS 5.0.0 V6/V7/V8，以及 Authentication、Session Management 和 Authorization Cheat Sheets 的敏感操作重认证、主机 Cookie 隔离和每次请求授权原则。针对性回归覆盖配置混用拒绝、另一站路由关闭、Key 类型拒绝和余额调整的来源/证明重放；本地 HTTP 验证独立会话、数据库和请求扣费。此处不代表生产部署或完整 ASVS 合规认证。
 
 ### 原有托管与额度展示
 

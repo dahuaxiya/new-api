@@ -47,6 +47,7 @@ import { GptQuotaCard } from '@/features/gpt-quota/GptQuotaCard'
 import { getApiKeys } from '@/features/keys/api'
 import { getUserLogs } from '@/features/usage-logs/api'
 import { usageLogSchema } from '@/features/usage-logs/data/schema'
+import { useStatus } from '@/hooks/use-status'
 import { toIntlLocale } from '@/i18n/languages'
 import { getSelf } from '@/lib/api'
 import { formatNumber, formatQuota } from '@/lib/format'
@@ -85,6 +86,8 @@ export function OverviewDashboard() {
 /** 用户首页始终请求 self 接口；即使当前是管理员，也不混入全站用量。 */
 function PersonalDashboard(props: { userId: number; sessionId?: string }) {
   const { t, i18n } = useTranslation()
+  const { status } = useStatus()
+  const retail = status?.site_mode === 'retail'
   const username = useAuthStore((state) => state.auth.user?.username)
   const [days, setDays] = useState('7')
   const ranges = [
@@ -146,7 +149,9 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
     {
       title: t('Site balance'),
       value: account.data ? formatQuota(account.data.quota) : '—',
-      description: t('Separate from GPT subscription quota'),
+      description: retail
+        ? t('Balance available for API usage')
+        : t('Separate from GPT subscription quota'),
       icon: Wallet,
       loading: account.isPending,
       error: account.isError,
@@ -254,7 +259,7 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
               </Card>
             ))}
           </div>
-          <GptQuotaCard />
+          {status && !retail && <GptQuotaCard />}
           <section className='space-y-4' aria-label={t('Usage overview')}>
             <div className='flex flex-wrap items-center justify-between gap-3'>
               <div>
@@ -388,7 +393,7 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
                 to='/docs'
                 className='text-primary text-sm underline-offset-4 hover:underline'
               >
-                {t('Codex setup guide')}
+                {retail ? t('User guide') : t('Codex setup guide')}
               </Link>
             </CardContent>
           </Card>
