@@ -1,0 +1,45 @@
+# 两站可共用镜像，但不可共用本目录、数据库、密钥或挂载配置。
+services:
+  new-api-retail:
+    image: ${RETAIL_IMAGE:?Set the verified release image}
+    container_name: new-api-retail
+    restart: unless-stopped
+    init: true
+    ports:
+      - '127.0.0.1:3002:3000'
+    env_file:
+      - runtime.env
+    environment:
+      SITE_MODE: retail
+      GPT_HOSTING_ENABLED: 'false'
+      SQLITE_PATH: /data/new-api.db
+      RETAIL_RELAY_CONFIG: /run/new-api/retail.json
+      BATCH_UPDATE_ENABLED: 'false'
+      MEMORY_CACHE_ENABLED: 'false'
+      GIN_MODE: release
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 128MiB
+      GOGC: '50'
+      RELAY_MAX_IDLE_CONNS: '40'
+      RELAY_MAX_IDLE_CONNS_PER_HOST: '20'
+      RELAY_TIMEOUT: '180'
+      RELAY_RESPONSE_HEADER_TIMEOUT: '90'
+      SHUTDOWN_TIMEOUT_SECONDS: '180'
+    volumes:
+      - ./data:/data
+      - ./private:/run/new-api:ro
+    mem_limit: 256m
+    cpus: 0.75
+    pids_limit: 128
+    stop_grace_period: 190s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3000/readyz']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s

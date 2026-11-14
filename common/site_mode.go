@@ -18,7 +18,7 @@ func SiteMode() string {
 func IsRetailSite() bool { return SiteMode() == "retail" }
 
 // ValidateSiteMode 在连接数据库前拒绝拼写错误及两种业务配置混用。
-// 两站必须由部署层提供独立数据库、会话密钥和域名；不能靠此开关迁移旧数据。
+// 两站必须由部署层提供独立数据库、会话密钥和入口；同 IP 不同端口使用不同 Cookie 名称，不能靠此开关迁移旧数据。
 func ValidateSiteMode() error {
 	if SiteMode() != "hosting" && !IsRetailSite() {
 		return fmt.Errorf("SITE_MODE must be hosting or retail")

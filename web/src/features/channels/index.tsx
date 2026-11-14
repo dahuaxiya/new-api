@@ -38,6 +38,7 @@ import { ChannelsDialogs } from './components/channels-dialogs'
 import { ChannelsPrimaryButtons } from './components/channels-primary-buttons'
 import { ChannelsProvider } from './components/channels-provider'
 import { ChannelsTable } from './components/channels-table'
+import { RetailAccounting } from './components/retail-accounting'
 import { RetailSupplies } from './components/retail-supplies'
 
 /** 渠道管理复用原权限和操作；供货总览只在中转站向超级管理员展示。 */
@@ -99,7 +100,12 @@ export function Channels() {
           </span>
         </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          {isRoot && status?.site_mode === 'retail' && <RetailSupplies />}
+          {isRoot && status?.site_mode === 'retail' && (
+            <>
+              <RetailSupplies />
+              <RetailAccounting />
+            </>
+          )}
           <ChannelsPrimaryButtons />
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>

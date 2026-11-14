@@ -16,6 +16,21 @@ import (
 	"gorm.io/gorm"
 )
 
+// TestRefreshAuthDoesNotReadOtherSiteCookie 防止中转站在自己的凭据缺失时回退使用托管站 Cookie。
+func TestRefreshAuthDoesNotReadOtherSiteCookie(t *testing.T) {
+	t.Setenv("SITE_MODE", "retail")
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/user/auth/refresh", nil)
+	c.Request.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: "another-site-token"})
+	RefreshAuth(c)
+	require.Equal(t, http.StatusUnauthorized, recorder.Code)
+	for _, cookie := range recorder.Result().Cookies() {
+		require.Contains(t, cookie.Name, "new_api_retail_")
+		require.Equal(t, -1, cookie.MaxAge)
+	}
+}
+
 func TestAuthLogoutRejectsRefreshCookieSessionMismatch(t *testing.T) {
 	previousDB := model.DB
 	previousRedis := common.RedisEnabled

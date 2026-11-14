@@ -14,9 +14,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// RefreshAuth 只续期当前站点的 Cookie；不得回退读取同 IP 托管站或中转站的另一份凭据。
 func RefreshAuth(c *gin.Context) {
 	setAuthNoStore(c)
-	rawRefreshToken, err := c.Cookie(service.RefreshCookieName)
+	rawRefreshToken, err := c.Cookie(service.AuthRefreshCookieName())
 	if err != nil || rawRefreshToken == "" {
 		service.ClearRefreshCookie(c)
 		writeAuthSessionError(c, service.ErrRefreshTokenInvalid)
@@ -44,10 +45,11 @@ func RefreshAuth(c *gin.Context) {
 	})
 }
 
+// AuthLogout 核对请求会话后撤销登录；Cookie 的读取和清理必须保持站点一致，避免跨端口互踢。
 func AuthLogout(c *gin.Context) {
 	setAuthNoStore(c)
 	expectedSID := strings.TrimSpace(c.GetHeader("X-Auth-Session"))
-	rawRefreshToken, cookieErr := c.Cookie(service.RefreshCookieName)
+	rawRefreshToken, cookieErr := c.Cookie(service.AuthRefreshCookieName())
 	cookieSID, hasCookieSID := service.RefreshTokenSID(rawRefreshToken)
 	if expectedSID != "" && cookieErr == nil && hasCookieSID && cookieSID != expectedSID {
 		writeAuthSessionError(c, service.ErrLoginSessionMismatch)
@@ -107,6 +109,7 @@ func GetLoginSessions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": sessions})
 }
 
+// DeleteLoginSession 只撤销当前用户拥有的会话；目标恰好是当前站点的续期凭据时同步清理 Cookie。
 func DeleteLoginSession(c *gin.Context) {
 	identity, ok := requireBrowserSession(c)
 	if !ok {
@@ -126,7 +129,7 @@ func DeleteLoginSession(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "code": "AUTH_SESSION_NOT_FOUND", "message": "session not found"})
 		return
 	}
-	if rawRefreshToken, cookieErr := c.Cookie(service.RefreshCookieName); cookieErr == nil {
+	if rawRefreshToken, cookieErr := c.Cookie(service.AuthRefreshCookieName()); cookieErr == nil {
 		cookieSID, ok := service.RefreshTokenSID(rawRefreshToken)
 		if ok && cookieSID == sid {
 			service.ClearRefreshCookie(c)

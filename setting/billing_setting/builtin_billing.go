@@ -22,6 +22,15 @@ var builtinBillingExpr = map[string]string{
 	// Do not infer service-tier discounts from incoming request parameters:
 	// channels filter service_tier by default, so it may not reach the upstream.
 	"gpt-6-astra": `len <= 272000 ? tier("standard", p * 10 + c * 50 + cr * 1 + cc * 12.5) : tier("long_context", p * 20 + c * 75 + cr * 2 + cc * 25)`,
+	// https://developers.openai.com/api/docs/pricing (Standard, 2026-11-15).
+	// 按总输入长度切换整笔请求价格；缓存 token 不能降低上下文档位。
+	// 默认仅支持标准服务与通用缓存写入；不根据未经上游确认的 service_tier 自动打折。
+	"gpt-6.1-sol": `len <= 272000 ? tier("standard", p * 2 + c * 10 + cr * 0.1 + cc * 2.5) : tier("long_context", p * 4 + c * 15 + cr * 0.2 + cc * 5)`,
+	"gpt-6-sol":   `len <= 272000 ? tier("standard", p * 2 + c * 10 + cr * 0.2 + cc * 2.5) : tier("long_context", p * 4 + c * 15 + cr * 0.4 + cc * 5)`,
+	// GPT-5.6 Sol 为官方截至 2026-11-30 的促销价，之后需核对官方新价再更新。
+	// 管理员已有价格仍由 GetBillingMode 的优先级规则保护，不自动覆盖。
+	"gpt-5.6-sol":   `len <= 272000 ? tier("standard", p * 4 + c * 20 + cr * 0.4 + cc * 5) : tier("long_context", p * 8 + c * 30 + cr * 0.8 + cc * 10)`,
+	"gpt-5.6-terra": `len <= 272000 ? tier("standard", p * 2 + c * 12 + cr * 0.2 + cc * 2.5) : tier("long_context", p * 4 + c * 18 + cr * 0.4 + cc * 5)`,
 	// https://api-docs.deepseek.com/quick_start/pricing (2026-10-17). Off-peak
 	// is half the peak price. deepseek-v4-flash and deepseek-v4-flash-vision-exp
 	// run on V4.1 Flash and bill at the Flash price. Images bill as input

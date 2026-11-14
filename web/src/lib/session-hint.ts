@@ -53,10 +53,15 @@ export function readCookie(cookieHeader: string, name: string): string | null {
  * Returns `true` when the hint cannot be read at all (no `document`, as in SSR
  * or a non-DOM test environment). An unreadable hint is not evidence of
  * absence, and the safe direction is to let the refresh proceed.
+ *
+ * 两站共用前端，公共启动先于站点状态请求，因此识别两种非敏感提示。
+ * 同 IP 的另一站提示至多多触发一次续期；服务器只读取当前站点凭据，
+ * 不会采用另一站会话，失败时也只清理自己的 Cookie。真正的鉴权仍由服务器完成。
  */
 export function hasSessionHint(): boolean {
   if (typeof document === 'undefined') return true
   return (
-    readCookie(document.cookie, SESSION_HINT_COOKIE_NAME) !== null
+    readCookie(document.cookie, SESSION_HINT_COOKIE_NAME) !== null ||
+    readCookie(document.cookie, 'new_api_retail_has_session') !== null
   )
 }

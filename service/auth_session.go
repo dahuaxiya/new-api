@@ -22,6 +22,23 @@ const SessionHintCookieName = "new_api_has_session"
 // SessionHintCookieValue is the only value the hint ever carries.
 const SessionHintCookieValue = "1"
 
+// AuthRefreshCookieName 按站点选择续期 Cookie；浏览器不按端口隔离 Cookie，不能让同 IP 的两站覆盖登录。
+// 托管站保留历史名称，中转站不读取旧名称作为 fallback，避免误用另一个数据库的会话。
+func AuthRefreshCookieName() string {
+	if common.IsRetailSite() {
+		return "new_api_retail_refresh"
+	}
+	return RefreshCookieName
+}
+
+// authSessionHintCookieName 与续期 Cookie 同步隔离，退出一个站点不会删除另一个站点的登录提示。
+func authSessionHintCookieName() string {
+	if common.IsRetailSite() {
+		return "new_api_retail_has_session"
+	}
+	return SessionHintCookieName
+}
+
 var (
 	ErrLoginSessionInvalid  = errors.New("login session is invalid")
 	ErrLoginSessionRevoked  = errors.New("login session is revoked")
@@ -322,6 +339,7 @@ func ListLoginSessions(userID int, currentSID string) ([]LoginSessionView, error
 	return views, nil
 }
 
+// WriteRefreshCookie 仅写当前站点的续期凭据和非敏感提示，沿用会话到期时间与 HttpOnly/同源约束。
 func WriteRefreshCookie(c *gin.Context, rawToken string) {
 	expiresAt := time.Now().Add(LoginSessionTTL)
 	if sid, _, ok := splitRefreshToken(rawToken); ok {
@@ -331,7 +349,7 @@ func WriteRefreshCookie(c *gin.Context, rawToken string) {
 	}
 	maxAge := max(int(time.Until(expiresAt)/time.Second), 1)
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     RefreshCookieName,
+		Name:     AuthRefreshCookieName(),
 		Value:    rawToken,
 		Path:     "/api/user/auth",
 		MaxAge:   maxAge,
@@ -343,9 +361,10 @@ func WriteRefreshCookie(c *gin.Context, rawToken string) {
 	writeSessionHintCookie(c, maxAge, expiresAt)
 }
 
+// ClearRefreshCookie 仅清除当前站点的两个 Cookie，不迁移或清理同 IP 另一站点的登录。
 func ClearRefreshCookie(c *gin.Context) {
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     RefreshCookieName,
+		Name:     AuthRefreshCookieName(),
 		Value:    "",
 		Path:     "/api/user/auth",
 		MaxAge:   -1,
@@ -376,7 +395,7 @@ func ClearRefreshCookie(c *gin.Context) {
 // can set one without the other.
 func writeSessionHintCookie(c *gin.Context, maxAge int, expiresAt time.Time) {
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     SessionHintCookieName,
+		Name:     authSessionHintCookieName(),
 		Value:    SessionHintCookieValue,
 		Path:     "/",
 		MaxAge:   maxAge,
@@ -387,9 +406,10 @@ func writeSessionHintCookie(c *gin.Context, maxAge int, expiresAt time.Time) {
 	})
 }
 
+// clearSessionHintCookie 与续期 Cookie 使用同一站点命名规则，防止另一站点刷新页面后丢失登录提示。
 func clearSessionHintCookie(c *gin.Context) {
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     SessionHintCookieName,
+		Name:     authSessionHintCookieName(),
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
