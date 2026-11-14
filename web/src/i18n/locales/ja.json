@@ -7964,6 +7964,10 @@
     "Unknown cost": "Unknown cost",
     "Amount (minor units)": "Amount (minor units)",
     "Only reservations unchanged for at least 24 hours can be released after manual verification.": "Only reservations unchanged for at least 24 hours can be released after manual verification.",
-    "Site usage only includes requests through New API. Saved summaries may lag behind usage logs.": "サイトの使用量は New API 経由のリクエストのみを含みます。集計は使用ログより遅れる場合があります。"
+    "Site usage only includes requests through New API. Saved summaries may lag behind usage logs.": "サイトの使用量は New API 経由のリクエストのみを含みます。集計は使用ログより遅れる場合があります。",
+    "Refunded": "返金済み",
+    "Confirmed": "確認済み",
+    "Pending review": "確認待ち",
+    "Reference": "参照"
   }
 }

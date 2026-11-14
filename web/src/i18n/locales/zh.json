@@ -7994,6 +7994,10 @@
     "Unknown cost": "成本未知",
     "Amount (minor units)": "金额（币种最小单位）",
     "Only reservations unchanged for at least 24 hours can be released after manual verification.": "仅可在人工核查后，释放至少 24 小时未更新的预留。",
-    "Site usage only includes requests through New API. Saved summaries may lag behind usage logs.": "本站用量只统计经过 New API 的请求，汇总数据可能晚于使用日志。"
+    "Site usage only includes requests through New API. Saved summaries may lag behind usage logs.": "本站用量只统计经过 New API 的请求，汇总数据可能晚于使用日志。",
+    "Refunded": "已退款",
+    "Confirmed": "已确认",
+    "Pending review": "待核对",
+    "Reference": "关联记录"
   }
 }

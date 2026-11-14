@@ -7964,6 +7964,10 @@
     "Unknown cost": "Unknown cost",
     "Amount (minor units)": "Amount (minor units)",
     "Only reservations unchanged for at least 24 hours can be released after manual verification.": "Only reservations unchanged for at least 24 hours can be released after manual verification.",
-    "Site usage only includes requests through New API. Saved summaries may lag behind usage logs.": "Учитываются только запросы через New API. Сводные данные могут отставать от журналов."
+    "Site usage only includes requests through New API. Saved summaries may lag behind usage logs.": "Учитываются только запросы через New API. Сводные данные могут отставать от журналов.",
+    "Refunded": "Возвращено",
+    "Confirmed": "Подтверждено",
+    "Pending review": "Ожидает проверки",
+    "Reference": "Ссылка"
   }
 }
