@@ -92,6 +92,7 @@ func (logCleanupHandler) Run(ctx context.Context, task *model.SystemTask, runner
 
 func init() {
 	RegisterSystemTaskHandler(logCleanupHandler{})
+	RegisterSystemTaskHandler(systemTaskHistoryCleanupHandler{})
 }
 
 type LogCleanupPayload struct {
@@ -568,4 +569,38 @@ func logSystemTaskLockError(ctx context.Context, task *model.SystemTask, err err
 		return
 	}
 	logger.LogWarn(ctx, common.LogText("system task %s update failed: %v", task.TaskID, err))
+}
+
+// systemTaskHistoryCleanupHandler 用共享租约限制定时清理，并将清理结果记录在原有任务历史中。
+type systemTaskHistoryCleanupHandler struct{}
+
+// Type 为历史保留任务提供独立租约键，不能复用消费日志清理任务。
+func (systemTaskHistoryCleanupHandler) Type() string { return "system_task_history_cleanup" }
+
+// Enabled 在两种站点都保留任务历史；是否具备调度资格仍由 runner 的主节点配置控制。
+func (systemTaskHistoryCleanupHandler) Enabled() bool { return true }
+
+// Interval 每五分钟清理一批，使清理量足以覆盖常规定时任务，同时限制单次数据库负担。
+func (systemTaskHistoryCleanupHandler) Interval() time.Duration { return 5 * time.Minute }
+
+// NewPayload 使用固定保留规则，管理接口不能通过 payload 扩大删除范围。
+func (systemTaskHistoryCleanupHandler) NewPayload() any { return nil }
+
+// Run 在仍持有租约时清理一批过期历史；失败只保存固定错误，不将数据库细节放入管理页面。
+func (systemTaskHistoryCleanupHandler) Run(parent context.Context, task *model.SystemTask, runnerID string) {
+	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
+	defer cancel()
+	var deleted int64
+	err := ctx.Err()
+	if err == nil {
+		err = model.UpdateSystemTaskState(task.TaskID, runnerID, nil)
+	}
+	if err == nil {
+		deleted, err = model.PruneSystemTaskHistory(ctx, time.Now())
+	}
+	status, message := model.SystemTaskStatusSucceeded, ""
+	if err != nil {
+		status, message = model.SystemTaskStatusFailed, "System task history cleanup failed"
+	}
+	_ = model.FinishSystemTask(task.TaskID, runnerID, status, map[string]int64{"deleted": deleted}, message)
 }

@@ -33,6 +33,7 @@ func registerSiteTasks() {
 	}
 	service.RegisterSystemTaskHandler(siteTaskHandler{kind: siteTaskHosting})
 	service.RegisterSystemTaskHandler(siteTaskHandler{kind: siteTaskHostingPayment})
+	service.RegisterSystemTaskHandler(quotaHistoryTaskHandler{})
 }
 
 // Type 返回固定任务种类，既是调度键也是跨进程互斥键。

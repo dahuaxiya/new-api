@@ -413,10 +413,6 @@ func InitResources() error {
 	}
 
 	service.StartAuthArtifactCleanup()
-	// 独立中转站不运行客户账号维护、托管补单或官方额度探测，避免跨业务副作用。
-	if !common.IsRetailSite() {
-		controller.StartGPTQuotaHistory()
-	}
 
 	return nil
 }

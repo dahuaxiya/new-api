@@ -693,3 +693,74 @@ func TestSystemTaskLeaseDatabaseMatrix(t *testing.T) {
 		})
 	}
 }
+
+// TestSystemTaskRetentionDatabaseMatrix 验证三库有限批次清理、恢复检查点保护和扫描后任务状态变化的重新检查。
+func TestSystemTaskRetentionDatabaseMatrix(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			dsn := os.Getenv("TEST_SYSTEM_TASK_" + strings.ToUpper(dialect) + "_DSN")
+			if dialect == "sqlite" {
+				dsn = filepath.Join(t.TempDir(), "retention.db")
+			}
+			if dsn == "" {
+				t.Skip("dedicated matrix DSN not configured")
+			}
+			db := openSystemTaskMatrixDB(t, dialect, dsn)
+			require.NoError(t, db.AutoMigrate(&SystemTask{}, &SystemTaskLock{}))
+			prefix := "retention-" + common.GetRandomString(8)
+			now := time.Now()
+			old := now.Add(-31 * 24 * time.Hour).Unix()
+			rows := make([]SystemTask, 0, 1003)
+			for i := range 1003 {
+				rows = append(rows, SystemTask{TaskID: fmt.Sprintf("%s-%04d", prefix, i), Type: prefix, Status: SystemTaskStatusSucceeded, UpdatedAt: old})
+			}
+			require.NoError(t, db.CreateInBatches(&rows, 100).Error)
+			active := prefix + "-protected"
+			preserved := []SystemTask{
+				{TaskID: prefix + "-checkpoint", Type: prefix, Status: SystemTaskStatusFailed, State: `{"cursor":"last-page"}`, UpdatedAt: old},
+				{TaskID: prefix + "-running", Type: prefix + "-running", Status: SystemTaskStatusRunning, UpdatedAt: old},
+				{TaskID: prefix + "-pending", Type: prefix + "-pending", Status: SystemTaskStatusPending, UpdatedAt: old},
+				{TaskID: prefix + "-recent-1", Type: prefix + "-recent", Status: SystemTaskStatusSucceeded, UpdatedAt: now.Unix()},
+				{TaskID: prefix + "-recent-2", Type: prefix + "-recent", Status: SystemTaskStatusSucceeded, UpdatedAt: now.Unix()},
+				{TaskID: prefix + "-active-key", Type: prefix + "-running", Status: SystemTaskStatusFailed, ActiveKey: &active, UpdatedAt: old},
+			}
+			require.NoError(t, db.Create(&preserved).Error)
+			t.Cleanup(func() { require.NoError(t, db.Where("task_id LIKE ?", prefix+"%").Delete(&SystemTask{}).Error) })
+			// 在清理候选查询结束后刷新一条旧记录，重现另一个执行者刚更新记录的窗口。
+			refreshed := false
+			callback := "test:retention_refresh"
+			require.NoError(t, db.Callback().Query().After("gorm:query").Register(callback, func(tx *gorm.DB) {
+				if _, hasLimit := tx.Statement.Clauses["LIMIT"]; tx.Statement.Table == "system_tasks" && hasLimit && !refreshed {
+					refreshed = true
+					tx.AddError(db.Model(&SystemTask{}).Where("id = ?", rows[0].ID).Update("updated_at", now.Unix()).Error)
+				}
+			}))
+			deleted, err := PruneSystemTaskHistory(t.Context(), now)
+			require.NoError(t, db.Callback().Query().Remove(callback))
+			require.NoError(t, err)
+			require.True(t, refreshed)
+			assert.EqualValues(t, 999, deleted, "1000 candidates minus the concurrently refreshed row")
+			deleted, err = PruneSystemTaskHistory(t.Context(), now)
+			require.NoError(t, err)
+			assert.EqualValues(t, 3, deleted)
+			deleted, err = PruneSystemTaskHistory(t.Context(), now)
+			require.NoError(t, err)
+			assert.Zero(t, deleted)
+			for _, expected := range preserved {
+				got, err := GetSystemTaskByTaskID(expected.TaskID)
+				require.NoError(t, err)
+				require.NotNil(t, got)
+				assert.Equal(t, expected.Status, got.Status)
+				assert.Equal(t, expected.State, got.State)
+			}
+			var remaining int64
+			require.NoError(t, db.Model(&SystemTask{}).Where("task_id LIKE ?", prefix+"%").Count(&remaining).Error)
+			assert.EqualValues(t, 7, remaining)
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			deleted, err = PruneSystemTaskHistory(ctx, now)
+			require.Error(t, err)
+			assert.Zero(t, deleted)
+		})
+	}
+}

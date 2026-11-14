@@ -1,7 +1,9 @@
 package model
 
 import (
+	"context"
 	"errors"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 
@@ -229,6 +231,34 @@ func DeleteSystemTaskHistory(filter SystemTaskFilter) (int64, error) {
 	}
 	filter.Scope = "history"
 	result := filter.query().Where("id < ? AND id NOT IN ?", newestID, latestIDs).Delete(&SystemTask{})
+	return result.RowsAffected, result.Error
+}
+
+// PruneSystemTaskHistory 每批最多删除 1000 条超过 30 天的终态记录；不触碰活跃任务或每种任务的最新检查点。
+// 删除前再次核对状态和时间，避免候选扫描与任务更新并发时误删；不执行 VACUUM 或清理账务表。
+func PruneSystemTaskHistory(ctx context.Context, now time.Time) (int64, error) {
+	cutoff := now.Add(-30 * 24 * time.Hour).Unix()
+	db := DB.WithContext(ctx)
+	var latestIDs []int64
+	if err := db.Model(&SystemTask{}).Select("MAX(id)").Group("type").Pluck("MAX(id)", &latestIDs).Error; err != nil {
+		return 0, err
+	}
+	if len(latestIDs) == 0 {
+		return 0, nil
+	}
+	var newestID int64
+	for _, id := range latestIDs {
+		newestID = max(newestID, id)
+	}
+	terminal := []SystemTaskStatus{SystemTaskStatusSucceeded, SystemTaskStatusFailed}
+	var candidates []int64
+	err := db.Model(&SystemTask{}).Where("status IN ? AND active_key IS NULL AND updated_at < ?", terminal, cutoff).
+		Where("id < ? AND id NOT IN ?", newestID, latestIDs).Order("id ASC").Limit(1000).Pluck("id", &candidates).Error
+	if err != nil || len(candidates) == 0 {
+		return 0, err
+	}
+	// 主键候选在快照时已经不是最新任务；期间的新任务只会提高最大 ID，不会使这些旧行变成恢复所需的最新行。
+	result := db.Where("id IN ? AND status IN ? AND active_key IS NULL AND updated_at < ?", candidates, terminal, cutoff).Delete(&SystemTask{})
 	return result.RowsAffected, result.Error
 }
 

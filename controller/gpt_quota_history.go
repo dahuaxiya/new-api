@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -16,8 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/service/gptquota"
 	"github.com/gin-gonic/gin"
 )
-
-var quotaHistoryOnce sync.Once
 
 // quotaHistoryScope 将用户生命周期和当前绑定共同编码；用户名、槽位相同不能代替归属。
 // 调用者只能传从会话和数据库取得的身份，不能接收浏览器的 user_id/slot。
@@ -81,74 +77,6 @@ func collectGPTQuotaUser(ctx context.Context, svc *gptquota.Service, user *model
 		}
 	}
 	return model.SaveGPTQuotaHistory(ctx, row, time.Now())
-}
-
-// collectGPTQuotaHistory 分页、串行读取已启用用户，单用户失败不阻止其他实例继续采集。
-// 每轮有总预算，不启动重叠批次；数据库唯一约束使多副本采集也不会重复增长。
-func collectGPTQuotaHistory(ctx context.Context, svc *gptquota.Service) error {
-	lastID := 0
-	for ctx.Err() == nil {
-		var users []model.User
-		if err := model.DB.WithContext(ctx).Select("id", "username", "group", "created_at", "status").
-			Where("status = ? AND id > ?", common.UserStatusEnabled, lastID).Order("id ASC").Limit(100).Find(&users).Error; err != nil {
-			return err
-		}
-		if len(users) == 0 {
-			break
-		}
-		for i := range users {
-			userCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
-			var seats []model.GPTHostingGrant
-			var err error
-			if os.Getenv("GPT_HOSTING_ENABLED") == "true" {
-				seats, err = model.ListHostingSeats(users[i].Id)
-			}
-			if err == nil && len(seats) > 0 {
-				for _, seat := range seats {
-					if e := collectGPTQuotaUser(userCtx, svc, &users[i], seat.SeatID); e != nil && e != gptquota.ErrUnbound {
-						err = e
-					}
-				}
-			} else if err == nil {
-				err = collectGPTQuotaUser(userCtx, svc, &users[i])
-			}
-			cancel()
-			if err != nil && err != gptquota.ErrUnbound {
-				// 不记录上游响应、用户身份或令牌；采集失败不影响推理和实时额度查询。
-				common.SysError("GPT quota history observation unavailable")
-			}
-		}
-		lastID = users[len(users)-1].Id
-	}
-	return model.PruneGPTQuotaHistory(ctx, time.Now())
-}
-
-// StartGPTQuotaHistory 在启动后和每分钟读取最新快照；五分钟桶限制持久化密度。
-// 既有 vm2api 五分钟官方探测保持不变；未部署额度功能的安装不会启动此任务。
-func StartGPTQuotaHistory() {
-	if os.Getenv("GPT_QUOTA_CONFIG") == "" && os.Getenv("VM2API_INSTANCES_CONFIG") == "" {
-		return
-	}
-	quotaHistoryOnce.Do(func() {
-		go func() {
-			svc, err := quotaService()
-			if err != nil {
-				common.SysError("GPT quota history configuration unavailable")
-				return
-			}
-			ticker := time.NewTicker(time.Minute)
-			defer ticker.Stop()
-			for {
-				ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
-				err := collectGPTQuotaHistory(ctx, svc)
-				cancel()
-				if err != nil {
-					common.SysError("GPT quota history collection unavailable")
-				}
-				<-ticker.C
-			}
-		}()
-	})
 }
 
 // GetGPTQuotaHistorySelf 仅读取当前会话的绑定历史，离线也可查看已保存数据。

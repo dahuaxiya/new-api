@@ -294,3 +294,33 @@ func TestSystemTaskCheckpointAndCancellation(t *testing.T) {
 	runSystemTaskScheduler()
 	assert.EqualValues(t, 2, countSystemTasks(t, handler.Type()))
 }
+
+// TestSystemTaskRetentionHonorsOwnership 验证自动清理先校验租约，旧执行者不能发起删除，合法执行保留最新检查点。
+func TestSystemTaskRetentionHonorsOwnership(t *testing.T) {
+	truncate(t)
+	old := time.Now().Add(-31 * 24 * time.Hour).Unix()
+	require.NoError(t, model.DB.Create(&[]model.SystemTask{
+		{TaskID: "retention-old", Type: "retention-target", Status: model.SystemTaskStatusSucceeded, UpdatedAt: old},
+		{TaskID: "retention-last", Type: "retention-target", Status: model.SystemTaskStatusFailed, UpdatedAt: old, State: `{"cursor":"keep"}`},
+	}).Error)
+	handler := systemTaskHistoryCleanupHandler{}
+	withSystemTaskRegistry(t, handler)
+	runSystemTaskScheduler()
+	task, err := model.GetLatestSystemTask(handler.Type())
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	task, claimed, err := model.ClaimSystemTask(task.ID, task.Type, "cleanup-owner", common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	handler.Run(t.Context(), task, "wrong-owner")
+	assert.EqualValues(t, 2, countSystemTasks(t, "retention-target"))
+	handler.Run(t.Context(), task, "cleanup-owner")
+	assert.EqualValues(t, 1, countSystemTasks(t, "retention-target"))
+	result, err := model.GetSystemTaskByTaskID(task.TaskID)
+	require.NoError(t, err)
+	assert.Equal(t, model.SystemTaskStatusSucceeded, result.Status)
+	assert.JSONEq(t, `{"deleted":1}`, result.Result)
+	latest, err := model.GetLatestSystemTask("retention-target")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"cursor":"keep"}`, latest.State)
+}

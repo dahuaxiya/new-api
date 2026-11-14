@@ -1,5 +1,8 @@
 {
   "translation": {
+    "gpt_quota_history": "Quota history collection",
+    "system_task_history_cleanup": "Task history retention",
+    "System task history cleanup failed": "System task history cleanup failed",
     "site task configuration or checkpoint unavailable": "site task configuration or checkpoint unavailable",
     "site task interrupted or some records require retry": "site task interrupted or some records require retry",
     "task handler stopped before completion": "task handler stopped before completion",
