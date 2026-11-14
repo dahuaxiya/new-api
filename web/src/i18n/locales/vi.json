@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Hosting overview": "Tổng quan lưu trữ tài khoản",
+    "API overview": "Tổng quan API",
+    "Manage hosted accounts, subscription quota and hosting plans.": "Quản lý tài khoản được lưu trữ, hạn mức đăng ký và các gói lưu trữ.",
+    "Manage API keys, wallet balance and model usage.": "Quản lý khóa API, số dư ví và mức sử dụng mô hình.",
+    "Quick access": "Truy cập nhanh",
     "gpt_quota_history": "Quota history collection",
     "system_task_history_cleanup": "Task history retention",
     "System task history cleanup failed": "System task history cleanup failed",

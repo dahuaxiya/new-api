@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Hosting overview": "托管概览",
+    "API overview": "API 概览",
+    "Manage hosted accounts, subscription quota and hosting plans.": "管理托管账号，查看订阅额度与托管套餐。",
+    "Manage API keys, wallet balance and model usage.": "管理 API 密钥，查看钱包余额与模型用量。",
+    "Quick access": "快捷入口",
     "gpt_quota_history": "额度历史采集",
     "system_task_history_cleanup": "任务历史清理",
     "System task history cleanup failed": "任务历史清理失败",

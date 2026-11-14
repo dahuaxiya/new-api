@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Hosting overview": "ホスティング概要",
+    "API overview": "API 概要",
+    "Manage hosted accounts, subscription quota and hosting plans.": "ホスト済みアカウント、サブスクリプションの利用枠、ホスティングプランを管理します。",
+    "Manage API keys, wallet balance and model usage.": "API キー、ウォレット残高、モデルの使用量を管理します。",
+    "Quick access": "クイックアクセス",
     "gpt_quota_history": "Quota history collection",
     "system_task_history_cleanup": "Task history retention",
     "System task history cleanup failed": "System task history cleanup failed",

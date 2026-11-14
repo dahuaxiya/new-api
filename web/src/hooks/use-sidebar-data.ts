@@ -16,26 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  BookOpen,
-  Boxes,
-  FileText,
-  Key,
-  LayoutDashboard,
-  ShieldCheck,
-  Wallet,
-} from 'lucide-react'
+import { BookOpen, FileText, LayoutDashboard, ShieldCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
 import { useStatus } from '@/hooks/use-status'
 import { ROLE } from '@/lib/roles'
+import { getSiteProfile } from '@/lib/site-profile'
 
-/** 用户导航只保留日常接入功能；个人设置由固定底栏承载，管理入口另开工作区。 */
+/** 用户导航与首页共用站点配置；这里只组装入口，权限和菜单开关由既有过滤器处理。 */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
   const { status } = useStatus()
-  const retail = status?.site_mode === 'retail'
+  const profile = getSiteProfile(status?.site_mode)
   return {
     navGroups: [
       {
@@ -43,22 +36,16 @@ export function useSidebarData(): SidebarData {
         title: t('User center'),
         items: [
           {
-            title: t('Dashboard'),
+            title: t(profile.titleKey),
             url: '/dashboard/overview',
             icon: LayoutDashboard,
           },
-          {
-            title: retail ? t('Model Square') : t('Hosted accounts'),
-            url: retail ? '/pricing' : '/account/gpt',
-            icon: retail ? Boxes : ShieldCheck,
-          },
-          { title: t('API Keys'), url: '/keys', icon: Key },
+          ...profile.navigation.map((item) => ({
+            title: t(item.titleKey),
+            url: item.url,
+            icon: item.icon,
+          })),
           { title: t('Usage Logs'), url: '/usage-logs/common', icon: FileText },
-          {
-            title: retail ? t('Billing and redemption') : t('Hosting plans'),
-            url: '/wallet',
-            icon: Wallet,
-          },
         ],
       },
       {

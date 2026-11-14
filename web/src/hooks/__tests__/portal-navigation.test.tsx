@@ -111,6 +111,8 @@ it('keeps old bookmarks from reopening retired user pages', async () => {
 /** 两站导航与旧书签使用同一产品边界，管理员也不能打开另一站的业务页。 */
 it('keeps retail navigation and old hosting bookmarks separate', async () => {
   await mount('/dashboard/overview', 100, undefined, 'retail')
+  expect(screen.getByText('API overview')).toBeInTheDocument()
+  expect(screen.queryByText('Hosting overview')).toBeNull()
   expect(screen.getByText('Model Square')).toBeInTheDocument()
   expect(screen.getByText('Billing and redemption')).toBeInTheDocument()
   expect(screen.queryByText('Hosted accounts')).toBeNull()
@@ -122,6 +124,8 @@ it('keeps retail navigation and old hosting bookmarks separate', async () => {
 
 it('keeps hosted accounts and plans in the hosting user center', async () => {
   await mount('/dashboard/overview', 1)
+  expect(screen.getByText('Hosting overview')).toBeInTheDocument()
+  expect(screen.queryByText('API overview')).toBeNull()
   expect(screen.getByText('Hosted accounts')).toBeInTheDocument()
   expect(screen.getByText('Hosting plans')).toBeInTheDocument()
   expect(screen.queryByText('Model Square')).toBeNull()

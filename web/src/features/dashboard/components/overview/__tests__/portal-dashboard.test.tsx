@@ -12,6 +12,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -187,4 +188,74 @@ it('shows wallet usage without fetching hosted quota on retail', async () => {
       .mocked(api.get)
       .mock.calls.some(([url]) => url.startsWith('/api/gpt-quota/'))
   ).toBe(false)
+  expect(screen.getByRole('heading', { name: 'API overview' })).toBeVisible()
+  const actions = within(
+    screen.getByRole('navigation', { name: 'Quick access' })
+  )
+  expect(actions.getByRole('button', { name: 'API Keys' })).toHaveAttribute(
+    'href',
+    '/keys'
+  )
+  expect(
+    actions.getByRole('button', { name: 'Billing and redemption' })
+  ).toHaveAttribute('href', '/wallet')
+  expect(actions.getByRole('button', { name: 'Model Square' })).toHaveAttribute(
+    'href',
+    '/pricing'
+  )
+  expect(actions.queryByRole('button', { name: 'Hosted accounts' })).toBeNull()
+})
+
+/** 托管站共用首页模板，但主入口必须指向账号和套餐，不能出现零售钱包入口。 */
+it('offers hosted account and plan actions on the shared hosting dashboard', async () => {
+  await mount()
+  await screen.findByRole('heading', { name: 'Hosting overview' })
+  const actions = within(
+    screen.getByRole('navigation', { name: 'Quick access' })
+  )
+  expect(
+    actions.getByRole('button', { name: 'Hosted accounts' })
+  ).toHaveAttribute('href', '/account/gpt')
+  expect(
+    actions.getByRole('button', { name: 'Hosting plans' })
+  ).toHaveAttribute('href', '/wallet')
+  expect(
+    actions.queryByRole('button', { name: 'Billing and redemption' })
+  ).toBeNull()
+  expect(actions.queryByRole('button', { name: 'Model Square' })).toBeNull()
+})
+
+/** 菜单关闭后，首页快捷入口必须同步消失，避免同一功能出现两套可见性规则。 */
+it('respects administrator and user menu settings in dashboard quick access', async () => {
+  client.setQueryData(
+    ['status'],
+    {
+      site_mode: 'retail',
+      SidebarModulesAdmin: JSON.stringify({
+        personal: { enabled: true, topup: false },
+      }),
+    },
+    { updatedAt: Date.now() + 60000 }
+  )
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'customer',
+    role: 1,
+    sidebar_modules: JSON.stringify({
+      console: { enabled: true, token: false },
+    }),
+  })
+  await mount()
+  await screen.findByText('test-model')
+  const actions = within(
+    screen.getByRole('navigation', { name: 'Quick access' })
+  )
+  expect(actions.queryByRole('button', { name: 'API Keys' })).toBeNull()
+  expect(
+    actions.queryByRole('button', { name: 'Billing and redemption' })
+  ).toBeNull()
+  expect(actions.getByRole('button', { name: 'Model Square' })).toHaveAttribute(
+    'href',
+    '/pricing'
+  )
 })

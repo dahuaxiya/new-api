@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Hosting overview": "Hosting overview",
+    "API overview": "API overview",
+    "Manage hosted accounts, subscription quota and hosting plans.": "Manage hosted accounts, subscription quota and hosting plans.",
+    "Manage API keys, wallet balance and model usage.": "Manage API keys, wallet balance and model usage.",
+    "Quick access": "Quick access",
     "gpt_quota_history": "Quota history collection",
     "system_task_history_cleanup": "Task history retention",
     "System task history cleanup failed": "System task history cleanup failed",

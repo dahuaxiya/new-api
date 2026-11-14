@@ -18,7 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Activity, Coins, KeyRound, RefreshCw, Wallet } from 'lucide-react'
+import {
+  Activity,
+  ArrowRight,
+  Coins,
+  KeyRound,
+  RefreshCw,
+  Wallet,
+} from 'lucide-react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -47,11 +54,13 @@ import { GptQuotaCard } from '@/features/gpt-quota/GptQuotaCard'
 import { getApiKeys } from '@/features/keys/api'
 import { getUserLogs } from '@/features/usage-logs/api'
 import { usageLogSchema } from '@/features/usage-logs/data/schema'
+import { useSidebarConfig } from '@/hooks/use-sidebar-config'
 import { useStatus } from '@/hooks/use-status'
 import { toIntlLocale } from '@/i18n/languages'
 import { getSelf } from '@/lib/api'
 import { formatNumber, formatQuota } from '@/lib/format'
 import { requireServerSuccess } from '@/lib/server-error-message'
+import { getSiteProfile } from '@/lib/site-profile'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getUserQuotaDates } from '../../api'
@@ -83,11 +92,30 @@ export function OverviewDashboard() {
   )
 }
 
-/** 用户首页始终请求 self 接口；即使当前是管理员，也不混入全站用量。 */
+/**
+ * 两站复用个人数据和图表，仅按站点配置调整入口与托管额度的位置。
+ * @param props 当前用户和会话标识；父组件必须在标识变化时重建组件，防止旧数据闪现。
+ * @return 只查询 self 接口的用户首页，管理员也不会看到全站数据。
+ */
 function PersonalDashboard(props: { userId: number; sessionId?: string }) {
   const { t, i18n } = useTranslation()
   const { status } = useStatus()
-  const retail = status?.site_mode === 'retail'
+  const profile = getSiteProfile(status?.site_mode)
+  // 首页不是绕过菜单配置的第二入口；后台关闭或用户隐藏的功能在这里同样隐藏。
+  const actionGroups = useSidebarConfig([
+    {
+      title: '',
+      items: profile.navigation.map((item) => ({
+        title: t(item.titleKey),
+        url: item.url,
+      })),
+    },
+  ])
+  const actions = profile.navigation.filter((item) =>
+    actionGroups.some((group) =>
+      group.items.some((link) => link.url === item.url)
+    )
+  )
   const username = useAuthStore((state) => state.auth.user?.username)
   const [days, setDays] = useState('7')
   const ranges = [
@@ -149,9 +177,7 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
     {
       title: t('Site balance'),
       value: account.data ? formatQuota(account.data.quota) : '—',
-      description: retail
-        ? t('Balance available for API usage')
-        : t('Separate from GPT subscription quota'),
+      description: t(profile.balanceDescriptionKey),
       icon: Wallet,
       loading: account.isPending,
       error: account.isError,
@@ -241,8 +267,12 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
   }
 
   return (
-    <SectionPageLayout>
-      <SectionPageLayout.Title>{t('Dashboard')}</SectionPageLayout.Title>
+    <SectionPageLayout
+      description={status ? t(profile.descriptionKey) : undefined}
+    >
+      <SectionPageLayout.Title>
+        {status ? t(profile.titleKey) : t('Dashboard')}
+      </SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <Button variant='outline' size='sm' render={<Link to='/docs' />}>
           {t('User guide')}
@@ -250,6 +280,26 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-7xl space-y-5 pb-6'>
+          {status && actions.length > 0 && (
+            <nav
+              aria-label={t('Quick access')}
+              className='flex flex-wrap gap-2'
+            >
+              {actions.map((item, index) => (
+                <Button
+                  key={item.url}
+                  variant={index === 0 ? 'default' : 'outline'}
+                  render={<Link to={item.url} />}
+                >
+                  <item.icon aria-hidden='true' />
+                  {t(item.titleKey)}
+                  <ArrowRight aria-hidden='true' />
+                </Button>
+              ))}
+            </nav>
+          )}
+          {/* 状态尚未返回时不能按默认模式发起托管请求；托管站先展示账号额度。 */}
+          {status && profile.showHostedQuota && <GptQuotaCard />}
           <div className='grid grid-cols-2 gap-3 lg:grid-cols-4'>
             {metrics.map((metric) => (
               <Card key={metric.title} className='gap-0 py-0 shadow-none'>
@@ -259,7 +309,6 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
               </Card>
             ))}
           </div>
-          {status && !retail && <GptQuotaCard />}
           <section className='space-y-4' aria-label={t('Usage overview')}>
             <div className='flex flex-wrap items-center justify-between gap-3'>
               <div>
@@ -393,7 +442,7 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
                 to='/docs'
                 className='text-primary text-sm underline-offset-4 hover:underline'
               >
-                {retail ? t('User guide') : t('Codex setup guide')}
+                {t(profile.guideTitleKey)}
               </Link>
             </CardContent>
           </Card>
