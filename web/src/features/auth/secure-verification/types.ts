@@ -25,6 +25,7 @@ export type VerificationMethod =
   | 'oauth'
   | 'session'
 export type SecurityProofScope =
+  | 'site.sso.authorize'
   | 'channel.key.read'
   | 'passkey.register'
   | 'passkey.delete'
@@ -53,6 +54,10 @@ export type SecurityProofScope =
 export type AdminUserManageAction = 'disable' | 'enable' | 'promote' | 'demote'
 
 export type VerificationOperation =
+  | {
+      scope: 'site.sso.authorize'
+      context: { state: string; challenge: string }
+    }
   | { scope: 'channel.key.read'; context: { channel_id: number } }
   | {
       scope: 'account.binding.bind'
@@ -108,6 +113,7 @@ export type VerificationOperation =
   | {
       scope: Exclude<
         SecurityProofScope,
+        | 'site.sso.authorize'
         | 'channel.key.read'
         | 'account.binding.bind'
         | 'account.binding.unbind'

@@ -7969,5 +7969,17 @@
     "Confirmed": "Đã xác nhận",
     "Pending review": "Chờ kiểm tra",
     "Reference": "Tham chiếu"
-  }
+  },
+  "Unified account": "Tài khoản chung",
+  "Continue with unified account": "Đăng nhập bằng tài khoản chung",
+  "Operator recovery login": "Đăng nhập khôi phục quản trị viên",
+  "One account for hosting and API access. Balances, orders and API keys stay separate.": "Một tài khoản cho dịch vụ lưu trữ và API. Số dư, đơn hàng và khóa API được quản lý riêng.",
+  "Manage your unified account on the hosting site.": "Quản lý tài khoản chung trên trang lưu trữ.",
+  "Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.": "Quản lý mật khẩu, email và cách đăng nhập trên trang lưu trữ. Trang này có số dư, đơn hàng và khóa API riêng.",
+  "Manage unified account": "Quản lý tài khoản chung",
+  "Hosting site": "Trang lưu trữ",
+  "API site": "Trang API",
+  "Verify unified account": "Xác minh tài khoản chung",
+  "Continue to API site": "Tiếp tục đến trang API",
+  "Verify and continue": "Xác minh và tiếp tục"
 }

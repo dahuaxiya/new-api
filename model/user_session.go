@@ -18,7 +18,7 @@ const (
 	UserSessionStatusRevoking = "revoking"
 	UserSessionStatusRevoked  = "revoked"
 
-	userSessionCacheSchema      = 1
+	userSessionCacheSchema      = 2
 	userSessionListLimit        = 100
 	userSessionRevokeBatchSize  = 500
 	userSessionCleanupScanLimit = 1000
@@ -40,6 +40,8 @@ var (
 // RefreshHash values are HMAC digests supplied by the service layer; opaque
 // refresh secrets are never persisted.
 type UserSession struct {
+	// 服务端保存身份源授权引用，不把跨站凭据暴露给浏览器或会话列表。
+	FederatedIdentity   string `json:"-" gorm:"type:text"`
 	SID                 string `json:"sid" gorm:"column:sid;type:varchar(64);primaryKey"`
 	UserID              int    `json:"user_id" gorm:"column:user_id;not null;index:idx_user_sessions_user_status_expiry,priority:1;index:idx_user_sessions_user_created,priority:1"`
 	Version             int64  `json:"version" gorm:"type:bigint;not null;default:1"`
@@ -68,56 +70,63 @@ func (session *UserSession) AfterFind(_ *gorm.DB) error {
 }
 
 type userSessionCacheEntry struct {
-	SID             string
-	UserID          int
-	Version         int64
-	UserAuthVersion int64
-	Status          string
-	LoginMethod     string
-	IP              string
-	UserAgent       string
-	CreatedAt       int64
-	LastActiveAt    int64
-	ExpiresAt       int64
-	RevokedAt       int64
-	RevokedReason   string
-	CacheSchema     int
+	FederatedIdentity string
+	SID               string
+	UserID            int
+	Version           int64
+	UserAuthVersion   int64
+	Status            string
+	LoginMethod       string
+	IP                string
+	UserAgent         string
+	CreatedAt         int64
+	LastActiveAt      int64
+	ExpiresAt         int64
+	RevokedAt         int64
+	RevokedReason     string
+	CacheSchema       int
 }
 
+// cacheEntry 将源身份引用一起缓存，避免缓存命中绕过源会话撤销检查。
+// @return 当前缓存版本的完整会话控制信息。
 func (session *UserSession) cacheEntry() *userSessionCacheEntry {
 	return &userSessionCacheEntry{
-		SID:             session.SID,
-		UserID:          session.UserID,
-		Version:         session.Version,
-		UserAuthVersion: session.UserAuthVersion,
-		Status:          session.Status,
-		LoginMethod:     session.LoginMethod,
-		IP:              session.IP,
-		UserAgent:       session.UserAgent,
-		CreatedAt:       session.CreatedAt,
-		LastActiveAt:    session.LastActiveAt,
-		ExpiresAt:       session.ExpiresAt,
-		RevokedAt:       session.RevokedAt,
-		RevokedReason:   session.RevokedReason,
-		CacheSchema:     userSessionCacheSchema,
+		FederatedIdentity: session.FederatedIdentity,
+		SID:               session.SID,
+		UserID:            session.UserID,
+		Version:           session.Version,
+		UserAuthVersion:   session.UserAuthVersion,
+		Status:            session.Status,
+		LoginMethod:       session.LoginMethod,
+		IP:                session.IP,
+		UserAgent:         session.UserAgent,
+		CreatedAt:         session.CreatedAt,
+		LastActiveAt:      session.LastActiveAt,
+		ExpiresAt:         session.ExpiresAt,
+		RevokedAt:         session.RevokedAt,
+		RevokedReason:     session.RevokedReason,
+		CacheSchema:       userSessionCacheSchema,
 	}
 }
 
+// session 从缓存恢复会话，必须保留联合身份与本地版本约束。
+// @return 等价的服务端会话，不向浏览器暴露联合身份引用。
 func (entry *userSessionCacheEntry) session() *UserSession {
 	return &UserSession{
-		SID:             entry.SID,
-		UserID:          entry.UserID,
-		Version:         entry.Version,
-		UserAuthVersion: entry.UserAuthVersion,
-		Status:          entry.Status,
-		LoginMethod:     entry.LoginMethod,
-		IP:              entry.IP,
-		UserAgent:       entry.UserAgent,
-		CreatedAt:       entry.CreatedAt,
-		LastActiveAt:    entry.LastActiveAt,
-		ExpiresAt:       entry.ExpiresAt,
-		RevokedAt:       entry.RevokedAt,
-		RevokedReason:   entry.RevokedReason,
+		FederatedIdentity: entry.FederatedIdentity,
+		SID:               entry.SID,
+		UserID:            entry.UserID,
+		Version:           entry.Version,
+		UserAuthVersion:   entry.UserAuthVersion,
+		Status:            entry.Status,
+		LoginMethod:       entry.LoginMethod,
+		IP:                entry.IP,
+		UserAgent:         entry.UserAgent,
+		CreatedAt:         entry.CreatedAt,
+		LastActiveAt:      entry.LastActiveAt,
+		ExpiresAt:         entry.ExpiresAt,
+		RevokedAt:         entry.RevokedAt,
+		RevokedReason:     entry.RevokedReason,
 	}
 }
 

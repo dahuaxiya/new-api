@@ -20,6 +20,7 @@ import (
 func SetApiRouter(router *gin.Engine) {
 	apiRouter := router.Group("/api")
 	apiRouter.Use(middleware.SiteBoundary())
+	apiRouter.Use(middleware.SiteIdentityBoundary())
 	apiRouter.Use(middleware.RouteTag("api"))
 	apiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
 	apiRouter.Use(middleware.AccessTokenAudit())
@@ -36,6 +37,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)
 		apiRouter.GET("/status", controller.GetStatus)
+		apiRouter.POST("/site-sso/authorize", middleware.UserAuth(), middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("site-sso"), middleware.DisableCache(), controller.SiteSSOAuthorize)
+		apiRouter.POST("/site-sso/:action", anonymousRequestBodyLimit, middleware.DisableCache(), controller.SiteSSOBackchannel)
 		apiRouter.GET("/uptime/status", controller.GetUptimeKumaStatus)
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
 		// The existing dashboard auth chain checks session revocation before reading quota.

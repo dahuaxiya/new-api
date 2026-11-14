@@ -89,6 +89,11 @@ export interface ApiResponse<T = unknown> {
 
 export interface SystemStatus {
   site_mode?: 'hosting' | 'retail'
+  site_sso?: {
+    issuer_url: string
+    client_url: string
+    consumer: boolean
+  } | null
   success?: boolean
   message?: string
   data?: {

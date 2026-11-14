@@ -50,6 +50,7 @@ func GetStatus(c *gin.Context) {
 
 	data := gin.H{
 		"site_mode":                   common.SiteMode(),
+		"site_sso":                    common.SiteSSO(),
 		"version":                     common.Version,
 		"start_time":                  common.StartTime,
 		"email_verification":          common.EmailVerificationEnabled,

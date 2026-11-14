@@ -19,11 +19,23 @@ For commercial licensing, please contact support@quantumnous.com
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
+import { useStatus } from '@/hooks/use-status'
+
 import { AuthLayout } from '../auth-layout'
+import { UnifiedAccountNotice } from '../components/unified-account'
 import { ForgotPasswordForm } from './components/forgot-password-form'
 
 export function ForgotPassword() {
   const { t } = useTranslation()
+  const { status } = useStatus()
+  if (status?.site_sso?.consumer) {
+    return (
+      <AuthLayout>
+        <UnifiedAccountNotice path='/forgot-password' />
+      </AuthLayout>
+    )
+  }
+
   return (
     <AuthLayout>
       <div className='w-full space-y-8'>

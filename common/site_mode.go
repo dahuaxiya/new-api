@@ -35,7 +35,7 @@ func ValidateSiteMode() error {
 	} else if os.Getenv("RETAIL_RELAY_CONFIG") != "" || os.Getenv("ALIPAY_WALLET_CONFIG") != "" {
 		return fmt.Errorf("retail supply and wallet payment require SITE_MODE=retail")
 	}
-	return nil
+	return ValidateSiteSSO()
 }
 
 // SiteAllowsToken 在实际请求时校验 Key 类型；旧库误挂到中转站也不能按旧规则消费。

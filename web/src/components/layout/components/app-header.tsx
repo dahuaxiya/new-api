@@ -22,6 +22,7 @@ import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Search } from '@/components/search'
 import { ThemeSwitch } from '@/components/theme-switch'
+import { SiteSwitcher } from '@/features/auth/components/unified-account'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 
@@ -124,6 +125,7 @@ export function AppHeader({
 
       {rightContent ?? (
         <div className='ms-auto flex shrink-0 items-center gap-1 sm:gap-2'>
+          <SiteSwitcher />
           {showTopNav && (
             <div className='me-1 hidden lg:block'>
               <TopNav links={links} />

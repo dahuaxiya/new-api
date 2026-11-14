@@ -51,6 +51,8 @@ func GetPasswordEncryptionKey(c *gin.Context) {
 	})
 }
 
+// Login 保留既有密码与 MFA 校验；统一身份消费站仅允许本地 root 用于故障恢复。
+// @param c 包含本站登录凭据的请求，普通用户必须使用身份源。
 func Login(c *gin.Context) {
 	if !common.PasswordLoginEnabled {
 		common.ApiErrorT(c, "Password login has been disabled by administrator")
@@ -97,6 +99,11 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	// 消费站只保留本地 root 恢复入口，普通用户不能绕过统一身份登录。
+	if cfg := common.SiteSSO(); cfg != nil && cfg.Consumer && user.Role != common.RoleRootUser {
+		common.ApiErrorT(c, "Username or password is incorrect, or user has been banned")
+		return
+	}
 	setupLogin(&user, nil, c)
 }
 
@@ -791,6 +798,8 @@ func AdminClearUserBinding(c *gin.Context) {
 	})
 }
 
+// UpdateSelf 更新本站资料；启用统一身份后拒绝在消费站修改密码。
+// @param c 已验证的本站用户请求，语言和显示资料仍按站保存。
 func UpdateSelf(c *gin.Context) {
 	var requestData map[string]any
 	if err := common.DecodeJson(c.Request.Body, &requestData); err != nil {
@@ -802,6 +811,10 @@ func UpdateSelf(c *gin.Context) {
 	if value, exists := requestData["password"]; exists && value != nil {
 		password, isString := value.(string)
 		passwordRequested = !isString || password != ""
+	}
+	if cfg := common.SiteSSO(); cfg != nil && cfg.Consumer && passwordRequested {
+		writeAccountStatusError(c, http.StatusForbidden, "Manage your unified account on the hosting site.")
+		return
 	}
 	succeeded, notificationFailed := false, false
 	if passwordRequested {

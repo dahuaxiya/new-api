@@ -7999,5 +7999,17 @@
     "Confirmed": "已確認",
     "Pending review": "待核對",
     "Reference": "關聯記錄"
-  }
+  },
+  "Unified account": "統一帳號",
+  "Continue with unified account": "使用統一帳號登入",
+  "Operator recovery login": "管理員緊急登入",
+  "One account for hosting and API access. Balances, orders and API keys stay separate.": "同一帳號使用託管和中轉服務，兩站餘額、訂單和 API Key 分別管理。",
+  "Manage your unified account on the hosting site.": "請在託管站管理統一帳號。",
+  "Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.": "密碼、電子郵件與登入方式在託管站統一管理。本站單獨管理餘額、訂單和 API Key。",
+  "Manage unified account": "管理統一帳號",
+  "Hosting site": "託管站",
+  "API site": "中轉站",
+  "Verify unified account": "驗證統一帳號",
+  "Continue to API site": "進入中轉站",
+  "Verify and continue": "驗證並繼續"
 }

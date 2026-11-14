@@ -30,7 +30,9 @@ import {
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TitledCard } from '@/components/ui/titled-card'
+import { UnifiedAccountNotice } from '@/features/auth/components/unified-account'
 import { useProfile } from '@/features/profile/hooks/use-profile'
+import { useStatus } from '@/hooks/use-status'
 
 import { AccessTokensCard } from './components/access-tokens-card'
 import { AccountActionCard } from './components/account-action-card'
@@ -43,6 +45,7 @@ import { TwoFACard } from './components/two-fa-card'
 /** 账户安全复用现有会话与二次验证流程，侧栏入口不改变敏感操作约束。 */
 export function Security() {
   const { t } = useTranslation()
+  const { status } = useStatus()
   const { profile, loading, refreshProfile, fetchProfile } = useProfile()
 
   let content: ReactNode
@@ -71,6 +74,15 @@ export function Security() {
           {t('Retry')}
         </Button>
       </Empty>
+    )
+  } else if (status?.site_sso?.consumer) {
+    content = (
+      <div className='space-y-5'>
+        <UnifiedAccountNotice />
+        <LoginSessionsCard />
+        <AccessTokensCard />
+        <PrivacyCard profile={profile} onUpdate={refreshProfile} />
+      </div>
     )
   } else {
     content = (

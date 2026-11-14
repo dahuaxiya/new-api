@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -167,4 +168,60 @@ func TestSessionLimitDoesNotRecordRejectedLoginAsSuccessful(t *testing.T) {
 	var stored model.User
 	require.NoError(t, db.First(&stored, user.Id).Error)
 	assert.Equal(t, previousLastLoginAt, stored.LastLoginAt)
+}
+
+// TestSiteSSOBrowserBinding 验证攻击者不能用窃取的回调 URL 在另一浏览器登录，也不能从外站发起登录事务。
+func TestSiteSSOBrowserBinding(t *testing.T) {
+	oldDB, oldRedis := model.DB, common.RedisEnabled
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.AuthFlow{}))
+	model.DB = db
+	common.RedisEnabled = false
+	t.Cleanup(func() { model.DB = oldDB; common.RedisEnabled = oldRedis })
+	t.Setenv("SITE_MODE", "retail")
+	t.Setenv("SITE_SSO_ISSUER_URL", "https://identity.example")
+	t.Setenv("SITE_SSO_CLIENT_URL", "https://retail.example")
+	t.Setenv("SITE_SSO_CLIENT_ID", "retail")
+	t.Setenv("SITE_SSO_CLIENT_SECRET", strings.Repeat("s", 32))
+	for _, origin := range []string{"", "https://attacker.example", "https://retail.example"} {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/oauth/state", nil)
+		c.Request.Header.Set("Origin", origin)
+		startSiteSSO(c, oauthStateRequest{Provider: model.SiteSSOProvider, Intent: "login"})
+		if origin != "https://retail.example" {
+			require.Equal(t, http.StatusForbidden, recorder.Code)
+			continue
+		}
+		require.Equal(t, http.StatusOK, recorder.Code)
+		var response struct {
+			Data struct {
+				FlowToken string `json:"flow_token"`
+				URL       string `json:"authorization_url"`
+			} `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+		require.Contains(t, response.Data.URL, "https://identity.example/sso?")
+		cookies := recorder.Result().Cookies()
+		require.Len(t, cookies, 1)
+		require.True(t, cookies[0].Secure)
+		require.True(t, cookies[0].HttpOnly)
+		require.Equal(t, http.SameSiteLaxMode, cookies[0].SameSite)
+		flow, err := model.GetAuthFlow(response.Data.FlowToken, model.AuthFlowMatch{Purpose: "site_sso_client"})
+		require.NoError(t, err)
+		require.NotContains(t, flow.Payload, cookies[0].Value)
+		for _, cookie := range []string{"", "forged-browser"} {
+			rejected := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(rejected)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/api/oauth/site-sso?state="+response.Data.FlowToken+"&code=stolen", nil)
+			if cookie != "" {
+				ctx.Request.AddCookie(&http.Cookie{Name: siteSSOCookie, Value: cookie})
+			}
+			completeSiteSSO(ctx)
+			require.Equal(t, http.StatusUnauthorized, rejected.Code)
+			_, err = model.GetAuthFlow(response.Data.FlowToken, model.AuthFlowMatch{Purpose: "site_sso_client"})
+			require.NoError(t, err, "跨浏览器请求不能消费合法 state")
+		}
+	}
 }

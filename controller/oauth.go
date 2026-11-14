@@ -49,6 +49,14 @@ func GenerateOAuthCode(c *gin.Context) {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
+	if common.SiteSSO() != nil && request.Provider == model.SiteSSOProvider {
+		startSiteSSO(c, request)
+		return
+	}
+	if cfg := common.SiteSSO(); cfg != nil && cfg.Consumer {
+		writeAccountStatusError(c, http.StatusForbidden, "Manage your unified account on the hosting site.")
+		return
+	}
 	request.Provider = strings.TrimSpace(request.Provider)
 	request.Intent = strings.TrimSpace(request.Intent)
 	request.Aff = strings.TrimSpace(request.Aff)
@@ -144,6 +152,14 @@ func GenerateOAuthCode(c *gin.Context) {
 
 // HandleOAuth handles OAuth callback for all standard OAuth providers
 func HandleOAuth(c *gin.Context) {
+	if common.SiteSSO() != nil && c.Param("provider") == model.SiteSSOProvider {
+		completeSiteSSO(c)
+		return
+	}
+	if cfg := common.SiteSSO(); cfg != nil && cfg.Consumer {
+		writeAccountStatusError(c, http.StatusForbidden, "Manage your unified account on the hosting site.")
+		return
+	}
 	providerName := c.Param("provider")
 	provider := oauth.GetProvider(providerName)
 	if provider == nil {

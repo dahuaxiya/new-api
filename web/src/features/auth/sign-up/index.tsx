@@ -23,11 +23,20 @@ import { useStatus } from '@/hooks/use-status'
 
 import { AuthLayout } from '../auth-layout'
 import { TermsFooter } from '../components/terms-footer'
+import { UnifiedAccountNotice } from '../components/unified-account'
 import { SignUpForm } from './components/sign-up-form'
 
 export function SignUp() {
   const { t } = useTranslation()
   const { status } = useStatus()
+
+  if (status?.site_sso?.consumer) {
+    return (
+      <AuthLayout>
+        <UnifiedAccountNotice path='/sign-up' />
+      </AuthLayout>
+    )
+  }
 
   return (
     <AuthLayout>

@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -441,4 +444,68 @@ func TestUserAuthVersionInvalidatesExistingSession(t *testing.T) {
 	assert.ErrorIs(t, err, ErrLoginSessionRevoked)
 	_, err = CreateLoginSessionAtAuthVersion(user.Id, identity.UserAuthVersion, "2fa", "127.0.0.1", "test-agent")
 	assert.ErrorIs(t, err, ErrLoginSessionRevoked, "a pending 2FA flow must not survive an auth-version change")
+}
+
+// TestFederatedSessionRevocation 验证源站撤销、身份错配、服务中断都不能继续访问或续期，且本地密码会话仍可恢复运维。
+func TestFederatedSessionRevocation(t *testing.T) {
+	user := setupAuthSessionTestDB(t)
+	t.Setenv("SITE_MODE", "retail")
+	t.Setenv("SITE_SSO_CLIENT_URL", "https://retail.example")
+	t.Setenv("SITE_SSO_CLIENT_ID", "retail")
+	t.Setenv("SITE_SSO_ISSUER_ID", "urn:test:accounts")
+	t.Setenv("SITE_SSO_CLIENT_SECRET", strings.Repeat("s", 32))
+	var mode atomic.Int32
+	var origin string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client, secret, ok := r.BasicAuth()
+		if !ok || client != "retail" || secret != strings.Repeat("s", 32) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if mode.Load() == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		subject := 42
+		if mode.Load() == 2 {
+			subject = 43
+		}
+		payload, _ := common.Marshal(SiteSSOAssertion{Issuer: "urn:test:accounts", Audience: "retail", GrantID: 12, Subject: subject, ExpiresAt: time.Now().Add(time.Hour).Unix()})
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+	origin = server.URL
+	t.Setenv("SITE_SSO_ISSUER_URL", origin)
+	oldClient := siteSSOHTTPClient
+	siteSSOHTTPClient = server.Client()
+	t.Cleanup(func() { siteSSOHTTPClient = oldClient })
+	assertion := &SiteSSOAssertion{Issuer: "urn:test:accounts", Audience: "retail", GrantID: 12, Subject: 42, ExpiresAt: time.Now().Add(time.Hour).Unix()}
+	bundle, err := CreateFederatedLoginSession(user.Id, assertion, "127.0.0.1", "test")
+	require.NoError(t, err)
+	identity, err := ParseAccessToken(bundle.AccessToken)
+	require.NoError(t, err)
+	session, _, err := ValidateLoginSession(identity)
+	require.NoError(t, err)
+	require.NotEmpty(t, session.FederatedIdentity)
+	require.LessOrEqual(t, session.ExpiresAt, assertion.ExpiresAt)
+	for _, failure := range []int32{1, 2} {
+		mode.Store(failure)
+		_, _, err = ValidateLoginSession(identity)
+		require.Error(t, err)
+		_, _, err = RefreshLoginSession(bundle.RefreshToken, bundle.Session.SID, "127.0.0.1", "test")
+		require.Error(t, err)
+	}
+	server.Close()
+	_, _, err = ValidateLoginSession(identity)
+	require.Error(t, err)
+	_, err = CreateLoginSession(user.Id, "password", "127.0.0.1", "forbidden-local")
+	require.Error(t, err)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("role", common.RoleRootUser).Error)
+	require.NoError(t, model.PublishUserAuthCache(user.Id))
+	local, err := CreateLoginSession(user.Id, "password", "127.0.0.1", "recovery")
+	require.NoError(t, err)
+	localIdentity, err := ParseAccessToken(local.AccessToken)
+	require.NoError(t, err)
+	_, _, err = ValidateLoginSession(localIdentity)
+	require.NoError(t, err)
 }

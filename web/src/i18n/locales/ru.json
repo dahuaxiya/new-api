@@ -7969,5 +7969,17 @@
     "Confirmed": "Подтверждено",
     "Pending review": "Ожидает проверки",
     "Reference": "Ссылка"
-  }
+  },
+  "Unified account": "Общая учётная запись",
+  "Continue with unified account": "Войти с общей учётной записью",
+  "Operator recovery login": "Аварийный вход администратора",
+  "One account for hosting and API access. Balances, orders and API keys stay separate.": "Одна учётная запись для хостинга и API. Балансы, заказы и ключи API учитываются отдельно.",
+  "Manage your unified account on the hosting site.": "Управляйте общей учётной записью на сайте хостинга.",
+  "Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.": "Пароль, почта и способы входа управляются на сайте хостинга. У этого сайта собственные баланс, заказы и ключи API.",
+  "Manage unified account": "Управлять общей учётной записью",
+  "Hosting site": "Сайт хостинга",
+  "API site": "Сайт API",
+  "Verify unified account": "Подтвердить общую учётную запись",
+  "Continue to API site": "Перейти на сайт API",
+  "Verify and continue": "Подтвердить и продолжить"
 }

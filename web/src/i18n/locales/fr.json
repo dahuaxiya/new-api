@@ -7969,5 +7969,17 @@
     "Confirmed": "Confirmé",
     "Pending review": "À vérifier",
     "Reference": "Référence"
-  }
+  },
+  "Unified account": "Compte unifié",
+  "Continue with unified account": "Continuer avec le compte unifié",
+  "Operator recovery login": "Connexion de secours administrateur",
+  "One account for hosting and API access. Balances, orders and API keys stay separate.": "Un seul compte pour l’hébergement et les API. Soldes, commandes et clés API restent séparés.",
+  "Manage your unified account on the hosting site.": "Gérez votre compte unifié sur le site d’hébergement.",
+  "Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.": "Gérez le mot de passe, l’e-mail et les méthodes de connexion sur le site d’hébergement. Ce site conserve ses propres soldes, commandes et clés API.",
+  "Manage unified account": "Gérer le compte unifié",
+  "Hosting site": "Site d’hébergement",
+  "API site": "Site API",
+  "Verify unified account": "Vérifier le compte unifié",
+  "Continue to API site": "Continuer vers le site API",
+  "Verify and continue": "Vérifier et continuer"
 }

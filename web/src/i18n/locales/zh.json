@@ -7999,5 +7999,17 @@
     "Confirmed": "已确认",
     "Pending review": "待核对",
     "Reference": "关联记录"
-  }
+  },
+  "Unified account": "统一账号",
+  "Continue with unified account": "使用统一账号登录",
+  "Operator recovery login": "管理员应急登录",
+  "One account for hosting and API access. Balances, orders and API keys stay separate.": "同一个账号使用托管和中转服务，两站余额、订单和 API Key 分别管理。",
+  "Manage your unified account on the hosting site.": "请在托管站管理统一账号。",
+  "Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.": "密码、邮箱和登录方式在托管站统一管理。本站单独管理余额、订单和 API Key。",
+  "Manage unified account": "管理统一账号",
+  "Hosting site": "托管站",
+  "API site": "中转站",
+  "Verify unified account": "验证统一账号",
+  "Continue to API site": "进入中转站",
+  "Verify and continue": "验证并继续"
 }

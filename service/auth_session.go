@@ -67,20 +67,31 @@ type AuthBundle struct {
 }
 
 func CreateLoginSession(userID int, loginMethod, ip, userAgent string) (*AuthBundle, error) {
-	return createLoginSession(userID, 0, loginMethod, ip, userAgent)
+	return createLoginSession(userID, 0, loginMethod, ip, userAgent, nil)
 }
 
 func CreateLoginSessionAtAuthVersion(userID int, expectedAuthVersion int64, loginMethod, ip, userAgent string) (*AuthBundle, error) {
 	if expectedAuthVersion <= 0 {
 		return nil, ErrLoginSessionInvalid
 	}
-	return createLoginSession(userID, expectedAuthVersion, loginMethod, ip, userAgent)
+	return createLoginSession(userID, expectedAuthVersion, loginMethod, ip, userAgent, nil)
 }
 
-func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, userAgent string) (*AuthBundle, error) {
+// createLoginSession 统一执行本站会话限额，联合登录也不能绕过限额或本地停用。
+// @param userID 本站用户 ID。
+// @param expectedAuthVersion 非零时要求认证版本未变化。
+// @param loginMethod 已完成的认证方式。
+// @param ip 审计来源 IP。
+// @param userAgent 审计浏览器信息。
+// @param federated 可选的身份源声明，必须在发布会话前写入。
+// @return 独立签名的本站登录凭据。
+func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, userAgent string, federated *SiteSSOAssertion) (*AuthBundle, error) {
 	user, err := model.GetUserCache(userID)
 	if err != nil {
 		return nil, err
+	}
+	if cfg := common.SiteSSO(); cfg != nil && cfg.Consumer && federated == nil && user.Role != common.RoleRootUser {
+		return nil, ErrAuthTokenInvalid
 	}
 	if user.Status != common.UserStatusEnabled || user.AuthVersion <= 0 {
 		return nil, ErrLoginSessionInvalid
@@ -106,6 +117,14 @@ func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, 
 	session, refreshSecret, err := newLoginSession(userID, user.AuthVersion, loginMethod, ip, userAgent)
 	if err != nil {
 		return nil, err
+	}
+	if federated != nil {
+		payload, err := common.Marshal(federated)
+		if err != nil {
+			return nil, err
+		}
+		session.FederatedIdentity = string(payload)
+		session.ExpiresAt = min(session.ExpiresAt, federated.ExpiresAt)
 	}
 	if err := model.CreateUserSession(session); err != nil {
 		return nil, err
@@ -144,6 +163,9 @@ func newLoginSession(userID int, authVersion int64, loginMethod, ip, userAgent s
 	return session, refreshSecret, nil
 }
 
+// ValidateLoginSession 核对本站版本和源站授权，源站不可达时不放行联合会话。
+// @param identity 已完成签名验证的本站 JWT 身份。
+// @return 活跃会话与本站权限；任何核验失败均不返回用户。
 func ValidateLoginSession(identity AuthIdentity) (*model.UserSession, *model.UserBase, error) {
 	session, err := model.GetUserSessionCached(identity.SessionID)
 	if err != nil {
@@ -162,6 +184,12 @@ func ValidateLoginSession(identity AuthIdentity) (*model.UserSession, *model.Use
 	}
 	if user.Status != common.UserStatusEnabled || user.AuthVersion != identity.UserAuthVersion {
 		return nil, nil, ErrLoginSessionRevoked
+	}
+	if cfg := common.SiteSSO(); cfg != nil && cfg.Consumer && session.FederatedIdentity == "" && user.Role != common.RoleRootUser {
+		return nil, nil, ErrAuthTokenInvalid
+	}
+	if err := ValidateFederatedSession(session); err != nil {
+		return nil, nil, err
 	}
 	return session, user, nil
 }
@@ -248,6 +276,12 @@ func advanceCurrentSessionToVersion(identity AuthIdentity, nextUserAuthVersion i
 	return issueAuthBundle(session, "", true)
 }
 
+// RefreshLoginSession 轮换本站续期凭据，并重新核对联合身份的源会话。
+// @param rawRefreshToken HttpOnly Cookie 中的本站续期凭据。
+// @param expectedSID 浏览器所期望的本站会话，非空时必须一致。
+// @param ip 当前请求来源，用于会话活动记录。
+// @param userAgent 当前浏览器标识。
+// @return 轮换后的凭据及本站用户；源站失败时不延长会话。
 func RefreshLoginSession(rawRefreshToken, expectedSID, ip, userAgent string) (*AuthBundle, *model.User, error) {
 	sid, secret, ok := splitRefreshToken(rawRefreshToken)
 	if !ok {
@@ -278,6 +312,13 @@ func RefreshLoginSession(rawRefreshToken, expectedSID, ip, userAgent string) (*A
 		currentUser.Status != common.UserStatusEnabled || currentUser.AuthVersion != session.UserAuthVersion {
 		_, _ = model.RevokeUserSession(session.UserID, session.SID, "user_security_changed")
 		return nil, nil, ErrLoginSessionRevoked
+	}
+	if cfg := common.SiteSSO(); cfg != nil && cfg.Consumer && session.FederatedIdentity == "" && currentUser.Role != common.RoleRootUser {
+		return nil, nil, ErrAuthTokenInvalid
+	}
+	// 续期与普通请求一样核对源站，不能利用 refresh 延长已撤销的联合会话。
+	if err := ValidateFederatedSession(session); err != nil {
+		return nil, nil, err
 	}
 	nextSecret := deriveNextRefreshSecret(sid, secret)
 	rotated, err := model.RotateUserSessionRefresh(session.UserID, sid, hashRefreshSecret(secret), hashRefreshSecret(nextSecret), time.Now().Unix(), RefreshReplayWindow)

@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	VerificationScopeSiteSSO             = "site.sso.authorize"
 	VerificationMethodTwoFA              = "2fa"
 	VerificationMethodPasskey            = "passkey"
 	VerificationMethodPassword           = "password"
@@ -176,6 +177,15 @@ func BindVerificationOperation(operation VerificationOperation) (VerificationBin
 	}
 	var normalized any
 	switch operation.Scope {
+	case VerificationScopeSiteSSO:
+		var context struct {
+			State     string `json:"state"`
+			Challenge string `json:"challenge"`
+		}
+		if len(fields) != 2 || common.Unmarshal(operation.Context, &context) != nil || len(context.State) != 43 || len(context.Challenge) != 43 {
+			return VerificationBinding{}, ErrVerificationContextInvalid
+		}
+		normalized = context
 	case VerificationScopeChannelKeyRead:
 		var context ChannelKeyReadContext
 		if len(fields) != 1 || common.Unmarshal(fields["channel_id"], &context.ChannelID) != nil || context.ChannelID <= 0 {
@@ -364,7 +374,7 @@ func securityVerificationPolicy(scope string, state model.UserVerificationState)
 		if !state.HasTwoFA {
 			return nil, model.ErrTwoFANotEnabled
 		}
-	case VerificationScopePasskeyRegister, VerificationScopeTwoFASetup,
+	case VerificationScopeSiteSSO, VerificationScopePasskeyRegister, VerificationScopeTwoFASetup,
 		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenUpdate, VerificationScopeAccessTokenRevoke,
 		VerificationScopeAccountBind, VerificationScopeAccountUnbind, VerificationScopeGPTHosting,
 		VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete,
@@ -404,6 +414,10 @@ func securityVerificationPolicy(scope string, state model.UserVerificationState)
 	return options, nil
 }
 
+// GetVerificationRequirements 按本站权限和认证方式返回可用验证方式；联合会话的敏感操作必须回源认证。
+// @param identity 本站会话或受限管理访问令牌身份。
+// @param scope 要求验证的业务操作。
+// @return 仅含可用于该操作的验证方式；不支持的操作拒绝处理。
 func GetVerificationRequirements(identity AuthIdentity, scope string) (*VerificationRequirements, error) {
 	if scope == VerificationScopeLogin {
 		return nil, ErrProofScope
@@ -424,6 +438,19 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 	if err := requireAccessTokenVerificationScope(identity, scope); err != nil {
 		return nil, err
 	}
+	// 消费站的联合会话只使用身份源重新认证，不让本地恢复密码变成普通用户的第二套身份。
+	if cfg := common.SiteSSO(); cfg != nil && cfg.Consumer {
+		session, sessionErr := model.GetUserSessionCached(identity.SessionID)
+		if sessionErr == nil && session.FederatedIdentity != "" {
+			switch scope {
+			case VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenUpdate, VerificationScopeAccessTokenRevoke,
+				VerificationScopeAdminUserUpdate, VerificationScopeAdminUserDelete, VerificationScopeAdminUserManage, VerificationScopeAdminUserToken:
+				return &VerificationRequirements{Scope: scope, Methods: []VerificationMethodOption{{Method: VerificationMethodOAuth, Available: true}}, OAuthProviders: []VerificationOAuthProvider{{Slug: model.SiteSSOProvider, Name: "Unified account"}}}, nil
+			default:
+				return nil, ErrVerificationForbidden
+			}
+		}
+	}
 	methods, err := securityVerificationPolicy(scope, *state)
 	if err != nil {
 		return nil, err
@@ -432,7 +459,7 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 	for i := range methods {
 		if methods[i].Method == VerificationMethodPassword && !common.PasswordLoginEnabled {
 			switch scope {
-			case VerificationScopeAccountBind, VerificationScopeAccountUnbind, VerificationScopeGPTHosting, VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete,
+			case VerificationScopeSiteSSO, VerificationScopeAccountBind, VerificationScopeAccountUnbind, VerificationScopeGPTHosting, VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete,
 				VerificationScopeAdminUserCreate, VerificationScopeAdminUserUpdate, VerificationScopeAdminUserDelete,
 				VerificationScopeAdminUserManage, VerificationScopeAdminUserPasskeyReset,
 				VerificationScopeAdminUserTwoFADisable, VerificationScopeAdminUserBindingClear, VerificationScopeAdminUserToken:
