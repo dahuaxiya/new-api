@@ -1,5 +1,8 @@
 {
   "translation": {
+    "site task configuration or checkpoint unavailable": "site task configuration or checkpoint unavailable",
+    "site task interrupted or some records require retry": "site task interrupted or some records require retry",
+    "task handler stopped before completion": "task handler stopped before completion",
     "Use reset credit": "Dùng lượt đặt lại",
     "Reset credits are not supported for this account.": "Tài khoản này không hỗ trợ lượt đặt lại.",
     "The previous reset could not be confirmed. Try again after {{time}}.": "Chưa xác nhận được lần đặt lại trước. Hãy thử lại sau {{time}}.",

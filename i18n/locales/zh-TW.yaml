@@ -98,3 +98,5 @@ channel.upstream_update_failed_channels: "失敗管道 ID（顯示 {{.Shown}}/{{
 channel.upstream_update_more_omitted: "（其餘 {{.Count}} 個已省略）"
 
 token.site_unavailable: "此金鑰不能用於本站"
+
+common.server_draining: "服務正在結束，請重試其他可用執行個體。"

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -127,7 +128,9 @@ func TestSystemTaskClaimPassDispatchesByType(t *testing.T) {
 	_, err := model.CreateSystemTask(handler.taskType, nil, nil)
 	require.NoError(t, err)
 
-	runSystemTaskClaimPass("runner-dispatch")
+	var running sync.WaitGroup
+	runSystemTaskClaimPass(context.Background(), "runner-dispatch", &running)
+	t.Cleanup(running.Wait)
 
 	select {
 	case got := <-ran:
@@ -184,7 +187,9 @@ func TestSystemTaskClaimPassDispatchesEarliestPendingByType(t *testing.T) {
 	firstB, err := model.CreateSystemTask(handlerB.taskType, nil, nil)
 	require.NoError(t, err)
 
-	runSystemTaskClaimPass("runner-dispatch")
+	var running sync.WaitGroup
+	runSystemTaskClaimPass(context.Background(), "runner-dispatch", &running)
+	t.Cleanup(running.Wait)
 
 	got := map[string]bool{}
 	for range 2 {
@@ -231,4 +236,61 @@ func TestEnqueueSystemTaskReportsCreatedAndExistingActive(t *testing.T) {
 	require.True(t, created)
 	require.NotNil(t, second)
 	assert.NotEqual(t, first.TaskID, second.TaskID)
+}
+
+type checkpointTestHandler struct{ *stubScheduledHandler }
+
+// ResumeState 测试处理器沿用已持久化的游标，损坏状态由调度器拒绝。
+func (h checkpointTestHandler) ResumeState(previous *model.SystemTask) (any, error) {
+	state := map[string]string{}
+	if previous == nil {
+		return state, nil
+	}
+	err := previous.DecodeState(&state)
+	return state, err
+}
+
+// TestSystemTaskCheckpointAndCancellation 验证退出会等待处理器，保留进度，后继调度恢复游标且不再领取新任务。
+func TestSystemTaskCheckpointAndCancellation(t *testing.T) {
+	truncate(t)
+	entered := make(chan struct{})
+	handler := checkpointTestHandler{&stubScheduledHandler{taskType: "checkpoint_cancel", enabled: true}}
+	handler.onRun = func(ctx context.Context, task *model.SystemTask, runner string) {
+		if err := model.UpdateSystemTaskState(task.TaskID, runner, map[string]string{"cursor": "page-50"}); err != nil {
+			panic(err)
+		}
+		close(entered)
+		<-ctx.Done()
+	}
+	withSystemTaskRegistry(t, handler)
+	runSystemTaskScheduler()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var running sync.WaitGroup
+	runSystemTaskClaimPass(ctx, "runner-old", &running)
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("handler did not start")
+	}
+	cancel()
+	running.Wait()
+	latest, err := model.GetLatestSystemTask(handler.Type())
+	require.NoError(t, err)
+	assert.Equal(t, model.SystemTaskStatusFailed, latest.Status)
+	assert.JSONEq(t, `{"cursor":"page-50"}`, latest.State)
+	runSystemTaskScheduler()
+	next, err := model.GetLatestSystemTask(handler.Type())
+	require.NoError(t, err)
+	assert.NotEqual(t, latest.TaskID, next.TaskID)
+	assert.JSONEq(t, latest.State, next.State)
+	runSystemTaskClaimPass(ctx, "stopping-runner", &running)
+	running.Wait()
+	next, err = model.GetSystemTaskByTaskID(next.TaskID)
+	require.NoError(t, err)
+	assert.Equal(t, model.SystemTaskStatusPending, next.Status)
+	// 损坏检查点不能静默归零，否则可能重复扫描前页并掩盖状态损坏。
+	require.NoError(t, model.DB.Model(next).Updates(map[string]any{"status": model.SystemTaskStatusFailed, "active_key": nil, "state": "broken"}).Error)
+	runSystemTaskScheduler()
+	assert.EqualValues(t, 2, countSystemTasks(t, handler.Type()))
 }

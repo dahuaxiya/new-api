@@ -8,7 +8,6 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -149,38 +148,6 @@ func QueryWalletAlipay(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"success": true, "data": order})
-}
-
-// StartWalletAlipayReconciliation 定期补查未决订单；多实例允许并发查单，入账依靠数据库幂等。
-func StartWalletAlipayReconciliation() {
-	client, err := walletAlipayClient()
-	if err != nil || client == nil || !client.Production() {
-		return
-	}
-	go func() {
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		cursor := ""
-		for range ticker.C {
-			orders, err := model.PendingWalletPayments(client.Merchant(), cursor)
-			if err != nil {
-				continue
-			}
-			if len(orders) == 0 {
-				cursor = ""
-				continue
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			for i := range orders {
-				if ctx.Err() != nil {
-					break
-				}
-				_ = reconcileWalletPayment(ctx, client, &orders[i])
-				cursor = orders[i].OrderID
-			}
-			cancel()
-		}
-	}()
 }
 
 // GetTokenServiceModes 只公开服务是否可选及可售模型，不暴露供货渠道、配置路径或凭据。

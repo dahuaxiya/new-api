@@ -1,4 +1,7 @@
 {
+  "system task checkpoint unavailable: type=%s": "系统任务检查点不可用: 类型=%s",
+  "HTTP handlers did not finish after shutdown timeout": "退出超时后 HTTP 请求处理仍未结束",
+  "System tasks did not finish after shutdown timeout": "退出超时后系统任务仍未结束",
   "%d quota points": "%d 点额度",
   "%s after refresh: %s": "%s（刷新凭证后重试）: %s",
   "%s failed: %s": "%s 构建失败，%s",

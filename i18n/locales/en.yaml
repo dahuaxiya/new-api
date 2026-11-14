@@ -97,3 +97,5 @@ channel.upstream_update_failed_channels: "Failed channel IDs (showing {{.Shown}}
 channel.upstream_update_more_omitted: " ({{.Count}} more omitted)"
 
 token.site_unavailable: "API key is unavailable on this site"
+
+common.server_draining: "Server is shutting down. Retry on another instance."

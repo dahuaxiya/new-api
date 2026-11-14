@@ -1,5 +1,8 @@
 {
   "translation": {
+    "site task configuration or checkpoint unavailable": "site task configuration or checkpoint unavailable",
+    "site task interrupted or some records require retry": "site task interrupted or some records require retry",
+    "task handler stopped before completion": "task handler stopped before completion",
     "Use reset credit": "Use reset credit",
     "Reset credits are not supported for this account.": "Reset credits are not supported for this account.",
     "The previous reset could not be confirmed. Try again after {{time}}.": "The previous reset could not be confirmed. Try again after {{time}}.",

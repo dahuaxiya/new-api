@@ -46,6 +46,13 @@ type ScheduledSystemTaskHandler interface {
 	NewPayload() any
 }
 
+// CheckpointedSystemTaskHandler 将上一轮已保存的扫描位置带到新任务；跨进程接管不能退回第一页而饿死后续记录。
+// 恢复失败必须停止调度，不能把损坏的检查点当作一次全新扫描。
+type CheckpointedSystemTaskHandler interface {
+	ScheduledSystemTaskHandler
+	ResumeState(previous *model.SystemTask) (any, error)
+}
+
 var (
 	systemTaskHandlersMu sync.RWMutex
 	systemTaskHandlers   = map[string]SystemTaskHandler{}
@@ -105,6 +112,7 @@ type LogCleanupResult struct {
 
 var (
 	systemTaskRunnerOnce sync.Once
+	systemTaskRunnerDone = make(chan struct{})
 	// systemTaskWakeup signals the runner to check for runnable tasks
 	// immediately instead of waiting for the idle poll. Buffered so a signal
 	// raised while the runner is busy is not lost and is handled on the next loop.
@@ -120,14 +128,20 @@ func notifySystemTaskRunner() {
 	}
 }
 
-func StartSystemTaskRunner() {
+// StartSystemTaskRunner 启动进程内唯一任务调度器；取消 ctx 后停止领取并等待本进程任务退出。
+// 返回通道关闭前不能关闭数据库；处理器仍须遵守上下文和业务自身的幂等约束。
+func StartSystemTaskRunner(ctx context.Context) <-chan struct{} {
 	systemTaskRunnerOnce.Do(func() {
 		if !common.IsMasterNode {
+			close(systemTaskRunnerDone)
 			return
 		}
 
 		runnerID := fmt.Sprintf("%s-%s", common.NodeName, common.GetRandomString(8))
 		gopool.Go(func() {
+			var running sync.WaitGroup
+			defer close(systemTaskRunnerDone)
+			defer running.Wait()
 			logger.LogInfo(context.Background(), common.LogText("system task runner started: runner=%s idle_interval=%s", runnerID, systemTaskRunnerIdleInterval))
 
 			ticker := time.NewTicker(systemTaskRunnerIdleInterval)
@@ -136,6 +150,9 @@ func StartSystemTaskRunner() {
 			var lastScheduler time.Time
 			var lastStaleLockCleanup time.Time
 			runPass := func() {
+				if ctx.Err() != nil {
+					return
+				}
 				// The scheduler/stale-lock pass is throttled independently of the
 				// claim pass: wakeups (e.g. a manual log cleanup) should claim
 				// immediately without re-running the scheduler every time.
@@ -150,12 +167,14 @@ func StartSystemTaskRunner() {
 					lastScheduler = now
 					runSystemTaskScheduler()
 				}
-				runSystemTaskClaimPass(runnerID)
+				runSystemTaskClaimPass(ctx, runnerID, &running)
 			}
 
 			runPass()
 			for {
 				select {
+				case <-ctx.Done():
+					return
 				case <-ticker.C:
 				case <-systemTaskWakeup:
 				}
@@ -163,6 +182,7 @@ func StartSystemTaskRunner() {
 			}
 		})
 	})
+	return systemTaskRunnerDone
 }
 
 func StartLogCleanupTask(targetTimestamp int64) (*model.SystemTask, error) {
@@ -222,10 +242,13 @@ func EnqueueSystemTask(taskType string, payload any) (*model.SystemTask, bool, e
 // runSystemTaskClaimPass tries to claim one pending task per registered type
 // and dispatches each claimed task in its own goroutine so a long-running
 // handler (e.g. channel test) never blocks another type (e.g. log cleanup).
-func runSystemTaskClaimPass(runnerID string) {
+func runSystemTaskClaimPass(ctx context.Context, runnerID string, running *sync.WaitGroup) {
 	handlers := registeredSystemTaskHandlers()
 	taskTypes := make([]string, 0, len(handlers))
 	for _, handler := range handlers {
+		if ctx.Err() != nil {
+			return
+		}
 		taskTypes = append(taskTypes, handler.Type())
 	}
 	pendingTasks, err := model.FindEarliestPendingSystemTasks(taskTypes)
@@ -234,6 +257,9 @@ func runSystemTaskClaimPass(runnerID string) {
 		return
 	}
 	for _, handler := range handlers {
+		if ctx.Err() != nil {
+			return
+		}
 		task := pendingTasks[handler.Type()]
 		if task == nil {
 			continue
@@ -248,8 +274,10 @@ func runSystemTaskClaimPass(runnerID string) {
 		}
 		dispatchHandler := handler
 		dispatchTask := claimedTask
+		running.Add(1)
 		gopool.Go(func() {
-			runWithLeaseHeartbeat(dispatchTask, runnerID, func(ctx context.Context) {
+			defer running.Done()
+			runWithLeaseHeartbeat(ctx, dispatchTask, runnerID, func(ctx context.Context) {
 				dispatchHandler.Run(ctx, dispatchTask, runnerID)
 			})
 		})
@@ -288,7 +316,15 @@ func runSystemTaskScheduler() {
 				continue // not due yet
 			}
 		}
-		if _, err := model.CreateSystemTask(scheduled.Type(), scheduled.NewPayload(), nil); err != nil {
+		var state any
+		if checkpointed, ok := scheduled.(CheckpointedSystemTaskHandler); ok {
+			state, err = checkpointed.ResumeState(latest)
+			if err != nil {
+				logger.LogWarn(context.Background(), common.LogText("system task checkpoint unavailable: type=%s", scheduled.Type()))
+				continue
+			}
+		}
+		if _, err := model.CreateSystemTask(scheduled.Type(), scheduled.NewPayload(), state); err != nil {
 			activeTask, activeErr := model.GetActiveSystemTask(scheduled.Type())
 			if activeErr == nil && activeTask != nil {
 				continue
@@ -305,9 +341,13 @@ func runSystemTaskScheduler() {
 // runWithLeaseHeartbeat renews the per-type lock on a background ticker while
 // fn runs. The TTL is a crash-detection window, not a task time limit: an
 // arbitrarily long handler stays alive as long as the heartbeat succeeds.
-func runWithLeaseHeartbeat(task *model.SystemTask, runnerID string, fn func(ctx context.Context)) {
-	ctx, cancel := context.WithCancel(context.Background())
+func runWithLeaseHeartbeat(parent context.Context, task *model.SystemTask, runnerID string, fn func(ctx context.Context)) {
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	// gopool 会恢复处理器 panic；用 defer 释放尚未完成的任务，保留已落库检查点供后继任务重试。
+	defer func() {
+		_ = model.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusFailed, nil, "task handler stopped before completion")
+	}()
 
 	interval := systemTaskLockTTL / 3
 	if interval <= 0 {
@@ -316,10 +356,16 @@ func runWithLeaseHeartbeat(task *model.SystemTask, runnerID string, fn func(ctx 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	done := make(chan struct{})
+	heartbeatDone := make(chan struct{})
+	// 处理器退出后等心跳停止，避免它在数据库已关闭后继续续租。
+	defer func() { close(done); <-heartbeatDone }()
 
 	go func() {
+		defer close(heartbeatDone)
 		for {
 			select {
+			case <-ctx.Done():
+				return
 			case <-done:
 				return
 			case <-ticker.C:
@@ -331,8 +377,9 @@ func runWithLeaseHeartbeat(task *model.SystemTask, runnerID string, fn func(ctx 
 		}
 	}()
 
-	fn(ctx)
-	close(done)
+	if ctx.Err() == nil {
+		fn(ctx)
+	}
 }
 
 func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID string) {

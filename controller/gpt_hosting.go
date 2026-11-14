@@ -724,32 +724,3 @@ func UnbindGPTHosting(c *gin.Context) {
 	}
 	GetGPTHostingSelf(c)
 }
-
-// StartGPTHostingMaintenance 在后台重试已授权清理与权益同步，不自动创建槽位或释放未知状态账号。
-func StartGPTHostingMaintenance() {
-	if os.Getenv("GPT_HOSTING_ENABLED") != "true" {
-		return
-	}
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			var rows []model.GPTHostingBinding
-			if model.DB.Where("state <> ?", "unbound").Limit(500).Find(&rows).Error != nil {
-				continue
-			}
-			for _, b := range rows {
-				if expired, err := model.ExpireHostingBinding(b.UserID, time.Now().Unix(), b.SeatID); err == nil && expired {
-					b.State = "cleaning"
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-				if b.State == "cleaning" {
-					_ = cleanHosting(ctx, b.UserID, b.SeatID)
-				} else if b.State == "active" {
-					_ = syncHostingPolicy(ctx, b.UserID, b.SeatID)
-				}
-				cancel()
-			}
-		}
-	}()
-}

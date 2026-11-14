@@ -418,19 +418,26 @@ func MarkSystemTaskLeaseExpired(taskID string) error {
 	return result.Error
 }
 
+// ExpireStaleSystemTaskLocks 清理截止 now 已过期的租约；扫描结果只是候选，不能据此直接判任务失败。
+// 删除租约和终止旧任务必须一起提交，避免续租竞态或进程崩溃留下永远占用 active_key 的任务。
 func ExpireStaleSystemTaskLocks(now int64) error {
 	var locks []*SystemTaskLock
 	if err := DB.Where("locked_until < ?", now).Find(&locks).Error; err != nil {
 		return err
 	}
 	for _, lock := range locks {
-		if err := MarkSystemTaskLeaseExpired(lock.TaskID); err != nil {
+		if err := DB.Transaction(func(tx *gorm.DB) error {
+			// 条件 DELETE 在数据库内原子验证当前归属和期限；续租/接管先成功时，不触碰任务行。
+			result := tx.Where("type = ? AND task_id = ? AND locked_by = ? AND locked_until < ?", lock.Type, lock.TaskID, lock.LockedBy, now).
+				Delete(&SystemTaskLock{})
+			if result.Error != nil || result.RowsAffected == 0 {
+				return result.Error
+			}
+			return tx.Model(&SystemTask{}).
+				Where("task_id = ? AND locked_by = ? AND status = ?", lock.TaskID, lock.LockedBy, SystemTaskStatusRunning).
+				Updates(map[string]any{"status": SystemTaskStatusFailed, "active_key": nil, "error": "task lease expired", "updated_at": now}).Error
+		}); err != nil {
 			return err
-		}
-		result := DB.Where("type = ? AND task_id = ? AND locked_by = ? AND locked_until < ?", lock.Type, lock.TaskID, lock.LockedBy, now).
-			Delete(&SystemTaskLock{})
-		if result.Error != nil {
-			return result.Error
 		}
 	}
 	return nil

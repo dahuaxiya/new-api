@@ -37,7 +37,23 @@
 
 中转站超级管理员在渠道页打开「供货总览」，通过 `GET /api/retail/admin/supplies` 查看显式登记渠道的选路资格、停用、缺失或隔离状态，以及停售、销售组配置缺失、Redis/批量写回不支持等阻断原因。该接口复用实际 `RetailSupplyIDs`，只返回渠道编号、名称、供货类型和资格，不包含地址或凭据，不执行真实上游探测。扩充供货仍需配置渠道和私有供货白名单；客户托管账号不能作为公共供货。
 
-本轮复用现有 Sheet、Card、Badge、EmptyState、LoadingState、ErrorState 与用户资源抽屉，没有新增通用交互组件、数据库 schema 或账务公式。当前只支持执行节点和上游供货扩充；多网关部署所需的共享数据库、全局限流、后台租约、临时授权状态共享及流式排空尚未实现和验收。
+本轮复用现有 Sheet、Card、Badge、EmptyState、LoadingState、ErrorState 与用户资源抽屉，没有新增通用交互组件、数据库 schema 或账务公式。第一阶段支持执行节点和上游供货扩充。后台协调和 HTTP 排空的后续进展见下一节；全局限流、临时授权状态共享和整站多网关验收仍未完成。
+
+### 扩容第二阶段：后台协调与 HTTP 排空（2026-11-14）
+
+托管维护、托管支付宝补单和中转钱包补单改为数据库租约任务。任务类型分别为 `hosting_maintenance`、`hosting_payment_reconcile`、`wallet_payment_reconcile`，沿用系统任务管理页的状态、执行者和历史。托管站只登记前两种，中转站只登记钱包补单；停售后仍查询已有订单，未配置生产商户时不创建补单任务。至少保留一个非 `NODE_TYPE=slave` 的任务执行进程。
+
+同一站点的执行进程必须连接同一个数据库，并使用一致的站点、商户、节点配置。两站仍使用不同数据库。调度按任务类型互斥，租约 60 秒、心跳 20 秒、任务领取轮询 15 秒、过期清理周期 30 秒；接管时间还包括调度间隔，不是秒级故障切换承诺。普通失败或进程退出保留已落库游标，新任务继续下一页；崩溃可能重做最后一条外部操作，支付入账和账号操作仍依赖各自的业务幂等，不能把租约当作“只执行一次”保证。
+
+托管每页最多 50 个绑定，托管补单 20 条、中转补单 25 条。单页预算一分钟、单条外部操作预算 20 秒；单条失败计数并继续，空页回到起点。父上下文取消或租约失效时停止推进。检查点只存记录 ID，任务错误只存固定原因及计数。清理过期租约时，条件删除租约与终止旧任务在同一事务提交，避免扫描后续租被误判失败。
+
+`GET/HEAD /health/live` 返回进程存活状态；`GET/HEAD /health/ready` 检查排空状态和主库连接，单次主库检查最多一秒。探针不返回内部地址或数据库错误，也不表示上游供货、商户或其他依赖已可用。收到 SIGINT/SIGTERM 后，就绪探针返回 503，新业务请求返回 `server_draining` 和 `Retry-After: 1`，已开始的 HTTP/SSE 请求继续处理。
+
+`SHUTDOWN_DRAIN_SECONDS` 默认为 0，可配置 0–60 秒供负载均衡观察到不就绪；之后按 `SHUTDOWN_TIMEOUT_SECONDS`（默认 120 秒）等待 HTTP 请求完成。超时强制关闭连接，再给处理器和租约任务共计最多 5 秒清理；仍未退出则进程以非零状态结束，避免先关闭在途处理器使用的数据库。进程管理器的退出宽限期须覆盖上述总时间。
+
+本地验证覆盖 SQLite 3.50.4、MySQL 5.7.44、PostgreSQL 16.13：两个真实 OS 进程竞争、杀死租约持有进程、从检查点接管、旧执行者拒写、扫描后续租、超过一页的托管维护及取消/丢锁后停止。回归入口：`go test -p 1 ./model ./controller -run 'Test(SystemTaskLeaseDatabaseMatrix|SiteTaskMaintenancePagination)$' -count=1 -v`，MySQL/PostgreSQL 必须通过 `TEST_SYSTEM_TASK_MYSQL_DSN`、`TEST_SYSTEM_TASK_POSTGRES_DSN` 提供专用测试库；没有 DSN 时会跳过，不能算三库验证。HTTP/SSE 验证入口为 `go test ./middleware -run TestRequestDrain -count=1`。
+
+这一步未部署线上，也未开放整站双活。WebSocket/Hijack 连接不在 HTTP handler 排空计数内；额度历史等其他后台循环、临时 OAuth 状态、全局限流和缓存一致性尚未完成协调。不要仅凭这些探针或租约测试就启动多个生产主节点。生产发布仍需按 release 基线在搬瓦工另行验收。
 
 ### 本地可操作预览
 

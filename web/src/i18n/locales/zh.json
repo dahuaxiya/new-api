@@ -1,5 +1,8 @@
 {
   "translation": {
+    "site task configuration or checkpoint unavailable": "站点任务配置或扫描进度不可用",
+    "site task interrupted or some records require retry": "站点任务已中断或部分记录需要重试",
+    "task handler stopped before completion": "任务在完成前停止执行",
     "Use reset credit": "使用重置卡",
     "Reset credits are not supported for this account.": "此账号暂不支持重置卡。",
     "The previous reset could not be confirmed. Try again after {{time}}.": "上次重置结果尚未确认，{{time}} 后才能再次使用。",

@@ -158,7 +158,9 @@ func main() {
 	// schedules and executes them. Master-only execution and the UpdateTask
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
-	service.StartSystemTaskRunner()
+	taskContext, stopTasks := context.WithCancel(context.Background())
+	defer stopTasks()
+	tasksDone := service.StartSystemTaskRunner(taskContext)
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
@@ -213,10 +215,17 @@ func main() {
 		port = strconv.Itoa(*common.Port)
 	}
 
+	drain := middleware.NewRequestDrain(server, func(ctx context.Context) error {
+		db, err := model.DB.DB()
+		if err != nil {
+			return err
+		}
+		return db.PingContext(ctx)
+	})
 	srv := &http.Server{
 		// 默认仍监听全部网卡；预览实例可通过 BIND_ADDRESS 只接受回环连接。
 		Addr:    net.JoinHostPort(os.Getenv("BIND_ADDRESS"), port),
-		Handler: server,
+		Handler: drain,
 	}
 
 	go func() {
@@ -233,6 +242,14 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	common.SysLog(common.LogText("received signal: %v, shutting down...", sig))
+	drain.BeginDrain()
+	stopTasks()
+	// 保留监听窗口让负载均衡观察 ready=503；新业务请求会拒绝，已开始的流保持原上下文。
+	// 默认单机无需等待；多机部署应设置为覆盖健康探测周期的值，最长一分钟。
+	drainDelay := max(0, min(60, common.GetEnvOrDefault("SHUTDOWN_DRAIN_SECONDS", 0)))
+	if drainDelay > 0 {
+		<-time.After(time.Duration(drainDelay) * time.Second)
+	}
 
 	// SSE streams may run for minutes; give them time to finish before forced exit
 	shutdownTimeout := time.Duration(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", 120)) * time.Second
@@ -240,6 +257,20 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		common.SysError(common.LogText("server forced to shutdown: %v", err))
+		_ = srv.Close()
+	}
+	// 强制断开后仍给处理器留出短暂结算/清理时间；仍未退出时直接结束进程，不能先关闭其数据库。
+	cleanup, cancelCleanup := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelCleanup()
+	if err := drain.Wait(cleanup); err != nil {
+		common.SysError(common.LogText("HTTP handlers did not finish after shutdown timeout"))
+		os.Exit(1)
+	}
+	select {
+	case <-tasksDone:
+	case <-cleanup.Done():
+		common.SysError(common.LogText("System tasks did not finish after shutdown timeout"))
+		os.Exit(1)
 	}
 	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
 	if common.DataExportEnabled {
@@ -383,11 +414,7 @@ func InitResources() error {
 
 	service.StartAuthArtifactCleanup()
 	// 独立中转站不运行客户账号维护、托管补单或官方额度探测，避免跨业务副作用。
-	if common.IsRetailSite() {
-		controller.StartWalletAlipayReconciliation()
-	} else {
-		controller.StartGPTHostingMaintenance()
-		controller.StartHostingAlipayReconciliation()
+	if !common.IsRetailSite() {
 		controller.StartGPTQuotaHistory()
 	}
 

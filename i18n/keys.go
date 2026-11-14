@@ -6,6 +6,8 @@ package i18n
 
 // Errors returned to AI clients
 const (
+	// MsgServerDraining 表示进程已停止接收新请求，客户端可以改投其他健康实例。
+	MsgServerDraining            = "common.server_draining"
 	MsgTokenSiteUnavailable      = "token.site_unavailable"
 	MsgRetailUnavailable         = "retail.unavailable"
 	MsgRetailEndpointUnsupported = "retail.endpoint_unsupported"

@@ -1,8 +1,18 @@
 package model
 
 import (
+	"bufio"
+	"bytes"
+	"context"
+	"fmt"
+	gormlogger "gorm.io/gorm/logger"
+	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/glebarez/sqlite"
@@ -489,4 +499,197 @@ func runUpdateSystemTaskStateIdenticalPayloadKeepsLock(t *testing.T, taskType st
 	require.NoError(t, err)
 	require.NotNil(t, finished)
 	assert.Equal(t, SystemTaskStatusSucceeded, finished.Status)
+}
+
+// openSystemTaskMatrixDB 连接独立测试库；子进程使用同一 DSN，禁止用表前缀绕过真实租约 SQL。
+func openSystemTaskMatrixDB(t *testing.T, dialect, dsn string) *gorm.DB {
+	t.Helper()
+	var driver gorm.Dialector
+	switch dialect {
+	case "sqlite":
+		driver = sqlite.Open(dsn)
+	case "mysql":
+		driver = mysql.Open(dsn)
+	case "postgres":
+		driver = postgres.Open(dsn)
+	default:
+		t.Fatalf("unsupported test dialect %q", dialect)
+	}
+	db, err := gorm.Open(driver, &gorm.Config{Logger: gormlogger.Default.LogMode(gormlogger.Silent)})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	previous := DB
+	DB = db
+	t.Cleanup(func() { DB = previous; require.NoError(t, sqlDB.Close()) })
+	return db
+}
+
+// TestSystemTaskProcessWorker 是独立 OS 进程的测试入口；管道构成确定性屏障，不靠 sleep 制造竞争。
+func TestSystemTaskProcessWorker(t *testing.T) {
+	if os.Getenv("SYSTEM_TASK_WORKER") != "1" {
+		t.Skip("subprocess helper")
+	}
+	openSystemTaskMatrixDB(t, os.Getenv("SYSTEM_TASK_DIALECT"), os.Getenv("SYSTEM_TASK_DSN"))
+	task, err := GetSystemTaskByTaskID(os.Getenv("SYSTEM_TASK_ID"))
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	fmt.Println("READY")
+	scanner := bufio.NewScanner(os.Stdin)
+	require.True(t, scanner.Scan())
+	runner := fmt.Sprintf("process-%d", os.Getpid())
+	claimedTask, claimed, err := ClaimSystemTask(task.ID, task.Type, runner, common.GetTimestamp()+60)
+	require.NoError(t, err)
+	if !claimed {
+		fmt.Println("CLAIM:false")
+		return
+	}
+	if os.Getenv("SYSTEM_TASK_FINISH") == "1" {
+		assert.JSONEq(t, `{"cursor":"page-50"}`, claimedTask.State)
+		require.NoError(t, FinishSystemTask(task.TaskID, runner, SystemTaskStatusSucceeded, nil, ""))
+		fmt.Println("CLAIM:true")
+		return
+	}
+	require.NoError(t, UpdateSystemTaskState(task.TaskID, runner, map[string]string{"cursor": "page-50"}))
+	fmt.Println("CLAIM:true")
+	// 胜者保留租约直到父进程杀死它，模拟未执行退出清理的崩溃。
+	scanner.Scan()
+}
+
+type taskTestProcess struct {
+	cmd    *exec.Cmd
+	input  io.WriteCloser
+	output *bufio.Scanner
+	stderr bytes.Buffer
+}
+
+// startTaskTestProcess 启动真实测试子进程；只经环境传递 DSN，输出失败信息不包含连接凭据。
+func startTaskTestProcess(t *testing.T, dialect, dsn, taskID string, finish bool) *taskTestProcess {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	t.Cleanup(cancel)
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	worker := &taskTestProcess{cmd: exec.CommandContext(ctx, executable, "-test.run=^TestSystemTaskProcessWorker$")}
+	worker.cmd.Env = append(os.Environ(), "SYSTEM_TASK_WORKER=1", "SYSTEM_TASK_DIALECT="+dialect, "SYSTEM_TASK_DSN="+dsn, "SYSTEM_TASK_ID="+taskID)
+	if finish {
+		worker.cmd.Env = append(worker.cmd.Env, "SYSTEM_TASK_FINISH=1")
+	}
+	worker.input, err = worker.cmd.StdinPipe()
+	require.NoError(t, err)
+	output, err := worker.cmd.StdoutPipe()
+	require.NoError(t, err)
+	worker.output = bufio.NewScanner(output)
+	worker.cmd.Stderr = &worker.stderr
+	require.NoError(t, worker.cmd.Start())
+	t.Cleanup(func() { _ = worker.input.Close(); _ = worker.cmd.Process.Kill() })
+	worker.read(t, "READY")
+	return worker
+}
+
+// read 跳过测试框架输出直到得到屏障消息；进程超时会关闭管道，不会永久挂住测试。
+func (p *taskTestProcess) read(t *testing.T, prefix string) string {
+	t.Helper()
+	for p.output.Scan() {
+		if line := p.output.Text(); strings.HasPrefix(line, prefix) {
+			return line
+		}
+	}
+	t.Fatalf("worker exited before %s: %s", prefix, p.stderr.String())
+	return ""
+}
+
+// TestSystemTaskLeaseDatabaseMatrix 用三种真实数据库验证竞争领取、崩溃接管、旧持有者拒写和续租清理竞态。
+func TestSystemTaskLeaseDatabaseMatrix(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			dsn := os.Getenv("TEST_SYSTEM_TASK_" + strings.ToUpper(dialect) + "_DSN")
+			if dialect == "sqlite" {
+				dsn = filepath.Join(t.TempDir(), "tasks.db") + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+			}
+			if dsn == "" {
+				t.Skip("dedicated matrix DSN not configured")
+			}
+			db := openSystemTaskMatrixDB(t, dialect, dsn)
+			require.NoError(t, db.AutoMigrate(&SystemTask{}, &SystemTaskLock{}))
+			kind := "lease_matrix_" + common.GetRandomString(12)
+			t.Cleanup(func() {
+				require.NoError(t, db.Where("type = ?", kind).Delete(&SystemTaskLock{}).Error)
+				require.NoError(t, db.Where("type = ?", kind).Delete(&SystemTask{}).Error)
+			})
+			var version string
+			query := "SELECT version()"
+			if dialect == "sqlite" {
+				query = "SELECT sqlite_version()"
+			}
+			require.NoError(t, db.Raw(query).Scan(&version).Error)
+			t.Logf("database version: %s", version)
+			task, err := CreateSystemTask(kind, nil, nil)
+			require.NoError(t, err)
+			a := startTaskTestProcess(t, dialect, dsn, task.TaskID, false)
+			b := startTaskTestProcess(t, dialect, dsn, task.TaskID, false)
+			_, err = io.WriteString(a.input, "claim\n")
+			require.NoError(t, err)
+			_, err = io.WriteString(b.input, "claim\n")
+			require.NoError(t, err)
+			aWon := a.read(t, "CLAIM:") == "CLAIM:true"
+			bWon := b.read(t, "CLAIM:") == "CLAIM:true"
+			require.NotEqual(t, aWon, bWon, "exactly one process must own the task")
+			winner, loser := a, b
+			if bWon {
+				winner, loser = b, a
+			}
+			require.NoError(t, loser.cmd.Wait())
+			require.NoError(t, winner.cmd.Process.Kill())
+			require.Error(t, winner.cmd.Wait())
+			crashed, err := GetSystemTaskByTaskID(task.TaskID)
+			require.NoError(t, err)
+			require.JSONEq(t, `{"cursor":"page-50"}`, crashed.State)
+			require.NoError(t, db.Model(&SystemTaskLock{}).Where("task_id = ?", task.TaskID).Update("locked_until", common.GetTimestamp()-1).Error)
+			require.NoError(t, ExpireStaleSystemTaskLocks(common.GetTimestamp()))
+			require.ErrorIs(t, UpdateSystemTaskState(task.TaskID, crashed.LockedBy, map[string]string{"cursor": "stale"}), ErrSystemTaskLockLost)
+			require.ErrorIs(t, FinishSystemTask(task.TaskID, crashed.LockedBy, SystemTaskStatusSucceeded, nil, ""), ErrSystemTaskLockLost)
+			crashed, err = GetSystemTaskByTaskID(task.TaskID)
+			require.NoError(t, err)
+			assert.Equal(t, SystemTaskStatusFailed, crashed.Status)
+			var checkpoint map[string]string
+			require.NoError(t, crashed.DecodeState(&checkpoint))
+			next, err := CreateSystemTask(kind, nil, checkpoint)
+			require.NoError(t, err)
+			replacement := startTaskTestProcess(t, dialect, dsn, next.TaskID, true)
+			_, err = io.WriteString(replacement.input, "claim\n")
+			require.NoError(t, err)
+			assert.Equal(t, "CLAIM:true", replacement.read(t, "CLAIM:"))
+			require.NoError(t, replacement.cmd.Wait())
+			next, err = GetSystemTaskByTaskID(next.TaskID)
+			require.NoError(t, err)
+			assert.Equal(t, SystemTaskStatusSucceeded, next.Status)
+
+			// 用未来的清理截止时间稳定模拟 SELECT 之后续租；不等待时钟或依赖线程调度。
+			live, err := CreateSystemTask(kind, nil, nil)
+			require.NoError(t, err)
+			now := common.GetTimestamp()
+			_, claimed, err := ClaimSystemTask(live.ID, kind, "renewed-owner", now+60)
+			require.NoError(t, err)
+			require.True(t, claimed)
+			renewed := false
+			callback := "test:renew_after_scan"
+			require.NoError(t, db.Callback().Query().After("gorm:query").Register(callback, func(tx *gorm.DB) {
+				if tx.Statement.Table == "system_task_locks" && !renewed {
+					renewed = true
+					tx.AddError(RenewSystemTaskLock(live.TaskID, "renewed-owner", now+200))
+				}
+			}))
+			err = ExpireStaleSystemTaskLocks(now + 90)
+			require.NoError(t, db.Callback().Query().Remove(callback))
+			require.NoError(t, err)
+			require.True(t, renewed)
+			live, err = GetSystemTaskByTaskID(live.TaskID)
+			require.NoError(t, err)
+			assert.Equal(t, SystemTaskStatusRunning, live.Status, "renewed task must not be failed by stale scan")
+			require.NoError(t, UpdateSystemTaskState(live.TaskID, "renewed-owner", map[string]string{"cursor": "still-live"}))
+			require.NoError(t, FinishSystemTask(live.TaskID, "renewed-owner", SystemTaskStatusSucceeded, nil, ""))
+		})
+	}
 }

@@ -98,3 +98,5 @@ channel.upstream_update_failed_channels: "失败渠道 ID（展示 {{.Shown}}/{{
 channel.upstream_update_more_omitted: "（其余 {{.Count}} 个已省略）"
 
 token.site_unavailable: "该密钥不能用于本站"
+
+common.server_draining: "服务正在退出，请重试其他可用实例。"

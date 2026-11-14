@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -144,44 +143,4 @@ func QueryHostingAlipayPayment(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": order})
-}
-
-// StartHostingAlipayReconciliation 补偿最近七天未确认订单，销售关闭后继续处理已经付出的款项。
-// 逐页游标避免未支付订单长期占据首批；单轮有超时，不与下一轮重叠，也不自动退款。
-func StartHostingAlipayReconciliation() {
-	if os.Getenv("GPT_HOSTING_ENABLED") != "true" {
-		return
-	}
-	client, err := hostingAlipayClient()
-	if err != nil {
-		common.SysError("Alipay hosting configuration is unavailable; official Alipay payments remain disabled")
-		return
-	}
-	if client == nil || !client.Production() {
-		return
-	}
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		cursor := ""
-		for range ticker.C {
-			orders, err := model.PendingHostingPayments(client.Merchant(), cursor, time.Now().Unix())
-			if err != nil {
-				continue
-			}
-			if len(orders) == 0 {
-				cursor = ""
-				continue
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			for i := range orders {
-				if ctx.Err() != nil {
-					break
-				}
-				_ = reconcileHostingAlipayOrder(ctx, client, &orders[i])
-				cursor = orders[i].ID
-			}
-			cancel()
-		}
-	}()
 }
