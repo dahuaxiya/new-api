@@ -27,6 +27,18 @@
 
 详细配置、故障账务处理、测试版本和开售前步骤见 [商业 API 说明](docs/retail-api.md)。此记录不是发布回执，生产发布继续遵循根目录 `AGENTS.md`。
 
+### 扩容第一阶段：节点接新控制与供货总览（2026-11-14）
+
+托管站继续通过 `VM2API_INSTANCES_CONFIG` 注册执行节点。每个实例可设置 `"draining": true`，省略或为 false 时保持接新。修改私有配置后需要重启托管进程；这不是网页开关，也不是热更新。节点 ID、凭据及原地址应保留，不能用删除登记替代停止接新。重启前处理完进行中的 OAuth；内存中的登录状态可能需要重新发起。
+
+停止接新后，服务端拒绝新的自助分配、需要新槽位的订单、管理员开户、迁入目标和库存发布；已有绑定、已有订单预留、已持久化的开户或迁移恢复继续按原流程处理，源账号仍可迁出。它不停止现有模型请求，也不保证节点已可关机。移除节点前，仍需核对全部绑定、未完成订单、开户/迁移作业及旧入口依赖。
+
+超级管理员在用户管理的「槽位资源」查看节点接新状态与槽位快照；总槽位、占用、空槽、已发布库存不等于实际可售数量，下单和分配仍由服务端复核。不可达节点显示不可用，不把未知容量显示成零；刷新失败隐藏旧快照。
+
+中转站超级管理员在渠道页打开「供货总览」，通过 `GET /api/retail/admin/supplies` 查看显式登记渠道的选路资格、停用、缺失或隔离状态，以及停售、销售组配置缺失、Redis/批量写回不支持等阻断原因。该接口复用实际 `RetailSupplyIDs`，只返回渠道编号、名称、供货类型和资格，不包含地址或凭据，不执行真实上游探测。扩充供货仍需配置渠道和私有供货白名单；客户托管账号不能作为公共供货。
+
+本轮复用现有 Sheet、Card、Badge、EmptyState、LoadingState、ErrorState 与用户资源抽屉，没有新增通用交互组件、数据库 schema 或账务公式。当前只支持执行节点和上游供货扩充；多网关部署所需的共享数据库、全局限流、后台租约、临时授权状态共享及流式排空尚未实现和验收。
+
 ### 本地可操作预览
 
 在本仓库运行以下命令；首次需要已安装 Go、Python 3 和前端依赖：
@@ -38,12 +50,12 @@ cd ..
 go build -ldflags='-s -w' -o .local-tests/retail-preview/new-api .
 python3 scripts/retail-preview.py --site retail
 # 另开一个终端，运行独立托管站
-python3 scripts/retail-preview.py --site hosting
+python3 scripts/retail-preview.py --site hosting --demo-nodes
 ```
 
 中转站入口为 `http://127.0.0.1:18400/dashboard/overview`，托管站入口为 `http://localhost:18410/account/gpt`。两站各有普通账号 `preview` 和管理员 `previewadmin`，演示密码均为 `LuoboPreview2026!`。在各站退出后可切换角色；不要把中转站改用 localhost，因为 Cookie 不按端口隔离。终端按 Ctrl+C 停止对应站点，下次启动保留该站数据。
 
-两站共享编译后的二进制，分别使用 `.local-tests/retail-preview/` 和 `.local-tests/hosting-preview/` 中的数据库、会话密钥与日志。托管预览只展示空账号和演示套餐，不连接真实节点、不开放真实支付。
+两站共享编译后的二进制，分别使用 `.local-tests/retail-preview/` 和 `.local-tests/hosting-preview/` 中的数据库、会话密钥与日志。托管预览展示空账号和演示套餐；`--demo-nodes` 另外在回环端口 18411–18413 提供接新、停止接新、不可达三种只读模拟节点，可在用户管理的「槽位资源」查看。不传此参数则不登记节点。模拟面板拒绝开户、授权和库存写入，不连接真实节点、不开放真实支付。
 
 预览在 `.local-tests/retail-preview/` 创建独立 SQLite 和配置，仅监听回环地址。初始钱包为 $50；一次性兑换码 `luobopreview202611140000000000001` 增加 $10。可创建“余额计费 API”密钥，调用 `gpt-4o-mini` 的 Chat Completions / Responses 或 `claude-sonnet-4-5` 的 Messages 接口，再查看日志与余额。网关执行真实本地结算，上游只返回标注过的合成文本，不使用真实订阅账号；演示上游只支持非流式请求。
 

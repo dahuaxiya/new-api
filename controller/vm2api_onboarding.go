@@ -176,8 +176,7 @@ func staticSlotAssigned(instanceID, slotID string, client *vm2api.Client) (bool,
 	return false, nil
 }
 
-// onboardingSlotView combines persisted reservations with legacy bindings; a
-// failed/pending account still owns its slot until the same operation resumes.
+// onboardingSlotView 合并持久化占用和旧绑定；排空只取消新开户资格，不释放失败或待完成作业的槽位。
 func onboardingSlotView(actorID int, instanceID string, slot vm2api.Slot, client *vm2api.Client) (onboardingSlot, error) {
 	view := onboardingSlot{ID: slot.ID, Name: slot.Name, LoggedIn: slot.HasAuth}
 	assigned, err := model.IsVM2APISlotAssigned(instanceID, slot.ID)
@@ -194,7 +193,10 @@ func onboardingSlotView(actorID int, instanceID string, slot vm2api.Slot, client
 	}
 	view.Assigned = assigned || legacy || !allowed
 	view.Available = slot.Ready && !view.Assigned
-	if view.Assigned {
+	if !client.AcceptingAssignments() {
+		view.Available = false
+		view.Reason = "This node is not accepting new accounts."
+	} else if view.Assigned {
 		view.Reason = "Slot is already assigned"
 	} else if !slot.Ready {
 		view.Reason = "Slot is not ready"
@@ -257,8 +259,7 @@ func GetVM2APIOnboardingOptions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"instances": views, "models": models, "api_base_url": strings.TrimRight(system_setting.ServerAddress, "/") + "/v1"}})
 }
 
-// CreateVM2APIAccount reserves intent before any remote mutation. A lost HTTP
-// response can be recovered with the request ID without recreating a user.
+// CreateVM2APIAccount 在远端变更前预留意图；排空拒绝新开户，已持久化的同编号请求仍能恢复。
 func CreateVM2APIAccount(c *gin.Context) {
 	actor, ok := onboardingActor(c)
 	if !ok {
@@ -309,6 +310,11 @@ func CreateVM2APIAccount(c *gin.Context) {
 	client, err := registry.Client(input.InstanceID)
 	if err != nil {
 		onboardingError(c, err)
+		return
+	}
+	// 此处已经排除了同编号重放；只拒绝尚未预留的新开户，不中断旧作业恢复。
+	if !client.AcceptingAssignments() {
+		common.ApiErrorT(c, "This node is not accepting new accounts.")
 		return
 	}
 	slot, err := client.GetSlot(c.Request.Context(), input.SlotID)

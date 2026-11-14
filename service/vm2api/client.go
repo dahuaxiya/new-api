@@ -31,6 +31,7 @@ type Config struct {
 
 // InstanceConfig 保存面板管理凭据；禁止将此结构序列化到 API 响应或日志。
 type InstanceConfig struct {
+	Draining     bool     `json:"draining"`
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`
 	BaseURL      string   `json:"base_url"`
@@ -42,10 +43,11 @@ type InstanceConfig struct {
 
 // InstanceView 仅提供开户选择器需要的名称和模型，不公开主机地址或凭据。
 type InstanceView struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	BaseURL string   `json:"-"`
-	Models  []string `json:"models"`
+	Draining bool     `json:"draining"`
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	BaseURL  string   `json:"-"`
+	Models   []string `json:"models"`
 }
 
 // Error 的文本和代码均由本地定义，不携带上游响应、授权码或管理密码。
@@ -190,7 +192,7 @@ func (r *Registry) Instances() []InstanceView {
 	out := make([]InstanceView, 0, len(r.order))
 	for _, id := range r.order {
 		c := r.clients[id]
-		out = append(out, InstanceView{ID: id, Name: c.cfg.Name, BaseURL: c.cfg.BaseURL, Models: slices.Clone(c.cfg.Models)})
+		out = append(out, InstanceView{ID: id, Name: c.cfg.Name, BaseURL: c.cfg.BaseURL, Models: slices.Clone(c.cfg.Models), Draining: c.cfg.Draining})
 	}
 	return out
 }
@@ -205,6 +207,10 @@ func (r *Registry) Client(id string) (*Client, error) {
 	}
 	return c, nil
 }
+
+// AcceptingAssignments 只控制新的槽位占用，不能用于拦截已有账号请求、续费、清理或已预留操作的恢复。
+// 排空状态来自启动时的私有实例配置；修改配置后需重启托管站，不能通过客户端参数覆盖。
+func (c *Client) AcceptingAssignments() bool { return !c.cfg.Draining }
 
 // Config 仅供服务端渠道及额度适配使用；返回值包含管理密码，不能输出给浏览器。
 func (c *Client) Config() InstanceConfig {

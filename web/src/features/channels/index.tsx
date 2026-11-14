@@ -28,6 +28,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useStatus } from '@/hooks/use-status'
 import { ROLE } from '@/lib/roles'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
@@ -37,9 +38,12 @@ import { ChannelsDialogs } from './components/channels-dialogs'
 import { ChannelsPrimaryButtons } from './components/channels-primary-buttons'
 import { ChannelsProvider } from './components/channels-provider'
 import { ChannelsTable } from './components/channels-table'
+import { RetailSupplies } from './components/retail-supplies'
 
+/** 渠道管理复用原权限和操作；供货总览只在中转站向超级管理员展示。 */
 export function Channels() {
   const { t } = useTranslation()
+  const { status } = useStatus()
   const isRoot = useAuthStore(
     (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
   )
@@ -95,6 +99,7 @@ export function Channels() {
           </span>
         </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
+          {isRoot && status?.site_mode === 'retail' && <RetailSupplies />}
           <ChannelsPrimaryButtons />
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>

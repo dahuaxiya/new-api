@@ -225,6 +225,8 @@ export function HostingUserPanel(props: { user: User }) {
       instance.slots
         .filter(
           (slot) =>
+            instance.available &&
+            !instance.draining &&
             slot.enabled &&
             slot.empty &&
             slot.exit_ready &&

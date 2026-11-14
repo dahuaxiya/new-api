@@ -110,7 +110,7 @@ func PutHostingStorePlan(c *gin.Context) {
 	c.JSON(200, gin.H{"success": true})
 }
 
-// hostingPurchaseCandidates 在下单前确认空槽及出口真实可用，远端失败不能解释成有库存。
+// hostingPurchaseCandidates 只从接收新账号的节点选取空槽；已下单库存的交付不经此筛选，避免排空撤销已售权益。
 func hostingPurchaseCandidates(ctx context.Context, platform string) []string {
 	rows, err := model.ListHostingInventory()
 	if err != nil {
@@ -123,7 +123,7 @@ func hostingPurchaseCandidates(ctx context.Context, platform string) []string {
 	result := []string{}
 	for _, instance := range registry.Instances() {
 		client, err := registry.Client(instance.ID)
-		if err != nil || len(client.HostingModels(platform)) == 0 {
+		if err != nil || !client.AcceptingAssignments() || len(client.HostingModels(platform)) == 0 {
 			continue
 		}
 		local, cancel := context.WithTimeout(ctx, 10*time.Second)

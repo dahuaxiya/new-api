@@ -19,6 +19,7 @@ from urllib.request import Request, build_opener, ProxyHandler
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = "retail"
+DEMO_NODES = False
 STATE = ROOT / ".local-tests/retail-preview"
 BINARY = STATE / "new-api"
 PORT = "18400"
@@ -92,6 +93,48 @@ class DemoUpstream(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
 
+class DemoHostingPanel(BaseHTTPRequestHandler):
+    """只读演示面板，提供槽位快照；所有开户、授权和库存写入均拒绝，不持有真实账号。"""
+
+    def log_message(self, *_args):
+        """不收集演示管理请求中的登录信息。"""
+
+    def respond(self, body):
+        """返回固定的本地协议数据；调用方不能指定代理目标。"""
+        payload = json.dumps(body, ensure_ascii=False).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_POST(self):
+        """仅模拟面板登录；拒绝变更，防止将合成槽位误当作真实开户资源。"""
+        if self.server.server_port == 18413:
+            self.send_error(503, "Demo node unavailable")
+            return
+        if self.path != "/api/panel/login":
+            self.send_error(409, "Read-only demo panel")
+            return
+        self.respond({"ok": True, "token": "demo-panel-only", "role": "admin", "expires_in": 3600})
+
+    def do_GET(self):
+        """提供固定快照与空开户选项；占用仅用于展示，不创建门户绑定或可售库存。"""
+        if self.server.server_port == 18413:
+            self.send_error(503, "Demo node unavailable")
+            return
+        if self.path == "/api/panel/hosting/slots":
+            slots = [{"id": "demo-empty", "name": "空槽 · 模拟数据", "platform": "codex", "empty": True,
+                      "exit_ready": True, "managed": True, "hosting": {"state": "inventory"}},
+                     {"id": "demo-occupied", "name": "占用槽 · 模拟数据", "platform": "claude", "empty": False,
+                      "exit_ready": True, "managed": True, "hosting": {"state": "active"}}]
+            self.respond({"ok": True, "data": {"version": 2, "slots": slots}})
+        elif self.path in ("/api/panel/vms", "/api/panel/proxies"):
+            self.respond({"ok": True, "data": {"items": []}})
+        else:
+            self.send_error(404)
+
+
 def start_app(log):
     """用最小环境启动本地二进制，不继承生产 DSN、商户或托管配置。"""
     env = {key: os.environ[key] for key in ("PATH", "HOME", "TMPDIR") if key in os.environ}
@@ -102,6 +145,8 @@ def start_app(log):
                 "VERSION": "luobocode-local-preview", "SHUTDOWN_TIMEOUT_SECONDS": "3"})
     if SITE == "retail":
         env["RETAIL_RELAY_CONFIG"] = str(STATE / "retail.json")
+    elif DEMO_NODES:
+        env["VM2API_INSTANCES_CONFIG"] = str(STATE / "demo-nodes.json")
     process = subprocess.Popen([str(BINARY), "--log-dir", str(STATE / "logs")],
                                cwd=STATE, env=env, stdout=log, stderr=log)
     try:
@@ -182,10 +227,14 @@ def seed_database():
 
 def main():
     """按固定站点选择隔离目录和端口；同一二进制可运行两站，Cookie 由主机名隔离。"""
-    global SITE, STATE, APP_URL, PORT
+    global SITE, STATE, APP_URL, PORT, DEMO_NODES
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--site", choices=("hosting", "retail"), default="retail")
-    SITE = parser.parse_args().site
+    parser.add_argument("--demo-nodes", action="store_true", help="仅托管预览：显示只读模拟节点，不开放真实开户")
+    args = parser.parse_args()
+    SITE, DEMO_NODES = args.site, args.demo_nodes
+    if DEMO_NODES and SITE != "hosting":
+        parser.error("--demo-nodes 仅用于托管站预览")
     if SITE == "hosting":
         STATE = ROOT / ".local-tests/hosting-preview"
         PORT = "18410"
@@ -208,11 +257,24 @@ def main():
         upstream = ThreadingHTTPServer(("127.0.0.1", 18401), DemoUpstream)
         threading.Thread(target=upstream.serve_forever, daemon=True).start()
     process = None
+    panels = []
     def interrupt(_signum, _frame):
         """把系统退出信号转成统一清理路径，避免遗留后台演示服务。"""
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, interrupt)
     try:
+        if DEMO_NODES:
+            # 只监听回环。第三个面板固定失败，用于展示容量未知；配置永不指向真实执行节点。
+            for port in (18411, 18412, 18413):
+                panel = ThreadingHTTPServer(("127.0.0.1", port), DemoHostingPanel)
+                panels.append(panel)
+                threading.Thread(target=panel.serve_forever, daemon=True).start()
+            nodes = [{"id": f"demo-{port}", "name": name, "base_url": f"http://127.0.0.1:{port}",
+                      "username": "preview", "password": "demo-panel-only", "models": ["gpt-4o-mini"], "draining": draining}
+                     for port, name, draining in [(18411, "节点 A · 接新演示", False),
+                                                   (18412, "节点 B · 停止接新演示", True),
+                                                   (18413, "节点 C · 离线演示", True)]]
+            (STATE / "demo-nodes.json").write_text(json.dumps({"instances": nodes}, ensure_ascii=False))
         with (STATE / "server.log").open("a") as log:
             process = start_app(log)
             if fresh:
@@ -232,6 +294,8 @@ def main():
                 print(f"演示兑换码：{REDEMPTION}（一次有效）；支付宝未配置，订单记录均为演示数据。", flush=True)
             else:
                 print("空托管账号与演示套餐；未连接真实账号、节点或支付。", flush=True)
+                if DEMO_NODES:
+                    print("槽位资源展示只读模拟节点，不可开户；页面容量不是实际库存。", flush=True)
             process.wait()
     except KeyboardInterrupt:
         pass
@@ -241,6 +305,9 @@ def main():
         if upstream is not None:
             upstream.shutdown()
             upstream.server_close()
+        for panel in panels:
+            panel.shutdown()
+            panel.server_close()
 
 
 if __name__ == "__main__":

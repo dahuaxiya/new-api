@@ -53,7 +53,7 @@ func hostingError(c *gin.Context, err error) {
 	var upstream *vm2api.Error
 	if errors.As(err, &upstream) {
 		switch upstream.Code {
-		case "oauth_session_expired", "oauth_session_mismatch", "invalid_oauth_callback", "slot_not_empty", "slot_unavailable", "exit_unavailable", "account_changed", "personal_account_required", "identity_invalid", "identity_unavailable", "hosting_busy", "cleanup_pending", "hosting_conflict":
+		case "oauth_session_expired", "oauth_session_mismatch", "invalid_oauth_callback", "slot_not_empty", "slot_unavailable", "instance_draining", "exit_unavailable", "account_changed", "personal_account_required", "identity_invalid", "identity_unavailable", "hosting_busy", "cleanup_pending", "hosting_conflict":
 			code, status = upstream.Code, 409
 		}
 	}
@@ -137,7 +137,7 @@ func GetGPTHostingAdmin(c *gin.Context) {
 			}
 			rows = append(rows, row)
 		}
-		instances = append(instances, gin.H{"id": instance.ID, "name": instance.Name, "available": e == nil, "slots": rows})
+		instances = append(instances, gin.H{"id": instance.ID, "name": instance.Name, "available": e == nil, "draining": instance.Draining, "slots": rows})
 	}
 	c.JSON(200, gin.H{"success": true, "data": gin.H{"grants": grants, "instances": instances}})
 }
@@ -232,6 +232,11 @@ func PutGPTHostingInventory(c *gin.Context) {
 		return
 	}
 	if input.Enabled {
+		// 排空节点仍可撤下库存，但不能发布新的分配入口；已绑定账号不经过此接口。
+		if !client.AcceptingAssignments() {
+			hostingError(c, &vm2api.Error{Code: "instance_draining", HTTPStatus: http.StatusConflict})
+			return
+		}
 		if _, err = client.HostingAction(c.Request.Context(), input.SlotID, "enroll", gin.H{}); err != nil {
 			hostingError(c, err)
 			return
@@ -263,7 +268,7 @@ func PutGPTHostingInventory(c *gin.Context) {
 	c.JSON(200, gin.H{"success": true, "data": row})
 }
 
-// reserveHosting 为一个有效名额挑选预置空槽；独占写入成功后才触发任何远端授权动作。
+// reserveHosting 为有效名额挑选接收新账号的节点；已有预留先返回，排空不能破坏已付款或进行中的授权。
 func reserveHosting(ctx context.Context, userID int, seatID, platform string) (*model.GPTHostingBinding, error) {
 	b, err := model.GetHostingBinding(userID, seatID)
 	if err != nil {
@@ -288,7 +293,7 @@ func reserveHosting(ctx context.Context, userID int, seatID, platform string) (*
 			continue
 		}
 		client, e := registry.Client(inv.InstanceID)
-		if e != nil || len(client.HostingModels(platform)) == 0 {
+		if e != nil || !client.AcceptingAssignments() || len(client.HostingModels(platform)) == 0 {
 			continue
 		}
 		slots, e := client.HostedSlots(ctx)

@@ -29,6 +29,7 @@ func SetApiRouter(router *gin.Engine) {
 	{
 		retailAdmin := apiRouter.Group("/retail/admin", middleware.RootAuth(), middleware.DisableCache())
 		retailAdmin.GET("/accounting", controller.RetailAccounting)
+		retailAdmin.GET("/supplies", controller.RetailSupplies)
 		retailAdmin.POST("/charges/:id/refund", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-review"), controller.RefundRetailReservation)
 		retailAdmin.POST("/costs", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-cost"), controller.PutRetailCost)
 		apiRouter.POST("/wallet/alipay/notify", anonymousRequestBodyLimit, controller.WalletAlipayNotify)

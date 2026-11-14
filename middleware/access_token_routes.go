@@ -69,6 +69,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/gpt-hosting/reset-credits/query":  accessTokenSessionRule,
 	"POST /api/gpt-hosting/reset-credits/use":    accessTokenSessionRule,
 	"GET /api/retail/admin/accounting":           accessTokenSessionRule,
+	"GET /api/retail/admin/supplies":             accessTokenSessionRule,
 	"POST /api/retail/admin/charges/:id/refund":  accessTokenSessionRule,
 	"POST /api/retail/admin/costs":               accessTokenSessionRule,
 	"GET /api/gpt-hosting/admin":                 accessTokenSessionRule,

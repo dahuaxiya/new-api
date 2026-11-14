@@ -1,13 +1,72 @@
 package controller
 
 import (
+	"errors"
+	"slices"
 	"strconv"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/retail_setting"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+// RetailSupplies 提供显式登记的供货状态；复用实际选路白名单，不探测上游、不返回地址或凭据。
+// eligible 只表示通过本站选路资格校验，不证明上游额度、网络或真实模型调用可用。
+func RetailSupplies(c *gin.Context) {
+	cfg, err := retail_setting.Load()
+	if err != nil {
+		common.ApiError(c, retail_setting.ErrUnavailable)
+		return
+	}
+	allowed := []int{}
+	if cfg.Enabled {
+		allowed, err = model.RetailSupplyIDs(cfg.Group)
+		if err != nil {
+			common.ApiError(c, retail_setting.ErrUnavailable)
+			return
+		}
+	}
+	state := "ready"
+	switch {
+	case !cfg.Enabled:
+		state = "disabled"
+	case common.RedisEnabled || common.BatchUpdateEnabled:
+		state = "unsupported_runtime"
+	case !ratio_setting.ContainsGroupRatio(cfg.Group):
+		state = "group_missing"
+	case len(allowed) == 0:
+		state = "no_eligible_supply"
+	}
+	items := []gin.H{}
+	for _, supply := range cfg.Supplies {
+		// 用安全白名单构造响应，渠道结构还有其他敏感字段，不能直接序列化。
+		item := gin.H{"channel_id": supply.ChannelID, "kind": supply.Kind, "name": "", "status": "missing"}
+		channel, err := model.GetChannelById(supply.ChannelID, false)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiError(c, retail_setting.ErrUnavailable)
+			return
+		}
+		if err == nil {
+			item["name"] = channel.Name
+			switch {
+			case channel.Status != common.ChannelStatusEnabled:
+				item["status"] = "disabled"
+			case !cfg.Enabled:
+				item["status"] = "not_evaluated"
+			case slices.Contains(allowed, channel.Id):
+				item["status"] = "eligible"
+			default:
+				item["status"] = "excluded"
+			}
+		}
+		items = append(items, item)
+	}
+	c.JSON(200, gin.H{"success": true, "data": gin.H{"state": state, "group": cfg.Group, "items": items}})
+}
 
 // RetailAccounting 返回限量账务视图；入口只允许 root 会话，不包含客户请求正文或供货密钥。
 func RetailAccounting(c *gin.Context) {

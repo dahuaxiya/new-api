@@ -300,3 +300,63 @@ func TestRetailAccountingBoundary(t *testing.T) {
 	require.NoError(t, model.DB.First(user, user.Id).Error)
 	require.Equal(t, 1000, user.Quota, "重复审核不能重复退回余额")
 }
+
+// TestRetailSupplyOverview 验证供货视图复用路由资格、停售不冒充故障，并且不返回敏感渠道字段。
+func TestRetailSupplyOverview(t *testing.T) {
+	user, identity := setupSecurityEnrollmentTest(t)
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.GPTHostingBinding{}))
+	oldBatch := common.BatchUpdateEnabled
+	common.BatchUpdateEnabled = false
+	t.Cleanup(func() { common.BatchUpdateEnabled = oldBatch })
+	groups := ratio_setting.GetGroupRatioCopy()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"retail":1}`))
+	t.Cleanup(func() { raw, _ := common.Marshal(groups); _ = ratio_setting.UpdateGroupRatioByJSONString(string(raw)) })
+	for _, channel := range []model.Channel{
+		{Id: 101, Name: "Owned", Type: 1, Status: 1, Group: "retail", Key: "secret-key", BaseURL: &[]string{"https://private-upstream.test"}[0]},
+		{Id: 102, Name: "Disabled", Type: 14, Status: 2, Group: "retail", Key: "secret-key"},
+		{Id: 103, Name: "Customer", Type: 1, Status: 1, Group: "retail,acct_private", Key: "secret-key"},
+	} {
+		require.NoError(t, model.DB.Create(&channel).Error)
+	}
+	path := filepath.Join(t.TempDir(), "retail.json")
+	t.Setenv("RETAIL_RELAY_CONFIG", path)
+	config := `{"enabled":true,"group":"retail","supplies":[{"channel_id":101,"kind":"subscription"},{"channel_id":102,"kind":"reseller"},{"channel_id":103,"kind":"subscription"},{"channel_id":104,"kind":"reseller"}]}`
+	require.NoError(t, os.WriteFile(path, []byte(config), 0600))
+	token, _, err := service.IssueAccessToken(identity)
+	require.NoError(t, err)
+	r := gin.New()
+	r.GET("/supplies", middleware.RootAuth(), RetailSupplies)
+	request := func(auth string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/supplies", nil)
+		if auth != "" {
+			req.Header.Set("Authorization", "Bearer "+auth)
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	require.Equal(t, 401, request("").Code)
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleCommonUser).Error)
+	require.Equal(t, 403, request(token).Code)
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
+	result := request(token)
+	require.Equal(t, 200, result.Code)
+	require.Contains(t, result.Body.String(), `"state":"ready"`)
+	for _, status := range []string{"eligible", "disabled", "excluded", "missing"} {
+		require.Contains(t, result.Body.String(), `"status":"`+status+`"`)
+	}
+	for _, private := range []string{"secret-key", "private-upstream", "acct_private", "base_url"} {
+		require.NotContains(t, result.Body.String(), private)
+	}
+	require.NoError(t, os.WriteFile(path, []byte(strings.Replace(config, `"enabled":true`, `"enabled":false`, 1)), 0600))
+	result = request(token)
+	require.Contains(t, result.Body.String(), `"state":"disabled"`)
+	require.Contains(t, result.Body.String(), `"status":"not_evaluated"`)
+	require.NotContains(t, result.Body.String(), `"status":"eligible"`)
+	require.NoError(t, os.WriteFile(path, []byte(config), 0600))
+	common.BatchUpdateEnabled = true
+	require.Contains(t, request(token).Body.String(), `"state":"unsupported_runtime"`)
+	require.NoError(t, os.WriteFile(path, []byte(`{`), 0600))
+	require.Contains(t, request(token).Body.String(), `"success":false`)
+}

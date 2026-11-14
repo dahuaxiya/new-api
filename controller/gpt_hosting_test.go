@@ -518,3 +518,100 @@ func TestSeparatedSiteWalletProofBoundary(t *testing.T) {
 		})
 	}
 }
+
+// TestHostingNodeDrain 验证排空挡住新增占用，却保留已绑定账号及待交付预留；远端只模拟协议边界。
+func TestHostingNodeDrain(t *testing.T) {
+	user, identity := setupSecurityEnrollmentTest(t)
+	oldOptions, oldRatios := common.OptionMap, ratio_setting.GroupRatio2JSONString()
+	common.OptionMap = map[string]string{}
+	t.Cleanup(func() { common.OptionMap = oldOptions; _ = ratio_setting.UpdateGroupRatioByJSONString(oldRatios) })
+	t.Setenv("GPT_HOSTING_ENABLED", "true")
+	require.NoError(t, model.DB.AutoMigrate(&model.GPTHostingGrant{}, &model.GPTHostingBinding{}, &model.GPTHostingInventory{}, &model.HostingOrder{}, &model.VM2APIEnrollment{}, &model.VM2APISlotDraft{}))
+	var requests atomic.Int32
+	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/panel/login" {
+			_, _ = w.Write([]byte(`{"ok":true,"token":"test-panel","role":"admin","expires_in":3600}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"data":{"version":2,"slots":[{"id":"empty","empty":true,"exit_ready":true,"managed":true,"platform":"codex","hosting":{"state":"inventory"}},{"id":"old","empty":false,"exit_ready":true,"managed":true,"hosting":{"state":"active","binding_id":"existing"}}]}}`))
+	}))
+	defer panel.Close()
+	cfg := vm2api.Config{Instances: []vm2api.InstanceConfig{{ID: "node", Name: "Node", BaseURL: panel.URL, Username: "test", Password: "secret", Models: []string{"gpt-test"}, Draining: true}}}
+	registry, err := vm2api.New(cfg)
+	require.NoError(t, err)
+	oldRegistry, oldQuota := onboardingRegistry, configuredQuota
+	onboardingRegistry = func() (*vm2api.Registry, error) { return registry, nil }
+	configuredQuota = func() (gptquota.Config, error) { return gptquota.Config{}, nil }
+	t.Cleanup(func() { onboardingRegistry, configuredQuota = oldRegistry, oldQuota })
+	inv, err := model.PutHostingInventory("node", "empty", true)
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.GPTHostingGrant{SeatID: "seat", UserID: user.Id, Group: "acct_test", StartsAt: 1, EndsAt: -1, Enabled: true}).Error)
+	require.NoError(t, model.DB.Create(&model.GPTHostingBinding{SeatID: "seat", UserID: user.Id, BindingID: "existing", Platform: "codex", State: "unbound"}).Error)
+	require.Empty(t, hostingPurchaseCandidates(context.Background(), "codex"))
+	_, err = reserveHosting(context.Background(), user.Id, "seat", "codex")
+	require.ErrorContains(t, err, "slot_unavailable")
+	require.Zero(t, requests.Load(), "排空节点不能作为新库存探测目标")
+	// 用真实 root 会话走写入口，确认隐藏前端选项之外，直接调用 API 也不能新增占用。
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
+	access, _, err := service.IssueAccessToken(identity)
+	require.NoError(t, err)
+	r := gin.New()
+	r.POST("/enroll", middleware.RootAuth(), CreateVM2APIAccount)
+	r.POST("/inventory", middleware.RootAuth(), PutGPTHostingInventory)
+	for _, test := range []struct{ path, body, message string }{
+		{"/enroll", fmt.Sprintf(`{"request_id":%q,"username":"newaccount","password":"Test-Unique_6823!","instance_id":"node","slot_id":"empty"}`, uuid.NewString()), "This node is not accepting new accounts."},
+		{"/inventory", `{"instance_id":"node","slot_id":"empty","enabled":true}`, "instance_draining"},
+	} {
+		req := httptest.NewRequest("POST", test.path, strings.NewReader(test.body))
+		req.Header.Set("Authorization", "Bearer "+access)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		require.Contains(t, w.Body.String(), `"success":false`)
+		require.Contains(t, w.Body.String(), test.message)
+	}
+	require.Zero(t, requests.Load(), "拒绝开户和发布时不能触发远端变更")
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleCommonUser).Error)
+	// 已持久化的预留（包括付款交付）和活动绑定不再抢新库存，因此继续返回原位置。
+	for _, state := range []string{"reserved", "active"} {
+		require.NoError(t, model.DB.Model(&model.GPTHostingBinding{}).Where("seat_id = ?", "seat").Updates(map[string]any{"state": state, "instance_id": "node", "slot_id": "old", "inventory_id": inv.ID, "channel_id": 1, "account_hash": strings.Repeat("a", 64), "subject_hash": strings.Repeat("b", 64)}).Error)
+		binding, err := reserveHosting(context.Background(), user.Id, "seat", "codex")
+		require.NoError(t, err)
+		require.Equal(t, "old", binding.SlotID)
+	}
+	_, err = checkHostingMigration(context.Background(), user.Id, hostingMigrationInput{UserID: user.Id, SeatID: "seat", TargetInstanceID: "node", TargetSlotID: "empty"})
+	require.ErrorContains(t, err, "instance_draining")
+	client, err := registry.Client("node")
+	require.NoError(t, err)
+	view, err := onboardingSlotView(user.Id, "node", vm2api.Slot{ID: "empty", Ready: true}, client)
+	require.NoError(t, err)
+	require.False(t, view.Available)
+	require.Equal(t, "This node is not accepting new accounts.", view.Reason)
+	// 不修改库存开关，恢复接新后可以重新发现同一空槽；现有实例配置省略 draining 保持兼容。
+	cfg.Instances[0].Draining = false
+	registry, err = vm2api.New(cfg)
+	require.NoError(t, err)
+	require.Equal(t, []string{inv.ID}, hostingPurchaseCandidates(context.Background(), "codex"))
+	require.False(t, registry.Instances()[0].Draining)
+	// 订单先占位，随后节点排空；同一订单重试和到账交付仍保留原库存，不能让已售权益消失。
+	require.NoError(t, model.DB.AutoMigrate(&model.HostingPlan{}, &model.Option{}, &model.Token{}))
+	require.NoError(t, model.MigrateHostingStore(model.DB))
+	require.NoError(t, model.SaveHostingPlan(model.HostingPlan{ID: "monthly", Days: 30, PriceCents: 4000, Enabled: true}))
+	paidInventory, err := model.PutHostingInventory("node", "paid-before-drain", true)
+	require.NoError(t, err)
+	order, err := model.CreateHostingOrder(user.Id, uuid.NewString(), "monthly", "", "codex", "wxpay", "merchant", []string{paidInventory.ID})
+	require.NoError(t, err)
+	cfg.Instances[0].Draining = true
+	registry, err = vm2api.New(cfg)
+	require.NoError(t, err)
+	retry, err := model.CreateHostingOrder(user.Id, order.RequestID, order.PlanID, "", "codex", "wxpay", "merchant", hostingPurchaseCandidates(context.Background(), "codex"))
+	require.NoError(t, err)
+	require.Equal(t, order.ID, retry.ID)
+	_, err = model.CompleteHostingOrder(order.ID, "merchant", "wxpay", "drain-payment", 4000)
+	require.NoError(t, err)
+	paidBinding, err := reserveHosting(context.Background(), user.Id, order.SeatID, "codex")
+	require.NoError(t, err)
+	require.Equal(t, "paid-before-drain", paidBinding.SlotID)
+}

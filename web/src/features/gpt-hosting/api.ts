@@ -69,6 +69,7 @@ export type HostingAdmin = {
     id: string
     name: string
     available: boolean
+    draining?: boolean
     slots: Array<{
       id: string
       platform?: 'codex' | 'claude'
@@ -131,6 +132,8 @@ export async function getHosting<T extends HostingSelf | HostingAdmin>(
 function hostingMessage(error: unknown): string {
   const code = isAxiosError(error) ? error.response?.data?.code : ''
   switch (code) {
+    case 'instance_draining':
+      return t('This node is not accepting new accounts.')
     case 'slot_unavailable':
       return t(
         'No prepared slot is available. Please contact the administrator.'

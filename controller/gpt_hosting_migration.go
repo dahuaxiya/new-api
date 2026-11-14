@@ -58,9 +58,7 @@ func migrationInventory(instanceID, slotID string) (*model.GPTHostingInventory, 
 	return nil, model.ErrHostingConflict
 }
 
-// checkHostingMigration verifies both sides immediately before a write. A
-// target must be a managed inventory slot in the same platform, while the
-// source must still carry the binding that New API currently routes to.
+// checkHostingMigration 核对源归属及目标空槽；新迁入拒绝排空节点，已开始的迁移继续走持久化恢复路径。
 func checkHostingMigration(ctx context.Context, userID int, input hostingMigrationInput) (*hostingMigrationCheck, error) {
 	if input.UserID != userID || input.SeatID == "" || input.TargetInstanceID == "" || input.TargetSlotID == "" {
 		return nil, model.ErrHostingConflict
@@ -111,6 +109,9 @@ func checkHostingMigration(ctx context.Context, userID int, input hostingMigrati
 	target, err := registry.Client(input.TargetInstanceID)
 	if err != nil {
 		return nil, err
+	}
+	if !target.AcceptingAssignments() {
+		return nil, &vm2api.Error{Code: "instance_draining", HTTPStatus: http.StatusConflict}
 	}
 	targetSlots, err := target.HostedSlots(ctx)
 	if err != nil {

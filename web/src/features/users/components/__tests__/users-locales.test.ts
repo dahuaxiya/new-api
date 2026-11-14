@@ -28,6 +28,13 @@ it('七种语言均能加载用户页、连接状态和旧 Key 确认文案', as
       'Refresh data',
       'Slot',
       'Slot not assigned',
+      'New assignments stopped',
+      'Accepting new accounts',
+      'Total slots',
+      'Published inventory',
+      'Supply overview',
+      'Eligible for routing',
+      'This node is not accepting new accounts.',
       'Connection details unavailable',
       'No outbound connection configured',
       'Bound slot not found',
@@ -46,4 +53,6 @@ it('七种语言均能加载用户页、连接状态和旧 Key 确认文案', as
   expect(instance.t('View and set terms')).toBe('查看并设置')
   expect(instance.t('Slot')).toBe('槽位')
   expect(instance.t('Slot not assigned')).toBe('尚未分配槽位')
+  expect(instance.t('New assignments stopped')).toBe('已停止接新')
+  expect(instance.t('Supply overview')).toBe('供货总览')
 })
