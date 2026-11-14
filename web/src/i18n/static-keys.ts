@@ -19,6 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // 切站按钮按站点类型选择文案，在此登记以保留翻译同步。
+  'Hosting site',
+  'API site',
   // 站点展示配置与导航共用动态键；在此登记，避免翻译同步漏掉它们。
   'Hosting overview',
   'API overview',

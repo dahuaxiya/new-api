@@ -7968,18 +7968,18 @@
     "Refunded": "Refunded",
     "Confirmed": "Confirmed",
     "Pending review": "Pending review",
-    "Reference": "Reference"
-  },
-  "Unified account": "Unified account",
-  "Continue with unified account": "Continue with unified account",
-  "Operator recovery login": "Operator recovery login",
-  "One account for hosting and API access. Balances, orders and API keys stay separate.": "One account for hosting and API access. Balances, orders and API keys stay separate.",
-  "Manage your unified account on the hosting site.": "Manage your unified account on the hosting site.",
-  "Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.": "Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.",
-  "Manage unified account": "Manage unified account",
-  "Hosting site": "Hosting site",
-  "API site": "API site",
-  "Verify unified account": "Verify unified account",
-  "Continue to API site": "Continue to API site",
-  "Verify and continue": "Verify and continue"
+    "Reference": "Reference",
+    "Unified account": "Unified account",
+    "Continue with unified account": "Continue with unified account",
+    "Operator recovery login": "Operator recovery login",
+    "One account for hosting and API access. Balances, orders and API keys stay separate.": "One account for hosting and API access. Balances, orders and API keys stay separate.",
+    "Manage your unified account on the hosting site.": "Manage your unified account on the hosting site.",
+    "Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.": "Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.",
+    "Manage unified account": "Manage unified account",
+    "Hosting site": "Hosting site",
+    "API site": "API site",
+    "Verify unified account": "Verify unified account",
+    "Continue to API site": "Continue to API site",
+    "Verify and continue": "Verify and continue"
+  }
 }

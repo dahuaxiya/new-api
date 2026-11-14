@@ -7968,18 +7968,18 @@
     "Refunded": "返金済み",
     "Confirmed": "確認済み",
     "Pending review": "確認待ち",
-    "Reference": "参照"
-  },
-  "Unified account": "共通アカウント",
-  "Continue with unified account": "共通アカウントでログイン",
-  "Operator recovery login": "管理者用の復旧ログイン",
-  "One account for hosting and API access. Balances, orders and API keys stay separate.": "ホスティングと API に共通アカウントを使用します。残高、注文、API キーは各サイトで個別に管理されます。",
-  "Manage your unified account on the hosting site.": "ホスティングサイトで共通アカウントを管理してください。",
-  "Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.": "パスワード、メール、ログイン方法はホスティングサイトで管理します。このサイトの残高、注文、API キーは独立しています。",
-  "Manage unified account": "共通アカウントを管理",
-  "Hosting site": "ホスティングサイト",
-  "API site": "API サイト",
-  "Verify unified account": "共通アカウントを確認",
-  "Continue to API site": "API サイトへ進む",
-  "Verify and continue": "確認して続行"
+    "Reference": "参照",
+    "Unified account": "共通アカウント",
+    "Continue with unified account": "共通アカウントでログイン",
+    "Operator recovery login": "管理者用の復旧ログイン",
+    "One account for hosting and API access. Balances, orders and API keys stay separate.": "ホスティングと API に共通アカウントを使用します。残高、注文、API キーは各サイトで個別に管理されます。",
+    "Manage your unified account on the hosting site.": "ホスティングサイトで共通アカウントを管理してください。",
+    "Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.": "パスワード、メール、ログイン方法はホスティングサイトで管理します。このサイトの残高、注文、API キーは独立しています。",
+    "Manage unified account": "共通アカウントを管理",
+    "Hosting site": "ホスティングサイト",
+    "API site": "API サイト",
+    "Verify unified account": "共通アカウントを確認",
+    "Continue to API site": "API サイトへ進む",
+    "Verify and continue": "確認して続行"
+  }
 }
