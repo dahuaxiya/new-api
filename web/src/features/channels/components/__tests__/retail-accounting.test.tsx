@@ -7,8 +7,10 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react'
+import i18next from 'i18next'
 import { afterEach, expect, it, vi } from 'vitest'
 
+import zhResources from '@/i18n/locales/zh.json'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -224,4 +226,17 @@ it('clears the open ledger when the signed-in user changes', async () => {
   expect(
     screen.getByRole('button', { name: 'Retail accounting' })
   ).toBeInTheDocument()
+})
+
+/** 正式翻译包必须把账务文案放入 i18next 使用的命名空间。 */
+it('loads retail accounting text from the deployed Chinese translation namespace', async () => {
+  i18next.addResourceBundle('zhCN', 'translation', zhResources.translation)
+  try {
+    await i18next.changeLanguage('zhCN')
+    setup()
+    expect(screen.getByRole('button', { name: '中转账务' })).toBeTruthy()
+  } finally {
+    await i18next.changeLanguage('en')
+    i18next.removeResourceBundle('zhCN', 'translation')
+  }
 })

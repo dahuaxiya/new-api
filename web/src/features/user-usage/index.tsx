@@ -28,12 +28,14 @@ import { WindowReading } from '@/features/gpt-quota/quota-reading'
 import { quotaSchema } from '@/features/gpt-quota/schema'
 import { getUsers } from '@/features/users/api'
 import type { User } from '@/features/users/types'
+import { useStatus } from '@/hooks/use-status'
 import { toIntlLocale } from '@/i18n/languages'
 import { api } from '@/lib/api'
 import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatNumber } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 import { requireServerSuccess } from '@/lib/server-error-message'
+import { getSiteProfile } from '@/lib/site-profile'
 import { useAuthStore } from '@/stores/auth-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -80,6 +82,10 @@ function AdminUsagePage(props: {
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
+  const { status } = useStatus()
+  // 状态尚未返回时不访问专属接口；旧托管部署缺少 site_mode 仍沿用托管展示。
+  const showHostedQuota =
+    Boolean(status) && getSiteProfile(status?.site_mode).showHostedQuota
   const [page, setPage] = useState(1)
   const [period, setPeriod] = useState<Period>(() => ({
     days: 7,
@@ -176,11 +182,14 @@ function AdminUsagePage(props: {
     <>
       <p className='text-muted-foreground mb-4 text-sm leading-relaxed'>
         {t(
-          'Site usage only includes requests through New API. Saved summaries may lag behind usage logs. Official GPT quota also includes usage outside this site.'
-        )}{' '}
-        {t(
-          'Refresh display reads saved data; it does not probe every GPT account.'
+          showHostedQuota
+            ? 'Site usage only includes requests through New API. Saved summaries may lag behind usage logs. Official GPT quota also includes usage outside this site.'
+            : 'Site usage only includes requests through New API. Saved summaries may lag behind usage logs.'
         )}
+        {showHostedQuota &&
+          t(
+            'Refresh display reads saved data; it does not probe every GPT account.'
+          )}
       </p>
       {usage.isError && (
         <ErrorState
@@ -211,6 +220,7 @@ function AdminUsagePage(props: {
                 }
                 usageState={usageState}
                 prefix={prefix}
+                showHostedQuota={showHostedQuota}
                 start={start}
                 end={period.end}
               />
@@ -276,11 +286,12 @@ function AdminUsagePage(props: {
   )
 }
 
-/** Show site accounting and subscription windows separately; never infer missing quota. */
+/** 展示本站用量；仅托管模式读取和显示订阅额度，避免中转站轮询不提供的接口。 */
 function UserUsageCard(props: {
   user: User
   total?: UsageTotal
   usageState: 'loading' | 'error' | 'ready'
+  showHostedQuota: boolean
   prefix: (string | number | undefined)[]
   start: number
   end: number
@@ -298,7 +309,7 @@ function UserUsageCard(props: {
       })
       return quotaSchema.parse(requireServerSuccess(response.data).data)
     },
-    enabled: !deleted,
+    enabled: props.showHostedQuota && !deleted,
     staleTime: 15_000,
     refetchInterval: 30_000,
     gcTime: 0,
@@ -393,62 +404,66 @@ function UserUsageCard(props: {
             {t('Site usage summary unavailable')}
           </p>
         )}
-        <div className='space-y-3 border-t pt-3'>
-          <h3 className='text-sm font-medium'>{t('GPT subscription quota')}</h3>
-          {deleted ? (
-            <p className='text-muted-foreground text-sm'>{t('Deleted')}</p>
-          ) : (
-            <>
-              {quota.isPending && (
-                <LoadingState inline message={t('Loading GPT quota...')} />
-              )}
-              {quota.isError && (
-                <ErrorState
-                  className='min-h-0 py-2'
-                  title={t('GPT quota could not be loaded')}
-                  onRetry={() => void quota.refetch()}
-                />
-              )}
-              {!quota.isError && data && !data.bound && (
-                <p className='text-muted-foreground text-sm'>
-                  {t('No linked quota account')}
-                </p>
-              )}
-              {!quota.isError && data?.bound && (
-                <>
-                  {(data.stale || data.sync_status !== 'ok') && (
-                    <p
-                      role='status'
-                      className='text-xs text-amber-700 dark:text-amber-400'
-                    >
-                      {t(
-                        'GPT reading may be outdated; awaiting the next successful sync'
-                      )}
-                    </p>
-                  )}
-                  <div className='grid gap-3 sm:grid-cols-2'>
-                    {data.windows.map((window) => (
-                      <WindowReading
-                        key={window.id}
-                        window={window}
-                        now={Date.now()}
-                      />
-                    ))}
-                  </div>
-                  <p className='text-muted-foreground text-xs'>
-                    {t('GPT official reading: {{time}}', {
-                      time: data.observed_at
-                        ? new Date(data.observed_at).toLocaleString(locale, {
-                            timeZoneName: 'short',
-                          })
-                        : t('Not available'),
-                    })}
+        {props.showHostedQuota && (
+          <div className='space-y-3 border-t pt-3'>
+            <h3 className='text-sm font-medium'>
+              {t('GPT subscription quota')}
+            </h3>
+            {deleted ? (
+              <p className='text-muted-foreground text-sm'>{t('Deleted')}</p>
+            ) : (
+              <>
+                {quota.isPending && (
+                  <LoadingState inline message={t('Loading GPT quota...')} />
+                )}
+                {quota.isError && (
+                  <ErrorState
+                    className='min-h-0 py-2'
+                    title={t('GPT quota could not be loaded')}
+                    onRetry={() => void quota.refetch()}
+                  />
+                )}
+                {!quota.isError && data && !data.bound && (
+                  <p className='text-muted-foreground text-sm'>
+                    {t('No linked quota account')}
                   </p>
-                </>
-              )}
-            </>
-          )}
-        </div>
+                )}
+                {!quota.isError && data?.bound && (
+                  <>
+                    {(data.stale || data.sync_status !== 'ok') && (
+                      <p
+                        role='status'
+                        className='text-xs text-amber-700 dark:text-amber-400'
+                      >
+                        {t(
+                          'GPT reading may be outdated; awaiting the next successful sync'
+                        )}
+                      </p>
+                    )}
+                    <div className='grid gap-3 sm:grid-cols-2'>
+                      {data.windows.map((window) => (
+                        <WindowReading
+                          key={window.id}
+                          window={window}
+                          now={Date.now()}
+                        />
+                      ))}
+                    </div>
+                    <p className='text-muted-foreground text-xs'>
+                      {t('GPT official reading: {{time}}', {
+                        time: data.observed_at
+                          ? new Date(data.observed_at).toLocaleString(locale, {
+                              timeZoneName: 'short',
+                            })
+                          : t('Not available'),
+                      })}
+                    </p>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

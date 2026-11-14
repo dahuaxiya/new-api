@@ -70,7 +70,10 @@ const quota = {
 }
 
 beforeEach(() => {
-  client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  })
+  client.setQueryData(['status'], { site_mode: 'hosting' })
   useAuthStore.setState(useAuthStore.getInitialState(), true)
   useAuthStore.getState().auth.setUser({ id: 1, username: 'admin', role: 100 })
 })
@@ -225,4 +228,17 @@ it('renders the administrator page with the deployed Chinese translation bundle'
   expect(await screen.findByText('用户用量总览')).toBeTruthy()
   expect(await screen.findByText('剩余 40%')).toBeTruthy()
   expect(screen.getAllByText('站内余额')).toHaveLength(2)
+})
+
+/** 中转站只显示本站账务，不访问仅托管站提供的 GPT 额度接口。 */
+it('retail administrators see site usage without hosted quota requests', async () => {
+  client.setQueryData(['status'], { site_mode: 'retail' })
+  const get = mockAPI()
+  mount()
+  const alice = await screen.findByLabelText('Usage for Alice')
+  expect(within(alice).getByText('250')).toBeTruthy()
+  expect(screen.queryByText('GPT subscription quota')).toBeNull()
+  expect(
+    get.mock.calls.some(([url]) => url.startsWith('/api/gpt-quota/'))
+  ).toBe(false)
 })
