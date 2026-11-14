@@ -27,6 +27,7 @@ import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SiteSwitcher } from '@/features/auth/components/unified-account'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
@@ -63,7 +64,7 @@ export interface PublicHeaderProps {
 }
 
 /**
- * 公共页共享品牌和用户导航，自定义 Logo、站名和原有登录提示仍优先。
+ * 公共页共享品牌、两站入口和用户导航，自定义 Logo、站名和原有登录提示仍优先。
  * @param props 页面导航及可选品牌覆盖，不改变登录与返回首页行为。
  * @return 可随窗口宽度切换导航布局的公共页头。
  */
@@ -246,6 +247,9 @@ export function PublicHeader(props: PublicHeaderProps) {
                 )}
               </Link>
             </div>
+
+            {/* 登录前也保留服务入口；放在响应式分支之外，手机无需展开菜单即可进入账号托管。 */}
+            <SiteSwitcher />
 
             {/* Desktop nav */}
             <div className='hidden min-w-0 items-center gap-0.5 lg:flex'>

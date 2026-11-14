@@ -124,7 +124,7 @@ export function UnifiedAccountNotice({
   )
 }
 
-/** 两站入口由经过校验的服务端配置提供，切站不会传递会话 Token 或 API Key。 */
+/** 两站入口由服务端配置提供，公共页和控制台共用；切站不传递会话 Token 或 API Key。 */
 export function SiteSwitcher() {
   const { t } = useTranslation()
   const { status } = useStatus()
@@ -141,12 +141,7 @@ export function SiteSwitcher() {
       }
     >
       <ArrowLeftRight className='size-4' />
-      <span className='hidden sm:inline'>
-        {t(sso.consumer ? 'Hosting site' : 'API site')}
-      </span>
-      <span className='sr-only sm:hidden'>
-        {t(sso.consumer ? 'Hosting site' : 'API site')}
-      </span>
+      <span>{t(sso.consumer ? 'Account hosting' : 'API site')}</span>
     </Button>
   )
 }
