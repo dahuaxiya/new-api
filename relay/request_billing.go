@@ -49,6 +49,9 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.N
 			return types.NewError(errors.New(message), types.ErrorCodeSensitiveWordsDetected)
 		}
 	}
+	if handled, pricingErr := service.PrepareRetailPricing(c, info); handled {
+		return pricingErr
+	}
 
 	tokens, err := service.EstimateRequestToken(c, meta, info)
 	if err != nil {

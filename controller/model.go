@@ -286,7 +286,13 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 	for _, modelName := range models {
+		guardedPrice := false
 		if c.GetBool("retail_request") {
+			quote, err := model.RetailQuote(c.GetInt("id"), c.GetInt("token_id"), modelName, 1, retailIDs)
+			if err != nil {
+				continue
+			}
+			guardedPrice = quote != nil
 			allowed := false
 			for _, id := range retailIDs {
 				if model.IsChannelEnabledForGroupModel(groups.userGroup, modelName, id) {
@@ -304,7 +310,7 @@ func ListModels(c *gin.Context, modelType int) {
 				continue
 			}
 		}
-		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
+		if !guardedPrice && !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
 			continue
 		}
 		userModelNames = append(userModelNames, modelName)

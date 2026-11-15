@@ -1,0 +1,26 @@
+{
+  "enabled": true,
+  "wallet_cny_per_unit": "1",
+  "receipt_ratio": "1",
+  "margin_bps": 2000,
+  "fee_bps": 0,
+  "buffer_bps": 0,
+  "models": [
+    {
+      "id": "gpt-4o",
+      "official_model": "test-model-only",
+      "currency": "USD",
+      "source": "https://example.com/test-tariff",
+      "verified_at": 1,
+      "valid_until": 86401,
+      "max_output": 4096,
+      "tiers": [
+        {"up_to": 1000, "prices": {"input":"10","output":"20","cache_read":"1","cache_write":"12.5","cache_write_1h":"20"}}
+      ]
+    }
+  ],
+  "products": [
+    {"id":"standard","name":"Test product","user_groups":["default"],"routes":[{"channel_id":101,"rate_id":"supplier/standard","models":{"gpt-4o":"gpt-4o"}}]}
+  ],
+  "rates": [{"id":"supplier/standard","multiplier":"0.24","verified_at":1,"valid_until":3601}]
+}

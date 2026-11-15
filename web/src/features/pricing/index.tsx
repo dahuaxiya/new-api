@@ -32,10 +32,12 @@ import {
   ModelCardGrid,
   ModelDetailsDrawer,
 } from './components'
+import { RetailProductPricing } from './components/retail-product-pricing'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
 import { usePricingData } from './hooks/use-pricing-data'
 
+/** Select the server's pricing contract before displaying prices in the model catalog. */
 export function Pricing() {
   const { t } = useTranslation()
   const [selectedModelName, setSelectedModelName] = useState<string | null>(
@@ -43,6 +45,7 @@ export function Pricing() {
   )
 
   const {
+    retailPricingConfigured,
     models,
     vendors,
     groupRatio,
@@ -147,6 +150,8 @@ export function Pricing() {
       />
     )
   }
+
+  if (retailPricingConfigured) return <RetailProductPricing />
 
   if (isLoading) {
     return (

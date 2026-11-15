@@ -23,6 +23,9 @@ func DecideRelayRetry(c *gin.Context, err *types.NewAPIError, retryTimes int) Po
 		return PolicyDecision{Action: "stop", Reason: "request_completed", Source: "system"}
 	}
 	if c.GetBool("retail_request") {
+		if c.GetBool("retail_price_guard") {
+			return PolicyDecision{Action: "stop", Reason: "retail_unknown_attempt_cost", Source: "retail"}
+		}
 		// 零输出仍可能已经执行。首期仅对明确限流重试一次；超时及 5xx 留待核对。
 		if c.Writer.Written() || c.Request.Context().Err() != nil || len(c.GetStringSlice("use_channel")) >= 2 || err.StatusCode != http.StatusTooManyRequests {
 			return PolicyDecision{Action: "stop", Reason: "retail_retry_safety", Source: "retail"}

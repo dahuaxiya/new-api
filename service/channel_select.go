@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 )
@@ -283,9 +284,15 @@ type ChannelSelectError struct {
 // eligible channel; every candidate must satisfy the request's channel
 // filters. The group the channel was chosen from is returned for auto-group
 // callers. The caller still applies SetupContextForSelectedChannel.
+// Retail price failures keep stable codes so clients can distinguish a price pause from missing supply.
 func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam) (*model.Channel, string, *ChannelSelectError) {
 	constraints := GetChannelConstraints(c)
 	if err := ApplyRetailRouting(c, retry); err != nil {
+		for _, known := range []error{retailprice.ErrCap, retailprice.ErrBudget, retailprice.ErrExpired, retailprice.ErrAccess, retailprice.ErrConfig} {
+			if errors.Is(err, known) {
+				return nil, "", &ChannelSelectError{StatusCode: http.StatusForbidden, Code: types.ErrorCode(known.Error()), Message: known.Error()}
+			}
+		}
 		return nil, "", &ChannelSelectError{StatusCode: http.StatusForbidden, Message: i18n.T(c, i18n.MsgRetailUnavailable)}
 	}
 	// Responses WebSocket 在每条消息中直接调用这里，不经过 Distribute。

@@ -253,6 +253,16 @@ export function DataTableRowActions<TData>({
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        {apiKey.service_mode === 'retail' && (
+          <DropdownMenuItem
+            onClick={() => {
+              setCurrentRow(apiKey)
+              setOpen('price-limits')
+            }}
+          >
+            {t('API key price limits')}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           onClick={async () => {
             const realKey = await resolveRealKey(apiKey.id)

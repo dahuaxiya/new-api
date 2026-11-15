@@ -464,8 +464,17 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	retailBillingState := "settled"
+	var retailPriceErr error
+	if relayInfo.RetailQuote != nil {
+		// The legacy summary only supplies usage/log metadata; never add its USD surcharges to a CNY quote.
+		summary.Quota, retailPriceErr = SettleRetailTextPrice(ctx, relayInfo, originUsage, summary.IsClaudeUsageSemantic)
+	}
 	calculatedQuota := summary.Quota
-	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
+	settlementErr := retailPriceErr
+	if settlementErr == nil {
+		settlementErr = SettleBilling(ctx, relayInfo, summary.Quota)
+	}
+	if err := settlementErr; err != nil {
 		logger.LogError(ctx, common.LogText("error settling billing: %s", err.Error()))
 		if ctx.GetBool("retail_request") {
 			// 预留仍在账本里，不能把计算价记成已结算收入；页面标记待核对，管理员看原计算额。
@@ -504,6 +513,15 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if ctx.GetBool("retail_request") {
 		other.SetPublic("retail_billing_status", retailBillingState)
 		other.SetAdmin("retail_calculated_quota", calculatedQuota)
+		if relayInfo.RetailQuote != nil {
+			other.SetPublic("retail_currency", "CNY")
+			other.SetPublic("retail_price_version", relayInfo.RetailQuote.Version)
+			other.SetPublic("retail_product", relayInfo.RetailQuote.ProductID)
+			other.SetPublic("retail_sale_prices", relayInfo.RetailQuote.Sale)
+			if settlementErr == nil {
+				other.SetPublic("retail_actual_cny", ctx.GetString("retail_actual_cny"))
+			}
+		}
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
 	if adminRejectReason != "" {

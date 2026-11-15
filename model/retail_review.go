@@ -15,7 +15,16 @@ func RefundStaleRetailCharge(id string, actorID, expectedReserved int, reason st
 		return ErrRetailSettlement
 	}
 	userID, tokenID := 0, 0
+	var pricing RetailCharge
+	if err := DB.Select("pricing_version").First(&pricing, "id = ?", id).Error; err != nil {
+		return err
+	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if pricing.PricingVersion > 0 {
+			if _, err := lockRetailPriceState(tx); err != nil {
+				return err
+			}
+		}
 		var charge RetailCharge
 		if err := lockForUpdate(tx).First(&charge, "id = ?", id).Error; err != nil {
 			return err
@@ -28,6 +37,11 @@ func RefundStaleRetailCharge(id string, actorID, expectedReserved int, reason st
 		}
 		if err := applyRetailDelta(tx, charge.UserID, charge.TokenID, -charge.Reserved); err != nil {
 			return err
+		}
+		if charge.PricingVersion > 0 {
+			if _, err := settleRetailPriceBudget(tx, charge, 0); err != nil {
+				return err
+			}
 		}
 		userID, tokenID = charge.UserID, charge.TokenID
 		return tx.Model(&charge).Updates(map[string]any{"status": "refunded", "actual": 0, "reviewed_by": actorID, "review_reason": reason, "updated_at": time.Now().Unix()}).Error

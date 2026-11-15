@@ -24,6 +24,7 @@ import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { getPricing } from '../api'
 
+/** Load legacy tariffs or the explicit retail-catalog marker; never reinterpret USD ratios as CNY. */
 export function usePricingData(enabled = true) {
   const { status } = useStatus()
 
@@ -65,6 +66,7 @@ export function usePricingData(enabled = true) {
   }, [data])
 
   return {
+    retailPricingConfigured: data?.retail_pricing_configured === true,
     models,
     vendors: data?.vendors ?? [],
     groupRatio: data?.group_ratio ?? {},

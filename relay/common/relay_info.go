@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/retailprice"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
@@ -164,7 +165,8 @@ type RelayInfo struct {
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
 
-	PriceData hosttypes.PriceData
+	PriceData   hosttypes.PriceData
+	RetailQuote *retailprice.Quote // CNY quote is independent of legacy USD expressions and survives retries.
 
 	// QuotaClamp is set (non-nil) when a quota conversion saturated at the
 	// supported single-request bound (or NaN fallback) while computing this request's charge.

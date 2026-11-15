@@ -47,6 +47,14 @@ func ApplyRetailRouting(c *gin.Context, retry *RetryParam) error {
 	if err != nil || len(ids) == 0 {
 		return retail_setting.ErrUnavailable
 	}
+	// Product authorization and current prices narrow the pre-existing public supply allowlist.
+	quote, err := model.RetailQuote(c.GetInt("id"), c.GetInt("token_id"), retry.ModelName, 1, ids)
+	if err != nil {
+		return err
+	}
+	if quote != nil {
+		ids = quote.Channels
+	}
 	constraints.AddFilter(dto.ChannelFilter{Kind: dto.FilterRetailSupply, AllowedChannelIDs: ids})
 	retry.TokenGroup = group
 	common.SetContextKey(c, constant.ContextKeyUsingGroup, group)

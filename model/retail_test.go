@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -147,6 +150,124 @@ func TestRetailDatabases(t *testing.T) {
 			require.NoError(t, migrateDB())
 			require.NoError(t, db.First(&user, user.Id).Error)
 			require.Equal(t, 1200, user.Quota)
+		})
+	}
+}
+
+// TestRetailPricingDatabases verifies upgrade, CNY/USD rules, quote freezing and atomic budgets on real engines.
+func TestRetailPricingDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := useVM2APIEnrollmentDatabase(t, dialect)
+			require.NoError(t, migrateDB())
+			// Reconstruct the latest release's charge columns, keep a real legacy reservation, then upgrade twice.
+			user := User{Username: "price-user", AffCode: "price", Group: "default", Status: 1, Quota: 1000000}
+			require.NoError(t, db.Create(&user).Error)
+			token := Token{UserId: user.Id, Key: "price-key", ServiceMode: "retail", Status: 1, ExpiredTime: -1, RemainQuota: 1000000}
+			require.NoError(t, db.Create(&token).Error)
+			require.NoError(t, ReserveRetailCharge("legacy-before-upgrade", user.Id, token.Id, 50, "{}"))
+			for _, field := range []string{"pricing_version", "wallet_cny_per_unit", "reserved_cny", "actual_cny", "budget_id"} {
+				require.NoError(t, db.Migrator().DropColumn(&RetailCharge{}, field))
+			}
+			require.NoError(t, db.Migrator().DropTable(&RetailPriceState{}, &RetailPriceVersion{}, &RetailKeyPricePolicy{}, &RetailPriceBudget{}))
+			require.NoError(t, migrateDB())
+			require.NoError(t, migrateDB())
+			require.NoError(t, ChangeRetailCharge("legacy-before-upgrade", user.Id, token.Id, 0, "refunded"))
+			require.Error(t, db.Create(&Token{Key: token.Key}).Error)
+			cfg := filepath.Join(t.TempDir(), "retail.json")
+			require.NoError(t, os.WriteFile(cfg, []byte(`{"enabled":true,"group":"retail","supplies":[{"channel_id":101,"kind":"reseller"}]}`), 0600))
+			t.Setenv("RETAIL_RELAY_CONFIG", cfg)
+			raw, err := os.ReadFile("../pkg/retailprice/testdata/book.json")
+			require.NoError(t, err)
+			var book retailprice.Book
+			require.NoError(t, common.Unmarshal(raw, &book))
+			now := time.Now().Unix()
+			book.Models[0].VerifiedAt, book.Models[0].ValidUntil = now, now+86400
+			book.Rates[0].VerifiedAt, book.Rates[0].ValidUntil = now, now+3600
+			version, err := PublishRetailPriceBook(0, book, nil, 1)
+			require.NoError(t, err)
+			assert.Equal(t, int64(1), version)
+			_, err = PublishRetailPriceBook(0, book, nil, 1)
+			require.ErrorIs(t, err, ErrRetailPriceConflict)
+			policy := retailprice.KeyPolicy{ProductID: "standard", AcceptFloating: true, Caps: map[string]retailprice.Prices{"gpt-4o": {Input: "4.5", Output: "9", CacheRead: ".45", CacheWrite: "5.625", CacheWrite1h: "9"}}, MaxRequestCNY: "1", DailyBudgetCNY: "1"}
+			// Decimal strings have one canonical syntax; shorthand and exponent forms are rejected.
+			require.Error(t, policy.Validate())
+			cap := policy.Caps["gpt-4o"]
+			cap.CacheRead = "0.45"
+			policy.Caps["gpt-4o"] = cap
+			require.Error(t, PutRetailKeyPolicy(user.Id+1, token.Id, 0, policy))
+			require.NoError(t, PutRetailKeyPolicy(user.Id, token.Id, 0, policy))
+			quote, err := RetailQuote(user.Id, token.Id, "gpt-4o", 20, []int{101})
+			require.NoError(t, err)
+			require.NotNil(t, quote)
+			assert.Equal(t, "3", quote.Sale[0].Prices.Input)
+			assert.Equal(t, "6", quote.Sale[0].Prices.Output)
+			amount, err := quote.Charge(100, [5]int{100, 10, 0, 0, 0})
+			require.NoError(t, err)
+			assert.Equal(t, "0.00036", amount.String())
+			cnyBook := book
+			cnyBook.Models = append([]retailprice.Model(nil), book.Models...)
+			cnyBook.Models[0].Currency = "CNY"
+			cnyQuote, err := cnyBook.MakeQuote(1, "default", policy, "gpt-4o", 20, []int{101}, now)
+			require.NoError(t, err)
+			assert.Equal(t, quote.Sale, cnyQuote.Sale, "CNY must not pass through an FX conversion")
+			giftBook := book
+			giftBook.ReceiptRatio = "0.9"
+			giftBook.FeeBPS = 60
+			factor, err := giftBook.SaleFactor("0.24")
+			require.NoError(t, err)
+			assert.True(t, factor.GreaterThan(decimal.RequireFromString("0.3")))
+			_, err = quote.Charge(1001, [5]int{1001, 0, 0, 0, 0})
+			require.Error(t, err)
+			_, err = ReservePricedRetailCharge("frozen-quote", user.Id, token.Id, quote)
+			require.NoError(t, err)
+			rates := append([]retailprice.Rate(nil), book.Rates...)
+			rates[0].Multiplier = "0.4"
+			version, err = PublishRetailPriceBook(1, retailprice.Book{}, rates, 1)
+			require.NoError(t, err)
+			_, err = RetailQuote(user.Id, token.Id, "gpt-4o", 20, []int{101})
+			require.ErrorIs(t, err, retailprice.ErrCap)
+			quota, _, err := RetailCNYQuota(amount, quote.WalletCNYPerUnit)
+			require.NoError(t, err)
+			require.NoError(t, ChangeRetailCharge("frozen-quote", user.Id, token.Id, quota, "settled"))
+			require.NoError(t, ChangeRetailCharge("frozen-quote", user.Id, token.Id, quota, "settled"))
+			var charge RetailCharge
+			require.NoError(t, db.First(&charge, "id = ?", "frozen-quote").Error)
+			assert.Equal(t, "0.00036", charge.ActualCNY)
+			version, err = PublishRetailPriceBook(version, book, nil, 1)
+			require.NoError(t, err)
+			policy.DailyBudgetCNY = "0.03"
+			require.NoError(t, PutRetailKeyPolicy(user.Id, token.Id, 1, policy))
+			var wg sync.WaitGroup
+			results := make(chan string, 2)
+			for _, id := range []string{"budget-a", "budget-b"} {
+				wg.Go(func() {
+					q, e := RetailQuote(user.Id, token.Id, "gpt-4o", 20, []int{101})
+					if e == nil {
+						if _, e = ReservePricedRetailCharge(id, user.Id, token.Id, q); e == nil {
+							results <- id
+						}
+					}
+				})
+			}
+			wg.Wait()
+			close(results)
+			winners := []string{}
+			for id := range results {
+				winners = append(winners, id)
+			}
+			require.Len(t, winners, 1)
+			require.NoError(t, ChangeRetailCharge(winners[0], user.Id, token.Id, 0, "refunded"))
+			require.NoError(t, ChangeRetailCharge(winners[0], user.Id, token.Id, 0, "refunded"))
+			book.Enabled = false
+			_, err = PublishRetailPriceBook(version, book, nil, 1)
+			require.NoError(t, err)
+			_, err = RetailQuote(user.Id, token.Id, "gpt-4o", 20, []int{101})
+			require.Error(t, err, "pause must not fall back to legacy pricing")
+			require.NoError(t, migrateDB())
+			var versions int64
+			require.NoError(t, db.Model(&RetailPriceVersion{}).Count(&versions).Error)
+			assert.Equal(t, int64(4), versions)
 		})
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/retailprice"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/types"
@@ -1090,5 +1091,49 @@ func TestSamePriceCacheReadsRemainInInput(t *testing.T) {
 			assert.Equal(t, previousCost, cost, "folding cache reads into input must preserve the charge")
 			assert.Equal(t, separateParams.Len, params.Len, "tier conditions keep the full context length")
 		})
+	}
+}
+
+// TestRetailTextContract rejects unbounded billing paths while accepting ordinary text/function tools.
+func TestRetailTextContract(t *testing.T) {
+	for _, body := range []string{
+		`{"messages":[{"role":"user","content":"hello"}],"n":1}`,
+		`{"tools":[{"type":"function","function":{"name":"example","parameters":{"type":"object","properties":{"image":{"type":"string"}}}}}]}`,
+		`{"tools":[{"name":"example","input_schema":{"type":"object"}}]}`,
+	} {
+		require.NoError(t, validateRetailTextBody([]byte(body)), body)
+	}
+	for _, body := range []string{
+		`{"n":1.5}`, `{"n":"1"}`, `{"n":1,"n":2}`, `[]`,
+		`{"messages":[{"content":[{"type":"text","type":"image_url"}]}]}`,
+		`{"messages":[{"content":[{"type":"image_url","image_url":{"url":"https://example.com/image"}}]}]}`,
+		`{"input":[{"type":"function_call_output","output":[{"type":"input_image","image_url":"https://example.com/image"}]}]}`,
+		`{"system":[{"type":"document","source":{"type":"base64","data":"fake"}}]}`,
+		`{"tools":[{"type":"web_search"}]}`, `{"service_tier":"priority"}`,
+		`{"previous_response_id":"old"}`, `{"parameters":{"n":8}}`,
+	} {
+		require.ErrorIs(t, validateRetailTextBody([]byte(body)), retailprice.ErrConfig, body)
+	}
+}
+
+// TestRetailUsageRejectsNegativeCounters prevents legacy zero-clamping from hiding invalid upstream usage.
+func TestRetailUsageRejectsNegativeCounters(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{RetailQuote: &retailprice.Quote{
+		Sale:        []retailprice.Tier{{UpTo: 1000, Prices: retailprice.Prices{Input: "1", Output: "1", CacheRead: "1", CacheWrite: "1", CacheWrite1h: "1"}}},
+		OutputLimit: 20, WalletCNYPerUnit: "1", ReservedCNY: "1",
+	}}
+	_, err := SettleRetailTextPrice(c, info, &dto.Usage{PromptTokens: 10, CompletionTokens: 2}, false)
+	require.NoError(t, err)
+	for _, usage := range []*dto.Usage{
+		{PromptTokens: 10, CompletionTokens: -2},
+		{PromptTokens: 10, CompletionTokens: 2, PromptTokensDetails: dto.InputTokenDetails{CacheWriteTokens: -1}},
+		{PromptTokens: 10, CompletionTokens: 2, PromptTokensDetails: dto.InputTokenDetails{AudioTokens: 1}},
+		{PromptTokens: 10, CompletionTokens: 2, InputTokens: -1},
+		{PromptTokens: 10, CompletionTokens: 2, BillingUsage: dto.NewOpenAIResponsesBillingUsage(&dto.Usage{InputTokens: -1, OutputTokens: 2})},
+		{PromptTokens: 10, CompletionTokens: 2, BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{InputTokens: 10, OutputTokens: 2, ServerToolUse: &dto.ClaudeServerToolUse{WebSearchRequests: 1}})},
+	} {
+		_, err := SettleRetailTextPrice(c, info, usage, false)
+		require.ErrorIs(t, err, retailprice.ErrUsage)
 	}
 }

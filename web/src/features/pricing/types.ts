@@ -122,6 +122,7 @@ export type ModelCapability =
   | 'embeddings'
 
 export type PricingData = {
+  retail_pricing_configured?: boolean
   success: boolean
   message?: string
   data: PricingModel[]

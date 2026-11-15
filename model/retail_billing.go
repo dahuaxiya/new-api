@@ -13,17 +13,22 @@ var ErrRetailSettlement = common.NewMessage("Retail settlement requires review")
 // RetailCharge 是钱包和 Key 同事务的持久化凭据；进程退出后保留预留，供管理员核对。
 // 请求 ID 由服务器生成，只用于防重复结算，不承诺客户端请求重放去重。
 type RetailCharge struct {
-	ReviewedBy    int    `json:"reviewed_by"`
-	ReviewReason  string `json:"review_reason" gorm:"type:text"`
-	ID            string `json:"id" gorm:"primaryKey;type:varchar(80)"`
-	UserID        int    `json:"user_id" gorm:"index"`
-	TokenID       int    `json:"token_id"`
-	Reserved      int    `json:"reserved"`
-	Actual        int    `json:"actual"`
-	Status        string `json:"status" gorm:"type:varchar(24);index"`
-	PriceSnapshot string `json:"-" gorm:"type:text"`
-	CreatedAt     int64  `json:"created_at" gorm:"index"`
-	UpdatedAt     int64  `json:"updated_at"`
+	PricingVersion   int64  `json:"pricing_version"`
+	WalletCNYPerUnit string `json:"wallet_cny_per_unit" gorm:"type:varchar(40)"`
+	ReservedCNY      string `json:"reserved_cny" gorm:"type:varchar(40)"`
+	ActualCNY        string `json:"actual_cny" gorm:"type:varchar(40)"`
+	BudgetID         string `json:"-" gorm:"type:varchar(64)"`
+	ReviewedBy       int    `json:"reviewed_by"`
+	ReviewReason     string `json:"review_reason" gorm:"type:text"`
+	ID               string `json:"id" gorm:"primaryKey;type:varchar(80)"`
+	UserID           int    `json:"user_id" gorm:"index"`
+	TokenID          int    `json:"token_id"`
+	Reserved         int    `json:"reserved"`
+	Actual           int    `json:"actual"`
+	Status           string `json:"status" gorm:"type:varchar(24);index"`
+	PriceSnapshot    string `json:"-" gorm:"type:text"`
+	CreatedAt        int64  `json:"created_at" gorm:"index"`
+	UpdatedAt        int64  `json:"updated_at"`
 }
 
 // ReserveRetailCharge 同时检查并预留钱包及 Key 额度，任何一步失败均回滚。
@@ -82,7 +87,16 @@ func ChangeRetailCharge(id string, userID, tokenID, target int, finalStatus stri
 	if target < 0 || target > common.MaxWalletQuota || (finalStatus != "" && finalStatus != "settled" && finalStatus != "refunded") || finalStatus == "refunded" && target != 0 {
 		return ErrRetailSettlement
 	}
+	var pricing RetailCharge
+	if err := DB.Select("pricing_version").First(&pricing, "id = ? AND user_id = ? AND token_id = ?", id, userID, tokenID).Error; err != nil {
+		return err
+	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if pricing.PricingVersion > 0 {
+			if _, err := lockRetailPriceState(tx); err != nil {
+				return err
+			}
+		}
 		var charge RetailCharge
 		if err := lockForUpdate(tx).First(&charge, "id = ? AND user_id = ? AND token_id = ?", id, userID, tokenID).Error; err != nil {
 			return err
@@ -96,6 +110,18 @@ func ChangeRetailCharge(id string, userID, tokenID, target int, finalStatus stri
 		if finalStatus == "" && target <= charge.Reserved {
 			return nil
 		}
+		actualCNY := ""
+		if charge.PricingVersion > 0 {
+			// A frozen quote never silently expands its monetary reservation after execution.
+			if finalStatus == "" {
+				return ErrRetailSettlement
+			}
+			var err error
+			actualCNY, err = settleRetailPriceBudget(tx, charge, target)
+			if err != nil {
+				return err
+			}
+		}
 		if err := applyRetailDelta(tx, userID, tokenID, target-charge.Reserved); err != nil {
 			return err
 		}
@@ -105,6 +131,9 @@ func ChangeRetailCharge(id string, userID, tokenID, target int, finalStatus stri
 		} else {
 			updates["status"] = finalStatus
 			updates["actual"] = target
+			if charge.PricingVersion > 0 {
+				updates["actual_cny"] = actualCNY
+			}
 		}
 		return tx.Model(&charge).Updates(updates).Error
 	})

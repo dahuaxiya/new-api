@@ -112,6 +112,7 @@ export interface TokenAutoGroupsConfig {
 // ============================================================================
 
 export type ApiKeysDialogType =
+  | 'price-limits'
   | 'create'
   | 'update'
   | 'delete'

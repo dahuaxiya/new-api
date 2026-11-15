@@ -84,6 +84,20 @@ func pricingHostingModels(userID int) (map[string]map[string]bool, bool, error) 
 // GetPricing 按登录身份返回模型价格；管理员可查看全站，普通用户只看到自身可用的模型和分组。
 // 本接口只决定展示范围，不改变令牌权限、托管绑定或实际请求路由。
 func GetPricing(c *gin.Context) {
+	if common.IsRetailSite() {
+		_, version, err := model.GetRetailPriceBook()
+		if err != nil {
+			common.ApiError(c, common.NewMessage("Unable to load retail pricing"))
+			return
+		}
+		if version > 0 {
+			// A CNY contract cannot be advertised through legacy USD ratios. The
+			// authenticated catalog returns each user's authorized selling prices.
+			c.Header("Cache-Control", "no-store")
+			c.JSON(200, gin.H{"success": true, "retail_pricing_configured": true, "data": []model.Pricing{}, "vendors": []any{}})
+			return
+		}
+	}
 	pricing := model.GetPricing()
 	userID := c.GetInt("id")
 	var group string
