@@ -17,23 +17,29 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
 
 import { BrandArtwork } from '@/components/layout/components/brand-artwork'
 import { Footer } from '@/components/layout/components/footer'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { isLuobocodeBrand } from '@/lib/luobocode-brand'
+import { cn } from '@/lib/utils'
 
 type AuthLayoutProps = {
   children: React.ReactNode
 }
 
 /**
- * 登录页面保留独立表单布局，并向未登录用户展示同一源码与许可证入口。
+ * 两站登录页复用品牌插画与表单容器，窄屏优先展示原有登录操作。
+ * 仅调整布局，不改变登录、找回及跨站身份流程。
  * @param children 登录或找回账号的表单内容。
  * @return 正文可自然增高、页脚不覆盖表单操作的登录页面。
  */
 export function AuthLayout({ children }: AuthLayoutProps) {
   const { systemName, logo, loading } = useSystemConfig()
+  const { t } = useTranslation()
+  const branded = isLuobocodeBrand(systemName)
 
   return (
     <div className='relative grid min-h-svh max-w-none grid-rows-[1fr_auto]'>
@@ -49,8 +55,40 @@ export function AuthLayout({ children }: AuthLayoutProps) {
           </h1>
         )}
       </Link>
-      <div className='container flex items-center pt-16 sm:pt-0'>
-        <div className='mx-auto flex w-full flex-col justify-center space-y-2 px-4 py-8 sm:w-[480px] sm:p-8'>
+      <div
+        className={cn(
+          'container flex items-center pt-20 pb-8 sm:pt-24',
+          branded && 'max-w-6xl lg:grid lg:grid-cols-2 lg:gap-20'
+        )}
+      >
+        {branded && (
+          <aside
+            className='luobo-auth-art hidden overflow-hidden rounded-3xl border lg:block'
+            aria-hidden='true'
+          >
+            <div className='px-9 pt-10'>
+              <p className='luobo-eyebrow mb-5'>LUOBO / CONNECTIONS</p>
+              <p className='font-serif text-4xl leading-tight tracking-tight'>
+                {t('Connect to models.')}
+                <br />
+                <span className='luobo-accent'>
+                  {t('Make room for ideas.')}
+                </span>
+              </p>
+            </div>
+            <img
+              src='/brand/luobocode-connection-768.webp'
+              width={768}
+              height={512}
+              alt=''
+              className='w-full'
+            />
+            <p className='px-9 pb-8 text-sm leading-6'>
+              {t('Use one sign-in for API access and account hosting.')}
+            </p>
+          </aside>
+        )}
+        <div className='luobo-auth-form mx-auto flex w-full max-w-[480px] flex-col justify-center space-y-2 px-4 py-8 sm:p-8'>
           {children}
         </div>
       </div>

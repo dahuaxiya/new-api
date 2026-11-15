@@ -1,0 +1,300 @@
+/* A shared paper-and-ink palette for the two luobocode portals. The class is
+   enabled only for the built-in brand, so custom installations keep their theme. */
+.luobo-shell:not([data-theme-preset]) {
+  --background: #faf8f4;
+  --foreground: #292923;
+  --card: #fffefa;
+  --card-foreground: #292923;
+  --popover: #fffefa;
+  --popover-foreground: #292923;
+  --chart-1: #b55a36;
+  --chart-2: #65775c;
+  --chart-3: #aa884c;
+  --overview-accent-1: #b55a36;
+  --overview-accent-2: #65775c;
+  --overview-accent-3: #aa884c;
+  --primary: #a8411b;
+  --primary-foreground: #fffaf5;
+  --secondary: #ede9e0;
+  --secondary-foreground: #38372e;
+  --muted: #f0ede6;
+  --muted-foreground: #67655c;
+  --accent: #eee9df;
+  --accent-foreground: #292923;
+  --border: #e3dfd5;
+  --input: #ded9ce;
+  --ring: #b7542c;
+  --sidebar: #f3f0e9;
+  --sidebar-foreground: #434139;
+  --sidebar-accent: #eae4d9;
+  --sidebar-accent-foreground: #823719;
+  --sidebar-border: #e3dfd5;
+  --luobo-orange: #ad4825;
+  --luobo-paper: #efe8db;
+}
+.dark .luobo-shell:not([data-theme-preset]) {
+  --background: #1d1e1b;
+  --foreground: #eeece4;
+  --card: #252622;
+  --card-foreground: #eeece4;
+  --popover: #252622;
+  --popover-foreground: #eeece4;
+  --chart-1: #e39b6d;
+  --chart-2: #9dad89;
+  --chart-3: #cbb17c;
+  --overview-accent-1: #e39b6d;
+  --overview-accent-2: #9dad89;
+  --overview-accent-3: #cbb17c;
+  --primary: #e39b6d;
+  --primary-foreground: #241a12;
+  --secondary: #33352f;
+  --secondary-foreground: #eeece4;
+  --muted: #2a2c26;
+  --muted-foreground: #aaa99e;
+  --accent: #33352f;
+  --accent-foreground: #eeece4;
+  --border: #3a3c34;
+  --input: #42443b;
+  --ring: #e39b6d;
+  --sidebar: #20211d;
+  --sidebar-foreground: #d8d6cb;
+  --sidebar-accent: #35362d;
+  --sidebar-accent-foreground: #efb591;
+  --sidebar-border: #3a3c34;
+  --luobo-orange: #e8a477;
+  --luobo-paper: #2b2d25;
+}
+/* Document scope includes body portals (menus, dialogs, mobile sidebar).
+   Explicit user palette, radius and font choices still take precedence. */
+.luobo-shell:not([data-theme-preset]):not([data-theme-radius]) {
+  --radius: 0.625rem;
+}
+.luobo-shell[data-theme-font='system'] {
+  font-family:
+    'Public Sans Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+.luobo-shell .workspace-sidebar-container,
+.luobo-shell .workspace-sidebar {
+  --sidebar: inherit;
+  --sidebar-foreground: inherit;
+  --sidebar-accent: inherit;
+  --sidebar-accent-foreground: inherit;
+  --sidebar-border: inherit;
+  --sidebar-ring: var(--ring);
+  --muted: inherit;
+}
+.luobo-shell ::selection {
+  background: #e9b48c66;
+}
+.luobo-accent {
+  color: var(--luobo-orange, var(--primary));
+}
+.luobo-display {
+  font-family: var(--font-serif);
+  font-weight: 500;
+}
+.luobo-eyebrow {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.luobo-orange-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--luobo-orange, var(--primary));
+}
+.luobo-primary {
+  box-shadow: 0 4px 12px #6e341516;
+}
+.luobo-art {
+  background: #f2e5d3;
+  color: #6a5b49;
+  border: 1px solid #d2b99550;
+  box-shadow: 0 18px 60px -40px #61472366;
+  transform: rotate(1deg);
+}
+.luobo-art img {
+  mix-blend-mode: multiply;
+}
+.luobo-principles > div + div {
+  border-top: 1px solid var(--border);
+}
+.luobo-model-card {
+  background: var(--card);
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease;
+}
+.luobo-model-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--luobo-orange, var(--primary));
+}
+.luobo-model-icon,
+.luobo-step {
+  background: var(--luobo-paper, var(--muted));
+  color: var(--luobo-orange, var(--primary));
+}
+.luobo-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+  transition: color 0.2s;
+}
+.luobo-text-link:hover {
+  color: var(--luobo-orange, var(--primary));
+}
+.luobo-text-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 5px;
+}
+.luobo-code {
+  background: #252924;
+  color: #e4e5d9;
+  box-shadow: 0 15px 35px -25px #141b2444;
+}
+/* This panel deliberately stays ink-colored in both themes. Tab tokens must
+   follow the panel, including active and keyboard-focus states. */
+.luobo-code [data-slot='tabs-trigger'] {
+  color: #a6afa1;
+}
+.luobo-code [data-slot='tabs-trigger'][data-active] {
+  color: #f3c29c;
+}
+.luobo-code [data-slot='tabs-trigger']::after {
+  background: #f3c29c;
+}
+.luobo-hosting-callout {
+  background: var(--luobo-paper, var(--muted));
+}
+.luobo-shell .luobo-public-nav {
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--background) 94%, transparent);
+  backdrop-filter: blur(16px);
+}
+.luobo-shell .luobo-workspace {
+  background: var(--background);
+}
+.luobo-shell .luobo-workspace > div:first-child {
+  padding: 26px 28px 18px;
+}
+.luobo-shell .luobo-workspace > div:first-child h2 {
+  font-family: var(--font-serif);
+  font-size: 30px;
+  font-weight: 500;
+}
+.luobo-shell .luobo-workspace > div:nth-child(2) {
+  padding-inline: 28px;
+}
+.luobo-workspace-intro {
+  background: var(--luobo-paper, var(--muted));
+  border: 1px solid var(--border);
+}
+.luobo-shell .luobo-metrics > [data-slot='card'] {
+  border-radius: 16px;
+  box-shadow: 0 3px 14px -10px #312b2920;
+}
+.luobo-shell .luobo-metrics [data-slot='card-content'] {
+  padding: 22px;
+}
+.luobo-shell [data-slot='sidebar-menu-button'][data-active='true'] {
+  box-shadow: inset 2px 0 var(--luobo-orange);
+}
+.luobo-reveal {
+  animation: luobo-arrive 0.7s cubic-bezier(0.2, 0.65, 0.3, 1) both;
+}
+.luobo-art.luobo-reveal {
+  animation-delay: 0.12s;
+}
+@keyframes luobo-arrive {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@media (min-width: 768px) {
+  .luobo-principles > div + div {
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
+}
+@media (max-width: 639px) {
+  .luobo-art {
+    transform: none;
+  }
+  .luobo-shell .luobo-workspace > div:first-child {
+    padding: 18px 16px 14px;
+  }
+  .luobo-shell .luobo-workspace > div:first-child h2 {
+    font-size: 24px;
+  }
+  .luobo-shell .luobo-workspace > div:nth-child(2) {
+    padding-inline: 16px;
+  }
+  .luobo-shell .luobo-metrics [data-slot='card-content'] {
+    padding: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .luobo-reveal {
+    animation: none;
+  }
+  .luobo-model-card,
+  .luobo-shell header,
+  .luobo-shell header * {
+    transition: none !important;
+  }
+  .luobo-model-card:hover {
+    transform: none;
+  }
+}
+.luobo-catalog-card > [data-slot='card'] {
+  border-radius: 16px;
+  padding-block: 24px;
+  box-shadow: none;
+  border: 1px solid var(--border);
+}
+.luobo-catalog-card [data-slot='card-content'] {
+  gap: 20px;
+}
+.luobo-catalog-card [aria-label] .font-mono {
+  font-family: var(--font-serif);
+}
+.luobo-catalog-card [data-slot='card-footer'] {
+  padding-bottom: 0;
+}
+
+.luobo-auth-art {
+  background: #f2e5d3;
+  color: #38372e;
+}
+.luobo-auth-art .luobo-accent {
+  color: #a8411b;
+}
+.luobo-auth-art .luobo-eyebrow {
+  color: #6a5b49;
+}
+.luobo-auth-art > div {
+  padding-bottom: 20px;
+}
+.luobo-shell .luobo-auth-form h2 {
+  font-family: var(--font-serif);
+  font-size: 30px;
+  font-weight: 500;
+}
+.luobo-shell .luobo-auth-form [data-slot='input'],
+.luobo-shell .luobo-auth-form button[type='submit'] {
+  min-height: 44px;
+}
+.luobo-auth-art img {
+  mix-blend-mode: multiply;
+}

@@ -231,6 +231,11 @@ function StatCardDetails(props: { details: StatCardDetail[] }) {
   )
 }
 
+/**
+ * 展示单项统计及可选趋势；无趋势数据时不预留空图表高度。
+ * @param props 数值、加载状态和可选趋势；未提供趋势不代表趋势值为零。
+ * @return 保留完整标题及状态说明的统计内容。
+ */
 export function StatCard(props: StatCardProps) {
   const Icon = props.icon
   const tone = props.tone ?? 'accent-3'
@@ -262,7 +267,7 @@ export function StatCard(props: StatCardProps) {
         </div>
         <p
           className={cn(
-            'text-muted-foreground/60 line-clamp-1 text-[11px] sm:text-xs',
+            'text-muted-foreground line-clamp-1 text-[11px] sm:text-xs',
             props.compactMobile && 'hidden sm:block'
           )}
         >
@@ -278,7 +283,7 @@ export function StatCard(props: StatCardProps) {
         </div>
         <p
           className={cn(
-            'text-muted-foreground/60 line-clamp-1 text-[11px] leading-relaxed sm:text-xs',
+            'text-muted-foreground line-clamp-1 text-[11px] leading-relaxed sm:text-xs',
             props.compactMobile && 'hidden sm:block'
           )}
         >
@@ -288,19 +293,20 @@ export function StatCard(props: StatCardProps) {
     )
   }
 
-  let visualization: ReactNode
+  let visualization: ReactNode = null
   if (props.details?.length) {
     visualization = <StatCardDetails details={props.details} />
-  } else if (sparklineVariant === 'line') {
+  } else if (props.sparkline?.length && sparklineVariant === 'line') {
     visualization = <LineSparkline values={props.sparkline} tone={tone} />
-  } else {
+  } else if (props.sparkline?.length) {
     visualization = <BarSparkline values={props.sparkline} tone={tone} />
   }
 
   return (
     <div
       className={cn(
-        'group flex flex-col justify-between sm:min-h-32 sm:gap-3',
+        'group flex flex-col justify-between sm:gap-3',
+        visualization && 'sm:min-h-32',
         props.compactMobile ? 'gap-1' : 'gap-1.5'
       )}
     >
@@ -325,7 +331,7 @@ export function StatCard(props: StatCardProps) {
 
       {valueContent}
 
-      <div className='hidden sm:block'>{visualization}</div>
+      {visualization && <div className='hidden sm:block'>{visualization}</div>}
     </div>
   )
 }

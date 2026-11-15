@@ -7,7 +7,13 @@ import { Card, CardContent } from '@/components/ui/card'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 
-/** 首页只提供用户接入入口，不展示未经本站数据支持的营销指标。 */
+import { RetailHero } from './retail-hero'
+
+/**
+ * 根据站点模式展示中转首页或托管入口，不展示虚构业务指标。
+ * @param props 当前登录状态，只控制主按钮目的地。
+ * @return 与站点配置匹配的公开首页。
+ */
 export function PortalWelcome(props: { isAuthenticated: boolean }) {
   const { t } = useTranslation()
   const { status } = useStatus()
@@ -34,11 +40,14 @@ export function PortalWelcome(props: { isAuthenticated: boolean }) {
       icon: BookOpen,
     },
   ]
+  if (retail) {
+    return <RetailHero isAuthenticated={props.isAuthenticated} />
+  }
   return (
-    <main className='mx-auto max-w-6xl px-6 pt-32 pb-20 sm:pt-40'>
+    <main className='mx-auto w-full max-w-[1240px] px-5 pt-32 pb-20 sm:px-10 sm:pt-40'>
       <div className='max-w-2xl'>
         <p className='text-primary mb-5 text-sm font-medium'>{systemName}</p>
-        <h1 className='text-4xl leading-tight font-semibold tracking-tight sm:text-5xl'>
+        <h1 className='luobo-display text-4xl leading-tight tracking-tight sm:text-6xl'>
           {retail ? t('Pay as you go API') : t('Hosted accounts')}
         </h1>
         <p className='text-muted-foreground mt-5 max-w-xl text-base leading-7'>

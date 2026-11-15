@@ -1,3 +1,4 @@
+import { DEFAULT_LOGO } from '@/lib/constants'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { DEFAULT_LOGO } from '@/lib/constants'
+import { isLuobocodeBrand } from '@/lib/luobocode-brand'
 import { cn } from '@/lib/utils'
 
 interface BrandArtworkProps {
@@ -32,9 +33,7 @@ interface BrandArtworkProps {
  * @return 具有单一可访问名称的品牌图形，主题切换不依赖异步状态。
  */
 export function BrandArtwork(props: BrandArtworkProps) {
-  const branded =
-    props.name.trim().toLowerCase() === 'luobocode' &&
-    props.logo === DEFAULT_LOGO
+  const branded = isLuobocodeBrand(props.name) && props.logo === DEFAULT_LOGO
 
   if (!branded) {
     // 只对内置 luobocode 品牌使用固定字标，管理员后续改名或上传 Logo 仍然有效。

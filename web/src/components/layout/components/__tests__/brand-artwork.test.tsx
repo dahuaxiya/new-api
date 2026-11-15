@@ -53,3 +53,14 @@ it.each([
   expect(screen.getByRole('img', { name })).toHaveAttribute('src', logo)
   expect(screen.getByText(name)).toBeVisible()
 })
+
+/** 两站的站名后缀仍使用相同品牌资产，避免上线后退回默认占位图。 */
+it.each(['luobocode · 中转站', 'luobocode · 托管站'])(
+  '站名 %s 复用品牌字标',
+  (name) => {
+    render(<BrandArtwork name={name} logo={DEFAULT_LOGO} />)
+    expect(
+      screen.getByRole('img', { name }).querySelector('img')
+    ).toHaveAttribute('src', '/brand/luobocode-lockup-v12.png')
+  }
+)

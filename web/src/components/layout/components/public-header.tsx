@@ -209,7 +209,9 @@ export function PublicHeader(props: PublicHeaderProps) {
         <div
           className={cn(
             'pointer-events-auto mx-auto transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]',
-            scrolled ? 'max-w-[52rem] px-3 pt-3' : 'max-w-7xl px-4 pt-0 md:px-6'
+            scrolled
+              ? 'max-w-5xl px-3 pt-3'
+              : 'max-w-[1240px] px-5 pt-0 sm:px-10'
           )}
         >
           <nav
@@ -217,7 +219,7 @@ export function PublicHeader(props: PublicHeaderProps) {
               'flex items-center justify-between gap-2 transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]',
               scrolled
                 ? 'bg-background/60 ring-border/50 h-12 rounded-2xl pr-1.5 pl-4 shadow-[0_2px_16px_-6px_rgba(0,0,0,0.08),0_0_0_0.5px_rgba(0,0,0,0.02)] ring-[0.5px] backdrop-blur-2xl dark:shadow-[0_2px_16px_-6px_rgba(0,0,0,0.4)]'
-                : 'h-16 px-2'
+                : 'luobo-public-nav h-20 px-2'
             )}
           >
             {/* Logo */}
@@ -337,6 +339,8 @@ export function PublicHeader(props: PublicHeaderProps) {
                 className='size-9'
                 onClick={() => setMobileOpen((v) => !v)}
                 aria-label={t('Toggle navigation menu')}
+                aria-expanded={mobileOpen}
+                aria-controls='public-mobile-menu'
               >
                 <div className='relative size-4'>
                   <span
@@ -364,8 +368,10 @@ export function PublicHeader(props: PublicHeaderProps) {
         </div>
       </header>
 
-      {/* Mobile full-screen overlay */}
+      {/* 隐藏菜单同时退出焦点顺序，避免键盘用户进入不可见链接。 */}
       <div
+        id='public-mobile-menu'
+        inert={!mobileOpen}
         className={cn(
           'bg-background/98 fixed inset-0 z-40 backdrop-blur-2xl transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] lg:pointer-events-none lg:hidden',
           mobileOpen

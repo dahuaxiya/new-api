@@ -27,6 +27,7 @@ import {
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { useEffect } from 'react'
 
+import { LuobocodeTheme } from '@/components/layout/components/luobocode-theme'
 import { NavigationProgress } from '@/components/navigation-progress'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeCustomizationProvider } from '@/context/theme-customization-provider'
@@ -44,6 +45,10 @@ import { subscribeAuthSessionEvents } from '@/lib/auth-session-sync'
 import { resolveLegacyRoute } from '@/lib/legacy-route'
 import { useAuthStore } from '@/stores/auth-store'
 
+/**
+ * 根布局加载站点配置并同步身份、页面主题；业务权限仍由各路由校验。
+ * @return 当前路由内容、全局提示及开发环境调试入口。
+ */
 function RootComponent() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -94,6 +99,7 @@ function RootComponent() {
 
   return (
     <ThemeCustomizationProvider>
+      <LuobocodeTheme />
       <NavigationProgress />
       <Outlet />
       <Toaster closeButton duration={5000} position='top-center' richColors />

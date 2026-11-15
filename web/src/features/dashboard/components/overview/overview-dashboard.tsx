@@ -268,6 +268,7 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
 
   return (
     <SectionPageLayout
+      className='luobo-workspace'
       description={status ? t(profile.descriptionKey) : undefined}
     >
       <SectionPageLayout.Title>
@@ -279,28 +280,36 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='mx-auto w-full max-w-7xl space-y-5 pb-6'>
+        <div className='mx-auto w-full max-w-7xl space-y-6 pb-6'>
           {status && actions.length > 0 && (
-            <nav
-              aria-label={t('Quick access')}
-              className='flex flex-wrap gap-2'
-            >
-              {actions.map((item, index) => (
-                <Button
-                  key={item.url}
-                  variant={index === 0 ? 'default' : 'outline'}
-                  render={<Link to={item.url} />}
-                >
-                  <item.icon aria-hidden='true' />
-                  {t(item.titleKey)}
-                  <ArrowRight aria-hidden='true' />
-                </Button>
-              ))}
-            </nav>
+            <section className='luobo-workspace-intro flex flex-wrap items-center justify-between gap-5 rounded-2xl px-6 py-5'>
+              <div>
+                <p className='luobo-eyebrow mb-2'>{t('Your workspace')}</p>
+                <p className='font-serif text-xl'>
+                  {t('A clear view of what you build.')}
+                </p>
+              </div>
+              <nav
+                aria-label={t('Quick access')}
+                className='flex flex-wrap gap-2'
+              >
+                {actions.map((item, index) => (
+                  <Button
+                    key={item.url}
+                    variant={index === 0 ? 'default' : 'outline'}
+                    render={<Link to={item.url} />}
+                  >
+                    <item.icon aria-hidden='true' />
+                    {t(item.titleKey)}
+                    <ArrowRight aria-hidden='true' />
+                  </Button>
+                ))}
+              </nav>
+            </section>
           )}
           {/* 状态尚未返回时不能按默认模式发起托管请求；托管站先展示账号额度。 */}
           {status && profile.showHostedQuota && <GptQuotaCard />}
-          <div className='grid grid-cols-2 gap-3 lg:grid-cols-4'>
+          <div className='luobo-metrics grid grid-cols-2 gap-3 lg:grid-cols-4'>
             {metrics.map((metric) => (
               <Card key={metric.title} className='gap-0 py-0 shadow-none'>
                 <CardContent className='p-4'>
