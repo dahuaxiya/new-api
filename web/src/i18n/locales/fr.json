@@ -8037,6 +8037,21 @@
     "Use the endpoint above and an API key to send a request.": "Envoyez une requête avec l’adresse ci-dessus et une clé API.",
     "Connection details": "Connexion",
     "Token usage": "Utilisation des tokens",
-    "Open Connection details to copy the endpoint, then use an API key to send a request.": "Ouvrez « Connexion » pour copier l’adresse, puis envoyez une requête avec une clé API."
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "Ouvrez « Connexion » pour copier l’adresse, puis envoyez une requête avec une clé API.",
+    "All usage": "Vue globale",
+    "By model": "Par modèle",
+    "By API key": "Par clé API",
+    "By group": "Par groupe",
+    "Usage dimension": "Dimension",
+    "Filter usage items": "Filtrer les éléments",
+    "All items · search to filter": "Tout · rechercher pour filtrer",
+    "Usage legend": "Légende",
+    "Top 5 items are shown separately. Filter to inspect the others.": "Les 5 premiers éléments sont affichés séparément. Filtrez pour consulter les autres.",
+    "Other ({{count}})": "Autres ({{count}})",
+    "Unnamed or deleted key": "Clé sans nom ou supprimée",
+    "Key not recorded": "Clé non enregistrée",
+    "Model not recorded": "Modèle non enregistré",
+    "Group not recorded": "Groupe non enregistré",
+    "Too many usage groups. Select a shorter time range.": "Trop de groupes. Sélectionnez une période plus courte."
   }
 }

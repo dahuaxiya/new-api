@@ -32,14 +32,19 @@ import type {
 // Quota & Usage Data
 // ----------------------------------------------------------------------------
 
-// Get user quota data within a time range
-// Admin users get all users' data by default.
+/**
+ * 查询指定时间范围的用量，个人首页始终使用 self 协议。
+ * @param params Unix 秒范围；breakdown 仅供 self 接口请求密钥、模型及分组的小时明细。
+ * @param isAdmin 只用于既有管理视图，个人概览即使由管理员访问也必须传 false。
+ * @return 服务端响应；调用方需检查业务成功标记再展示统计。
+ */
 export async function getUserQuotaDates(
   params: {
     start_timestamp: number
     end_timestamp: number
     default_time?: string
     username?: string
+    breakdown?: boolean
   },
   isAdmin = false
 ) {

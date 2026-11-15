@@ -62,9 +62,22 @@ beforeEach(() => {
             {
               created_at: Math.floor(Date.now() / 1000) - 3600,
               model_name: 'test-model',
+              token_id: 11,
+              token_name: 'work',
+              use_group: 'default',
               token_used: emptyUsage ? 0 : 312,
               count: emptyUsage ? 0 : 8,
               quota: emptyUsage ? 0 : 10,
+            },
+            {
+              created_at: Math.floor(Date.now() / 1000) - 3600,
+              model_name: 'other-model',
+              token_id: 12,
+              token_name: 'work',
+              use_group: 'vip',
+              token_used: emptyUsage ? 0 : 88,
+              count: emptyUsage ? 0 : 2,
+              quota: emptyUsage ? 0 : 5,
             },
           ],
         },
@@ -120,9 +133,15 @@ async function mount() {
 
 it('keeps an administrator personal dashboard on self endpoints without fetching cleartext keys', async () => {
   await mount()
-  expect(await screen.findByText('test-model')).toBeInTheDocument()
+  expect(
+    await screen.findByRole('cell', { name: 'test-model' })
+  ).toBeInTheDocument()
   const urls = vi.mocked(api.get).mock.calls.map(([url]) => url)
   expect(urls).toContain('/api/data/self')
+  expect(
+    vi.mocked(api.get).mock.calls.find(([url]) => url === '/api/data/self')?.[1]
+      ?.params.breakdown
+  ).toBe(true)
   expect(urls.some((url) => url.startsWith('/api/log/self?'))).toBe(true)
   expect(urls).not.toContain('/api/data')
   expect(urls.some((url) => url.endsWith('key'))).toBe(false)
@@ -149,7 +168,7 @@ it('shows a query failure instead of zero usage and refreshes it without an offi
 
 it('never keeps the former account recent usage while a new account loads', async () => {
   await mount()
-  await screen.findByText('test-model')
+  await screen.findByRole('cell', { name: 'test-model' })
   vi.mocked(api.get).mockImplementation(() => new Promise(() => {}))
   act(() =>
     useAuthStore.getState().auth.setUser({ id: 2, username: 'bob', role: 1 })
@@ -160,7 +179,7 @@ it('never keeps the former account recent usage while a new account loads', asyn
 /** 从仪表盘进入日志必须保留所选时间范围，日志 URL 使用毫秒而汇总接口使用秒。 */
 it('preserves the selected period when opening all usage logs', async () => {
   await mount()
-  await screen.findByText('test-model')
+  await screen.findByRole('cell', { name: 'test-model' })
   const href = screen
     .getByRole('button', { name: 'View all' })
     .getAttribute('href')
@@ -186,7 +205,7 @@ it('shows wallet usage without fetching hosted quota on retail', async () => {
     { updatedAt: Date.now() + 60000 }
   )
   await mount()
-  await screen.findByText('test-model')
+  await screen.findByRole('cell', { name: 'test-model' })
   expect(
     screen.getByText('Balance available for API usage')
   ).toBeInTheDocument()
@@ -253,7 +272,7 @@ it('respects administrator and user menu settings in dashboard quick access', as
     }),
   })
   await mount()
-  await screen.findByText('test-model')
+  await screen.findByRole('cell', { name: 'test-model' })
   const actions = within(
     screen.getByRole('navigation', { name: 'Quick access' })
   )
@@ -291,7 +310,7 @@ it('replaces empty charts with guidance only after a successful zero-usage respo
 it('keeps recent requests when the usage aggregation has not caught up', async () => {
   emptyUsage = true
   await mount()
-  expect(await screen.findByText('test-model')).toBeVisible()
+  expect(await screen.findByRole('cell', { name: 'test-model' })).toBeVisible()
   expect(screen.getByRole('button', { name: 'View all' })).toBeVisible()
 })
 
@@ -303,7 +322,7 @@ it('does not present a pending query as empty usage', async () => {
     url === '/api/data/self' ? new Promise(() => {}) : get(url, config)
   )
   await mount()
-  await screen.findByText('test-model')
+  await screen.findByRole('cell', { name: 'test-model' })
   expect(
     screen.getByRole('region', { name: 'Usage overview' })
   ).toHaveAttribute('aria-busy', 'true')
@@ -375,4 +394,35 @@ it('updates both trend charts and recent logs with the same selected range', asy
     .find(([url]) => url.startsWith('/api/log/self?'))?.[0]
   expect(logs).toContain(`start_timestamp=${params.start_timestamp}`)
   expect(logs).toContain(`end_timestamp=${params.end_timestamp}`)
+})
+
+/** 同名密钥仍按编号区分；过滤一个密钥会同步更新两图，切换维度清除旧筛选。 */
+it('distinguishes keys by ID and filters token and cost charts together', async () => {
+  const user = userEvent.setup()
+  await mount()
+  await screen.findByRole('figure', { name: 'Token usage' })
+  await user.click(screen.getByRole('combobox', { name: 'Usage dimension' }))
+  await user.click(await screen.findByRole('option', { name: 'By API key' }))
+  const legend = within(screen.getByRole('list', { name: 'Usage legend' }))
+  expect(legend.getByText('work · #11')).toBeVisible()
+  expect(legend.getByText('work · #12')).toBeVisible()
+  await user.click(
+    screen.getByRole('combobox', { name: 'All items · search to filter' })
+  )
+  await user.click(await screen.findByRole('option', { name: 'work · #11' }))
+  await user.keyboard('{Escape}')
+  expect(screen.getByRole('figure', { name: 'Token usage' })).toHaveTextContent(
+    '312'
+  )
+  expect(legend.queryByText('work · #12')).toBeNull()
+  await user.click(screen.getByRole('combobox', { name: 'Usage dimension' }))
+  await user.click(await screen.findByRole('option', { name: 'By model' }))
+  expect(screen.getByRole('figure', { name: 'Token usage' })).toHaveTextContent(
+    '400'
+  )
+  expect(legend.getByText('test-model')).toBeVisible()
+  expect(legend.getByText('other-model')).toBeVisible()
+  expect(
+    vi.mocked(api.get).mock.calls.filter(([url]) => url === '/api/data/self')
+  ).toHaveLength(1)
 })

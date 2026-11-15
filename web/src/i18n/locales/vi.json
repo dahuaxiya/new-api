@@ -8037,6 +8037,21 @@
     "Use the endpoint above and an API key to send a request.": "Gửi yêu cầu bằng địa chỉ ở trên và khóa API.",
     "Connection details": "Thông tin kết nối",
     "Token usage": "Lượng token sử dụng",
-    "Open Connection details to copy the endpoint, then use an API key to send a request.": "Mở « Thông tin kết nối » để sao chép địa chỉ, rồi gửi yêu cầu bằng khóa API."
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "Mở « Thông tin kết nối » để sao chép địa chỉ, rồi gửi yêu cầu bằng khóa API.",
+    "All usage": "Tổng quan",
+    "By model": "Theo mô hình",
+    "By API key": "Theo khóa API",
+    "By group": "Theo nhóm",
+    "Usage dimension": "Chiều thống kê",
+    "Filter usage items": "Lọc mục thống kê",
+    "All items · search to filter": "Tất cả · tìm tên để lọc",
+    "Usage legend": "Chú giải sử dụng",
+    "Top 5 items are shown separately. Filter to inspect the others.": "Hiển thị riêng 5 mục đầu, các mục còn lại được gộp. Dùng bộ lọc để xem riêng.",
+    "Other ({{count}})": "Khác ({{count}})",
+    "Unnamed or deleted key": "Khóa chưa đặt tên hoặc đã xóa",
+    "Key not recorded": "Chưa ghi nhận khóa",
+    "Model not recorded": "Chưa ghi nhận mô hình",
+    "Group not recorded": "Chưa ghi nhận nhóm",
+    "Too many usage groups. Select a shorter time range.": "Có quá nhiều nhóm thống kê. Hãy chọn khoảng thời gian ngắn hơn."
   }
 }

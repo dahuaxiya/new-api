@@ -60,7 +60,12 @@ func GetQuotaDatesByUser(c *gin.Context) {
 	})
 }
 
+// GetUserQuotaDates 返回当前会话用户的用量；breakdown 是个人概览的可选细分协议，不改变原汇总契约。
 func GetUserQuotaDates(c *gin.Context) {
+	if c.Query("breakdown") == "true" {
+		getUserQuotaBreakdown(c)
+		return
+	}
 	userId := c.GetInt("id")
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
@@ -122,4 +127,26 @@ func GetUserFlowQuotaDates(c *gin.Context) {
 		"data":    dates,
 	})
 	return
+}
+
+// getUserQuotaBreakdown 限定个人维度和查询窗口，管理员访问 self 也不得切换为其他用户。
+func getUserQuotaBreakdown(c *gin.Context) {
+	start, end, ok := parseFlowQuotaTimeRange(c)
+	if !ok {
+		return
+	}
+	if end-start > 31*86400 {
+		common.ApiErrorT(c, "The time range cannot exceed {{days}} days", map[string]any{"days": 31})
+		return
+	}
+	if _, err := limitLogTimeRange(start, end); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	rows, err := model.GetUserQuotaBreakdown(c.GetInt("id"), start, end)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": rows})
 }

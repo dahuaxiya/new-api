@@ -8067,6 +8067,21 @@
     "Use the endpoint above and an API key to send a request.": "使用上方接入地址和 API 密钥发起请求。",
     "Connection details": "接入信息",
     "Token usage": "Token 用量",
-    "Open Connection details to copy the endpoint, then use an API key to send a request.": "点击「接入信息」复制地址，配合 API 密钥发起请求。"
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "点击「接入信息」复制地址，配合 API 密钥发起请求。",
+    "All usage": "总览",
+    "By model": "按模型",
+    "By API key": "按密钥",
+    "By group": "按分组",
+    "Usage dimension": "查看维度",
+    "Filter usage items": "筛选统计项",
+    "All items · search to filter": "全部 · 输入名称筛选",
+    "Usage legend": "用量图例",
+    "Top 5 items are shown separately. Filter to inspect the others.": "单独展示前 5 项，其余合并；可通过筛选单独查看。",
+    "Other ({{count}})": "其他 {{count}} 项",
+    "Unnamed or deleted key": "未命名或已删除密钥",
+    "Key not recorded": "未记录密钥",
+    "Model not recorded": "未记录模型",
+    "Group not recorded": "未记录分组",
+    "Too many usage groups. Select a shorter time range.": "统计项过多，请缩短时间范围后重试。"
   }
 }

@@ -70,12 +70,16 @@ import { useStatus } from '@/hooks/use-status'
 import { toIntlLocale } from '@/i18n/languages'
 import { getSelf } from '@/lib/api'
 import { formatNumber, formatQuota } from '@/lib/format'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import {
+  getServerErrorMessageKey,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 import { getSiteProfile } from '@/lib/site-profile'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getUserQuotaDates } from '../../api'
 import { calculateDashboardStats } from '../../lib/stats'
+import type { UsageDimension } from '../../lib/usage-trends'
 
 const ModelCharts = lazy(() =>
   import('../models/model-charts').then((module) => ({
@@ -129,6 +133,7 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
   )
   const username = useAuthStore((state) => state.auth.user?.username)
   const [days, setDays] = useState('7')
+  const [usageDimension, setUsageDimension] = useState<UsageDimension>('model')
   const ranges = [
     { value: '1', label: t('Last 24 hours') },
     { value: '7', label: t('Last 7 days') },
@@ -164,7 +169,9 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
   const usage = useQuery({
     queryKey: ['portal-usage', ...identity, range, now],
     queryFn: async () =>
-      requireServerSuccess(await getUserQuotaDates(range, false)).data,
+      requireServerSuccess(
+        await getUserQuotaDates({ ...range, breakdown: true }, false)
+      ).data,
     staleTime: 30_000,
   })
   const recent = useQuery({
@@ -391,11 +398,9 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
                     {t('Usage overview')}
                   </h3>
                   <p className='text-muted-foreground mt-1 text-xs'>
-                    {t('Requests in range')}
-                    {' · '}
-                    {usage.isPending || usage.isError
-                      ? '—'
-                      : formatNumber(stats.totalCount)}
+                    {t(
+                      'Only includes requests made through this account on this site.'
+                    )}
                   </p>
                 </div>
                 <div className='flex items-center gap-2'>
@@ -439,7 +444,10 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
               </div>
               {usage.isError ? (
                 <p role='alert' className='text-destructive px-6 pb-6 text-sm'>
-                  {t('Usage data could not be loaded. Refresh to retry.')}
+                  {getServerErrorMessageKey(usage.error) ===
+                  'Too many usage groups. Select a shorter time range.'
+                    ? t('Too many usage groups. Select a shorter time range.')
+                    : t('Usage data could not be loaded. Refresh to retry.')}
                 </p>
               ) : (
                 <>
@@ -466,6 +474,8 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
                         <UsageTrends
                           data={usage.data ?? []}
                           range={range}
+                          dimension={usageDimension}
+                          onDimensionChange={setUsageDimension}
                           granularity={days === '1' ? 'hour' : 'day'}
                         />
                       </Suspense>

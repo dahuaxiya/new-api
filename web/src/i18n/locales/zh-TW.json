@@ -8067,6 +8067,21 @@
     "Use the endpoint above and an API key to send a request.": "使用上方接入位址和 API 金鑰發起請求。",
     "Connection details": "接入資訊",
     "Token usage": "Token 用量",
-    "Open Connection details to copy the endpoint, then use an API key to send a request.": "點擊「接入資訊」複製位址，搭配 API 金鑰發起請求。"
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "點擊「接入資訊」複製位址，搭配 API 金鑰發起請求。",
+    "All usage": "總覽",
+    "By model": "按模型",
+    "By API key": "按金鑰",
+    "By group": "按群組",
+    "Usage dimension": "檢視維度",
+    "Filter usage items": "篩選統計項",
+    "All items · search to filter": "全部 · 輸入名稱篩選",
+    "Usage legend": "用量圖例",
+    "Top 5 items are shown separately. Filter to inspect the others.": "單獨顯示前 5 項，其餘合併；可透過篩選單獨查看。",
+    "Other ({{count}})": "其他 {{count}} 項",
+    "Unnamed or deleted key": "未命名或已刪除金鑰",
+    "Key not recorded": "未記錄金鑰",
+    "Model not recorded": "未記錄模型",
+    "Group not recorded": "未記錄群組",
+    "Too many usage groups. Select a shorter time range.": "統計項過多，請縮短時間範圍後重試。"
   }
 }

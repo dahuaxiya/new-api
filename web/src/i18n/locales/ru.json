@@ -8037,6 +8037,21 @@
     "Use the endpoint above and an API key to send a request.": "Отправьте запрос с ключом API на указанный выше адрес.",
     "Connection details": "Подключение",
     "Token usage": "Использование токенов",
-    "Open Connection details to copy the endpoint, then use an API key to send a request.": "Откройте « Подключение », скопируйте адрес и отправьте запрос с API-ключом."
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "Откройте « Подключение », скопируйте адрес и отправьте запрос с API-ключом.",
+    "All usage": "Все расходы",
+    "By model": "По модели",
+    "By API key": "По API-ключу",
+    "By group": "По группе",
+    "Usage dimension": "Измерение",
+    "Filter usage items": "Фильтр элементов",
+    "All items · search to filter": "Все · поиск для фильтрации",
+    "Usage legend": "Легенда",
+    "Top 5 items are shown separately. Filter to inspect the others.": "Первые 5 элементов показаны отдельно. Используйте фильтр для остальных.",
+    "Other ({{count}})": "Остальные ({{count}})",
+    "Unnamed or deleted key": "Безымянный или удалённый ключ",
+    "Key not recorded": "Ключ не записан",
+    "Model not recorded": "Модель не записана",
+    "Group not recorded": "Группа не записана",
+    "Too many usage groups. Select a shorter time range.": "Слишком много групп. Выберите более короткий период."
   }
 }

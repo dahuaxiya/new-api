@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { TFunction } from 'i18next'
+
 import dayjs from '@/lib/dayjs'
 
 import type { QuotaDataItem } from '../types'
@@ -74,4 +76,107 @@ export function buildUsageTrend(
     bucket.quota += Number(item.quota) || 0
   }
   return [...buckets.values()]
+}
+
+export type UsageDimension = 'total' | 'model' | 'key' | 'group'
+
+/**
+ * 按展示维度聚合并选择绘图序列；所有原始值先相加，超出五项归入“其他”且不丢总量。
+ * @param data 同一 self 查询返回的小时明细，不能混入管理员统计。
+ * @param range 查询使用的 Unix 秒范围。
+ * @param granularity 小时或本地日历日。
+ * @param dimension 展示维度；密钥以 ID 区分，同名、改名和已删除密钥不能合并。
+ * @param selected 选中的维度 ID；空数组表示该维度全部项。
+ * @param t 当前界面语言，未知历史归属只标注未知，不用现存密钥猜测。
+ * @return 完整选项、同序同色的系列、时间点及选中项合计。
+ */
+export function buildUsageBreakdown(
+  data: QuotaDataItem[],
+  range: { start_timestamp: number; end_timestamp: number },
+  granularity: 'hour' | 'day',
+  dimension: UsageDimension,
+  selected: string[],
+  t: TFunction
+) {
+  const groups = new Map<
+    string,
+    {
+      id: string
+      label: string
+      data: QuotaDataItem[]
+      quota: number
+      tokens: number
+    }
+  >()
+  for (const item of data) {
+    if (
+      item.created_at < range.start_timestamp ||
+      item.created_at > range.end_timestamp
+    ) {
+      continue
+    }
+    let id = 'total'
+    let label = t('Total')
+    if (dimension === 'key') {
+      id = String(item.token_id ?? 0)
+      label = item.token_id
+        ? `${item.token_name || t('Unnamed or deleted key')} · #${item.token_id}`
+        : t('Key not recorded')
+    } else if (dimension === 'model') {
+      id = `model:${item.model_name ?? ''}`
+      label = item.model_name || t('Model not recorded')
+    } else if (dimension === 'group') {
+      id = `group:${item.use_group ?? ''}`
+      label = item.use_group || t('Group not recorded')
+    }
+    const group = groups.get(id) ?? { id, label, data: [], quota: 0, tokens: 0 }
+    group.data.push(item)
+    group.quota += Number(item.quota) || 0
+    group.tokens += Number(item.token_used) || 0
+    groups.set(id, group)
+  }
+  // 两图使用同一个排序，免费模型按 Token 继续排序，避免费用为零就从图中消失。
+  const ordered = [...groups.values()].sort(
+    (a, b) =>
+      b.quota - a.quota || b.tokens - a.tokens || a.id.localeCompare(b.id)
+  )
+  const filtered = ordered.filter(
+    (group) => selected.length === 0 || selected.includes(group.id)
+  )
+  const visible = filtered.slice(0, 5)
+  const overflow = filtered.slice(5)
+  if (overflow.length) {
+    visible.push({
+      id: '__other__',
+      label: t('Other ({{count}})', { count: overflow.length }),
+      data: overflow.flatMap((group) => group.data),
+      quota: overflow.reduce((sum, group) => sum + group.quota, 0),
+      tokens: overflow.reduce((sum, group) => sum + group.tokens, 0),
+    })
+  }
+  const selectedData = filtered.flatMap((group) => group.data)
+  const totals = buildUsageTrend(selectedData, range, granularity)
+  const points: Record<string, number>[] = totals.map((point) => ({ ...point }))
+  const series = visible.map((group, index) => {
+    // ChartContainer 会把配置键写入 CSS。只用受控序号做键，模型名和密钥名仅作为转义文本。
+    const key = `series_${index}`
+    const values = buildUsageTrend(group.data, range, granularity)
+    for (let i = 0; i < points.length; i++) {
+      points[i][`${key}_tokens`] = values[i].tokens
+      points[i][`${key}_quota`] = values[i].quota
+    }
+    return { key, label: group.label, tokens: group.tokens, quota: group.quota }
+  })
+  return {
+    points,
+    series,
+    options: ordered.map((group) => ({ value: group.id, label: group.label })),
+    tokens: totals.reduce((sum, point) => sum + point.tokens, 0),
+    quota: totals.reduce((sum, point) => sum + point.quota, 0),
+    requests: selectedData.reduce(
+      (sum, item) => sum + (Number(item.count) || 0),
+      0
+    ),
+    groupedCount: overflow.length,
+  }
 }

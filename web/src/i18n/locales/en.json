@@ -8037,6 +8037,21 @@
     "Use the endpoint above and an API key to send a request.": "Use the endpoint above and an API key to send a request.",
     "Connection details": "Connection details",
     "Token usage": "Token usage",
-    "Open Connection details to copy the endpoint, then use an API key to send a request.": "Open Connection details to copy the endpoint, then use an API key to send a request."
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "Open Connection details to copy the endpoint, then use an API key to send a request.",
+    "All usage": "All usage",
+    "By model": "By model",
+    "By API key": "By API key",
+    "By group": "By group",
+    "Usage dimension": "Usage dimension",
+    "Filter usage items": "Filter usage items",
+    "All items · search to filter": "All items · search to filter",
+    "Usage legend": "Usage legend",
+    "Top 5 items are shown separately. Filter to inspect the others.": "Top 5 items are shown separately. Filter to inspect the others.",
+    "Other ({{count}})": "Other ({{count}})",
+    "Unnamed or deleted key": "Unnamed or deleted key",
+    "Key not recorded": "Key not recorded",
+    "Model not recorded": "Model not recorded",
+    "Group not recorded": "Group not recorded",
+    "Too many usage groups. Select a shorter time range.": "Too many usage groups. Select a shorter time range."
   }
 }

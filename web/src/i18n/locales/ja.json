@@ -8037,6 +8037,21 @@
     "Use the endpoint above and an API key to send a request.": "上記のエンドポイントと API キーを使ってリクエストを送信してください。",
     "Connection details": "接続情報",
     "Token usage": "トークン使用量",
-    "Open Connection details to copy the endpoint, then use an API key to send a request.": "「接続情報」からアドレスをコピーし、API キーを使ってリクエストを送信してください。"
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "「接続情報」からアドレスをコピーし、API キーを使ってリクエストを送信してください。",
+    "All usage": "全体",
+    "By model": "モデル別",
+    "By API key": "API キー別",
+    "By group": "グループ別",
+    "Usage dimension": "表示区分",
+    "Filter usage items": "集計項目を絞り込む",
+    "All items · search to filter": "すべて · 名前で絞り込み",
+    "Usage legend": "使用量の凡例",
+    "Top 5 items are shown separately. Filter to inspect the others.": "上位 5 件を個別表示し、残りはまとめています。絞り込みで個別に確認できます。",
+    "Other ({{count}})": "その他（{{count}} 件）",
+    "Unnamed or deleted key": "未命名または削除済みのキー",
+    "Key not recorded": "キー未記録",
+    "Model not recorded": "モデル未記録",
+    "Group not recorded": "グループ未記録",
+    "Too many usage groups. Select a shorter time range.": "集計項目が多すぎます。期間を短くしてください。"
   }
 }
