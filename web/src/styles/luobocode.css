@@ -291,7 +291,10 @@
   font-size: 30px;
   font-weight: 500;
 }
-.luobo-shell .luobo-auth-form [data-slot='input'],
+/* FormControl 会覆盖 Input 的 data-slot；按元素匹配文本输入，避免漏掉登录框。 */
+.luobo-shell
+  .luobo-auth-form
+  input:not([type='hidden'], [type='checkbox'], [type='radio']),
 .luobo-shell .luobo-auth-form button[type='submit'] {
   min-height: 44px;
 }
