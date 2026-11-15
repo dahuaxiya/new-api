@@ -14,6 +14,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
@@ -25,9 +26,7 @@ import { OverviewDashboard } from '../overview-dashboard'
 vi.mock('../../models/model-charts', () => ({
   ModelCharts: () => <div data-testid='model-chart' />,
 }))
-vi.mock('../../models/consumption-distribution-chart', () => ({
-  ConsumptionDistributionChart: () => <div data-testid='consumption-chart' />,
-}))
+
 let client: QueryClient
 let failUsage = false
 let emptyUsage = false
@@ -61,7 +60,7 @@ beforeEach(() => {
           message: 'Unavailable',
           data: [
             {
-              created_at: 1770000000,
+              created_at: Math.floor(Date.now() / 1000) - 3600,
               model_name: 'test-model',
               token_used: emptyUsage ? 0 : 312,
               count: emptyUsage ? 0 : 8,
@@ -82,7 +81,7 @@ beforeEach(() => {
                   {
                     id: 1,
                     user_id: 1,
-                    created_at: 1770000000,
+                    created_at: Math.floor(Date.now() / 1000) - 3600,
                     type: 2,
                     content: '',
                     model_name: 'test-model',
@@ -275,15 +274,16 @@ it('replaces empty charts with guidance only after a successful zero-usage respo
   await mount()
   expect(
     await screen.findByText(
-      'Use the endpoint above and an API key to send a request.'
+      'Open Connection details to copy the endpoint, then use an API key to send a request.'
     )
   ).toBeVisible()
   expect(screen.queryByRole('tablist', { name: 'Usage charts' })).toBeNull()
-  expect(screen.queryByTestId('consumption-chart')).toBeNull()
+  expect(screen.queryByRole('figure', { name: 'Token usage' })).toBeNull()
   expect(screen.queryByTestId('model-chart')).toBeNull()
   expect(screen.queryByText('Recent usage')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Copy API endpoint' })).toBeNull()
   expect(
-    screen.getByRole('button', { name: 'Copy API endpoint' })
+    screen.getByRole('button', { name: 'Connection details' })
   ).toBeEnabled()
 })
 
@@ -309,21 +309,70 @@ it('does not present a pending query as empty usage', async () => {
   ).toHaveAttribute('aria-busy', 'true')
   expect(
     screen.queryByText(
-      'Use the endpoint above and an API key to send a request.'
+      'Open Connection details to copy the endpoint, then use an API key to send a request.'
     )
   ).toBeNull()
-  expect(screen.queryByTestId('consumption-chart')).toBeNull()
+  expect(screen.queryByRole('figure', { name: 'Token usage' })).toBeNull()
 })
 
-/** 有用量后每次只展示一个分析视图，切换不会改变请求范围或发起上游调用。 */
-it('switches between consumption and model analysis without mounting both charts', async () => {
+/** 两项高频指标同时可见，模型细分按需打开，不能引入第二套请求范围。 */
+it('shows tokens and cost together and expands model details only on demand', async () => {
   await mount()
-  expect(await screen.findByTestId('consumption-chart')).toBeVisible()
+  expect(
+    await screen.findByRole('figure', { name: 'Token usage' })
+  ).toBeVisible()
+  expect(screen.getByRole('figure', { name: 'Site consumption' })).toBeVisible()
   expect(screen.queryByTestId('model-chart')).toBeNull()
-  fireEvent.click(screen.getByRole('tab', { name: 'Model Call Analytics' }))
+  const trigger = screen.getByRole('button', { name: 'Model Call Analytics' })
+  expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  fireEvent.click(trigger)
   expect(await screen.findByTestId('model-chart')).toBeVisible()
-  expect(screen.queryByTestId('consumption-chart')).toBeNull()
+  expect(trigger).toHaveAttribute('aria-expanded', 'true')
+  expect(screen.getByRole('figure', { name: 'Token usage' })).toBeVisible()
   expect(
     vi.mocked(api.get).mock.calls.filter(([url]) => url === '/api/data/self')
   ).toHaveLength(1)
+})
+
+/** 低频地址默认收起，弹层支持键盘退出并把焦点交还入口。 */
+it('reveals the endpoint on demand and restores focus after Escape', async () => {
+  await mount()
+  const trigger = screen.getByRole('button', { name: 'Connection details' })
+  expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.queryByText(`${window.location.origin}/v1`)).toBeNull()
+  fireEvent.click(trigger)
+  const copy = await screen.findByRole('button', { name: 'Copy API endpoint' })
+  expect(copy).toBeEnabled()
+  expect(trigger).toHaveAttribute('aria-expanded', 'true')
+  expect(screen.getByText(`${window.location.origin}/v1`)).toBeVisible()
+  fireEvent.keyDown(copy, { key: 'Escape', code: 'Escape' })
+  await waitFor(() => expect(trigger).toHaveAttribute('aria-expanded', 'false'))
+  await waitFor(() => expect(trigger).toHaveFocus())
+})
+
+/** 筛选改动同时更新两图和日志，不能让新时间标题对应旧数据。 */
+it('updates both trend charts and recent logs with the same selected range', async () => {
+  await mount()
+  await screen.findByRole('figure', { name: 'Token usage' })
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('combobox', { name: 'Time range' }))
+  await user.click(await screen.findByRole('option', { name: 'Last 24 hours' }))
+  await waitFor(() => {
+    const params = [...vi.mocked(api.get).mock.calls]
+      .reverse()
+      .find(([url]) => url === '/api/data/self')?.[1]?.params
+    expect(params.end_timestamp - params.start_timestamp).toBe(86400)
+  })
+  expect(
+    await screen.findByRole('figure', { name: 'Token usage' })
+  ).toBeVisible()
+  expect(screen.getByRole('figure', { name: 'Site consumption' })).toBeVisible()
+  const params = [...vi.mocked(api.get).mock.calls]
+    .reverse()
+    .find(([url]) => url === '/api/data/self')?.[1]?.params
+  const logs = [...vi.mocked(api.get).mock.calls]
+    .reverse()
+    .find(([url]) => url.startsWith('/api/log/self?'))?.[0]
+  expect(logs).toContain(`start_timestamp=${params.start_timestamp}`)
+  expect(logs).toContain(`end_timestamp=${params.end_timestamp}`)
 })

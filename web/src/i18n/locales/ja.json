@@ -8034,6 +8034,9 @@
     "API connection": "API 接続",
     "API keys: {{value}}": "API キー: {{value}}",
     "Usage charts": "使用量グラフ",
-    "Use the endpoint above and an API key to send a request.": "上記のエンドポイントと API キーを使ってリクエストを送信してください。"
+    "Use the endpoint above and an API key to send a request.": "上記のエンドポイントと API キーを使ってリクエストを送信してください。",
+    "Connection details": "接続情報",
+    "Token usage": "トークン使用量",
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "「接続情報」からアドレスをコピーし、API キーを使ってリクエストを送信してください。"
   }
 }

@@ -8034,6 +8034,9 @@
     "API connection": "API connection",
     "API keys: {{value}}": "API keys: {{value}}",
     "Usage charts": "Usage charts",
-    "Use the endpoint above and an API key to send a request.": "Use the endpoint above and an API key to send a request."
+    "Use the endpoint above and an API key to send a request.": "Use the endpoint above and an API key to send a request.",
+    "Connection details": "Connection details",
+    "Token usage": "Token usage",
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "Open Connection details to copy the endpoint, then use an API key to send a request."
   }
 }

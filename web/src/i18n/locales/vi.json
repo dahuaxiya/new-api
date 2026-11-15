@@ -8034,6 +8034,9 @@
     "API connection": "Kết nối API",
     "API keys: {{value}}": "Khóa API: {{value}}",
     "Usage charts": "Biểu đồ sử dụng",
-    "Use the endpoint above and an API key to send a request.": "Gửi yêu cầu bằng địa chỉ ở trên và khóa API."
+    "Use the endpoint above and an API key to send a request.": "Gửi yêu cầu bằng địa chỉ ở trên và khóa API.",
+    "Connection details": "Thông tin kết nối",
+    "Token usage": "Lượng token sử dụng",
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "Mở « Thông tin kết nối » để sao chép địa chỉ, rồi gửi yêu cầu bằng khóa API."
   }
 }

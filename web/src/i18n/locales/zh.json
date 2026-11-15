@@ -8064,6 +8064,9 @@
     "API connection": "API 接入",
     "API keys: {{value}}": "已有密钥 {{value}} 个",
     "Usage charts": "用量图表",
-    "Use the endpoint above and an API key to send a request.": "使用上方接入地址和 API 密钥发起请求。"
+    "Use the endpoint above and an API key to send a request.": "使用上方接入地址和 API 密钥发起请求。",
+    "Connection details": "接入信息",
+    "Token usage": "Token 用量",
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "点击「接入信息」复制地址，配合 API 密钥发起请求。"
   }
 }

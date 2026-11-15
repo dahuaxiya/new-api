@@ -8034,6 +8034,9 @@
     "API connection": "Подключение API",
     "API keys: {{value}}": "Ключи API: {{value}}",
     "Usage charts": "Графики использования",
-    "Use the endpoint above and an API key to send a request.": "Отправьте запрос с ключом API на указанный выше адрес."
+    "Use the endpoint above and an API key to send a request.": "Отправьте запрос с ключом API на указанный выше адрес.",
+    "Connection details": "Подключение",
+    "Token usage": "Использование токенов",
+    "Open Connection details to copy the endpoint, then use an API key to send a request.": "Откройте « Подключение », скопируйте адрес и отправьте запрос с API-ключом."
   }
 }

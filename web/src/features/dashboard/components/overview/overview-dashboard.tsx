@@ -18,7 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Activity, ArrowRight, RefreshCw } from 'lucide-react'
+import {
+  Activity,
+  ArrowRight,
+  ChevronDown,
+  Code2,
+  RefreshCw,
+} from 'lucide-react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -27,6 +33,17 @@ import { EmptyState } from '@/components/empty-state'
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -44,7 +61,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { GptQuotaCard } from '@/features/gpt-quota/GptQuotaCard'
 import { getApiKeys } from '@/features/keys/api'
 import { getUserLogs } from '@/features/usage-logs/api'
@@ -66,10 +82,8 @@ const ModelCharts = lazy(() =>
     default: module.ModelCharts,
   }))
 )
-const ConsumptionChart = lazy(() =>
-  import('../models/consumption-distribution-chart').then((module) => ({
-    default: module.ConsumptionDistributionChart,
-  }))
+const UsageTrends = lazy(() =>
+  import('./usage-trends').then((module) => ({ default: module.UsageTrends }))
 )
 
 /**
@@ -257,102 +271,100 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
       <SectionPageLayout.Title>
         {status ? t(profile.titleKey) : t('Dashboard')}
       </SectionPageLayout.Title>
+      <SectionPageLayout.Actions>
+        <Popover>
+          <PopoverTrigger render={<Button variant='outline' size='sm' />}>
+            <Code2 aria-hidden='true' />
+            {t('Connection details')}
+          </PopoverTrigger>
+          <PopoverContent
+            align='end'
+            collisionPadding={16}
+            className='w-96 max-w-[calc(100vw-2rem)] gap-4 rounded-xl p-4 motion-reduce:animate-none'
+          >
+            <PopoverTitle>{t('API endpoint')}</PopoverTitle>
+            <div className='bg-muted/40 flex min-w-0 items-center justify-between gap-2 rounded-lg border px-3 py-2'>
+              <code className='min-w-0 text-sm break-all'>{baseUrl}</code>
+              <CopyButton value={baseUrl} aria-label={t('Copy API endpoint')} />
+            </div>
+            <div className='flex items-center justify-between gap-3'>
+              <p className='text-muted-foreground text-xs tabular-nums'>
+                {keyCountContent}
+              </p>
+              <Button variant='ghost' size='sm' render={<Link to='/docs' />}>
+                {t(profile.guideTitleKey)}
+                <ArrowRight aria-hidden='true' />
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='luobo-overview mx-auto w-full max-w-7xl space-y-5 pb-6'>
           {/* 托管用户优先看订阅额度；状态尚未返回时不按默认模式发起托管请求。 */}
           {status && profile.showHostedQuota && <GptQuotaCard />}
-          <nav
-            aria-label={t('Quick access')}
-            className='grid gap-4 lg:grid-cols-[0.85fr_1.15fr]'
-          >
-            <section
-              aria-label={t('Site balance')}
-              className='luobo-account-panel rounded-2xl border p-5 sm:p-6'
-            >
-              <div className='flex items-center justify-between gap-3'>
-                <h3 className='text-sm font-medium'>{t('Site balance')}</h3>
-                {status && walletAction && (
-                  <Button
-                    variant='ghost'
-                    size='sm'
-                    render={<Link to={walletAction.url} />}
-                  >
-                    {t(walletAction.titleKey)}
-                    <ArrowRight aria-hidden='true' className='size-3.5' />
-                  </Button>
-                )}
-              </div>
-              {account.isPending ? (
-                <Skeleton className='my-4 h-10 w-36' />
-              ) : (
-                <p className='my-3 text-4xl font-medium tracking-tight tabular-nums'>
-                  {account.isError ? '—' : formatQuota(account.data.quota)}
-                </p>
-              )}
-              <p
-                role={account.isError ? 'alert' : undefined}
-                className='text-muted-foreground text-xs leading-relaxed'
+          <div className='grid items-start gap-4 xl:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.8fr)]'>
+            <nav aria-label={t('Quick access')}>
+              <section
+                aria-label={t('Site balance')}
+                className='luobo-account-panel rounded-2xl border p-5 sm:p-6'
               >
-                {account.isError
-                  ? t('Failed to load')
-                  : t(profile.balanceDescriptionKey)}
-              </p>
-              <dl className='mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t pt-3'>
-                {[
-                  [
-                    t('Total usage'),
-                    account.data && !account.isError
-                      ? formatQuota(account.data.used_quota)
-                      : '—',
-                  ],
-                  [
-                    t('Total requests'),
-                    account.data && !account.isError
-                      ? formatNumber(account.data.request_count)
-                      : '—',
-                  ],
-                ].map(([label, value]) => (
-                  <div key={label} className='flex items-baseline gap-2'>
-                    <dt className='text-muted-foreground text-xs'>{label}</dt>
-                    <dd className='text-sm font-medium tabular-nums'>
-                      {account.isPending ? (
-                        <Skeleton className='h-5 w-16' />
-                      ) : (
-                        value
-                      )}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-            <section
-              aria-label={t('API connection')}
-              className='bg-card flex min-w-0 flex-col rounded-2xl border p-5 sm:p-6'
-            >
-              <div className='flex items-center justify-between gap-3'>
-                <h3 className='text-sm font-medium'>{t('API connection')}</h3>
-                <Link
-                  to='/docs'
-                  className='text-muted-foreground hover:text-foreground inline-flex min-h-9 items-center gap-1 text-xs underline-offset-4 hover:underline'
-                >
-                  {t(profile.guideTitleKey)}{' '}
-                  <ArrowRight aria-hidden='true' className='size-3.5' />
-                </Link>
-              </div>
-              <div className='mt-3'>
-                <p className='text-muted-foreground mb-2 text-xs'>
-                  {t('API endpoint')}
-                </p>
-                <div className='bg-muted/40 flex min-w-0 items-center justify-between gap-2 rounded-lg border px-3 py-2'>
-                  <code className='min-w-0 text-sm break-all'>{baseUrl}</code>
-                  <CopyButton
-                    value={baseUrl}
-                    aria-label={t('Copy API endpoint')}
-                  />
+                <div className='flex items-center justify-between gap-3'>
+                  <h3 className='text-sm font-medium'>{t('Site balance')}</h3>
+                  {status && walletAction && (
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      render={<Link to={walletAction.url} />}
+                    >
+                      {t(walletAction.titleKey)}
+                      <ArrowRight aria-hidden='true' className='size-3.5' />
+                    </Button>
+                  )}
                 </div>
-              </div>
-              <div className='mt-auto flex flex-wrap items-center justify-between gap-3 pt-5'>
-                <div className='flex flex-wrap gap-2'>
+                {account.isPending ? (
+                  <Skeleton className='my-4 h-10 w-36' />
+                ) : (
+                  <p className='my-3 text-4xl font-medium tracking-tight tabular-nums'>
+                    {account.isError ? '—' : formatQuota(account.data.quota)}
+                  </p>
+                )}
+                <p
+                  role={account.isError ? 'alert' : undefined}
+                  className='text-muted-foreground text-xs leading-relaxed'
+                >
+                  {account.isError
+                    ? t('Failed to load')
+                    : t(profile.balanceDescriptionKey)}
+                </p>
+                <dl className='mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t pt-3'>
+                  {[
+                    [
+                      t('Total usage'),
+                      account.data && !account.isError
+                        ? formatQuota(account.data.used_quota)
+                        : '—',
+                    ],
+                    [
+                      t('Total requests'),
+                      account.data && !account.isError
+                        ? formatNumber(account.data.request_count)
+                        : '—',
+                    ],
+                  ].map(([label, value]) => (
+                    <div key={label} className='flex items-baseline gap-2'>
+                      <dt className='text-muted-foreground text-xs'>{label}</dt>
+                      <dd className='text-sm font-medium tabular-nums'>
+                        {account.isPending ? (
+                          <Skeleton className='h-5 w-16' />
+                        ) : (
+                          value
+                        )}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className='mt-5 flex flex-wrap gap-2'>
                   {status &&
                     connectionActions.map((item, index) => (
                       <Button
@@ -366,150 +378,134 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
                       </Button>
                     ))}
                 </div>
-                <p className='text-muted-foreground text-xs tabular-nums'>
-                  {keyCountContent}
-                </p>
-              </div>
-            </section>
-          </nav>
-          <section
-            className='bg-card overflow-hidden rounded-2xl border'
-            aria-label={t('Usage overview')}
-            aria-busy={usage.isFetching}
-          >
-            <div className='flex flex-wrap items-center justify-between gap-3 p-5 sm:px-6'>
-              <div>
-                <h3 className='text-sm font-semibold'>{t('Usage overview')}</h3>
-                <p className='text-muted-foreground mt-1 text-xs'>
-                  {t(
-                    'Only includes requests made through this account on this site.'
-                  )}
-                </p>
-              </div>
-              <div className='flex items-center gap-2'>
-                <Select
-                  value={days}
-                  items={ranges}
-                  onValueChange={(value) => {
-                    if (value) {
-                      setDays(value)
-                      setNow(Date.now())
-                    }
-                  }}
-                >
-                  <SelectTrigger aria-label={t('Time range')} className='w-36'>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value='1'>{t('Last 24 hours')}</SelectItem>
-                      <SelectItem value='7'>{t('Last 7 days')}</SelectItem>
-                      <SelectItem value='30'>{t('Last 30 days')}</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  disabled={busy}
-                  onClick={refreshUsage}
-                >
-                  <RefreshCw
-                    aria-hidden='true'
-                    className={busy ? 'motion-safe:animate-spin' : ''}
-                  />
-                  {t('Refresh usage')}
-                </Button>
-              </div>
-            </div>
-            {usage.isError ? (
-              <p role='alert' className='text-destructive px-6 pb-6 text-sm'>
-                {t('Usage data could not be loaded. Refresh to retry.')}
-              </p>
-            ) : (
-              <>
-                <dl className='grid grid-cols-3 gap-3 border-y px-5 py-4 sm:px-6'>
-                  {[
-                    [t('Requests in range'), formatNumber(stats.totalCount)],
-                    [
-                      t('Site consumption in range'),
-                      formatQuota(stats.totalQuota),
-                    ],
-                    [t('Tokens in range'), formatNumber(stats.totalTokens)],
-                  ].map(([label, value]) => (
-                    <div key={label}>
-                      <dt className='text-muted-foreground text-xs leading-relaxed'>
-                        {label}
-                      </dt>
-                      <dd>
-                        {usage.isPending ? (
-                          <Skeleton className='mt-2 h-7 w-24' />
-                        ) : (
-                          <p className='mt-2 text-xl font-medium tabular-nums sm:text-2xl'>
-                            {value}
-                          </p>
-                        )}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-                {usage.isPending && (
-                  <div className='p-6'>
-                    <Skeleton className='h-40 w-full' />
-                  </div>
-                )}
-                {!usage.isPending && !hasUsage && (
-                  <EmptyState
-                    icon={Activity}
-                    title={t('No requests in this period')}
-                    description={t(
-                      'Use the endpoint above and an API key to send a request.'
-                    )}
-                    className='min-h-44 py-8 [&_[data-slot=empty-media]]:mb-2'
-                  />
-                )}
-                {!usage.isPending && hasUsage && (
-                  <Tabs defaultValue='consumption' className='gap-0 p-3 sm:p-4'>
-                    <TabsList
-                      aria-label={t('Usage charts')}
-                      variant='line'
-                      className='mx-2 mb-2 h-10 gap-4'
+              </section>
+            </nav>
+            <section
+              className='bg-card min-w-0 overflow-hidden rounded-2xl border'
+              aria-label={t('Usage overview')}
+              aria-busy={usage.isFetching}
+            >
+              <div className='flex flex-wrap items-center justify-between gap-3 px-5 pt-5 pb-3 sm:px-6'>
+                <div>
+                  <h3 className='text-sm font-semibold'>
+                    {t('Usage overview')}
+                  </h3>
+                  <p className='text-muted-foreground mt-1 text-xs'>
+                    {t('Requests in range')}
+                    {' · '}
+                    {usage.isPending || usage.isError
+                      ? '—'
+                      : formatNumber(stats.totalCount)}
+                  </p>
+                </div>
+                <div className='flex items-center gap-2'>
+                  <Select
+                    value={days}
+                    items={ranges}
+                    onValueChange={(value) => {
+                      if (value) {
+                        setDays(value)
+                        setNow(Date.now())
+                      }
+                    }}
+                  >
+                    <SelectTrigger
+                      aria-label={t('Time range')}
+                      className='w-36'
                     >
-                      <TabsTrigger value='consumption'>
-                        {t('Quota Distribution')}
-                      </TabsTrigger>
-                      <TabsTrigger value='models'>
-                        {t('Model Call Analytics')}
-                      </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value='consumption'>
-                      <Suspense fallback={<Skeleton className='h-72' />}>
-                        <ConsumptionChart
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value='1'>{t('Last 24 hours')}</SelectItem>
+                        <SelectItem value='7'>{t('Last 7 days')}</SelectItem>
+                        <SelectItem value='30'>{t('Last 30 days')}</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    disabled={busy}
+                    onClick={refreshUsage}
+                  >
+                    <RefreshCw
+                      aria-hidden='true'
+                      className={busy ? 'motion-safe:animate-spin' : ''}
+                    />
+                    {t('Refresh usage')}
+                  </Button>
+                </div>
+              </div>
+              {usage.isError ? (
+                <p role='alert' className='text-destructive px-6 pb-6 text-sm'>
+                  {t('Usage data could not be loaded. Refresh to retry.')}
+                </p>
+              ) : (
+                <>
+                  {usage.isPending && (
+                    <div className='p-6'>
+                      <Skeleton className='h-40 w-full' />
+                    </div>
+                  )}
+                  {!usage.isPending && !hasUsage && (
+                    <EmptyState
+                      icon={Activity}
+                      title={t('No requests in this period')}
+                      description={t(
+                        'Open Connection details to copy the endpoint, then use an API key to send a request.'
+                      )}
+                      className='min-h-44 py-8 [&_[data-slot=empty-media]]:mb-2'
+                    />
+                  )}
+                  {!usage.isPending && hasUsage && (
+                    <>
+                      <Suspense
+                        fallback={<Skeleton className='mx-6 mb-5 h-52' />}
+                      >
+                        <UsageTrends
                           data={usage.data ?? []}
-                          timeGranularity={days === '1' ? 'hour' : 'day'}
-                          defaultChartType='area'
-                          embedded
+                          range={range}
+                          granularity={days === '1' ? 'hour' : 'day'}
                         />
                       </Suspense>
-                    </TabsContent>
-                    <TabsContent value='models'>
-                      <Suspense fallback={<Skeleton className='h-72' />}>
-                        <ModelCharts
-                          data={usage.data ?? []}
-                          timeGranularity={days === '1' ? 'hour' : 'day'}
-                          defaultChartTab='proportion'
-                          embedded
-                        />
-                      </Suspense>
-                    </TabsContent>
-                  </Tabs>
-                )}
-              </>
-            )}
-          </section>
+                      <Collapsible className='border-t'>
+                        <CollapsibleTrigger
+                          render={
+                            <Button
+                              variant='ghost'
+                              className='group h-11 w-full justify-between rounded-none px-5 text-xs sm:px-6'
+                            />
+                          }
+                        >
+                          {t('Model Call Analytics')}
+                          <ChevronDown
+                            aria-hidden='true'
+                            className='size-4 transition-transform group-data-panel-open:rotate-180 motion-reduce:transition-none'
+                          />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className='p-3 sm:p-4'>
+                            <Suspense fallback={<Skeleton className='h-72' />}>
+                              <ModelCharts
+                                data={usage.data ?? []}
+                                timeGranularity={days === '1' ? 'hour' : 'day'}
+                                defaultChartTab='proportion'
+                                embedded
+                              />
+                            </Suspense>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </>
+                  )}
+                </>
+              )}
+            </section>
+          </div>
           {!hideEmptyRecent && (
             <Card className='gap-4 rounded-2xl shadow-none'>
-              <CardHeader className='flex-row items-center justify-between gap-3'>
+              <CardHeader className='flex flex-row items-center justify-between gap-3'>
                 <CardTitle>{t('Recent usage')}</CardTitle>
                 <Button
                   variant='ghost'
