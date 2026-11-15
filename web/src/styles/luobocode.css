@@ -174,16 +174,23 @@
 .luobo-shell .luobo-workspace > div:nth-child(2) {
   padding-inline: 28px;
 }
-.luobo-workspace-intro {
+.luobo-account-panel {
   background: var(--luobo-paper, var(--muted));
-  border: 1px solid var(--border);
 }
-.luobo-shell .luobo-metrics > [data-slot='card'] {
-  border-radius: 16px;
-  box-shadow: 0 3px 14px -10px #312b2920;
+/* 服务切换、语言与主题按钮先保留点击空间；只有品牌容器不够宽时才收起字标。 */
+@container system-brand (max-width: 155px) {
+  .luobo-brand-wordmark {
+    display: none;
+  }
 }
-.luobo-shell .luobo-metrics [data-slot='card-content'] {
-  padding: 22px;
+/* 概览只保留短促的按钮反馈，切换视图不让数字跳动或整块位移。 */
+.luobo-overview [data-slot='button'],
+.luobo-overview [data-slot='tabs-trigger'] {
+  min-height: 36px;
+  transition:
+    color 150ms,
+    background-color 150ms,
+    border-color 150ms;
 }
 .luobo-shell [data-slot='sidebar-menu-button'][data-active='true'] {
   box-shadow: inset 2px 0 var(--luobo-orange);
@@ -223,13 +230,12 @@
   .luobo-shell .luobo-workspace > div:nth-child(2) {
     padding-inline: 16px;
   }
-  .luobo-shell .luobo-metrics [data-slot='card-content'] {
-    padding: 16px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
+  .luobo-overview *,
   .luobo-reveal {
     animation: none;
+    transition: none !important;
   }
   .luobo-catalog-card > [data-slot='card'],
   .luobo-shell [data-slot='sheet-content'],

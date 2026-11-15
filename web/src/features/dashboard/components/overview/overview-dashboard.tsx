@@ -18,18 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import {
-  Activity,
-  ArrowRight,
-  Coins,
-  KeyRound,
-  RefreshCw,
-  Wallet,
-} from 'lucide-react'
+import { Activity, ArrowRight, RefreshCw } from 'lucide-react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
+import { EmptyState } from '@/components/empty-state'
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -50,6 +44,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { GptQuotaCard } from '@/features/gpt-quota/GptQuotaCard'
 import { getApiKeys } from '@/features/keys/api'
 import { getUserLogs } from '@/features/usage-logs/api'
@@ -65,7 +60,6 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { getUserQuotaDates } from '../../api'
 import { calculateDashboardStats } from '../../lib/stats'
-import { StatCard } from '../ui/stat-card'
 
 const ModelCharts = lazy(() =>
   import('../models/model-charts').then((module) => ({
@@ -78,7 +72,10 @@ const ConsumptionChart = lazy(() =>
   }))
 )
 
-/** 登录账号切换时重建筛选及请求状态，旧账号的结果不得闪现在新账号页面。 */
+/**
+ * 登录账号切换时重建筛选及请求状态，旧账号的结果不得闪现在新账号页面。
+ * @return 当前登录账号的个人概览；无账号时不发起请求。
+ */
 export function OverviewDashboard() {
   const userId = useAuthStore((state) => state.auth.user?.id)
   const sessionId = useAuthStore((state) => state.auth.session?.sid)
@@ -173,40 +170,26 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
     usage.isFetching ||
     recent.isFetching
   const baseUrl = `${window.location.origin}/v1`
-  const metrics = [
-    {
-      title: t('Site balance'),
-      value: account.data ? formatQuota(account.data.quota) : '—',
-      description: t(profile.balanceDescriptionKey),
-      icon: Wallet,
-      loading: account.isPending,
-      error: account.isError,
-    },
-    {
-      title: t('Total usage'),
-      value: account.data ? formatQuota(account.data.used_quota) : '—',
-      description: t('Cumulative site consumption'),
-      icon: Coins,
-      loading: account.isPending,
-      error: account.isError,
-    },
-    {
-      title: t('Total requests'),
-      value: account.data ? formatNumber(account.data.request_count) : '—',
-      description: t('Requests through this site'),
-      icon: Activity,
-      loading: account.isPending,
-      error: account.isError,
-    },
-    {
-      title: t('API Keys'),
-      value: keys.data === undefined ? '—' : formatNumber(keys.data),
-      description: t('Keys owned by this account'),
-      icon: KeyRound,
-      loading: keys.isPending,
-      error: keys.isError,
-    },
-  ]
+  // 聚合接口可能返回零值时间桶；只有三个统计量均为零，才显示空状态。
+  // 错误与加载在渲染分支中先处理，不把未取得的数据当作“没有用量”。
+  const hasUsage =
+    stats.totalCount > 0 || stats.totalTokens > 0 || stats.totalQuota > 0
+  const walletAction = actions.find((item) => item.url === '/wallet')
+  const connectionActions = actions.filter((item) => item.url !== '/wallet')
+  // 汇总与日志均明确为空时只留一个空状态；汇总延迟或任一请求失败不能掩盖已有日志。
+  const hideEmptyRecent =
+    usage.isSuccess && !hasUsage && recent.isSuccess && recent.data.length === 0
+
+  let keyCountContent
+  if (keys.isPending) {
+    keyCountContent = <Skeleton className='h-4 w-16' />
+  } else if (keys.isError) {
+    keyCountContent = t('Failed to load')
+  } else {
+    keyCountContent = t('API keys: {{value}}', {
+      value: formatNumber(keys.data ?? 0),
+    })
+  }
 
   let recentContent
   if (recent.isError) {
@@ -274,54 +257,130 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
       <SectionPageLayout.Title>
         {status ? t(profile.titleKey) : t('Dashboard')}
       </SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        <Button variant='outline' size='sm' render={<Link to='/docs' />}>
-          {t('User guide')}
-        </Button>
-      </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='mx-auto w-full max-w-7xl space-y-6 pb-6'>
-          {status && actions.length > 0 && (
-            <section className='luobo-workspace-intro flex flex-wrap items-center justify-between gap-5 rounded-2xl px-6 py-5'>
-              <div>
-                <p className='font-serif text-xl'>{t('Quick access')}</p>
-              </div>
-              <nav
-                aria-label={t('Quick access')}
-                className='flex flex-wrap gap-2'
-              >
-                {actions.map((item, index) => (
-                  <Button
-                    key={item.url}
-                    variant={index === 0 ? 'default' : 'outline'}
-                    render={<Link to={item.url} />}
-                  >
-                    <item.icon aria-hidden='true' />
-                    {t(item.titleKey)}
-                    <ArrowRight aria-hidden='true' />
-                  </Button>
-                ))}
-              </nav>
-            </section>
-          )}
-          {/* 状态尚未返回时不能按默认模式发起托管请求；托管站先展示账号额度。 */}
+        <div className='luobo-overview mx-auto w-full max-w-7xl space-y-5 pb-6'>
+          {/* 托管用户优先看订阅额度；状态尚未返回时不按默认模式发起托管请求。 */}
           {status && profile.showHostedQuota && <GptQuotaCard />}
-          <div className='luobo-metrics grid grid-cols-2 gap-3 lg:grid-cols-4'>
-            {metrics.map((metric) => (
-              <Card key={metric.title} className='gap-0 py-0 shadow-none'>
-                <CardContent className='p-4'>
-                  <StatCard {...metric} compactMobile />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-          <section className='space-y-4' aria-label={t('Usage overview')}>
-            <div className='flex flex-wrap items-center justify-between gap-3'>
+          <nav
+            aria-label={t('Quick access')}
+            className='grid gap-4 lg:grid-cols-[0.85fr_1.15fr]'
+          >
+            <section
+              aria-label={t('Site balance')}
+              className='luobo-account-panel rounded-2xl border p-5 sm:p-6'
+            >
+              <div className='flex items-center justify-between gap-3'>
+                <h3 className='text-sm font-medium'>{t('Site balance')}</h3>
+                {status && walletAction && (
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    render={<Link to={walletAction.url} />}
+                  >
+                    {t(walletAction.titleKey)}
+                    <ArrowRight aria-hidden='true' className='size-3.5' />
+                  </Button>
+                )}
+              </div>
+              {account.isPending ? (
+                <Skeleton className='my-4 h-10 w-36' />
+              ) : (
+                <p className='my-3 text-4xl font-medium tracking-tight tabular-nums'>
+                  {account.isError ? '—' : formatQuota(account.data.quota)}
+                </p>
+              )}
+              <p
+                role={account.isError ? 'alert' : undefined}
+                className='text-muted-foreground text-xs leading-relaxed'
+              >
+                {account.isError
+                  ? t('Failed to load')
+                  : t(profile.balanceDescriptionKey)}
+              </p>
+              <dl className='mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t pt-3'>
+                {[
+                  [
+                    t('Total usage'),
+                    account.data && !account.isError
+                      ? formatQuota(account.data.used_quota)
+                      : '—',
+                  ],
+                  [
+                    t('Total requests'),
+                    account.data && !account.isError
+                      ? formatNumber(account.data.request_count)
+                      : '—',
+                  ],
+                ].map(([label, value]) => (
+                  <div key={label} className='flex items-baseline gap-2'>
+                    <dt className='text-muted-foreground text-xs'>{label}</dt>
+                    <dd className='text-sm font-medium tabular-nums'>
+                      {account.isPending ? (
+                        <Skeleton className='h-5 w-16' />
+                      ) : (
+                        value
+                      )}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+            <section
+              aria-label={t('API connection')}
+              className='bg-card flex min-w-0 flex-col rounded-2xl border p-5 sm:p-6'
+            >
+              <div className='flex items-center justify-between gap-3'>
+                <h3 className='text-sm font-medium'>{t('API connection')}</h3>
+                <Link
+                  to='/docs'
+                  className='text-muted-foreground hover:text-foreground inline-flex min-h-9 items-center gap-1 text-xs underline-offset-4 hover:underline'
+                >
+                  {t(profile.guideTitleKey)}{' '}
+                  <ArrowRight aria-hidden='true' className='size-3.5' />
+                </Link>
+              </div>
+              <div className='mt-3'>
+                <p className='text-muted-foreground mb-2 text-xs'>
+                  {t('API endpoint')}
+                </p>
+                <div className='bg-muted/40 flex min-w-0 items-center justify-between gap-2 rounded-lg border px-3 py-2'>
+                  <code className='min-w-0 text-sm break-all'>{baseUrl}</code>
+                  <CopyButton
+                    value={baseUrl}
+                    aria-label={t('Copy API endpoint')}
+                  />
+                </div>
+              </div>
+              <div className='mt-auto flex flex-wrap items-center justify-between gap-3 pt-5'>
+                <div className='flex flex-wrap gap-2'>
+                  {status &&
+                    connectionActions.map((item, index) => (
+                      <Button
+                        key={item.url}
+                        size='sm'
+                        variant={index === 0 ? 'default' : 'outline'}
+                        render={<Link to={item.url} />}
+                      >
+                        <item.icon aria-hidden='true' />
+                        {t(item.titleKey)}
+                      </Button>
+                    ))}
+                </div>
+                <p className='text-muted-foreground text-xs tabular-nums'>
+                  {keyCountContent}
+                </p>
+              </div>
+            </section>
+          </nav>
+          <section
+            className='bg-card overflow-hidden rounded-2xl border'
+            aria-label={t('Usage overview')}
+            aria-busy={usage.isFetching}
+          >
+            <div className='flex flex-wrap items-center justify-between gap-3 p-5 sm:px-6'>
               <div>
-                <h3 className='text-base font-semibold'>
-                  {t('Usage overview')}
-                </h3>
-                <p className='text-muted-foreground mt-1 text-sm'>
+                <h3 className='text-sm font-semibold'>{t('Usage overview')}</h3>
+                <p className='text-muted-foreground mt-1 text-xs'>
                   {t(
                     'Only includes requests made through this account on this site.'
                   )}
@@ -355,18 +414,21 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
                   disabled={busy}
                   onClick={refreshUsage}
                 >
-                  <RefreshCw className={busy ? 'animate-spin' : ''} />
+                  <RefreshCw
+                    aria-hidden='true'
+                    className={busy ? 'motion-safe:animate-spin' : ''}
+                  />
                   {t('Refresh usage')}
                 </Button>
               </div>
             </div>
             {usage.isError ? (
-              <p role='alert' className='text-destructive text-sm'>
+              <p role='alert' className='text-destructive px-6 pb-6 text-sm'>
                 {t('Usage data could not be loaded. Refresh to retry.')}
               </p>
             ) : (
               <>
-                <div className='bg-muted/30 grid grid-cols-1 divide-y rounded-xl border sm:grid-cols-3 sm:divide-x sm:divide-y-0'>
+                <dl className='grid grid-cols-3 gap-3 border-y px-5 py-4 sm:px-6'>
                   {[
                     [t('Requests in range'), formatNumber(stats.totalCount)],
                     [
@@ -375,83 +437,102 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
                     ],
                     [t('Tokens in range'), formatNumber(stats.totalTokens)],
                   ].map(([label, value]) => (
-                    <div key={label} className='p-4'>
-                      <p className='text-muted-foreground text-xs'>{label}</p>
-                      {usage.isPending ? (
-                        <Skeleton className='mt-2 h-7 w-24' />
-                      ) : (
-                        <p className='mt-2 text-xl font-semibold tabular-nums'>
-                          {value}
-                        </p>
-                      )}
+                    <div key={label}>
+                      <dt className='text-muted-foreground text-xs leading-relaxed'>
+                        {label}
+                      </dt>
+                      <dd>
+                        {usage.isPending ? (
+                          <Skeleton className='mt-2 h-7 w-24' />
+                        ) : (
+                          <p className='mt-2 text-xl font-medium tabular-nums sm:text-2xl'>
+                            {value}
+                          </p>
+                        )}
+                      </dd>
                     </div>
                   ))}
-                </div>
-                <div className='grid min-w-0 gap-4 xl:grid-cols-2'>
-                  <Suspense fallback={<Skeleton className='h-80' />}>
-                    <ConsumptionChart
-                      data={usage.data ?? []}
-                      loading={usage.isPending}
-                      timeGranularity={days === '1' ? 'hour' : 'day'}
-                      defaultChartType='area'
-                    />
-                  </Suspense>
-                  <Suspense fallback={<Skeleton className='h-80' />}>
-                    <ModelCharts
-                      data={usage.data ?? []}
-                      loading={usage.isPending}
-                      timeGranularity={days === '1' ? 'hour' : 'day'}
-                      defaultChartTab='proportion'
-                    />
-                  </Suspense>
-                </div>
+                </dl>
+                {usage.isPending && (
+                  <div className='p-6'>
+                    <Skeleton className='h-40 w-full' />
+                  </div>
+                )}
+                {!usage.isPending && !hasUsage && (
+                  <EmptyState
+                    icon={Activity}
+                    title={t('No requests in this period')}
+                    description={t(
+                      'Use the endpoint above and an API key to send a request.'
+                    )}
+                    className='min-h-44 py-8 [&_[data-slot=empty-media]]:mb-2'
+                  />
+                )}
+                {!usage.isPending && hasUsage && (
+                  <Tabs defaultValue='consumption' className='gap-0 p-3 sm:p-4'>
+                    <TabsList
+                      aria-label={t('Usage charts')}
+                      variant='line'
+                      className='mx-2 mb-2 h-10 gap-4'
+                    >
+                      <TabsTrigger value='consumption'>
+                        {t('Quota Distribution')}
+                      </TabsTrigger>
+                      <TabsTrigger value='models'>
+                        {t('Model Call Analytics')}
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value='consumption'>
+                      <Suspense fallback={<Skeleton className='h-72' />}>
+                        <ConsumptionChart
+                          data={usage.data ?? []}
+                          timeGranularity={days === '1' ? 'hour' : 'day'}
+                          defaultChartType='area'
+                          embedded
+                        />
+                      </Suspense>
+                    </TabsContent>
+                    <TabsContent value='models'>
+                      <Suspense fallback={<Skeleton className='h-72' />}>
+                        <ModelCharts
+                          data={usage.data ?? []}
+                          timeGranularity={days === '1' ? 'hour' : 'day'}
+                          defaultChartTab='proportion'
+                          embedded
+                        />
+                      </Suspense>
+                    </TabsContent>
+                  </Tabs>
+                )}
               </>
             )}
           </section>
-          <Card>
-            <CardHeader className='flex-row items-center justify-between gap-3'>
-              <CardTitle>{t('Recent usage')}</CardTitle>
-              <Button
-                variant='ghost'
-                size='sm'
-                // 日志筛选使用毫秒且管理员默认查看全站；同时保留当前账号和时间范围。
-                render={
-                  <Link
-                    to='/usage-logs/$section'
-                    params={{ section: 'common' }}
-                    search={{
-                      username,
-                      startTime: range.start_timestamp * 1000,
-                      endTime: range.end_timestamp * 1000,
-                    }}
-                  />
-                }
-              >
-                {t('View all')}
-              </Button>
-            </CardHeader>
-            <CardContent>{recentContent}</CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('API endpoint')}</CardTitle>
-            </CardHeader>
-            <CardContent className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-              <div className='flex min-w-0 items-center gap-2'>
-                <code className='text-sm break-all'>{baseUrl}</code>
-                <CopyButton
-                  value={baseUrl}
-                  aria-label={t('Copy API endpoint')}
-                />
-              </div>
-              <Link
-                to='/docs'
-                className='text-primary text-sm underline-offset-4 hover:underline'
-              >
-                {t(profile.guideTitleKey)}
-              </Link>
-            </CardContent>
-          </Card>
+          {!hideEmptyRecent && (
+            <Card className='gap-4 rounded-2xl shadow-none'>
+              <CardHeader className='flex-row items-center justify-between gap-3'>
+                <CardTitle>{t('Recent usage')}</CardTitle>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  // 日志筛选使用毫秒且管理员默认查看全站；同时保留当前账号和时间范围。
+                  render={
+                    <Link
+                      to='/usage-logs/$section'
+                      params={{ section: 'common' }}
+                      search={{
+                        username,
+                        startTime: range.start_timestamp * 1000,
+                        endTime: range.end_timestamp * 1000,
+                      }}
+                    />
+                  }
+                >
+                  {t('View all')}
+                </Button>
+              </CardHeader>
+              <CardContent>{recentContent}</CardContent>
+            </Card>
+          )}
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

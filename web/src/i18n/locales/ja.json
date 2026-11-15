@@ -8030,6 +8030,10 @@
     "Loading model details...": "モデルの詳細を読み込み中…",
     "Connecting...": "接続中…",
     "If this keeps failing, refresh the page.": "再試行しても失敗する場合は、ページを再読み込みしてください。",
-    "Copy a model name from the catalog and create an API key. Check your balance before calling.": "カタログからモデル名をコピーし、API キーを作成してください。呼び出す前に残高を確認してください。"
+    "Copy a model name from the catalog and create an API key. Check your balance before calling.": "カタログからモデル名をコピーし、API キーを作成してください。呼び出す前に残高を確認してください。",
+    "API connection": "API 接続",
+    "API keys: {{value}}": "API キー: {{value}}",
+    "Usage charts": "使用量グラフ",
+    "Use the endpoint above and an API key to send a request.": "上記のエンドポイントと API キーを使ってリクエストを送信してください。"
   }
 }

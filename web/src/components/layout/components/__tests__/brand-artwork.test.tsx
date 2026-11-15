@@ -20,6 +20,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
 
 import { DEFAULT_LOGO } from '@/lib/constants'
+import { applyFaviconToDom } from '@/lib/dom-utils'
 
 import { BrandArtwork } from '../brand-artwork'
 
@@ -31,7 +32,7 @@ it('内置品牌显示组合标志并只提供一个可访问名称', () => {
   const brand = screen.getByRole('img', { name: 'luobocode' })
   expect(screen.getAllByRole('img')).toHaveLength(1)
   expect(brand.querySelector('img')?.getAttribute('src')).toBe(
-    '/brand/luobocode-lockup-v12.png'
+    '/brand/luobocode-ceramic-v13.webp'
   )
 })
 
@@ -40,7 +41,7 @@ it('紧凑模式使用独立坐姿猫与萝卜并保留品牌名称', () => {
   render(<BrandArtwork name='luobocode' logo={DEFAULT_LOGO} compact />)
   const brand = screen.getByRole('img', { name: 'luobocode' })
   expect(brand.querySelector('img')?.getAttribute('src')).toBe(
-    '/brand/luobocode-mark-v12.png'
+    '/brand/luobocode-ceramic-v13.webp'
   )
 })
 
@@ -61,6 +62,22 @@ it.each(['luobocode · 中转站', 'luobocode · 托管站'])(
     render(<BrandArtwork name={name} logo={DEFAULT_LOGO} />)
     expect(
       screen.getByRole('img', { name }).querySelector('img')
-    ).toHaveAttribute('src', '/brand/luobocode-lockup-v12.png')
+    ).toHaveAttribute('src', '/brand/luobocode-ceramic-v13.webp')
   }
 )
+
+/** 历史内置 Logo 配置升级到当前标签页图标，自定义图片仍由管理员掌握。 */
+it('兼容已保存的默认图标且不覆盖自定义图标', () => {
+  applyFaviconToDom(DEFAULT_LOGO)
+  expect(document.querySelector('link[rel="icon"]')).toHaveAttribute(
+    'href',
+    '/brand/luobocode-favicon-v13.png'
+  )
+  applyFaviconToDom('/custom-icon.svg')
+  expect(document.querySelectorAll('link[rel="icon"]')).toHaveLength(1)
+  expect(document.querySelector('link[rel="icon"]')).toHaveAttribute(
+    'href',
+    '/custom-icon.svg'
+  )
+  document.querySelector('link[rel="icon"]')?.remove()
+})

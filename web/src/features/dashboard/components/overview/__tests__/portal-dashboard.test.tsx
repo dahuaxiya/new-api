@@ -22,17 +22,23 @@ import { useAuthStore } from '@/stores/auth-store'
 import { OverviewDashboard } from '../overview-dashboard'
 
 // 图表绘制依赖 Canvas；这里验证真实请求范围及会话隔离，绘制在浏览器中检查。
-vi.mock('../../models/model-charts', () => ({ ModelCharts: () => <div /> }))
+vi.mock('../../models/model-charts', () => ({
+  ModelCharts: () => <div data-testid='model-chart' />,
+}))
 vi.mock('../../models/consumption-distribution-chart', () => ({
-  ConsumptionDistributionChart: () => <div />,
+  ConsumptionDistributionChart: () => <div data-testid='consumption-chart' />,
 }))
 let client: QueryClient
 let failUsage = false
+let emptyUsage = false
+let emptyRecent = false
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   useAuthStore.setState(useAuthStore.getInitialState(), true)
   useAuthStore.getState().auth.setUser({ id: 1, username: 'admin', role: 100 })
   failUsage = false
+  emptyUsage = false
+  emptyRecent = false
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
     if (url === '/api/status') {
       return { data: { success: true, data: { site_mode: 'hosting' } } }
@@ -57,9 +63,9 @@ beforeEach(() => {
             {
               created_at: 1770000000,
               model_name: 'test-model',
-              token_used: 312,
-              count: 8,
-              quota: 10,
+              token_used: emptyUsage ? 0 : 312,
+              count: emptyUsage ? 0 : 8,
+              quota: emptyUsage ? 0 : 10,
             },
           ],
         },
@@ -70,16 +76,18 @@ beforeEach(() => {
         data: {
           success: true,
           data: {
-            items: [
-              {
-                id: 1,
-                user_id: 1,
-                created_at: 1770000000,
-                type: 2,
-                content: '',
-                model_name: 'test-model',
-              },
-            ],
+            items: emptyRecent
+              ? []
+              : [
+                  {
+                    id: 1,
+                    user_id: 1,
+                    created_at: 1770000000,
+                    type: 2,
+                    content: '',
+                    model_name: 'test-model',
+                  },
+                ],
           },
         },
       }
@@ -258,4 +266,64 @@ it('respects administrator and user menu settings in dashboard quick access', as
     'href',
     '/pricing'
   )
+})
+
+/** 成功返回的全零统计显示下一步说明，不加载空图表或图表切换控件。 */
+it('replaces empty charts with guidance only after a successful zero-usage response', async () => {
+  emptyUsage = true
+  emptyRecent = true
+  await mount()
+  expect(
+    await screen.findByText(
+      'Use the endpoint above and an API key to send a request.'
+    )
+  ).toBeVisible()
+  expect(screen.queryByRole('tablist', { name: 'Usage charts' })).toBeNull()
+  expect(screen.queryByTestId('consumption-chart')).toBeNull()
+  expect(screen.queryByTestId('model-chart')).toBeNull()
+  expect(screen.queryByText('Recent usage')).toBeNull()
+  expect(
+    screen.getByRole('button', { name: 'Copy API endpoint' })
+  ).toBeEnabled()
+})
+
+/** 汇总暂未更新时仍保留已经返回的日志，不因零值汇总隐藏真实请求。 */
+it('keeps recent requests when the usage aggregation has not caught up', async () => {
+  emptyUsage = true
+  await mount()
+  expect(await screen.findByText('test-model')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'View all' })).toBeVisible()
+})
+
+/** 请求仍在加载时不能显示零用量提示，避免用户误以为没有产生消耗。 */
+it('does not present a pending query as empty usage', async () => {
+  const get = vi.mocked(api.get).getMockImplementation()
+  if (!get) throw new Error('HTTP fixture is missing')
+  vi.mocked(api.get).mockImplementation((url, config) =>
+    url === '/api/data/self' ? new Promise(() => {}) : get(url, config)
+  )
+  await mount()
+  await screen.findByText('test-model')
+  expect(
+    screen.getByRole('region', { name: 'Usage overview' })
+  ).toHaveAttribute('aria-busy', 'true')
+  expect(
+    screen.queryByText(
+      'Use the endpoint above and an API key to send a request.'
+    )
+  ).toBeNull()
+  expect(screen.queryByTestId('consumption-chart')).toBeNull()
+})
+
+/** 有用量后每次只展示一个分析视图，切换不会改变请求范围或发起上游调用。 */
+it('switches between consumption and model analysis without mounting both charts', async () => {
+  await mount()
+  expect(await screen.findByTestId('consumption-chart')).toBeVisible()
+  expect(screen.queryByTestId('model-chart')).toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: 'Model Call Analytics' }))
+  expect(await screen.findByTestId('model-chart')).toBeVisible()
+  expect(screen.queryByTestId('consumption-chart')).toBeNull()
+  expect(
+    vi.mocked(api.get).mock.calls.filter(([url]) => url === '/api/data/self')
+  ).toHaveLength(1)
 })

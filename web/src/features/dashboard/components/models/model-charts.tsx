@@ -37,6 +37,7 @@ import type {
 } from '@/features/dashboard/types'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
+import { cn } from '@/lib/utils'
 import { VCHART_OPTION } from '@/lib/vchart'
 
 let themeManagerPromise: Promise<
@@ -56,11 +57,12 @@ interface ModelChartsProps {
   loading?: boolean
   timeGranularity?: TimeGranularity
   defaultChartTab?: ModelAnalyticsChartTab
+  embedded?: boolean
 }
 
 /**
  * 展示调用方授权范围内的模型用量；切换指标只重算图表，不扩大查询范围。
- * @param props 已过滤的统计数据、加载状态、时间粒度及默认图表类型。
+ * @param props 已过滤的统计数据、加载状态、时间粒度及默认图表类型；embedded 复用外层标题与总计。
  * @return 支持 Token 与调用次数切换的模型分析卡片。
  */
 export function ModelCharts(props: ModelChartsProps) {
@@ -139,26 +141,36 @@ export function ModelCharts(props: ModelChartsProps) {
   return (
     <section
       aria-label={t('Model Call Analytics')}
-      className='min-w-0 overflow-hidden rounded-lg border'
+      className={cn(
+        'min-w-0 overflow-hidden',
+        !props.embedded && 'rounded-lg border'
+      )}
     >
-      <div className='flex w-full flex-col gap-3 border-b px-3 py-2 sm:px-5 sm:py-3'>
-        <div className='flex flex-wrap items-center gap-2'>
-          <IconBadge tone='chart-4' size='sm'>
-            <PieChartIcon />
-          </IconBadge>
-          <div className='text-sm font-semibold'>
-            {t('Model Call Analytics')}
+      <div
+        className={cn(
+          'flex w-full flex-col gap-3 px-3 py-2',
+          !props.embedded && 'border-b sm:px-5 sm:py-3'
+        )}
+      >
+        {!props.embedded && (
+          <div className='flex flex-wrap items-center gap-2'>
+            <IconBadge tone='chart-4' size='sm'>
+              <PieChartIcon />
+            </IconBadge>
+            <div className='text-sm font-semibold'>
+              {t('Model Call Analytics')}
+            </div>
+            <span
+              className='text-muted-foreground text-xs tabular-nums'
+              aria-live='polite'
+            >
+              {t('Total:')}{' '}
+              {metric === 'tokens'
+                ? `${chartData.totalTokensDisplay} Tokens`
+                : chartData.totalCountDisplay}
+            </span>
           </div>
-          <span
-            className='text-muted-foreground text-xs tabular-nums'
-            aria-live='polite'
-          >
-            {t('Total:')}{' '}
-            {metric === 'tokens'
-              ? `${chartData.totalTokensDisplay} Tokens`
-              : chartData.totalCountDisplay}
-          </span>
-        </div>
+        )}
         <div className='flex min-w-0 flex-wrap items-center gap-2'>
           <ToggleGroup
             aria-label={t('Model analytics metric')}
@@ -177,31 +189,33 @@ export function ModelCharts(props: ModelChartsProps) {
               {t('Call Count')}
             </ToggleGroupItem>
           </ToggleGroup>
-          <ToggleGroup
-            aria-label={t('Model analytics chart')}
-            value={[activeTab]}
-            onValueChange={(values) => {
-              if (
-                values[0] === 'trend' ||
-                values[0] === 'proportion' ||
-                values[0] === 'top'
-              ) {
-                setActiveTab(values[0])
-              }
-            }}
-            size='sm'
-            className='bg-muted/60 max-w-full overflow-x-auto rounded-lg p-0.5'
-          >
-            {chartOptions.map((tab) => (
-              <ToggleGroupItem
-                key={tab.value}
-                value={tab.value}
-                className='aria-pressed:bg-background text-xs aria-pressed:shadow-sm'
-              >
-                {t(tab.labelKey)}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          {!props.embedded && (
+            <ToggleGroup
+              aria-label={t('Model analytics chart')}
+              value={[activeTab]}
+              onValueChange={(values) => {
+                if (
+                  values[0] === 'trend' ||
+                  values[0] === 'proportion' ||
+                  values[0] === 'top'
+                ) {
+                  setActiveTab(values[0])
+                }
+              }}
+              size='sm'
+              className='bg-muted/60 max-w-full overflow-x-auto rounded-lg p-0.5'
+            >
+              {chartOptions.map((tab) => (
+                <ToggleGroupItem
+                  key={tab.value}
+                  value={tab.value}
+                  className='aria-pressed:bg-background text-xs aria-pressed:shadow-sm'
+                >
+                  {t(tab.labelKey)}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          )}
         </div>
         {metric === 'tokens' && (
           <p className='text-muted-foreground text-xs'>
@@ -210,7 +224,12 @@ export function ModelCharts(props: ModelChartsProps) {
         )}
       </div>
 
-      <div className='h-[300px] p-1.5 sm:h-96 sm:p-2'>
+      <div
+        className={cn(
+          'p-1.5 sm:p-2',
+          props.embedded ? 'h-72' : 'h-[300px] sm:h-96'
+        )}
+      >
         {themeReady && spec && (
           <VChart
             key={chartKey}

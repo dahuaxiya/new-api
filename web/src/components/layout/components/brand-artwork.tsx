@@ -1,4 +1,3 @@
-import { DEFAULT_LOGO } from '@/lib/constants'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { DEFAULT_LOGO } from '@/lib/constants'
 import { isLuobocodeBrand } from '@/lib/luobocode-brand'
 import { cn } from '@/lib/utils'
 
@@ -28,7 +28,7 @@ interface BrandArtworkProps {
 }
 
 /**
- * 展示用户确认的 A 版坐姿猫与萝卜字标，以透明素材适配导航尺寸；自定义品牌继续使用后台配置。
+ * 使用与首页插画一致的陶瓷猫标志；字标保留为文字，小尺寸和高倍缩放仍清晰。
  * @param props 当前站名、图形地址及紧凑模式；compact 用于只有图标空间的侧栏。
  * @return 具有单一可访问名称的品牌图形，主题切换不依赖异步状态。
  */
@@ -56,31 +56,34 @@ export function BrandArtwork(props: BrandArtworkProps) {
     )
   }
 
-  const asset = props.compact ? 'mark' : 'lockup'
-  // 由平滑 SVG 高倍采样后缩小显示，避免生图的纸纹、白底和细碎边缘进入导航。
-  // 独立深色素材保留猫身体的浅色填充，防止五官在深色背景上消失。
+  // 沿用后台持久化的默认 Logo 标识，只替换内置展示素材，避免部署前后识别失配。
+  // 同一透明图适配两种主题，字标使用前景色；不依赖图片切换或异步主题状态。
   return (
     <span
       role='img'
       aria-label={props.name}
       className={cn(
-        'inline-flex h-8 max-w-full shrink-0 items-center',
+        'inline-flex h-9 max-w-full shrink-0 items-center gap-2',
+        props.compact && 'h-8',
         props.className
       )}
     >
-      {/* 两个配色由同一个 dark 选择器控制，避免首屏和切换主题时出现错色。 */}
       <img
-        src={`/brand/luobocode-${asset}-v12.png`}
+        src='/brand/luobocode-ceramic-v13.webp'
         alt=''
         aria-hidden='true'
-        className='block h-full w-auto max-w-full object-contain dark:hidden'
+        width={256}
+        height={256}
+        className='h-full w-auto shrink-0 object-contain'
       />
-      <img
-        src={`/brand/luobocode-${asset}-dark-v12.png`}
-        alt=''
-        aria-hidden='true'
-        className='hidden h-full w-auto max-w-full object-contain dark:block'
-      />
+      {!props.compact && (
+        <span
+          aria-hidden='true'
+          className='luobo-brand-wordmark text-foreground font-serif text-[23px] leading-none font-medium tracking-[-0.045em]'
+        >
+          luobocode
+        </span>
+      )}
     </span>
   )
 }

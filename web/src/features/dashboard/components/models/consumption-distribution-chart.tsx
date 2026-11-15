@@ -35,6 +35,7 @@ import type {
 } from '@/features/dashboard/types'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
+import { cn } from '@/lib/utils'
 import { VCHART_OPTION } from '@/lib/vchart'
 
 let themeManagerPromise: Promise<
@@ -46,6 +47,7 @@ interface ConsumptionDistributionChartProps {
   loading?: boolean
   timeGranularity?: TimeGranularity
   defaultChartType?: ConsumptionDistributionChartType
+  embedded?: boolean
 }
 
 const CHART_TYPE_ICONS: Record<
@@ -56,6 +58,11 @@ const CHART_TYPE_ICONS: Record<
   area: AreaChart,
 }
 
+/**
+ * 复用消耗统计绘制趋势；嵌入概览时由外层提供标题与汇总，避免重复工具栏。
+ * @param props 已按账号和时间过滤的数据；embedded 固定使用调用方指定的图形。
+ * @return 独立图表卡片，或适合概览面板的简洁图表。
+ */
 export function ConsumptionDistributionChart(
   props: ConsumptionDistributionChartProps
 ) {
@@ -120,41 +127,52 @@ export function ConsumptionDistributionChart(
   ].join('-')
 
   return (
-    <div className='overflow-hidden rounded-lg border'>
-      <div className='flex w-full flex-col gap-1.5 border-b px-3 py-2 sm:gap-3 sm:px-5 sm:py-3 lg:flex-row lg:items-center lg:justify-between'>
-        <div className='flex items-center gap-2'>
-          <IconBadge tone='success' size='sm'>
-            <WalletCards />
-          </IconBadge>
-          <div className='text-sm font-semibold'>{t('Quota Distribution')}</div>
-          <span className='text-muted-foreground text-xs'>
-            {t('Total:')} {chartData.totalQuotaDisplay}
-          </span>
-        </div>
+    <div
+      className={cn('overflow-hidden', !props.embedded && 'rounded-lg border')}
+    >
+      {!props.embedded && (
+        <div className='flex w-full flex-col gap-1.5 border-b px-3 py-2 sm:gap-3 sm:px-5 sm:py-3 lg:flex-row lg:items-center lg:justify-between'>
+          <div className='flex items-center gap-2'>
+            <IconBadge tone='success' size='sm'>
+              <WalletCards />
+            </IconBadge>
+            <div className='text-sm font-semibold'>
+              {t('Quota Distribution')}
+            </div>
+            <span className='text-muted-foreground text-xs'>
+              {t('Total:')} {chartData.totalQuotaDisplay}
+            </span>
+          </div>
 
-        <div className='bg-muted/60 inline-flex h-7 w-full overflow-x-auto rounded-lg border p-0.5 sm:h-8 sm:w-auto'>
-          {CONSUMPTION_DISTRIBUTION_CHART_OPTIONS.map((item) => {
-            const Icon = CHART_TYPE_ICONS[item.value]
-            return (
-              <button
-                key={item.value}
-                type='button'
-                onClick={() => setChartType(item.value)}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors ${
-                  chartType === item.value
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Icon className='size-3.5' />
-                {t(item.labelKey)}
-              </button>
-            )
-          })}
+          <div className='bg-muted/60 inline-flex h-7 w-full overflow-x-auto rounded-lg border p-0.5 sm:h-8 sm:w-auto'>
+            {CONSUMPTION_DISTRIBUTION_CHART_OPTIONS.map((item) => {
+              const Icon = CHART_TYPE_ICONS[item.value]
+              return (
+                <button
+                  key={item.value}
+                  type='button'
+                  onClick={() => setChartType(item.value)}
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors ${
+                    chartType === item.value
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Icon className='size-3.5' />
+                  {t(item.labelKey)}
+                </button>
+              )
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className='h-[300px] p-1.5 sm:h-96 sm:p-2'>
+      <div
+        className={cn(
+          'p-1.5 sm:p-2',
+          props.embedded ? 'h-72' : 'h-[300px] sm:h-96'
+        )}
+      >
         {themeReady && spec && (
           <VChart
             key={chartKey}

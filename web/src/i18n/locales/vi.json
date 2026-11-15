@@ -8030,6 +8030,10 @@
     "Loading model details...": "Đang tải chi tiết mô hình…",
     "Connecting...": "Đang kết nối…",
     "If this keeps failing, refresh the page.": "Nếu thử lại vẫn thất bại, hãy tải lại trang.",
-    "Copy a model name from the catalog and create an API key. Check your balance before calling.": "Sao chép tên mô hình từ danh mục và tạo khóa API. Kiểm tra số dư trước khi gọi."
+    "Copy a model name from the catalog and create an API key. Check your balance before calling.": "Sao chép tên mô hình từ danh mục và tạo khóa API. Kiểm tra số dư trước khi gọi.",
+    "API connection": "Kết nối API",
+    "API keys: {{value}}": "Khóa API: {{value}}",
+    "Usage charts": "Biểu đồ sử dụng",
+    "Use the endpoint above and an API key to send a request.": "Gửi yêu cầu bằng địa chỉ ở trên và khóa API."
   }
 }

@@ -8060,6 +8060,10 @@
     "Loading model details...": "正在加载模型详情…",
     "Connecting...": "正在连接…",
     "If this keeps failing, refresh the page.": "如果重试仍然失败，请刷新页面。",
-    "Copy a model name from the catalog and create an API key. Check your balance before calling.": "从模型广场复制模型名，在「API 密钥」页创建密钥。调用前确认余额够用。"
+    "Copy a model name from the catalog and create an API key. Check your balance before calling.": "从模型广场复制模型名，在「API 密钥」页创建密钥。调用前确认余额够用。",
+    "API connection": "API 接入",
+    "API keys: {{value}}": "已有密钥 {{value}} 个",
+    "Usage charts": "用量图表",
+    "Use the endpoint above and an API key to send a request.": "使用上方接入地址和 API 密钥发起请求。"
   }
 }

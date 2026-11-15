@@ -8030,6 +8030,10 @@
     "Loading model details...": "Loading model details...",
     "Connecting...": "Connecting...",
     "If this keeps failing, refresh the page.": "If this keeps failing, refresh the page.",
-    "Copy a model name from the catalog and create an API key. Check your balance before calling.": "Copy a model name from the catalog and create an API key. Check your balance before calling."
+    "Copy a model name from the catalog and create an API key. Check your balance before calling.": "Copy a model name from the catalog and create an API key. Check your balance before calling.",
+    "API connection": "API connection",
+    "API keys: {{value}}": "API keys: {{value}}",
+    "Usage charts": "Usage charts",
+    "Use the endpoint above and an API key to send a request.": "Use the endpoint above and an API key to send a request."
   }
 }

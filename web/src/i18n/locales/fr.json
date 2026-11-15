@@ -8030,6 +8030,10 @@
     "Loading model details...": "Chargement des détails du modèle…",
     "Connecting...": "Connexion en cours…",
     "If this keeps failing, refresh the page.": "Si le problème persiste, actualisez la page.",
-    "Copy a model name from the catalog and create an API key. Check your balance before calling.": "Copiez un nom de modèle depuis le catalogue et créez une clé API. Vérifiez votre solde avant l’appel."
+    "Copy a model name from the catalog and create an API key. Check your balance before calling.": "Copiez un nom de modèle depuis le catalogue et créez une clé API. Vérifiez votre solde avant l’appel.",
+    "API connection": "Connexion API",
+    "API keys: {{value}}": "Clés API : {{value}}",
+    "Usage charts": "Graphiques d’utilisation",
+    "Use the endpoint above and an API key to send a request.": "Envoyez une requête avec l’adresse ci-dessus et une clé API."
   }
 }
