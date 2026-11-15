@@ -102,9 +102,9 @@ it('shows every configured address and copies only the chosen visible URL', asyn
     })
   )
   expect(writeText).toHaveBeenCalledWith('https://asia.example.com/gateway/v1/')
-  expect(
-    await within(rows[1]).findByRole('button', { name: 'Copied' })
-  ).toBeVisible()
+  await waitFor(() =>
+    expect(within(rows[1]).getByRole('status')).toHaveTextContent('Copied')
+  )
   expect(
     within(rows[0]).getByRole('button', {
       name: 'Copy API URL: https://api.example.com/v1',

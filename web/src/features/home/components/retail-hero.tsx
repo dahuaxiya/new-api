@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { SiteSwitcher } from '@/features/auth/components/unified-account'
+import { useStatus } from '@/hooks/use-status'
 
 import { ApiExample } from './api-example'
 import { RetailPricing } from './retail-pricing'
@@ -22,22 +23,19 @@ import { RetailPricing } from './retail-pricing'
  */
 export function RetailHero(props: { isAuthenticated: boolean }) {
   const { t } = useTranslation()
+  const { status } = useStatus()
   return (
     <main className='luobo-home mx-auto w-full max-w-[1240px] px-5 sm:px-10'>
       <section className='luobo-hero grid items-center gap-10 pt-28 pb-14 lg:grid-cols-[1fr_1.08fr] lg:gap-12 lg:pt-40 lg:pb-20'>
         <div className='luobo-reveal min-w-0'>
-          <p className='luobo-eyebrow mb-7 flex items-center gap-3'>
-            <span className='luobo-orange-dot' aria-hidden='true' />
-            {t('An API home for your ideas')}
-          </p>
           <h1 className='luobo-display text-[clamp(2.8rem,5.5vw,4.7rem)] leading-[1.16] tracking-[-0.055em]'>
-            {t('Connect to models.')}
+            {t('One API address.')}
             <br />
-            <span className='luobo-accent'>{t('Make room for ideas.')}</span>
+            <span className='luobo-accent'>{t('Multiple models.')}</span>
           </h1>
           <p className='text-muted-foreground mt-7 max-w-[27rem] text-[15px] leading-7'>
             {t(
-              'One API entry point for your applications. Models, keys and usage, together in one workspace.'
+              'OpenAI-compatible API access. Choose a model, create a key, and track usage and cost for each request.'
             )}
           </p>
           <div className='mt-9 flex flex-wrap items-center gap-4'>
@@ -65,20 +63,13 @@ export function RetailHero(props: { isAuthenticated: boolean }) {
           </div>
           <a
             href='#integration'
-            className='text-muted-foreground mt-10 inline-flex items-center gap-2 rounded-sm text-xs underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4'
+            className='text-muted-foreground mt-7 inline-flex min-h-11 items-center gap-2 rounded-sm text-xs underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4'
           >
             <ArrowDown className='size-3.5' aria-hidden='true' />
             {t('See how to connect')}
           </a>
         </div>
         <figure className='luobo-art luobo-reveal overflow-hidden rounded-[24px]'>
-          <div
-            className='flex items-center justify-between px-6 pt-5 font-mono text-[10px] tracking-[0.16em]'
-            aria-hidden='true'
-          >
-            <span>LUOBO / CONNECTIONS</span>
-            <span>FIG. 01</span>
-          </div>
           <img
             src='/brand/luobocode-connection-1536.webp'
             srcSet='/brand/luobocode-connection-768.webp 768w, /brand/luobocode-connection-1536.webp 1536w'
@@ -89,17 +80,8 @@ export function RetailHero(props: { isAuthenticated: boolean }) {
             alt={t(
               'A ceramic cat and carrot beside an orange arch connecting several modules.'
             )}
-            className='mt-2 aspect-[3/2] w-full object-cover'
+            className='aspect-[3/2] w-full object-cover'
           />
-          <figcaption className='flex items-center justify-between gap-4 px-6 pt-2 pb-5 text-xs'>
-            <span>{t('A little less setup. A little more making.')}</span>
-            <span
-              className='font-serif text-lg text-balance italic'
-              aria-hidden='true'
-            >
-              luobo.
-            </span>
-          </figcaption>
         </figure>
       </section>
 
@@ -107,18 +89,18 @@ export function RetailHero(props: { isAuthenticated: boolean }) {
         {[
           {
             icon: Braces,
-            title: t('Familiar API, new possibilities'),
+            title: t('OpenAI-compatible'),
             detail: t('Connect with an OpenAI-compatible API.'),
           },
           {
             icon: ReceiptText,
-            title: t('Usage you can follow'),
+            title: t('Usage records'),
             detail: t('Review requests, tokens and charges together.'),
           },
           {
             icon: Fingerprint,
-            title: t('Keys for your applications'),
-            detail: t('Keep application access in your own hands.'),
+            title: t('API keys'),
+            detail: t('Create and manage keys for your applications.'),
           },
         ].map((item) => (
           <div
@@ -143,22 +125,23 @@ export function RetailHero(props: { isAuthenticated: boolean }) {
       <RetailPricing />
       <ApiExample />
 
-      <section className='luobo-hosting-callout my-16 flex flex-col justify-between gap-6 rounded-2xl border p-7 sm:flex-row sm:items-center sm:p-9'>
-        <div className='max-w-xl'>
-          <p className='luobo-eyebrow mb-3'>{t('Also at luobocode')}</p>
-          <h2 className='font-serif text-2xl tracking-tight text-balance'>
-            {t('Your accounts have a home, too.')}
-          </h2>
-          <p className='text-muted-foreground mt-3 text-sm leading-6'>
-            {t(
-              'One account for hosting and API access. Balances, orders and API keys stay separate.'
-            )}
-          </p>
-        </div>
-        <div className='shrink-0'>
-          <SiteSwitcher />
-        </div>
-      </section>
+      {status?.site_sso && (
+        <section className='luobo-hosting-callout my-16 flex flex-col justify-between gap-6 rounded-2xl border p-7 sm:flex-row sm:items-center sm:p-9'>
+          <div className='max-w-xl'>
+            <h2 className='font-serif text-2xl tracking-tight text-balance'>
+              {t('Account hosting')}
+            </h2>
+            <p className='text-muted-foreground mt-3 text-sm leading-6'>
+              {t(
+                'One account for hosting and API access. Balances, orders and API keys stay separate.'
+              )}
+            </p>
+          </div>
+          <div className='shrink-0'>
+            <SiteSwitcher />
+          </div>
+        </section>
+      )}
     </main>
   )
 }

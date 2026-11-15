@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowLeftRight, ShieldCheck } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeftRight, Loader2, ShieldCheck } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -34,18 +34,50 @@ import { createOAuthAuthorization } from '../api'
 import { rememberOAuthLoginRedirect } from '../lib/oauth-callback-mode'
 import { UserAuthForm } from '../sign-in/components/user-auth-form'
 
-/** 统一登录复用现有 OAuth 回调；恢复入口仍调用本站原有密码和 MFA 流程。 */
-export function UnifiedAccountSignIn({ redirectTo }: { redirectTo?: string }) {
+/**
+ * 统一登录保留 OAuth 的来源校验，等待期间显示状态并防止重复创建事务。
+ * @param props 登录后返回的本站路径，由原有回调流程校验和使用。
+ * @return 包含失败恢复和浏览器后退恢复的登录入口。
+ */
+export function UnifiedAccountSignIn(props: { redirectTo?: string }) {
   const { t } = useTranslation()
   const { status } = useStatus()
   const [pending, setPending] = useState(false)
+  const requestId = useRef(0)
+  const inFlight = useRef(false)
   const issuer = status?.site_sso?.issuer_url
 
-  /** 只有用户点击后才创建登录事务，服务端绑定浏览器和 PKCE。 */
+  useEffect(() => {
+    /**
+     * bfcache 恢复不会重新挂载组件；旧请求完成后也不能再次触发跳转。
+     * @param event 浏览器恢复事件，仅处理保留原页面状态的历史导航。
+     */
+    function restore(event: PageTransitionEvent) {
+      if (!event.persisted) return
+      requestId.current += 1
+      inFlight.current = false
+      setPending(false)
+    }
+    window.addEventListener('pageshow', restore)
+    return () => {
+      window.removeEventListener('pageshow', restore)
+      requestId.current += 1
+    }
+  }, [])
+
+  /**
+   * 只有用户点击后才创建登录事务，服务端绑定浏览器和 PKCE。
+   * @return 事务创建结束；页面恢复或卸载后不再处理该次结果。
+   */
   async function signIn() {
+    if (inFlight.current || !issuer) return
+    inFlight.current = true
+    const attempt = ++requestId.current
     setPending(true)
     try {
       const result = await createOAuthAuthorization('site-sso', 'login')
+      // 后退恢复或卸载已经取消本次页面意图，迟到的响应不能覆盖新一次操作。
+      if (attempt !== requestId.current) return
       if (
         !result.authorizationUrl ||
         !issuer ||
@@ -53,10 +85,12 @@ export function UnifiedAccountSignIn({ redirectTo }: { redirectTo?: string }) {
       ) {
         throw new Error('Verification flow expired')
       }
-      rememberOAuthLoginRedirect(result.state, redirectTo)
+      rememberOAuthLoginRedirect(result.state, props.redirectTo)
       window.location.assign(result.authorizationUrl)
     } catch (error) {
+      if (attempt !== requestId.current) return
       handleServerError(error)
+      inFlight.current = false
       setPending(false)
     }
   }
@@ -69,37 +103,58 @@ export function UnifiedAccountSignIn({ redirectTo }: { redirectTo?: string }) {
         )}
       </p>
       <Button
-        className='w-full'
-        disabled={pending}
+        className='h-11 w-full aria-disabled:opacity-50'
+        disabled={pending || !issuer}
+        focusableWhenDisabled={pending}
+        aria-busy={pending}
         onClick={() => void signIn()}
       >
-        <ShieldCheck className='size-4' />
-        {t('Continue with unified account')}
+        {pending ? (
+          <Loader2
+            className='size-4 animate-spin motion-reduce:animate-none'
+            aria-hidden='true'
+          />
+        ) : (
+          <ShieldCheck className='size-4' aria-hidden='true' />
+        )}
+        {pending ? t('Connecting...') : t('Continue with unified account')}
       </Button>
-      <div className='flex justify-between text-sm'>
-        <a href={`${issuer}/sign-up`} className='underline underline-offset-4'>
-          {t('Sign up')}
-        </a>
-        <a
-          href={`${issuer}/forgot-password`}
-          className='underline underline-offset-4'
-        >
-          {t('Forgot password')}
-        </a>
-      </div>
+      <span role='status' className='sr-only'>
+        {pending ? t('Connecting...') : ''}
+      </span>
+      {issuer && (
+        <div className='flex justify-between text-sm'>
+          <a
+            href={`${issuer}/sign-up`}
+            className='inline-flex min-h-11 items-center underline underline-offset-4'
+          >
+            {t('Sign up')}
+          </a>
+          <a
+            href={`${issuer}/forgot-password`}
+            className='inline-flex min-h-11 items-center underline underline-offset-4'
+          >
+            {t('Forgot password')}
+          </a>
+        </div>
+      )}
       <Collapsible>
-        <CollapsibleTrigger className='text-muted-foreground text-xs underline underline-offset-4'>
+        <CollapsibleTrigger className='text-muted-foreground min-h-11 text-xs underline underline-offset-4'>
           {t('Operator recovery login')}
         </CollapsibleTrigger>
         <CollapsibleContent className='pt-4'>
-          <UserAuthForm redirectTo={redirectTo} />
+          <UserAuthForm redirectTo={props.redirectTo} />
         </CollapsibleContent>
       </Collapsible>
     </div>
   )
 }
 
-/** 注册、恢复和安全设置都由身份源处理，本卡片不修改消费站资产。 */
+/**
+ * 注册、恢复和安全设置由身份源处理，配置未就绪时不生成账户管理链接。
+ * @param props 允许跳转的固定账号页面；本卡片不修改消费站资产。
+ * @return 统一账号说明，以及配置就绪后可用的管理入口。
+ */
 export function UnifiedAccountNotice({
   path = '/security',
 }: {
@@ -107,6 +162,7 @@ export function UnifiedAccountNotice({
 }) {
   const { t } = useTranslation()
   const { status } = useStatus()
+  const issuer = status?.site_sso?.issuer_url
   return (
     <TitledCard
       title={t('Unified account')}
@@ -117,9 +173,11 @@ export function UnifiedAccountNotice({
           'Manage your password, email and sign-in methods on the hosting site. This site keeps its own balance, orders and API keys.'
         )}
       </p>
-      <Button render={<a href={`${status?.site_sso?.issuer_url}${path}`} />}>
-        {t('Manage unified account')}
-      </Button>
+      {issuer && (
+        <Button render={<a href={`${issuer}${path}`} />}>
+          {t('Manage unified account')}
+        </Button>
+      )}
     </TitledCard>
   )
 }

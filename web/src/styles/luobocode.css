@@ -100,12 +100,6 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
-.luobo-orange-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--luobo-orange, var(--primary));
-}
 .luobo-primary {
   box-shadow: 0 4px 12px #6e341516;
 }
@@ -122,17 +116,6 @@
 .luobo-principles > div + div {
   border-top: 1px solid var(--border);
 }
-.luobo-model-card {
-  background: var(--card);
-  transition:
-    transform 0.2s ease,
-    border-color 0.2s ease;
-}
-.luobo-model-card:hover {
-  transform: translateY(-3px);
-  border-color: var(--luobo-orange, var(--primary));
-}
-.luobo-model-icon,
 .luobo-step {
   background: var(--luobo-paper, var(--muted));
   color: var(--luobo-orange, var(--primary));
@@ -206,15 +189,15 @@
   box-shadow: inset 2px 0 var(--luobo-orange);
 }
 .luobo-reveal {
-  animation: luobo-arrive 0.7s cubic-bezier(0.2, 0.65, 0.3, 1) both;
+  animation: luobo-arrive 0.28s cubic-bezier(0.2, 0.65, 0.3, 1) both;
 }
 .luobo-art.luobo-reveal {
-  animation-delay: 0.12s;
+  animation-delay: 0.06s;
 }
 @keyframes luobo-arrive {
   from {
     opacity: 0;
-    translate: 0 12px;
+    translate: 0 8px;
   }
   to {
     opacity: 1;
@@ -248,13 +231,15 @@
   .luobo-reveal {
     animation: none;
   }
-  .luobo-model-card,
+  .luobo-catalog-card > [data-slot='card'],
+  .luobo-shell [data-slot='sheet-content'],
+  .luobo-shell [data-slot='sheet-overlay'],
   .luobo-shell header,
   .luobo-shell header * {
     transition: none !important;
   }
-  .luobo-model-card:hover {
-    transform: none;
+  .copy-feedback {
+    animation: none;
   }
 }
 .luobo-catalog-card > [data-slot='card'] {
@@ -265,9 +250,6 @@
 }
 .luobo-catalog-card [data-slot='card-content'] {
   gap: 20px;
-}
-.luobo-catalog-card [aria-label] .font-mono {
-  font-family: var(--font-serif);
 }
 .luobo-catalog-card [data-slot='card-footer'] {
   padding-bottom: 0;
@@ -300,4 +282,31 @@
 }
 .luobo-auth-art img {
   mix-blend-mode: multiply;
+}
+
+/* 摘要卡与骨架共用最小高度；长模型名和分段价格仍可自然撑高，不能截断报价。 */
+.luobo-catalog-card > [data-slot='card'],
+.luobo-catalog-skeleton {
+  min-height: 232px;
+}
+.luobo-catalog-card > [data-slot='card']:hover {
+  border-color: var(--luobo-orange, var(--primary));
+}
+.luobo-hosting-callout [data-slot='button'] {
+  min-height: 44px;
+}
+@keyframes copy-confirm {
+  from {
+    opacity: 0.3;
+    scale: 0.88;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .copy-feedback {
+    animation: copy-confirm 150ms ease-out;
+  }
 }

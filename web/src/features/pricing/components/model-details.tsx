@@ -35,17 +35,9 @@ import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
 import { StaticDataTable } from '@/components/data-table'
-import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { GroupBadge } from '@/components/group-badge'
 import { PublicLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getPerfMetrics } from '@/features/performance-metrics/api'
@@ -1565,35 +1557,6 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
 // ----------------------------------------------------------------------------
 // Drawer & page wrappers
 // ----------------------------------------------------------------------------
-
-export interface ModelDetailsDrawerProps extends ModelDetailsContentProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}
-
-export function ModelDetailsDrawer(props: ModelDetailsDrawerProps) {
-  const { t } = useTranslation()
-  const { open, onOpenChange, ...contentProps } = props
-
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side='right'
-        className={sideDrawerContentClassName(
-          'sm:max-w-2xl lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl'
-        )}
-      >
-        <SheetHeader className='sr-only'>
-          <SheetTitle>{props.model.model_name}</SheetTitle>
-          <SheetDescription>{t('Model details')}</SheetDescription>
-        </SheetHeader>
-        <div className='flex-1 overflow-y-auto px-4 pt-11 pb-5 sm:px-6 sm:pt-12 sm:pb-6'>
-          <ModelDetailsContent {...contentProps} />
-        </div>
-      </SheetContent>
-    </Sheet>
-  )
-}
 
 export function ModelDetails() {
   const { t } = useTranslation()

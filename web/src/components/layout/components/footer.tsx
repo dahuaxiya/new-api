@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { isLuobocodeBrand } from '@/lib/luobocode-brand'
 import { cn } from '@/lib/utils'
 
 import { BrandArtwork } from './brand-artwork'
@@ -249,9 +250,11 @@ export function Footer(props: FooterProps) {
             <Link to='/' className='group flex items-center gap-2.5'>
               <BrandArtwork logo={displayLogo} name={displayName} />
             </Link>
-            <p className='text-muted-foreground/60 mt-3 max-w-[200px] text-xs leading-relaxed'>
-              {t('Powerful API Management Platform')}
-            </p>
+            {!isLuobocodeBrand(displayName) && (
+              <p className='text-muted-foreground/60 mt-3 max-w-[200px] text-xs leading-relaxed'>
+                {t('Powerful API Management Platform')}
+              </p>
+            )}
           </div>
 
           {/* Links columns */}

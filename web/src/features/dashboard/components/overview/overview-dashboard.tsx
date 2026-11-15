@@ -284,10 +284,7 @@ function PersonalDashboard(props: { userId: number; sessionId?: string }) {
           {status && actions.length > 0 && (
             <section className='luobo-workspace-intro flex flex-wrap items-center justify-between gap-5 rounded-2xl px-6 py-5'>
               <div>
-                <p className='luobo-eyebrow mb-2'>{t('Your workspace')}</p>
-                <p className='font-serif text-xl'>
-                  {t('A clear view of what you build.')}
-                </p>
+                <p className='font-serif text-xl'>{t('Quick access')}</p>
               </div>
               <nav
                 aria-label={t('Quick access')}

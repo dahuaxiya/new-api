@@ -23,9 +23,7 @@ export { ModelCardGrid } from './model-card-grid'
 export { LoadingSkeleton } from './loading-skeleton'
 export { EmptyState } from './empty-state'
 export { SearchBar } from './search-bar'
-export {
-  ModelDetails,
-  ModelDetailsContent,
-  ModelDetailsDrawer,
-} from './model-details'
+export { ModelDetails, ModelDetailsContent } from './model-details'
 export { PricingTable } from './pricing-table'
+
+export { ModelDetailsDrawer } from './model-details-drawer'

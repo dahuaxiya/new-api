@@ -46,12 +46,11 @@ export function ApiExample() {
       aria-labelledby='integration-title'
     >
       <div>
-        <p className='luobo-eyebrow mb-4'>02 / {t('Integration')}</p>
         <h2
           id='integration-title'
           className='font-serif text-3xl leading-tight tracking-tight text-balance sm:text-4xl'
         >
-          {t('From an idea to a first request.')}
+          {t('Integration steps')}
         </h2>
         <ol className='mt-8 space-y-6'>
           {[
@@ -61,10 +60,12 @@ export function ApiExample() {
             ],
             [
               t('Choose a model and create a key'),
-              t('Check model availability and your balance before calling.'),
+              t(
+                'Copy a model name from the catalog and create an API key. Check your balance before calling.'
+              ),
             ],
             [
-              t('Connect your application'),
+              t('Run the example'),
               t(
                 'Set LUOBO_API_KEY and LUOBO_MODEL, then use the example. Python requires openai; cURL requires jq.'
               ),
@@ -75,7 +76,7 @@ export function ApiExample() {
                 className='luobo-step mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full font-mono text-[10px]'
                 aria-hidden='true'
               >
-                0{index + 1}
+                {index + 1}
               </span>
               <div>
                 <h3 className='text-sm font-medium'>{title}</h3>
@@ -96,7 +97,11 @@ export function ApiExample() {
           <div className='flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3'>
             <TabsList aria-label={t('Code examples')} variant='line'>
               {Object.keys(examples).map((language) => (
-                <TabsTrigger key={language} value={language} className='px-3'>
+                <TabsTrigger
+                  key={language}
+                  value={language}
+                  className='min-h-11 px-3'
+                >
                   {language}
                 </TabsTrigger>
               ))}
@@ -114,7 +119,7 @@ export function ApiExample() {
               <CopyButton
                 value={code}
                 aria-label={t('Copy code')}
-                className='absolute top-3 right-3 text-stone-400 hover:bg-white/10 hover:text-white'
+                className='absolute top-3 right-3 size-11 text-stone-400 hover:bg-white/10 hover:text-white'
               />
               <pre className='min-h-[330px] overflow-x-auto px-5 py-6 pr-14 font-mono text-xs leading-[1.9] sm:px-6'>
                 <code>{code}</code>
@@ -130,7 +135,7 @@ export function ApiExample() {
             value={endpoint}
             size='sm'
             aria-label={t('Copy API endpoint')}
-            className='text-stone-400 hover:bg-white/10 hover:text-white'
+            className='size-11 text-stone-400 hover:bg-white/10 hover:text-white'
           />
         </div>
       </div>

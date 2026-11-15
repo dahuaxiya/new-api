@@ -67,13 +67,10 @@ export function AuthLayout({ children }: AuthLayoutProps) {
             aria-hidden='true'
           >
             <div className='px-9 pt-10'>
-              <p className='luobo-eyebrow mb-5'>LUOBO / CONNECTIONS</p>
               <p className='font-serif text-4xl leading-tight tracking-tight'>
-                {t('Connect to models.')}
+                {t('API access.')}
                 <br />
-                <span className='luobo-accent'>
-                  {t('Make room for ideas.')}
-                </span>
+                <span className='luobo-accent'>{t('Account hosting.')}</span>
               </p>
             </div>
             <img

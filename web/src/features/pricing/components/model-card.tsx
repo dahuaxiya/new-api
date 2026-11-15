@@ -53,8 +53,16 @@ export interface ModelCardProps {
   showRechargePrice?: boolean
   selectedGroup?: string
   perf?: ModelPerfBadgeData
+  /** 首页摘要省略分组、协议和空性能项，价格仍使用完整目录的计算口径。 */
+  compact?: boolean
+  onDetailsIntent?: () => void
 }
 
+/**
+ * 展示模型及原有计费摘要；compact 只收起辅助信息，不改价格或计费规则。
+ * @param props 模型、定价上下文和详情操作；预加载失败应由详情入口处理。
+ * @return 保留可复制名称与详情入口的模型卡片。
+ */
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const { t, i18n } = useTranslation()
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
@@ -266,6 +274,23 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     )
   }
 
+  const detailsAction = (
+    <Button
+      variant='ghost'
+      size='sm'
+      className={props.compact ? 'min-h-11' : undefined}
+      onPointerEnter={(event) => {
+        // 触屏滚动不预取；鼠标停留和键盘聚焦才表明可能查看详情。
+        if (event.pointerType === 'mouse') props.onDetailsIntent?.()
+      }}
+      onFocus={props.onDetailsIntent}
+      onClick={() => props.onClick(props.model.model_name || '')}
+    >
+      {t('Details')}
+      <ChevronRight aria-hidden className='size-3.5' />
+    </Button>
+  )
+
   return (
     <Card className='hover:ring-foreground/20 h-full min-w-0 gap-3 transition-colors'>
       <CardHeader className='flex flex-row items-start gap-3'>
@@ -298,33 +323,37 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         <CopyButton
           value={props.model.model_name}
           tooltip={t('Copy model name')}
-          className='size-7'
+          className={props.compact ? 'size-11' : 'size-7'}
           iconClassName='size-3.5'
         />
       </CardHeader>
       <CardContent className='flex flex-1 flex-col gap-3'>
-        <div className='flex min-w-0 flex-col gap-1.5'>
-          <p className='text-muted-foreground line-clamp-2 text-[13px] leading-5 break-words'>
-            {props.model.description || t('No description available.')}
-          </p>
-          {tags.length > 0 && (
-            <div
-              role='group'
-              aria-label={t('Tags')}
-              className='text-muted-foreground flex min-w-0 items-baseline gap-1.5 text-xs'
-            >
-              <span className='shrink-0'>{t('Tags')}</span>
-              <span className='truncate' title={tags.join(', ')}>
-                {tags.slice(0, 2).join(', ')}
-              </span>
-              {tags.length > 2 && (
-                <span className='shrink-0' title={tags.slice(2).join(', ')}>
-                  +{tags.length - 2}
+        {(!props.compact || props.model.description || tags.length > 0) && (
+          <div className='flex min-w-0 flex-col gap-1.5'>
+            {(!props.compact || props.model.description) && (
+              <p className='text-muted-foreground line-clamp-2 text-[13px] leading-5 break-words'>
+                {props.model.description || t('No description available.')}
+              </p>
+            )}
+            {tags.length > 0 && (
+              <div
+                role='group'
+                aria-label={t('Tags')}
+                className='text-muted-foreground flex min-w-0 items-baseline gap-1.5 text-xs'
+              >
+                <span className='shrink-0'>{t('Tags')}</span>
+                <span className='truncate' title={tags.join(', ')}>
+                  {tags.slice(0, 2).join(', ')}
                 </span>
-              )}
-            </div>
-          )}
-        </div>
+                {tags.length > 2 && (
+                  <span className='shrink-0' title={tags.slice(2).join(', ')}>
+                    +{tags.length - 2}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div
           role='group'
           aria-label={t('Pricing')}
@@ -344,7 +373,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             {priceSummary}
           </div>
         </div>
-        {(groups.length > 0 || endpoints.length > 0) && (
+        {!props.compact && (groups.length > 0 || endpoints.length > 0) && (
           <dl
             className={cn(
               'grid min-w-0 grid-cols-2 gap-3 text-xs',
@@ -395,19 +424,16 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         )}
       </CardContent>
       <CardFooter className='mt-auto border-0 bg-transparent pt-0'>
-        <ModelPerfBadge
-          perf={props.perf}
-          className='border-border/60 border-t pt-2'
-        >
-          <Button
-            variant='ghost'
-            size='sm'
-            onClick={() => props.onClick(props.model.model_name || '')}
+        {props.compact && !props.perf ? (
+          <div className='ml-auto'>{detailsAction}</div>
+        ) : (
+          <ModelPerfBadge
+            perf={props.perf}
+            className='border-border/60 border-t pt-2'
           >
-            {t('Details')}
-            <ChevronRight aria-hidden className='size-3.5' />
-          </Button>
-        </ModelPerfBadge>
+            {detailsAction}
+          </ModelPerfBadge>
+        )}
       </CardFooter>
     </Card>
   )

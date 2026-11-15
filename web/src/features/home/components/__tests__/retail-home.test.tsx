@@ -22,9 +22,11 @@ import { RetailHero } from '../retail-hero'
 
 let client: QueryClient
 let failed = false
+let hostingEnabled = true
 let models: Record<string, unknown>[]
 beforeEach(() => {
   failed = false
+  hostingEnabled = true
   models = [
     {
       id: 1,
@@ -43,10 +45,12 @@ beforeEach(() => {
           success: true,
           data: {
             site_mode: 'retail',
-            site_sso: {
-              consumer: true,
-              issuer_url: 'https://host.example.test',
-            },
+            site_sso: hostingEnabled
+              ? {
+                  consumer: true,
+                  issuer_url: 'https://host.example.test',
+                }
+              : undefined,
           },
         },
       }
@@ -107,6 +111,48 @@ it('shows catalog prices with register and hosting destinations for a visitor', 
   ).toHaveAttribute('href', 'https://host.example.test/dashboard')
   expect(screen.getByText('$2')).toBeVisible()
   expect(screen.getByText('$6')).toBeVisible()
+})
+
+/** 首页省略无描述和未采集的性能项，价格和可操作的详情入口仍然存在。 */
+it('keeps the homepage card concise without dropping prices or its details action', async () => {
+  await mount()
+  await screen.findByText('catalog-model')
+  expect(
+    screen.queryByText('No description available.')
+  ).not.toBeInTheDocument()
+  expect(screen.queryByText('Groups')).not.toBeInTheDocument()
+  expect(screen.queryByText('Latency')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Details' })).toBeEnabled()
+  expect(screen.getByText('$2')).toBeVisible()
+})
+
+/** 未配置统一身份源时，不留下只有介绍却无法进入的托管区域。 */
+it('hides the hosting callout when no hosting destination is configured', async () => {
+  hostingEnabled = false
+  await mount()
+  await screen.findByText('catalog-model')
+  expect(
+    screen.queryByRole('heading', { name: 'Account hosting' })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: 'Account hosting' })
+  ).not.toBeInTheDocument()
+})
+
+/** 首页卸载已关闭的详情抽屉后，键盘焦点必须回到用户原来的详情按钮。 */
+it('returns focus to the homepage details button after closing the drawer', async () => {
+  const user = userEvent.setup()
+  await mount()
+  const trigger = await screen.findByRole('button', { name: 'Details' })
+  await user.click(trigger)
+  expect(
+    await screen.findByRole('dialog', { name: 'catalog-model' })
+  ).toBeVisible()
+  await user.keyboard('{Escape}')
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  )
+  expect(trigger).toHaveFocus()
 })
 
 /** 目录失败不能伪装成零模型或零价，重试成功后恢复目录。 */

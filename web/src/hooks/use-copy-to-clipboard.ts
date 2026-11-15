@@ -25,6 +25,8 @@ import { copyToClipboard as copyToClipboardUtil } from '@/lib/copy-to-clipboard'
 type UseCopyToClipboardOptions = {
   /** Whether to show a global toast notification (default: true) */
   notify?: boolean
+  /** 允许按钮就地显示成功反馈，同时仍通知无法复制的错误。默认沿用 notify。 */
+  notifyError?: boolean
   /** Success message (default: localized 'Copied to clipboard') */
   successMessage?: string
   /** Error message (default: localized 'Failed to copy to clipboard') */
@@ -33,9 +35,15 @@ type UseCopyToClipboardOptions = {
   resetAfterMs?: number
 }
 
+/**
+ * 复制完成后才显示成功状态；成功和失败通知可分别配置。
+ * @param options 通知与复位策略；省略时保留原有成功、失败通知。
+ * @return 最近复制成功的文本和返回实际复制结果的操作。
+ */
 export function useCopyToClipboard(options?: UseCopyToClipboardOptions) {
   const {
     notify = true,
+    notifyError = notify,
     successMessage,
     errorMessage,
     resetAfterMs = 2000,
@@ -82,14 +90,14 @@ export function useCopyToClipboard(options?: UseCopyToClipboardOptions) {
       } else {
         // eslint-disable-next-line no-console
         console.warn('All copy methods failed')
-        if (notify) {
+        if (notifyError) {
           toast.error(resolvedErrorMessage)
         }
         setCopiedText(null)
         return false
       }
     },
-    [notify, successMessage, errorMessage, resetAfterMs, t]
+    [notify, notifyError, successMessage, errorMessage, resetAfterMs, t]
   )
 
   return { copiedText, copyToClipboard }

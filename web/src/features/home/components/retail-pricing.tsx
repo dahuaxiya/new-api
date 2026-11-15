@@ -1,18 +1,14 @@
 import { Link } from '@tanstack/react-router'
 import { ArrowUpRight } from 'lucide-react'
-import { lazy, Suspense, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { loadModelDetailsContent } from '@/features/pricing/components/load-model-details'
 import { ModelCard } from '@/features/pricing/components/model-card'
+import { ModelDetailsDrawer } from '@/features/pricing/components/model-details-drawer'
 import { usePricingData } from '@/features/pricing/hooks'
-
-const ModelDetailsDrawer = lazy(() =>
-  import('@/features/pricing/components/model-details').then((module) => ({
-    default: module.ModelDetailsDrawer,
-  }))
-)
 
 /**
  * 展示后台公开目录，复用模型广场的价格卡片和详情，避免分段计费被压成固定单价。
@@ -31,12 +27,11 @@ export function RetailPricing() {
     <section className='py-16 sm:py-24' aria-labelledby='model-preview-title'>
       <div className='mb-8 flex flex-wrap items-end justify-between gap-5'>
         <div>
-          <p className='luobo-eyebrow mb-4'>01 / {t('Model collection')}</p>
           <h2
             id='model-preview-title'
             className='font-serif text-3xl tracking-tight text-balance sm:text-4xl'
           >
-            {t('Find the model for your next idea.')}
+            {t('Models and pricing')}
           </h2>
         </div>
         <Link to='/pricing' className='luobo-text-link'>
@@ -61,7 +56,19 @@ export function RetailPricing() {
         <div className='grid gap-4 md:grid-cols-3'>
           {pricing.isLoading &&
             [0, 1, 2].map((slot) => (
-              <Skeleton key={slot} className='h-56 rounded-2xl' />
+              <div
+                key={slot}
+                className='luobo-catalog-skeleton rounded-2xl border p-6'
+                aria-hidden='true'
+              >
+                <Skeleton className='h-10 w-3/4' />
+                <div className='mt-5 grid grid-cols-3 gap-4'>
+                  {[0, 1, 2].map((column) => (
+                    <Skeleton key={column} className='h-12' />
+                  ))}
+                </div>
+                <Skeleton className='mt-4 ml-auto h-11 w-20' />
+              </div>
             ))}
           {!pricing.isLoading && listed.length === 0 && (
             <p className='text-muted-foreground col-span-full rounded-2xl border p-8 text-sm'>
@@ -74,7 +81,11 @@ export function RetailPricing() {
             <div key={model.model_name} className='luobo-catalog-card min-w-0'>
               <ModelCard
                 model={model}
+                compact
                 onClick={setSelectedName}
+                onDetailsIntent={() => {
+                  void loadModelDetailsContent().catch(() => undefined)
+                }}
                 priceRate={pricing.priceRate}
                 usdExchangeRate={pricing.usdExchangeRate}
                 tokenUnit='M'
@@ -84,37 +95,29 @@ export function RetailPricing() {
         </div>
       )}
       <p className='text-muted-foreground mt-5 text-xs leading-5'>
-        {t('Prices are read from the admin pricing and stay in sync.')}
+        {t('Open details for pricing tiers and supported endpoints.')}
       </p>
       {selected && (
-        <Suspense
-          fallback={
-            <p role='status' className='mt-4 text-sm'>
-              {t('Loading...')}
-            </p>
+        <ModelDetailsDrawer
+          open
+          onOpenChange={(open) => {
+            if (!open) setSelectedName(null)
+          }}
+          model={selected}
+          groupRatio={pricing.groupRatio}
+          usableGroup={pricing.usableGroup}
+          endpointMap={
+            pricing.endpointMap as Record<
+              string,
+              { path?: string; method?: string }
+            >
           }
-        >
-          <ModelDetailsDrawer
-            open
-            onOpenChange={(open) => {
-              if (!open) setSelectedName(null)
-            }}
-            model={selected}
-            groupRatio={pricing.groupRatio}
-            usableGroup={pricing.usableGroup}
-            endpointMap={
-              pricing.endpointMap as Record<
-                string,
-                { path?: string; method?: string }
-              >
-            }
-            autoGroups={pricing.autoGroups}
-            priceRate={pricing.priceRate}
-            usdExchangeRate={pricing.usdExchangeRate}
-            tokenUnit='M'
-            showRechargePrice={false}
-          />
-        </Suspense>
+          autoGroups={pricing.autoGroups}
+          priceRate={pricing.priceRate}
+          usdExchangeRate={pricing.usdExchangeRate}
+          tokenUnit='M'
+          showRechargePrice={false}
+        />
       )}
     </section>
   )
