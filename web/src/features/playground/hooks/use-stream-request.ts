@@ -181,9 +181,11 @@ export function createStreamRequestController(
 }
 
 /**
- * Hook for handling streaming chat completion requests
+ * Stream through the shared authenticated transport. The endpoint is fixed for this mounted workspace.
  */
-export function useStreamRequest() {
+export function useStreamRequest(
+  endpoint: string = API_ENDPOINTS.CHAT_COMPLETIONS
+) {
   const [isStreaming, setIsStreaming] = useState(false)
   const controllerRef = useRef<ReturnType<
     typeof createStreamRequestController
@@ -192,7 +194,7 @@ export function useStreamRequest() {
     controllerRef.current = createStreamRequestController({
       getHeaders: getFreshAuthHeaders,
       createSource: (payload, headers) =>
-        new SSE(API_ENDPOINTS.CHAT_COMPLETIONS, {
+        new SSE(endpoint, {
           headers,
           method: 'POST',
           payload: JSON.stringify(payload),

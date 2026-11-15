@@ -54,6 +54,8 @@ var accessTokenExemptRoutes = []string{
 	// Browser session cookie endpoints.
 	"POST /api/user/auth/refresh",
 	"POST /api/user/auth/logout",
+	// SSO backchannel authenticates its peer in the controller, not with dashboard credentials.
+	"POST /api/site-sso/:action",
 
 	// Payment callbacks.
 	"GET /api/gpt-hosting/payment/notify",

@@ -248,7 +248,9 @@ func (info *RelayInfo) UpdateImageCount(count int64) {
 	if info.PriceData.UsePrice {
 		info.PriceData.AddOtherRatio("n", float64(count))
 	}
-	if info.TieredBillingSnapshot != nil && info.TieredBillingSnapshot.EstimatedImageCount != nil {
+	// Retail token-priced images also need a verified payload count. It is an
+	// integrity check, not a multiplier on the output-token price.
+	if info.RetailQuote != nil && info.RetailQuote.Model.Kind == "image" || info.TieredBillingSnapshot != nil && info.TieredBillingSnapshot.EstimatedImageCount != nil {
 		n := int(count)
 		info.BillingImageCount = &n
 	}

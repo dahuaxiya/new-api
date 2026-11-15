@@ -219,6 +219,7 @@ func AccessTokenScopeGranted(scopes []string, scope string) bool {
 var accessTokenVerificationScopes = map[string]string{
 	// 托管授权和套餐配置必须在门户会话内完成，不提供 PAT 证明签发。
 	VerificationScopeGPTHosting:            "",
+	VerificationScopeSiteSSO:               "", // 跨站身份授权只能由登录会话确认。
 	VerificationScopeChannelKeyRead:        AccessTokenScopeOf(authz.ChannelSecretView),
 	VerificationScopeAdminUserToken:        "", // 跨用户密钥操作只允许浏览器会话。
 	VerificationScopeAdminUserCreate:       "user:write",

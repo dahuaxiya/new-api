@@ -44,6 +44,7 @@ export type RetailPriceBook = {
   buffer_bps: number
   models: Array<{
     id: string
+    kind?: 'text' | 'image' | ''
     official_model: string
     currency: 'USD' | 'CNY'
     source: string
@@ -84,6 +85,7 @@ export type RetailCatalog = {
     name: string
     models: Array<{
       id: string
+      kind?: 'text' | 'image' | ''
       official_model: string
       currency: 'CNY'
       tiers: RetailTier[]

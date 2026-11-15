@@ -181,7 +181,7 @@ func GetRetailCatalog(c *gin.Context) {
 			if err != nil {
 				continue
 			}
-			models = append(models, gin.H{"id": official.ID, "official_model": official.OfficialModel, "currency": "CNY", "tiers": quote.Sale, "valid_until": quote.ValidUntil, "max_output": official.MaxOutput})
+			models = append(models, gin.H{"id": official.ID, "kind": official.Kind, "official_model": official.OfficialModel, "currency": "CNY", "tiers": quote.Sale, "valid_until": quote.ValidUntil, "max_output": official.MaxOutput})
 		}
 		products = append(products, gin.H{"id": p.ID, "name": p.Name, "models": models})
 	}

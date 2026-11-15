@@ -43,6 +43,8 @@ type Tier struct {
 
 // Model freezes an official tariff and an explicit currency; aliases must be mapped by the operator.
 type Model struct {
+	// Kind distinguishes text completion from text-only image generation. Empty preserves existing books.
+	Kind          string `json:"kind,omitempty"`
 	ID            string `json:"id"`
 	OfficialModel string `json:"official_model"`
 	Currency      string `json:"currency"`
@@ -149,6 +151,9 @@ func (b Book) Validate(now int64) error {
 	}
 	models, rates, products := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, m := range b.Models {
+		if m.Kind != "" && m.Kind != "text" && m.Kind != "image" {
+			return ErrConfig
+		}
 		u, err := url.Parse(m.Source)
 		if !idPattern.MatchString(m.ID) || !idPattern.MatchString(m.OfficialModel) || models[m.ID] || (m.Currency != "USD" && m.Currency != "CNY") || err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || m.VerifiedAt <= 0 || m.VerifiedAt > now+30 || m.ValidUntil <= m.VerifiedAt || m.ValidUntil-m.VerifiedAt > 366*86400 || m.MaxOutput < 1 || m.MaxOutput > 1000000 || len(m.Tiers) == 0 || len(m.Tiers) > 10 {
 			return ErrConfig
@@ -272,6 +277,11 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 	}
 	if official.ValidUntil <= now {
 		return nil, ErrExpired
+	}
+	// Image APIs do not accept a completion-token limit. Reserve the operator's
+	// verified maximum for one image, never the UI's text completion setting.
+	if official.Kind == "image" {
+		outputLimit = official.MaxOutput
 	}
 	cap, ok := key.Caps[modelName]
 	if !ok {

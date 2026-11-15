@@ -134,7 +134,7 @@ func PublishRetailPriceBook(expected int64, book retailprice.Book, ratesOnly []r
 // GetRetailKeyPolicy verifies key ownership, including for policies that have not yet been configured.
 func GetRetailKeyPolicy(userID, tokenID int) (retailprice.KeyPolicy, int64, error) {
 	var token Token
-	if err := DB.Select("id", "user_id", "service_mode").First(&token, "id = ? AND user_id = ? AND service_mode = ?", tokenID, userID, TokenServiceRetail).Error; err != nil {
+	if err := DB.Select("id", "user_id", "service_mode").First(&token, "id = ? AND user_id = ? AND service_mode IN ?", tokenID, userID, []string{TokenServiceRetail, TokenServiceStudio}).Error; err != nil {
 		return retailprice.KeyPolicy{}, 0, retailprice.ErrAccess
 	}
 	var row RetailKeyPricePolicy
@@ -174,7 +174,7 @@ func PutRetailKeyPolicy(userID, tokenID int, expected int64, policy retailprice.
 			return retailprice.ErrAccess
 		}
 		var token Token
-		if err := tx.Select("id").First(&token, "id = ? AND user_id = ? AND service_mode = ?", tokenID, userID, TokenServiceRetail).Error; err != nil {
+		if err := tx.Select("id").First(&token, "id = ? AND user_id = ? AND service_mode IN ?", tokenID, userID, []string{TokenServiceRetail, TokenServiceStudio}).Error; err != nil {
 			return retailprice.ErrAccess
 		}
 		allowedModels := map[string]bool{}
@@ -287,7 +287,7 @@ func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailpric
 			return retailprice.ErrAccess
 		}
 		var token Token
-		if err := tx.Select("id", "status", "expired_time").First(&token, "id = ? AND user_id = ? AND service_mode = ?", tokenID, userID, TokenServiceRetail).Error; err != nil || token.Status != common.TokenStatusEnabled || token.ExpiredTime != -1 && token.ExpiredTime < time.Now().Unix() {
+		if err := tx.Select("id", "status", "expired_time").First(&token, "id = ? AND user_id = ? AND service_mode IN ?", tokenID, userID, []string{TokenServiceRetail, TokenServiceStudio}).Error; err != nil || token.Status != common.TokenStatusEnabled || token.ExpiredTime != -1 && token.ExpiredTime < time.Now().Unix() {
 			return retailprice.ErrAccess
 		}
 		fresh, err := book.MakeQuote(state.Version, user.Group, policy, quote.Model.ID, quote.OutputLimit, quote.Channels, time.Now().Unix())

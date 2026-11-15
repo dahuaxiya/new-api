@@ -37,6 +37,7 @@ func SetApiRouter(router *gin.Engine) {
 		retailAdmin.POST("/pricing/rates", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-pricing"), controller.ImportRetailRates)
 		retailUser := apiRouter.Group("/retail", middleware.UserAuth(), middleware.DisableCache())
 		retailUser.GET("/catalog", controller.GetRetailCatalog)
+		retailUser.GET("/studio", controller.GetRetailStudio)
 		retailUser.GET("/keys/:id/pricing", controller.GetRetailKeyPricing)
 		retailUser.PUT("/keys/:id/pricing", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-key-pricing"), controller.PutRetailKeyPricing)
 		retailAdmin.POST("/charges/:id/refund", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-review"), controller.RefundRetailReservation)

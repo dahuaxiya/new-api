@@ -20,6 +20,15 @@ func PrepareImageBillingForRequest(c *gin.Context, info *relaycommon.RelayInfo, 
 	if count < 1 || count > dto.MaxImageN {
 		return types.NewErrorWithStatusCode(fmt.Errorf("image_count must be an integer between 1 and %d", dto.MaxImageN), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
+	if info.RetailQuote != nil {
+		// A guarded image already reserved its token bound. Legacy per-image
+		// arithmetic must not replace that CNY reservation with a zero quota.
+		if count != 1 || info.RetailQuote.Model.Kind != "image" {
+			return retailPriceError(fmt.Errorf("invalid guarded image count"))
+		}
+		info.ImageRequestCount = count
+		return nil
+	}
 	info.ImageRequestCount = count
 	var quota int
 	var err error

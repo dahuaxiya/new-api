@@ -104,6 +104,10 @@ func TestRetailHTTPRelay(t *testing.T) {
 			channelType                int
 			charged                    bool
 		}{
+			{"image", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1,"size":"1024x1024","quality":"medium","output_format":"png"}`, `{"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":10,"image_tokens":0}}}`, types.RelayFormatOpenAIImage, 1, true},
+			{"image_missing_usage", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"b64_json":"iVBORw0KGgo="}]}`, types.RelayFormatOpenAIImage, 1, false},
+			{"image_media_input", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":9,"image_tokens":1}}}`, types.RelayFormatOpenAIImage, 1, false},
+			{"image_no_payload", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"revised_prompt":"tree"}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":10,"image_tokens":0}}}`, types.RelayFormatOpenAIImage, 1, false},
 			{"chat", "/v1/chat/completions", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20}`, `{"id":"chat-1","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`, types.RelayFormatOpenAI, 1, true},
 			{"responses", "/v1/responses", `{"model":"gpt-4o","input":"hello","max_output_tokens":20}`, `{"id":"resp-1","object":"response","status":"completed","model":"gpt-4o","output":[{"id":"msg-1","type":"message","role":"assistant","content":[{"type":"output_text","text":"OK"}]}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}`, types.RelayFormatOpenAIResponses, 1, true},
 			{"claude", "/v1/messages", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20}`, `{"id":"msg-1","type":"message","role":"assistant","model":"gpt-4o","content":[{"type":"text","text":"OK"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":2}}`, types.RelayFormatClaude, 14, true},
@@ -120,6 +124,9 @@ func TestRetailHTTPRelay(t *testing.T) {
 			{"claude_stream", "/v1/messages", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20,"stream":true}`, "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"gpt-4o\",\"content\":[],\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"OK\"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\ndata: {\"type\":\"message_stop\"}\n\n", types.RelayFormatClaude, 14, true},
 		} {
 			t.Run(fmt.Sprintf("%s/guarded_%t", scenario.name, priced), func(t *testing.T) {
+				if scenario.format == types.RelayFormatOpenAIImage && !priced {
+					t.Skip("image calls require a published price contract")
+				}
 				i18n.Init()
 				user, token := setupResponsesWSRequestTest(t)
 				oldBatch, oldLogs, oldCount := common.BatchUpdateEnabled, common.LogConsumeEnabled, constant.CountToken
@@ -206,6 +213,9 @@ func TestRetailHTTPRelay(t *testing.T) {
 					now := time.Now().Unix()
 					book.Models[0].VerifiedAt, book.Models[0].ValidUntil = now, now+86400
 					book.Rates[0].VerifiedAt, book.Rates[0].ValidUntil = now, now+3600
+					if scenario.format == types.RelayFormatOpenAIImage {
+						book.Models[0].Kind = "image"
+					}
 					book.Products[0].UserGroups = []string{user.Group}
 					book.Products[0].Routes[0].ChannelID = channel.Id
 					second := book.Products[0].Routes[0]
@@ -277,6 +287,17 @@ func TestRetailHTTPRelay(t *testing.T) {
 					require.Equal(t, "completed", attempt.State)
 				}
 				require.Equal(t, "unknown", attempt.CostState)
+				if scenario.name == "image" {
+					for _, extra := range []string{`,"n":2`, `,"image":"https://example.com/input.png"`, `,"quality":"ultra"`, `,"stream":true`, `,"model":"other"`} {
+						bad := httptest.NewRequest("POST", scenario.path, strings.NewReader(strings.TrimSuffix(scenario.body, "}")+extra+"}"))
+						bad.Header.Set("Authorization", "Bearer sk-"+token.Key)
+						bad.Header.Set("Content-Type", "application/json")
+						w := httptest.NewRecorder()
+						engine.ServeHTTP(w, bad)
+						require.GreaterOrEqual(t, w.Code, 400, w.Body.String())
+						require.Equal(t, wantHits, hits.Load(), "invalid image input must not reach upstream")
+					}
+				}
 				// 状态化上下文必须在接触上游前拒绝，不增加尝试或账单。
 				req = httptest.NewRequest("POST", scenario.path, strings.NewReader(strings.TrimSuffix(scenario.body, "}")+`,"previous_response_id":"other-account"}`))
 				req.Header.Set("Authorization", "Bearer sk-"+token.Key)
@@ -470,6 +491,9 @@ func TestRetailSupplyOverview(t *testing.T) {
 func TestRetailPricingManagement(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
 	t.Setenv("SITE_MODE", "retail")
+	oldGroups := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() { _ = ratio_setting.UpdateGroupRatioByJSONString(oldGroups) })
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"retail":1}`))
 	oldSecure, oldBatch := common.SessionCookieSecure, common.BatchUpdateEnabled
 	common.SessionCookieSecure, common.BatchUpdateEnabled = true, false
 	t.Cleanup(func() { common.SessionCookieSecure, common.BatchUpdateEnabled = oldSecure, oldBatch })
@@ -498,6 +522,11 @@ func TestRetailPricingManagement(t *testing.T) {
 	admin.POST("/pricing/rates", middleware.SessionCookieOriginGuard(), ImportRetailRates)
 	admin.POST("/pricing/preview", middleware.SessionCookieOriginGuard(), PreviewRetailPricing)
 	users := engine.Group("/api/retail", middleware.UserAuth(), middleware.DisableCache())
+	studio := engine.Group("/api/retail/studio", middleware.UserAuth(), middleware.RetailStudioSession())
+	studio.POST("/session", OpenRetailStudio)
+	studio.POST("/chat/completions", middleware.RetailStudioRelay("/v1/chat/completions"), func(c *gin.Context) {
+		c.JSON(200, gin.H{"token_id": c.GetInt("token_id"), "retail": c.GetBool("retail_request")})
+	})
 	users.GET("/catalog", GetRetailCatalog)
 	users.GET("/keys/:id/pricing", GetRetailKeyPricing)
 	users.PUT("/keys/:id/pricing", middleware.SessionCookieOriginGuard(), PutRetailKeyPricing)
@@ -545,6 +574,30 @@ func TestRetailPricingManagement(t *testing.T) {
 		w = request(method, keyPath, "https://example.com", gin.H{"expected_revision": 1, "policy": policy})
 		require.Contains(t, w.Body.String(), `"success":false`, "even root cannot edit another user's key through the self API")
 	}
+	// A browser session creates one accounting identity, but never a bearer key.
+	for _, origin := range []string{"", "https://attacker.example", "null"} {
+		w = request("POST", "/api/retail/studio/session", origin, gin.H{})
+		require.Equal(t, 403, w.Code)
+	}
+	w = request("POST", "/api/retail/studio/session", "https://example.com", gin.H{"user_id": user.Id + 1})
+	require.Contains(t, w.Body.String(), `"success":true`)
+	require.NotContains(t, w.Body.String(), `"key":`)
+	studioToken, err := model.RetailStudioToken(user.Id, false)
+	require.NoError(t, err)
+	_, err = model.ValidateUserToken(studioToken.Key)
+	require.Error(t, err, "accounting identity cannot authenticate as a bearer credential")
+	w = request("POST", "/api/retail/studio/session", "https://example.com", gin.H{})
+	require.Contains(t, w.Body.String(), fmt.Sprintf(`"token_id":%d`, studioToken.Id))
+	_, err = model.RetailStudioToken(user.Id+1, false)
+	require.Error(t, err, "client-supplied owner cannot create another account's identity")
+	w = request("POST", "/api/retail/studio/chat/completions", "https://example.com", gin.H{})
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"retail":true`)
+	require.NoError(t, model.DB.Model(studioToken).Update("status", common.TokenStatusDisabled).Error)
+	w = request("POST", "/api/retail/studio/session", "https://example.com", gin.H{})
+	require.Contains(t, w.Body.String(), fmt.Sprintf(`"token_id":%d`, studioToken.Id), "setup must not replace disabled identities")
+	w = request("POST", "/api/retail/studio/chat/completions", "https://example.com", gin.H{})
+	require.Equal(t, 403, w.Code)
 	stored.Enabled = false
 	_, err = model.PublishRetailPriceBook(2, stored, nil, user.Id)
 	require.NoError(t, err)

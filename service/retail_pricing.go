@@ -34,7 +34,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		return true, retailPriceError(err)
 	}
 	if !book.Enabled {
-		if version > 0 {
+		if version > 0 || strings.HasSuffix(c.Request.URL.Path, "/images/generations") {
 			return true, retailPriceError(retailprice.ErrExpired)
 		}
 		return false, nil
@@ -51,9 +51,6 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	_ = reader.Close()
 	if err != nil || len(raw) > 8<<20 {
 		return true, retailPriceError(retailprice.ErrConfig)
-	}
-	if err := validateRetailTextBody(raw); err != nil {
-		return true, retailPriceError(err)
 	}
 	output := uint(1024)
 	switch req := info.Request.(type) {
@@ -74,6 +71,8 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		if req.MaxOutputTokens != nil {
 			output = *req.MaxOutputTokens
 		}
+	case *dto.ImageRequest:
+		output = 1 // MakeQuote replaces this with the verified image output bound.
 	case *dto.ClaudeRequest:
 		if req.MaxTokens != nil {
 			output = *req.MaxTokens
@@ -93,6 +92,13 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		if err == nil {
 			err = retailprice.ErrConfig
 		}
+		return true, retailPriceError(err)
+	}
+	_, imageRequest := info.Request.(*dto.ImageRequest)
+	if imageRequest != (quote.Model.Kind == "image") {
+		return true, retailPriceError(retailprice.ErrConfig)
+	}
+	if err := validateRetailBody(raw, quote.Model.Kind); err != nil {
 		return true, retailPriceError(err)
 	}
 	// Counting is mandatory for a guarded request, even when the legacy global estimate switch is off.
@@ -190,51 +196,55 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	if err != nil || len(raw) > 8<<20 || !gjson.ValidBytes(raw) {
 		return retailprice.ErrConfig
 	}
-	if err := validateRetailTextBody(raw); err != nil {
+	if err := validateRetailBody(raw, quote.Model.Kind); err != nil {
 		return err
 	}
 	if gjson.GetBytes(raw, "model").String() != upstreamModel || upstreamModel == "" {
 		return retailprice.ErrAccess
 	}
-	limitField := "max_tokens"
-	if strings.HasSuffix(req.URL.Path, "/responses") {
-		limitField = "max_output_tokens"
-	} else if strings.HasSuffix(req.URL.Path, "/chat/completions") && gjson.GetBytes(raw, "max_completion_tokens").Exists() {
-		limitField = "max_completion_tokens"
-	}
-	for _, field := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens"} {
-		v := gjson.GetBytes(raw, field)
-		if v.Exists() && (v.Type != gjson.Number || v.Float() < 1 || v.Float() > float64(quote.OutputLimit) || v.Float() != math.Trunc(v.Float())) {
-			return retailprice.ErrBudget
+	if quote.Model.Kind != "image" {
+		limitField := "max_tokens"
+		if strings.HasSuffix(req.URL.Path, "/responses") {
+			limitField = "max_output_tokens"
+		} else if strings.HasSuffix(req.URL.Path, "/chat/completions") && gjson.GetBytes(raw, "max_completion_tokens").Exists() {
+			limitField = "max_completion_tokens"
 		}
-	}
-	if !gjson.GetBytes(raw, limitField).Exists() {
-		var body map[string]common.RawMessage
-		if common.Unmarshal(raw, &body) != nil {
-			return retailprice.ErrConfig
+		for _, field := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens"} {
+			v := gjson.GetBytes(raw, field)
+			if v.Exists() && (v.Type != gjson.Number || v.Float() < 1 || v.Float() > float64(quote.OutputLimit) || v.Float() != math.Trunc(v.Float())) {
+				return retailprice.ErrBudget
+			}
 		}
-		body[limitField], err = common.Marshal(quote.OutputLimit)
-		if err != nil {
-			return err
+		if !gjson.GetBytes(raw, limitField).Exists() {
+			var body map[string]common.RawMessage
+			if common.Unmarshal(raw, &body) != nil {
+				return retailprice.ErrConfig
+			}
+			body[limitField], err = common.Marshal(quote.OutputLimit)
+			if err != nil {
+				return err
+			}
+			raw, err = common.Marshal(body)
+			if err != nil {
+				return err
+			}
+			_ = req.Body.Close()
+			req.Body = io.NopCloser(bytes.NewReader(raw))
+			req.ContentLength = int64(len(raw))
+			req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(raw)), nil }
 		}
-		raw, err = common.Marshal(body)
-		if err != nil {
-			return err
-		}
-		_ = req.Body.Close()
-		req.Body = io.NopCloser(bytes.NewReader(raw))
-		req.ContentLength = int64(len(raw))
-		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(raw)), nil }
 	}
 	// Count the body after administrator overrides and protocol conversion as well;
 	// the original request's estimate does not bound an injected system prompt.
 	var finalRequest dto.Request
 	switch {
-	case strings.HasSuffix(req.URL.Path, "/responses"):
+	case strings.HasSuffix(req.URL.Path, "/images/generations") && quote.Model.Kind == "image":
+		finalRequest = &dto.ImageRequest{}
+	case strings.HasSuffix(req.URL.Path, "/responses") && quote.Model.Kind != "image":
 		finalRequest = &dto.OpenAIResponsesRequest{}
-	case strings.HasSuffix(req.URL.Path, "/messages"):
+	case strings.HasSuffix(req.URL.Path, "/messages") && quote.Model.Kind != "image":
 		finalRequest = &dto.ClaudeRequest{}
-	case strings.HasSuffix(req.URL.Path, "/chat/completions"):
+	case strings.HasSuffix(req.URL.Path, "/chat/completions") && quote.Model.Kind != "image":
 		finalRequest = &dto.GeneralOpenAIRequest{}
 	default:
 		return retailprice.ErrConfig
@@ -349,6 +359,9 @@ func validateRetailTextBody(raw []byte) error {
 
 // SettleRetailTextPrice uses existing protocol normalization but prices the result only in the frozen CNY schedule.
 func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage, claude bool) (int, error) {
+	if info.RetailQuote.Model.Kind == "image" {
+		return settleRetailImagePrice(c, info, usage)
+	}
 	if usage == nil || common.GetContextKeyBool(c, constant.ContextKeyLocalCountTokens) || usage.BillingUsage != nil && usage.BillingUsage.Estimated {
 		return 0, retailprice.ErrUsage
 	}

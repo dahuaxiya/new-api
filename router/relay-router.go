@@ -17,6 +17,14 @@ func SetRelayRouter(router *gin.Engine) {
 	router.Use(middleware.DecompressRequestMiddleware())
 	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
 	router.Use(middleware.StatsMiddleware())
+	studio := router.Group("/api/retail/studio", middleware.SiteBoundary(), middleware.SiteIdentityBoundary(), middleware.RouteTag("relay"), middleware.DisableCache(), middleware.UserAuth(), middleware.RetailStudioSession())
+	studio.POST("/session", middleware.UserCriticalRateLimit("retail-studio"), controller.OpenRetailStudio)
+	studio.POST("/chat/completions", middleware.SystemPerformanceCheck(), middleware.RetailStudioRelay("/v1/chat/completions"), middleware.ModelRequestRateLimit(), middleware.Distribute(), func(c *gin.Context) {
+		controller.Relay(c, types.RelayFormatOpenAI)
+	})
+	studio.POST("/images/generations", middleware.SystemPerformanceCheck(), middleware.RetailStudioRelay("/v1/images/generations"), middleware.ModelRequestRateLimit(), middleware.Distribute(), func(c *gin.Context) {
+		controller.Relay(c, types.RelayFormatOpenAIImage)
+	})
 	// https://platform.openai.com/docs/api-reference/introduction
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))

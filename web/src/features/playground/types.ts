@@ -66,6 +66,7 @@ export interface ContentPart {
 }
 
 export interface ChatCompletionRequest {
+  stream_options?: { include_usage: boolean }
   model: string
   group?: string
   messages: ChatCompletionMessage[]

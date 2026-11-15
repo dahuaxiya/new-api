@@ -17,7 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { LinkProps } from '@tanstack/react-router'
-import { Boxes, Key, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react'
+import {
+  Boxes,
+  Key,
+  MessagesSquare,
+  ShieldCheck,
+  Wallet,
+  type LucideIcon,
+} from 'lucide-react'
 
 type SiteLink = Readonly<{
   titleKey: string
@@ -73,7 +80,12 @@ const profiles: Record<'hosting' | 'retail', SiteProfile> = {
     balanceDescriptionKey: 'Balance available for API usage',
     guideTitleKey: 'User guide',
     showHostedQuota: false,
-    navigation: [keys, billing, models],
+    navigation: [
+      { titleKey: 'Model studio', url: '/studio', icon: MessagesSquare },
+      keys,
+      billing,
+      models,
+    ],
   },
 }
 

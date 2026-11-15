@@ -644,9 +644,9 @@ func TokenAuth() func(c *gin.Context) {
 
 		userGroup := userCache.Group
 		if retailGroup != "" {
-			// 商业账本首期只覆盖同步文本协议；异步任务和长连接需独立验收，不能绕过账本。
+			// 商业账本只开放已验收的文本与同步生图协议；图片仍须通过已发布价表的严格校验。
 			path := c.Request.URL.Path
-			if !(c.Request.Method == http.MethodPost && (path == "/v1/responses" || path == "/v1/messages" || path == "/v1/chat/completions")) && !(c.Request.Method == http.MethodGet && (path == "/v1/models" || strings.HasPrefix(path, "/v1/models/"))) {
+			if !(c.Request.Method == http.MethodPost && (path == "/v1/responses" || path == "/v1/messages" || path == "/v1/chat/completions" || path == "/v1/images/generations")) && !(c.Request.Method == http.MethodGet && (path == "/v1/models" || strings.HasPrefix(path, "/v1/models/"))) {
 				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgRetailEndpointUnsupported))
 				return
 			}

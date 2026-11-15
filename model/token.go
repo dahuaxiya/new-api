@@ -107,10 +107,11 @@ func (token *Token) GetIpLimits() []string {
 	return ipLimits
 }
 
+// GetAllUserTokens lists client-managed API keys; internal studio identities are managed by their dedicated page.
 func GetAllUserTokens(userId int, startIdx int, num int) ([]*Token, error) {
 	var tokens []*Token
 	var err error
-	err = DB.Where("user_id = ?", userId).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
+	err = DB.Where("user_id = ? AND (service_mode IS NULL OR service_mode <> ?)", userId, TokenServiceStudio).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
 	return tokens, err
 }
 
@@ -160,6 +161,7 @@ func validateLikePattern(input string) error {
 
 const searchHardLimit = 100
 
+// SearchUserTokens searches only client API keys, preserving legacy NULL service modes.
 func SearchUserTokens(userId int, keyword string, token string, offset int, limit int) (tokens []*Token, total int64, err error) {
 	// model 层强制截断
 	if limit <= 0 || limit > searchHardLimit {
@@ -187,7 +189,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		}
 	}
 
-	baseQuery := DB.Model(&Token{}).Where("user_id = ?", userId)
+	baseQuery := DB.Model(&Token{}).Where("user_id = ? AND (service_mode IS NULL OR service_mode <> ?)", userId, TokenServiceStudio)
 
 	// 非空才加 LIKE 条件，空则跳过（不过滤该字段）
 	if keyword != "" {
@@ -227,6 +229,11 @@ func ValidateUserToken(key string) (token *Token, err error) {
 	}
 	token, err = GetTokenByKey(key, false)
 	if err == nil {
+		// Studio identities are accounting records, never bearer credentials.
+		// Even an owner revealing their stored key cannot use it outside session authentication.
+		if token.ServiceMode == TokenServiceStudio {
+			return nil, ErrTokenInvalid
+		}
 		if token.Status == common.TokenStatusExhausted ||
 			token.Status == common.TokenStatusExpired ||
 			token.Status != common.TokenStatusEnabled {
@@ -261,13 +268,14 @@ func ValidateUserToken(key string) (token *Token, err error) {
 	return nil, fmt.Errorf("%w: %v", ErrDatabase, err)
 }
 
+// GetTokenByIds reads a client-managed key; studio budget identities are not editable through key APIs.
 func GetTokenByIds(id int, userId int) (*Token, error) {
 	if id == 0 || userId == 0 {
 		return nil, common.NewMessage("Token ID or user ID is empty")
 	}
 	token := Token{Id: id, UserId: userId}
 	var err error = nil
-	err = DB.First(&token, "id = ? and user_id = ?", id, userId).Error
+	err = DB.First(&token, "id = ? AND user_id = ? AND (service_mode IS NULL OR service_mode <> ?)", id, userId, TokenServiceStudio).Error
 	return &token, err
 }
 
@@ -366,13 +374,14 @@ func DisableModelLimits(tokenId int) error {
 	return token.Update()
 }
 
+// DeleteTokenById removes only client keys, preserving the persistent studio budget identity.
 func DeleteTokenById(id int, userId int) (err error) {
 	// Why we need userId here? In case user want to delete other's token.
 	if id == 0 || userId == 0 {
 		return common.NewMessage("Token ID or user ID is empty")
 	}
 	token := Token{Id: id, UserId: userId}
-	err = DB.Where(token).First(&token).Error
+	err = DB.Where(token).Where("service_mode IS NULL OR service_mode <> ?", TokenServiceStudio).First(&token).Error
 	if err != nil {
 		return err
 	}
@@ -439,14 +448,14 @@ func decreaseTokenQuota(id int, quota int) (err error) {
 	return err
 }
 
-// CountUserTokens returns total number of tokens for the given user, used for pagination
+// CountUserTokens counts client-managed keys, matching list/search pagination.
 func CountUserTokens(userId int) (int64, error) {
 	var total int64
-	err := DB.Model(&Token{}).Where("user_id = ?", userId).Count(&total).Error
+	err := DB.Model(&Token{}).Where("user_id = ? AND (service_mode IS NULL OR service_mode <> ?)", userId, TokenServiceStudio).Count(&total).Error
 	return total, err
 }
 
-// BatchDeleteTokens 删除指定用户的一组令牌，返回成功删除数量
+// BatchDeleteTokens 删除指定用户的一组客户端令牌，排除工作台身份，防止删除后重建绕过每日预算。
 func BatchDeleteTokens(ids []int, userId int) (int, error) {
 	if len(ids) == 0 {
 		return 0, common.NewMessage("Token IDs cannot be empty")
@@ -455,7 +464,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 	tx := DB.Begin()
 
 	var tokens []Token
-	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Find(&tokens).Error; err != nil {
+	if err := tx.Where("user_id = ? AND id IN (?) AND (service_mode IS NULL OR service_mode <> ?)", userId, ids, TokenServiceStudio).Find(&tokens).Error; err != nil {
 		tx.Rollback()
 		return 0, err
 	}
@@ -463,7 +472,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 		common.SysLog(common.LogText("failed to invalidate token cache before batch delete: %s", err.Error()))
 	}
 
-	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Delete(&Token{}).Error; err != nil {
+	if err := tx.Where("user_id = ? AND id IN (?) AND (service_mode IS NULL OR service_mode <> ?)", userId, ids, TokenServiceStudio).Delete(&Token{}).Error; err != nil {
 		tx.Rollback()
 		return 0, err
 	}
@@ -475,10 +484,11 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 	return len(tokens), nil
 }
 
+// GetTokenKeysByIds exports client keys only; studio identities never expose their internal placeholder key.
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
 	err := DB.Select("id", commonKeyCol).
-		Where("user_id = ? AND id IN (?)", userId, ids).
+		Where("user_id = ? AND id IN (?) AND (service_mode IS NULL OR service_mode <> ?)", userId, ids, TokenServiceStudio).
 		Find(&tokens).Error
 	return tokens, err
 }

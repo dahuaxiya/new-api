@@ -11,6 +11,7 @@ import (
 )
 
 const TokenServiceRetail = "retail"
+const TokenServiceStudio = "retail_studio"
 const TokenServiceHosting = "hosting"
 
 // RetailTokenGroup 从数据库核对 Key 的归属与业务类型；空类型保留发布版的自动托管行为。
@@ -32,7 +33,7 @@ func RetailTokenGroup(userID, tokenID int) (string, error) {
 			return "", retail_setting.ErrUnavailable
 		}
 		return "", nil
-	case TokenServiceRetail:
+	case TokenServiceRetail, TokenServiceStudio:
 	default:
 		return "", retail_setting.ErrUnavailable
 	}

@@ -46,6 +46,7 @@ import { useAuthStore } from '@/stores/auth-store'
 export function ApiKeyPricePolicy(props: {
   open: boolean
   tokenId: number
+  title?: string
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
@@ -68,7 +69,7 @@ export function ApiKeyPricePolicy(props: {
     <Dialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      title={t('API key price limits')}
+      title={props.title ?? t('API key price limits')}
       description={t(
         'Prices follow upstream changes within your CNY ceilings. Requests above a ceiling pause before reaching the upstream.'
       )}
