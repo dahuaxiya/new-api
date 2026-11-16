@@ -73,6 +73,64 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+it('refreshes new supply groups without losing unsaved bindings or margin', async () => {
+  let created = false
+  vi.spyOn(api, 'get').mockImplementation(async (path) => ({
+    data: {
+      success: true,
+      data: path.endsWith('/supplies')
+        ? {
+            state: 'ready',
+            group: 'retail',
+            items: [
+              {
+                channel_id: 4,
+                name: 'Site',
+                base_url: 'https://aixingxing.pro',
+                kind: 'reseller',
+                status: 'eligible',
+              },
+            ],
+          }
+        : {
+            ...state,
+            channels: created
+              ? [...state.channels, { id: 5, name: 'New group' }]
+              : state.channels,
+          },
+    },
+  }))
+  vi.spyOn(api, 'post').mockImplementation(async () => {
+    created = true
+    return { data: { success: true, data: { channel_id: 5 } } }
+  })
+  mount()
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add group binding' })
+  )
+  fireEvent.change(screen.getByLabelText('Local group 1'), {
+    target: { value: 'pro' },
+  })
+  fireEvent.change(screen.getByLabelText('Target margin (%)'), {
+    target: { value: '25' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Supply overview' }))
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add supply group' })
+  )
+  fireEvent.change(screen.getByLabelText('Supply group name'), {
+    target: { value: 'New group' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Create supply group' }))
+  await waitFor(() =>
+    expect(screen.queryByLabelText('Supply group name')).not.toBeInTheDocument()
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  expect(screen.getByLabelText('Local group 1')).toHaveValue('pro')
+  expect(screen.getByLabelText('Target margin (%)')).toHaveValue(25)
+  expect(screen.getByRole('option', { name: /New group/ })).toBeInTheDocument()
+})
+
 it('saves explicit group and credential choices without accepting browser-supplied prices', async () => {
   vi.spyOn(api, 'get').mockImplementation(async (path) => ({
     data: {

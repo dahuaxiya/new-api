@@ -26,19 +26,15 @@ func ApplyRetailRouting(c *gin.Context, retry *RetryParam) error {
 	}
 	constraints.Filters = filters
 	if group == "" {
-		cfg, loadErr := retail_setting.Load()
+		ids, loadErr := model.RetailReservedSupplyIDs()
 		if loadErr != nil {
 			// 配置损坏时无法判断哪些渠道属于商业供货，不能放行旧 Key 绕过账本。
-			// 因此显式配置错误会阻断旧业务选路；运维必须原子替换文件，未设置配置不受影响。
+			// 因此显式配置错误会阻断旧业务选路；运维必须原子替换文件，未设置配置且没有供货分组时不影响原业务。
 			return loadErr
 		}
 		// 原有 Key 即使被改到销售组或命中亲和渠道，也不能绕过商业账本使用供货。
-		// 停售仍保留这一隔离；撤掉配置条目才表示管理员将该渠道交回原路由管理。
-		if len(cfg.Supplies) > 0 {
-			ids := make([]int, 0, len(cfg.Supplies))
-			for _, supply := range cfg.Supplies {
-				ids = append(ids, supply.ChannelID)
-			}
+		// 停售仍保留这一隔离；站点子分组即使失去有效父站点，也不能进入旧钱包选路。
+		if len(ids) > 0 {
 			constraints.AddFilter(dto.ChannelFilter{Kind: dto.FilterRetailSupply, ExcludedChannelIDs: ids})
 		}
 		return nil

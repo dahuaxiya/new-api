@@ -24,7 +24,7 @@ type RetailBindingChannel struct {
 // RetailBindingChannels lists explicitly authorized Xingxing reseller credentials.
 // A matching hostname alone does not enroll a customer-owned or unapproved channel.
 func RetailBindingChannels() ([]RetailBindingChannel, error) {
-	cfg, err := retail_setting.Load()
+	cfg, err := RetailSupplyConfig(DB)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func mutateRetailPriceBook(ctx context.Context, expected int64, actorID int, ren
 		if err := book.Validate(now); err != nil {
 			return err
 		}
-		cfg, err := retail_setting.Load()
+		cfg, err := RetailSupplyConfig(tx)
 		if err != nil {
 			return err
 		}

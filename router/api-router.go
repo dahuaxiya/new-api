@@ -31,6 +31,7 @@ func SetApiRouter(router *gin.Engine) {
 		retailAdmin := apiRouter.Group("/retail/admin", middleware.RootAuth(), middleware.DisableCache())
 		retailAdmin.GET("/accounting", controller.RetailAccounting)
 		retailAdmin.GET("/supplies", controller.RetailSupplies)
+		retailAdmin.POST("/supplies/groups", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-supply-groups"), controller.CreateRetailSupplyGroup)
 		retailAdmin.GET("/pricing", controller.GetRetailPricingAdmin)
 		retailAdmin.GET("/pricing/public-rates", middleware.UserCriticalRateLimit("retail-public-rates"), controller.GetRetailPublicRates)
 		retailAdmin.GET("/pricing/group-bindings", controller.GetRetailGroupBindings)

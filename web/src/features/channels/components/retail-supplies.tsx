@@ -41,10 +41,15 @@ import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { RetailSupplyGroupForm } from './retail-supply-group-form'
+
 type SupplyOverview = {
   state: string
   group: string
   items: Array<{
+    site_id?: number
+    base_url?: string
+    models?: string
     channel_id: number
     name: string
     kind: string
@@ -53,9 +58,10 @@ type SupplyOverview = {
 }
 
 /** 超级管理员打开抽屉后读取供货资格快照；缓存按登录会话隔离。 */
-export function RetailSupplies() {
+export function RetailSupplies(props: { onGroupsChanged?: () => void } = {}) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [addingSite, setAddingSite] = useState<number | null>(null)
   const identity = useAuthStore(
     (s) => `${s.auth.user?.id}:${s.auth.session?.sid}`
   )
@@ -71,6 +77,7 @@ export function RetailSupplies() {
     enabled: open,
     retry: false,
   })
+  const roots = query.data?.items.filter((supply) => !supply.site_id) ?? []
   const stateLabels: Record<string, string> = {
     ready: t('Supply routing configured'),
     disabled: t('Retail sales disabled'),
@@ -90,7 +97,13 @@ export function RetailSupplies() {
       <Button variant='outline' onClick={() => setOpen(true)}>
         {t('Supply overview')}
       </Button>
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet
+        open={open}
+        onOpenChange={(value) => {
+          setOpen(value)
+          if (!value) setAddingSite(null)
+        }}
+      >
         <SheetContent className={sideDrawerContentClassName('sm:max-w-2xl')}>
           <SheetHeader className={sideDrawerHeaderClassName()}>
             <SheetTitle>{t('Supply overview')}</SheetTitle>
@@ -129,12 +142,17 @@ export function RetailSupplies() {
                 {query.data.items.length === 0 && (
                   <EmptyState title={t('No supply channels registered')} />
                 )}
-                {query.data.items.map((supply) => (
-                  <Card key={supply.channel_id} size='sm'>
+                {roots.map((supply) => (
+                  <Card key={supply.channel_id} size='sm' className='shrink-0'>
                     <CardHeader>
                       <CardTitle>
                         {supply.name || `#${supply.channel_id}`}
                       </CardTitle>
+                      {supply.base_url && (
+                        <p className='text-muted-foreground text-xs break-all'>
+                          {supply.base_url}
+                        </p>
+                      )}
                     </CardHeader>
                     <CardContent className='flex flex-col gap-2'>
                       <p>
@@ -149,6 +167,52 @@ export function RetailSupplies() {
                       >
                         {supplyLabels[supply.status] ?? t('Unknown')}
                       </Badge>
+                      {query.data.items
+                        .filter((child) => child.site_id === supply.channel_id)
+                        .map((child) => (
+                          <div
+                            key={child.channel_id}
+                            className='flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm'
+                          >
+                            <span>
+                              {child.name}{' '}
+                              <span className='text-muted-foreground'>
+                                #{child.channel_id}
+                              </span>
+                            </span>
+                            <Badge
+                              variant={
+                                child.status === 'eligible'
+                                  ? 'outline'
+                                  : 'warning'
+                              }
+                            >
+                              {supplyLabels[child.status] ?? t('Unknown')}
+                            </Badge>
+                          </div>
+                        ))}
+                      {supply.kind === 'reseller' &&
+                        supply.base_url &&
+                        (addingSite === supply.channel_id ? (
+                          <RetailSupplyGroupForm
+                            siteID={supply.channel_id}
+                            models={supply.models ?? ''}
+                            onCancel={() => setAddingSite(null)}
+                            onCreated={() => {
+                              setAddingSite(null)
+                              void query.refetch()
+                              props.onGroupsChanged?.()
+                            }}
+                          />
+                        ) : (
+                          <Button
+                            variant='outline'
+                            className='self-start'
+                            onClick={() => setAddingSite(supply.channel_id)}
+                          >
+                            {t('Add supply group')}
+                          </Button>
+                        ))}
                     </CardContent>
                   </Card>
                 ))}
@@ -156,7 +220,7 @@ export function RetailSupplies() {
             )}
             <p className='text-muted-foreground text-sm'>
               {t(
-                'Add a channel, then register its ID in the retail supply configuration. Customer-hosted accounts must not be used as public supply.'
+                'One address per upstream site. Supply groups have separate Keys and models; bind their channel IDs in group pricing. Edit the site channel to change the shared address.'
               )}
             </p>
           </div>

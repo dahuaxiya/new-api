@@ -107,9 +107,9 @@ export type RetailBindingState = {
   pricing_enabled: boolean
 }
 
-/** Read safe options and persisted bindings for the current root session. */
+/** Read safe root options; queries pass a cancellation signal, manual candidate refreshes may omit it. */
 export async function getRetailGroupBindings(
-  signal: AbortSignal
+  signal?: AbortSignal
 ): Promise<RetailBindingState> {
   return requireServerSuccess(
     (await api.get('/api/retail/admin/pricing/group-bindings', { signal })).data

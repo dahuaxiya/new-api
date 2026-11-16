@@ -8224,6 +8224,21 @@
     "No model route is currently available. Contact the site administrator.": "当前没有可用的模型线路，请联系管理员。",
     "No models are authorized for this mode. Check your plan and price limits.": "当前模式下没有已授权模型，请检查模型方案和价格上限。",
     "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "请在「渠道 → 中转定价」配置官方模型价表和产品路由，再开启接收新请求。仅绑定分组倍率不会开放模型。",
-    "Configure model pricing": "配置模型与定价"
+    "Configure model pricing": "配置模型与定价",
+    "Supply group name": "供货分组名称",
+    "Group API Key": "分组 API Key",
+    "Group models": "分组模型",
+    "Add supply group": "新增供货分组",
+    "Create supply group": "创建供货分组",
+    "Enter a group name up to 120 characters.": "请输入分组名称，最多 120 个字符。",
+    "Leave the Key empty to create a disabled draft. Each group needs its own upstream credential.": "暂不填 Key 可创建停用的分组。每个分组需使用对应的上游 Key。",
+    "Enter one API Key without spaces or line breaks.": "请输入一个 API Key，不含空格或换行。",
+    "Separate models with commas or new lines. Confirm the models allowed by this upstream group.": "模型以逗号或换行分隔，请按该上游分组实际支持的模型填写。",
+    "The model list is too long.": "模型列表过长。",
+    "One address per upstream site. Supply groups have separate Keys and models; bind their channel IDs in group pricing. Edit the site channel to change the shared address.": "同一上游站点共用一个地址。各供货分组单独配置 Key 和模型，再到分组定价中绑定渠道。修改站点原渠道的地址会同步到其下所有分组。",
+    "Supply group name already exists at this site": "该站点下已有同名供货分组",
+    "This Key is already used by another group at this site": "这把 Key 已用于该站点的其他分组，请使用新分组对应的 Key",
+    "Edit the site channel to change the shared address or protocol": "请编辑站点原渠道，统一修改地址或协议类型",
+    "Unable to save supply group": "供货分组保存失败"
   }
 }

@@ -8194,6 +8194,21 @@
     "No model route is currently available. Contact the site administrator.": "現在利用可能なモデル経路がありません。管理者にお問い合わせください。",
     "No models are authorized for this mode. Check your plan and price limits.": "このモードで許可されたモデルがありません。プランと価格上限を確認してください。",
     "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "「チャネル → 中継価格」で公式料金と製品ルートを設定してから新しいリクエストを有効にしてください。グループ倍率の連携だけではモデルは公開されません。",
-    "Configure model pricing": "モデルと料金の設定"
+    "Configure model pricing": "モデルと料金の設定",
+    "Supply group name": "供給グループ名",
+    "Group API Key": "グループ API キー",
+    "Group models": "グループのモデル",
+    "Add supply group": "供給グループを追加",
+    "Create supply group": "供給グループを作成",
+    "Enter a group name up to 120 characters.": "120 文字以内のグループ名を入力してください。",
+    "Leave the Key empty to create a disabled draft. Each group needs its own upstream credential.": "キーを空欄にすると無効な下書きを作成します。各グループに専用の上流キーが必要です。",
+    "Enter one API Key without spaces or line breaks.": "空白や改行を含まない API キーを 1 つ入力してください。",
+    "Separate models with commas or new lines. Confirm the models allowed by this upstream group.": "モデルをカンマまたは改行で区切り、この上流グループで使用可能なモデルを確認してください。",
+    "The model list is too long.": "モデル一覧が長すぎます。",
+    "One address per upstream site. Supply groups have separate Keys and models; bind their channel IDs in group pricing. Edit the site channel to change the shared address.": "上流サイトごとにアドレスは 1 つです。各グループのキーとモデルを設定し、料金設定でチャネルを紐付けます。共有アドレスは元のサイトチャネルで変更します。",
+    "Supply group name already exists at this site": "このサイトには同名の供給グループが存在します",
+    "This Key is already used by another group at this site": "このキーは同じサイトの別グループで使用されています",
+    "Edit the site channel to change the shared address or protocol": "共有アドレスやプロトコルは元のサイトチャネルで変更してください",
+    "Unable to save supply group": "供給グループを保存できませんでした"
   }
 }

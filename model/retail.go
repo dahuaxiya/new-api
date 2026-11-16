@@ -50,7 +50,7 @@ func RetailTokenGroup(userID, tokenID int) (string, error) {
 // RetailSupplyIDs 只允许显式登记、属于销售组且未被托管客户占用的渠道进入候选列表。
 // 重新查库防止渠道缓存或后台误改分组将客户账号混入公共供货。
 func RetailSupplyIDs(group string) ([]int, error) {
-	cfg, err := retail_setting.Load()
+	cfg, err := RetailSupplyConfig(DB)
 	if err != nil || !cfg.Enabled || cfg.Group != group {
 		return nil, retail_setting.ErrUnavailable
 	}

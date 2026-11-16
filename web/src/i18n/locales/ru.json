@@ -8194,6 +8194,21 @@
     "No model route is currently available. Contact the site administrator.": "Нет доступного маршрута к модели. Обратитесь к администратору.",
     "No models are authorized for this mode. Check your plan and price limits.": "Для этого режима нет разрешённых моделей. Проверьте тариф и ограничения цен.",
     "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "В разделе «Каналы → Цены» настройте официальные цены и маршруты продуктов, затем разрешите новые запросы. Привязка множителя группы не публикует модели.",
-    "Configure model pricing": "Настроить модели и цены"
+    "Configure model pricing": "Настроить модели и цены",
+    "Supply group name": "Имя группы поставщика",
+    "Group API Key": "API-ключ группы",
+    "Group models": "Модели группы",
+    "Add supply group": "Добавить группу поставщика",
+    "Create supply group": "Создать группу поставщика",
+    "Enter a group name up to 120 characters.": "Введите имя группы длиной до 120 символов.",
+    "Leave the Key empty to create a disabled draft. Each group needs its own upstream credential.": "Без ключа группа будет отключена. Для каждой группы нужен отдельный ключ поставщика.",
+    "Enter one API Key without spaces or line breaks.": "Введите один API-ключ без пробелов и переносов строк.",
+    "Separate models with commas or new lines. Confirm the models allowed by this upstream group.": "Разделяйте модели запятыми или переносами строк. Укажите модели, доступные в этой группе поставщика.",
+    "The model list is too long.": "Список моделей слишком длинный.",
+    "One address per upstream site. Supply groups have separate Keys and models; bind their channel IDs in group pricing. Edit the site channel to change the shared address.": "Один адрес на сайт поставщика. У каждой группы свои ключи и модели. Привяжите каналы в настройках цен. Общий адрес меняется в исходном канале сайта.",
+    "Supply group name already exists at this site": "Группа с таким именем уже существует на этом сайте",
+    "This Key is already used by another group at this site": "Этот ключ уже используется другой группой на этом сайте",
+    "Edit the site channel to change the shared address or protocol": "Измените исходный канал сайта, чтобы обновить общий адрес или протокол",
+    "Unable to save supply group": "Не удалось сохранить группу поставщика"
   }
 }

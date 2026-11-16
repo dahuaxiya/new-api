@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"net/http"
 	"slices"
 	"strconv"
 	"time"
@@ -14,10 +15,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// RetailSupplies 提供显式登记的供货状态；复用实际选路白名单，不探测上游、不返回地址或凭据。
+// RetailSupplies 提供 root 供货状态与站点地址；复用实际选路白名单，不探测上游、不返回凭据。
 // eligible 只表示通过本站选路资格校验，不证明上游额度、网络或真实模型调用可用。
 func RetailSupplies(c *gin.Context) {
-	cfg, err := retail_setting.Load()
+	cfg, err := model.RetailSupplyConfig(model.DB)
 	if err != nil {
 		common.ApiError(c, retail_setting.ErrUnavailable)
 		return
@@ -52,6 +53,11 @@ func RetailSupplies(c *gin.Context) {
 		}
 		if err == nil {
 			item["name"] = channel.Name
+			item["site_id"] = channel.RetailSiteID
+			if supply.Kind == "reseller" {
+				item["base_url"] = channel.GetBaseURL()
+				item["models"] = channel.Models
+			}
 			switch {
 			case channel.Status != common.ChannelStatusEnabled:
 				item["status"] = "disabled"
@@ -163,4 +169,31 @@ func PutRetailCost(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"success": true})
+}
+
+// CreateRetailSupplyGroup adds an explicitly owned supplier credential under an existing site.
+// The root-only route also requires same-origin session writes and does not return the submitted Key.
+func CreateRetailSupplyGroup(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32<<10)
+	var input struct {
+		SiteID int    `json:"site_id"`
+		Name   string `json:"name"`
+		Key    string `json:"key"`
+		Models string `json:"models"`
+	}
+	if c.ShouldBindJSON(&input) != nil {
+		common.ApiError(c, retail_setting.ErrUnavailable)
+		return
+	}
+	id, err := model.CreateRetailSupplyGroup(c.Request.Context(), input.SiteID, input.Name, input.Key, input.Models)
+	if err != nil {
+		if errors.Is(err, model.ErrRetailSupplyGroupName) || errors.Is(err, model.ErrRetailSupplyGroupKey) {
+			common.ApiError(c, err)
+			return
+		}
+		common.ApiError(c, retail_setting.ErrUnavailable)
+		return
+	}
+	model.InitChannelCache()
+	c.JSON(200, gin.H{"success": true, "data": gin.H{"channel_id": id}})
 }

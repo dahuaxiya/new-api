@@ -8194,6 +8194,21 @@
     "No model route is currently available. Contact the site administrator.": "Aucune route de modèle n’est disponible. Contactez l’administrateur.",
     "No models are authorized for this mode. Check your plan and price limits.": "Aucun modèle autorisé pour ce mode. Vérifiez votre offre et vos plafonds.",
     "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "Dans Canaux → Tarification, configurez les tarifs officiels et les routes des produits, puis activez les nouvelles requêtes. Lier un multiplicateur de groupe ne publie pas les modèles.",
-    "Configure model pricing": "Configurer modèles et tarifs"
+    "Configure model pricing": "Configurer modèles et tarifs",
+    "Supply group name": "Nom du groupe fournisseur",
+    "Group API Key": "Clé API du groupe",
+    "Group models": "Modèles du groupe",
+    "Add supply group": "Ajouter un groupe fournisseur",
+    "Create supply group": "Créer le groupe fournisseur",
+    "Enter a group name up to 120 characters.": "Saisissez un nom de groupe de 120 caractères maximum.",
+    "Leave the Key empty to create a disabled draft. Each group needs its own upstream credential.": "Sans clé, le groupe sera désactivé. Chaque groupe nécessite sa propre clé fournisseur.",
+    "Enter one API Key without spaces or line breaks.": "Saisissez une seule clé API, sans espaces ni sauts de ligne.",
+    "Separate models with commas or new lines. Confirm the models allowed by this upstream group.": "Séparez les modèles par des virgules ou des lignes. Vérifiez les modèles autorisés par ce groupe fournisseur.",
+    "The model list is too long.": "La liste des modèles est trop longue.",
+    "One address per upstream site. Supply groups have separate Keys and models; bind their channel IDs in group pricing. Edit the site channel to change the shared address.": "Une adresse par site fournisseur. Chaque groupe a ses propres clés et modèles. Liez ses canaux dans la tarification. Modifiez le canal du site pour changer l’adresse commune.",
+    "Supply group name already exists at this site": "Ce groupe fournisseur existe déjà sur ce site",
+    "This Key is already used by another group at this site": "Cette clé est déjà utilisée par un autre groupe de ce site",
+    "Edit the site channel to change the shared address or protocol": "Modifiez le canal du site pour changer l’adresse ou le protocole commun",
+    "Unable to save supply group": "Impossible d’enregistrer le groupe fournisseur"
   }
 }

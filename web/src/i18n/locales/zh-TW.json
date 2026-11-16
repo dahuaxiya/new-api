@@ -8224,6 +8224,21 @@
     "No model route is currently available. Contact the site administrator.": "目前沒有可用的模型線路，請聯絡管理員。",
     "No models are authorized for this mode. Check your plan and price limits.": "目前模式下沒有已授權模型，請檢查模型方案和價格上限。",
     "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "請在「通道 → 中轉定價」設定官方模型價表和產品路由，再開啟接收新請求。僅綁定群組倍率不會開放模型。",
-    "Configure model pricing": "設定模型與定價"
+    "Configure model pricing": "設定模型與定價",
+    "Supply group name": "供貨分組名稱",
+    "Group API Key": "分組 API Key",
+    "Group models": "分組模型",
+    "Add supply group": "新增供貨分組",
+    "Create supply group": "建立供貨分組",
+    "Enter a group name up to 120 characters.": "請輸入分組名稱，最多 120 個字元。",
+    "Leave the Key empty to create a disabled draft. Each group needs its own upstream credential.": "暫不填 Key 可建立停用的分組。每個分組需使用對應的上游 Key。",
+    "Enter one API Key without spaces or line breaks.": "請輸入一個 API Key，不含空格或換行。",
+    "Separate models with commas or new lines. Confirm the models allowed by this upstream group.": "模型以逗號或換行分隔，請按該上游分組實際支援的模型填寫。",
+    "The model list is too long.": "模型清單過長。",
+    "One address per upstream site. Supply groups have separate Keys and models; bind their channel IDs in group pricing. Edit the site channel to change the shared address.": "同一上游站點共用一個位址。各供貨分組單獨設定 Key 和模型，再到分組定價中綁定渠道。修改站點原渠道的位址會同步到其下所有分組。",
+    "Supply group name already exists at this site": "該站點下已有同名供貨分組",
+    "This Key is already used by another group at this site": "這把 Key 已用於該站點的其他分組，請使用新分組對應的 Key",
+    "Edit the site channel to change the shared address or protocol": "請編輯站點原渠道，統一修改位址或協議類型",
+    "Unable to save supply group": "供貨分組儲存失敗"
   }
 }

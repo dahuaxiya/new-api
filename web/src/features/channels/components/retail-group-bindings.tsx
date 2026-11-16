@@ -45,6 +45,7 @@ import {
   type RetailGroupBinding,
   type RetailSalePolicy,
 } from '../retail-pricing-api'
+import { RetailSupplies } from './retail-supplies'
 
 /** Root-only configuration, isolated by session and refreshed after explicit writes. */
 export function RetailGroupBindings(props: {
@@ -107,6 +108,7 @@ function BindingEditor(props: {
       upstream_group,
     })
   )
+  const [channels, setChannels] = useState(props.state.channels)
   const [enabled, setEnabled] = useState(props.state.sync.enabled)
   const [salePolicy, setSalePolicy] = useState<RetailSalePolicy>(() => ({
     ...props.state.sale_policy,
@@ -346,6 +348,14 @@ function BindingEditor(props: {
         >
           {t('Reload saved bindings')}
         </Button>
+        <RetailSupplies
+          onGroupsChanged={() => {
+            // Refresh candidates only: replacing the binding editor would discard unsaved mappings/margin.
+            void getRetailGroupBindings()
+              .then((state) => setChannels(state.channels))
+              .catch((error) => handleServerError(error))
+          }}
+        />
       </div>
       {feed.isFetching && <LoadingState inline message={t('Loading...')} />}
       {feed.isError && (
@@ -353,7 +363,7 @@ function BindingEditor(props: {
           {t('Unable to read upstream public multipliers')}
         </p>
       )}
-      {props.state.channels.length === 0 && (
+      {channels.length === 0 && (
         <p className='text-muted-foreground text-sm'>
           {t(
             'No approved Xingxing supply channel. Register its channel in the supply allowlist first.'
@@ -443,14 +453,14 @@ function BindingEditor(props: {
                       {t('Select channel')}
                     </NativeSelectOption>
                     {row.channel_id > 0 &&
-                      !props.state.channels.some(
+                      !channels.some(
                         (channel) => channel.id === row.channel_id
                       ) && (
                         <NativeSelectOption value={row.channel_id}>
                           #{row.channel_id} · {t('Unavailable')}
                         </NativeSelectOption>
                       )}
-                    {props.state.channels.map((channel) => (
+                    {channels.map((channel) => (
                       <NativeSelectOption key={channel.id} value={channel.id}>
                         {channel.name} · #{channel.id}
                       </NativeSelectOption>

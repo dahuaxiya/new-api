@@ -475,7 +475,7 @@ func TestRetailSupplyOverview(t *testing.T) {
 	for _, status := range []string{"eligible", "disabled", "excluded", "missing"} {
 		require.Contains(t, result.Body.String(), `"status":"`+status+`"`)
 	}
-	for _, private := range []string{"secret-key", "private-upstream", "acct_private", "base_url"} {
+	for _, private := range []string{"secret-key", "private-upstream", "acct_private"} {
 		require.NotContains(t, result.Body.String(), private)
 	}
 	require.NoError(t, os.WriteFile(path, []byte(strings.Replace(config, `"enabled":true`, `"enabled":false`, 1)), 0600))
@@ -763,4 +763,54 @@ func TestRetailPublicRates(t *testing.T) {
 			require.Equal(t, 1, calls, "no redirect or automatic retry")
 		})
 	}
+}
+
+// TestRetailSupplyGroupManagement verifies root/CSRF boundaries and write-only credentials.
+// It uses real signed access identities; the management path never contacts a supplier.
+func TestRetailSupplyGroupManagement(t *testing.T) {
+	user, identity := setupSecurityEnrollmentTest(t)
+	oldSecure := common.SessionCookieSecure
+	common.SessionCookieSecure = true
+	t.Cleanup(func() { common.SessionCookieSecure = oldSecure })
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.GPTHostingBinding{}))
+	endpoint := "https://aixingxing.pro"
+	require.NoError(t, model.DB.Create(&model.Channel{Id: 101, Name: "Site", Key: "parent-secret", Type: 1, BaseURL: &endpoint, Group: "retail", Status: 1}).Error)
+	path := filepath.Join(t.TempDir(), "retail.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"enabled":true,"group":"retail","supplies":[{"channel_id":101,"kind":"reseller"}]}`), 0600))
+	t.Setenv("RETAIL_RELAY_CONFIG", path)
+	access, _, err := service.IssueAccessToken(identity)
+	require.NoError(t, err)
+	r := gin.New()
+	r.POST("/groups", middleware.RootAuth(), middleware.SessionCookieOriginGuard(), CreateRetailSupplyGroup)
+	r.GET("/supplies", middleware.RootAuth(), RetailSupplies)
+	request := func(method, route, auth, origin, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "https://example.com"+route, bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", origin)
+		if auth != "" {
+			req.Header.Set("Authorization", "Bearer "+auth)
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	payload := `{"site_id":101,"name":"Normal","key":"child-secret","models":"gpt-example","base_url":"https://ignored.example","retail_site_id":999}`
+	require.Equal(t, 401, request("POST", "/groups", "", "https://example.com", payload).Code)
+	require.Equal(t, 403, request("POST", "/groups", access, "https://example.com", payload).Code)
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
+	require.NoError(t, model.PublishUserAuthCache(user.Id))
+	require.Equal(t, 403, request("POST", "/groups", access, "https://attacker.example", payload).Code)
+	w := request("POST", "/groups", access, "https://example.com", payload)
+	require.Equal(t, 200, w.Code)
+	require.Contains(t, w.Body.String(), `"success":true`)
+	require.NotContains(t, w.Body.String(), "child-secret")
+	var child model.Channel
+	require.NoError(t, model.DB.Where("retail_site_id = ?", 101).First(&child).Error)
+	require.Equal(t, endpoint, child.GetBaseURL(), "address and enrollment are derived server-side")
+	w = request("GET", "/supplies", access, "https://example.com", "")
+	require.Contains(t, w.Body.String(), `"site_id":101`)
+	require.NotContains(t, w.Body.String(), "child-secret")
+	require.NotContains(t, w.Body.String(), "parent-secret")
+	w = request("POST", "/groups", access, "https://example.com", strings.Repeat(" ", 33<<10)+payload)
+	require.Contains(t, w.Body.String(), `"success":false`)
 }

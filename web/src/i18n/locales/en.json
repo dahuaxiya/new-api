@@ -8194,6 +8194,21 @@
     "No model route is currently available. Contact the site administrator.": "No model route is currently available. Contact the site administrator.",
     "No models are authorized for this mode. Check your plan and price limits.": "No models are authorized for this mode. Check your plan and price limits.",
     "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.",
-    "Configure model pricing": "Configure model pricing"
+    "Configure model pricing": "Configure model pricing",
+    "Supply group name": "Supply group name",
+    "Group API Key": "Group API Key",
+    "Group models": "Group models",
+    "Add supply group": "Add supply group",
+    "Create supply group": "Create supply group",
+    "Enter a group name up to 120 characters.": "Enter a group name up to 120 characters.",
+    "Leave the Key empty to create a disabled draft. Each group needs its own upstream credential.": "Leave the Key empty to create a disabled draft. Each group needs its own upstream credential.",
+    "Enter one API Key without spaces or line breaks.": "Enter one API Key without spaces or line breaks.",
+    "Separate models with commas or new lines. Confirm the models allowed by this upstream group.": "Separate models with commas or new lines. Confirm the models allowed by this upstream group.",
+    "The model list is too long.": "The model list is too long.",
+    "One address per upstream site. Supply groups have separate Keys and models; bind their channel IDs in group pricing. Edit the site channel to change the shared address.": "One address per upstream site. Supply groups have separate Keys and models; bind their channel IDs in group pricing. Edit the site channel to change the shared address.",
+    "Supply group name already exists at this site": "Supply group name already exists at this site",
+    "This Key is already used by another group at this site": "This Key is already used by another group at this site",
+    "Edit the site channel to change the shared address or protocol": "Edit the site channel to change the shared address or protocol",
+    "Unable to save supply group": "Unable to save supply group"
   }
 }

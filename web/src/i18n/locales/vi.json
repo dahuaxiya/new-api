@@ -8194,6 +8194,21 @@
     "No model route is currently available. Contact the site administrator.": "Hiện không có tuyến mô hình khả dụng. Hãy liên hệ quản trị viên.",
     "No models are authorized for this mode. Check your plan and price limits.": "Chế độ này chưa có mô hình được phép. Kiểm tra gói và giới hạn giá.",
     "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "Trong Kênh → Giá chuyển tiếp, cấu hình giá mô hình chính thức và tuyến sản phẩm, sau đó bật yêu cầu mới. Chỉ liên kết hệ số nhóm sẽ không mở mô hình.",
-    "Configure model pricing": "Cấu hình mô hình và giá"
+    "Configure model pricing": "Cấu hình mô hình và giá",
+    "Supply group name": "Tên nhóm nhà cung cấp",
+    "Group API Key": "API Key của nhóm",
+    "Group models": "Mô hình của nhóm",
+    "Add supply group": "Thêm nhóm nhà cung cấp",
+    "Create supply group": "Tạo nhóm nhà cung cấp",
+    "Enter a group name up to 120 characters.": "Nhập tên nhóm tối đa 120 ký tự.",
+    "Leave the Key empty to create a disabled draft. Each group needs its own upstream credential.": "Để trống Key để tạo nhóm bị tắt. Mỗi nhóm cần Key riêng của nhà cung cấp.",
+    "Enter one API Key without spaces or line breaks.": "Nhập một API Key không có khoảng trắng hoặc xuống dòng.",
+    "Separate models with commas or new lines. Confirm the models allowed by this upstream group.": "Phân tách mô hình bằng dấu phẩy hoặc xuống dòng. Kiểm tra mô hình được nhóm nhà cung cấp cho phép.",
+    "The model list is too long.": "Danh sách mô hình quá dài.",
+    "One address per upstream site. Supply groups have separate Keys and models; bind their channel IDs in group pricing. Edit the site channel to change the shared address.": "Mỗi trang nhà cung cấp dùng một địa chỉ. Các nhóm có Key và mô hình riêng; liên kết kênh trong phần giá. Sửa kênh gốc để đổi địa chỉ chung.",
+    "Supply group name already exists at this site": "Trang này đã có nhóm nhà cung cấp cùng tên",
+    "This Key is already used by another group at this site": "Key này đã được nhóm khác trên trang sử dụng",
+    "Edit the site channel to change the shared address or protocol": "Sửa kênh gốc để thay đổi địa chỉ hoặc giao thức chung",
+    "Unable to save supply group": "Không thể lưu nhóm nhà cung cấp"
   }
 }

@@ -24,7 +24,7 @@ type RetailAttempt struct {
 
 // BeginRetailAttempt 必须在网络调用前持久化供货归属，失败时调用方不得发送请求。
 func BeginRetailAttempt(requestID string, channelID int) (int, error) {
-	cfg, err := retail_setting.Load()
+	cfg, err := RetailSupplyConfig(DB)
 	if err != nil || !cfg.Enabled {
 		return 0, retail_setting.ErrUnavailable
 	}

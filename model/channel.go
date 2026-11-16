@@ -21,6 +21,8 @@ import (
 )
 
 type Channel struct {
+	// RetailSiteID is managed only by the root supply-group API; generic channel JSON cannot enroll supply.
+	RetailSiteID       int     `json:"-" gorm:"index"`
 	Id                 int     `json:"id"`
 	Type               int     `json:"type" gorm:"default:0"`
 	Key                string  `json:"key" gorm:"not null"`
@@ -560,6 +562,8 @@ func (channel *Channel) Insert() error {
 	return err
 }
 
+// Update saves channel settings and abilities; supply children inherit site address/protocol atomically.
+// Individual child edits must not redirect a credential away from its approved site.
 func (channel *Channel) Update() error {
 	// If this is a multi-key channel, recalculate MultiKeySize based on the current key list to avoid inconsistency after editing keys
 	if channel.ChannelInfo.IsMultiKey {
@@ -599,14 +603,18 @@ func (channel *Channel) Update() error {
 			}
 		}
 	}
-	var err error
-	err = DB.Model(channel).Updates(channel).Error
-	if err != nil {
-		return err
-	}
-	DB.Model(channel).First(channel, "id = ?", channel.Id)
-	err = channel.UpdateAbilities(nil)
-	return err
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := syncRetailSiteAddress(tx, channel); err != nil {
+			return err
+		}
+		if err := tx.Model(channel).Updates(channel).Error; err != nil {
+			return err
+		}
+		if err := tx.First(channel, channel.Id).Error; err != nil {
+			return err
+		}
+		return channel.UpdateAbilities(tx)
+	})
 }
 
 func (channel *Channel) UpdateResponseTime(responseTime int64) {
