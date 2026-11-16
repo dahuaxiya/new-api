@@ -164,3 +164,76 @@ it('hides editing controls when the price book cannot be loaded', async () => {
     screen.queryByRole('button', { name: 'Publish price book' })
   ).not.toBeInTheDocument()
 })
+
+it('reads public multipliers only on demand and never imports or publishes them', async () => {
+  const get = vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+    data: {
+      success: true,
+      data: url.endsWith('/public-rates')
+        ? {
+            source: 'https://aixingxing.pro/api/public/rates',
+            updated_at: 1767225600,
+            fetched_at: 1794830400,
+            groups: [
+              { group: '生图', name: 'Image group', multiplier: '0.05000001' },
+            ],
+          }
+        : { version: 4, book },
+    },
+  }))
+  const post = vi.spyOn(api, 'post')
+  const put = vi.spyOn(api, 'put')
+  openPricing()
+  await screen.findByLabelText('Upstream group multipliers (JSON)')
+  expect(get).not.toHaveBeenCalledWith(
+    '/api/retail/admin/pricing/public-rates',
+    expect.anything()
+  )
+  expect(
+    screen.queryByRole('table', { name: 'Xingxing public multipliers' })
+  ).not.toBeInTheDocument()
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Read public multipliers' })
+  )
+  await screen.findByRole('table', { name: 'Xingxing public multipliers' })
+  expect(screen.getByText('0.05000001×')).toBeInTheDocument()
+  expect(screen.getByText('Upstream update time')).toBeInTheDocument()
+  expect(screen.getByText('Read by this site')).toBeInTheDocument()
+  expect(
+    screen.getByLabelText('Upstream group multipliers (JSON)')
+  ).toHaveValue('[]')
+  expect(screen.getByText('Price version 4')).toBeInTheDocument()
+  expect(post).not.toHaveBeenCalled()
+  expect(put).not.toHaveBeenCalled()
+
+  // A failed subsequent read must hide the previous table instead of presenting stale numbers as current.
+  get.mockRejectedValueOnce(new Error('Upstream unavailable'))
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Read public multipliers' })
+  )
+  await screen.findByText(
+    'Prices are unchanged. Retry after checking the upstream service.'
+  )
+  expect(
+    screen.queryByRole('table', { name: 'Xingxing public multipliers' })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.getByLabelText('Upstream group multipliers (JSON)')
+  ).toHaveValue('[]')
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Read public multipliers' })
+  )
+  await screen.findByRole('table', { name: 'Xingxing public multipliers' })
+  expect(post).not.toHaveBeenCalled()
+  expect(put).not.toHaveBeenCalled()
+
+  // Public-source data is still session-scoped; changing accounts requires a deliberate new read.
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 2, username: 'other-root', role: 100 })
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('table', { name: 'Xingxing public multipliers' })
+    ).not.toBeInTheDocument()
+  )
+})

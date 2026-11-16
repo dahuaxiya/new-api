@@ -8132,6 +8132,18 @@
     "Generating image…": "Génération de l’image…",
     "Generate image": "Générer l’image",
     "Stopped. Check usage before trying again.": "Arrêté. Vérifiez la consommation avant de réessayer.",
-    "The image response is incomplete. Check usage before trying again.": "Réponse image incomplète. Vérifiez la consommation avant de réessayer."
+    "The image response is incomplete. Check usage before trying again.": "Réponse image incomplète. Vérifiez la consommation avant de réessayer.",
+    "Xingxing public multipliers": "Multiplicateurs publics Xingxing",
+    "Preview only": "Aperçu uniquement",
+    "Read public multipliers": "Lire les multiplicateurs publics",
+    "Reading does not bind Keys or channels, import a price book, or enable automatic repricing.": "La lecture ne lie aucune clé ni aucun canal, n’importe aucun tarif et n’active pas la révision automatique des prix.",
+    "Unable to read upstream public multipliers": "Impossible de lire les multiplicateurs publics du fournisseur",
+    "Invalid upstream public multiplier response": "Réponse de multiplicateurs publics invalide",
+    "Prices are unchanged. Retry after checking the upstream service.": "Les prix restent inchangés. Vérifiez le service du fournisseur puis réessayez.",
+    "Upstream update time": "Mise à jour indiquée par le fournisseur",
+    "Read by this site": "Lecture par ce site",
+    "Public multipliers do not confirm Key assignments, account discounts or model availability. Reading time does not verify price freshness.": "Ces multiplicateurs ne confirment ni le groupe de la clé, ni les remises du compte, ni la disponibilité des modèles. La date de lecture ne garantit pas que les prix sont à jour.",
+    "Upstream group": "Groupe du fournisseur",
+    "Public multiplier": "Multiplicateur public"
   }
 }

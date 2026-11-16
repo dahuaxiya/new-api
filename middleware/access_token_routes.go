@@ -71,6 +71,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/retail/admin/accounting":           accessTokenSessionRule,
 	"GET /api/retail/admin/supplies":             accessTokenSessionRule,
 	"GET /api/retail/admin/pricing":              accessTokenSessionRule,
+	"GET /api/retail/admin/pricing/public-rates": accessTokenSessionRule,
 	"PUT /api/retail/admin/pricing":              accessTokenSessionRule,
 	"POST /api/retail/admin/pricing/preview":     accessTokenSessionRule,
 	"POST /api/retail/admin/pricing/rates":       accessTokenSessionRule,

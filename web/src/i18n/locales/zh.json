@@ -8162,6 +8162,18 @@
     "Generating image…": "正在生成图片…",
     "Generate image": "生成图片",
     "Stopped. Check usage before trying again.": "已停止接收，请先查看用量再决定是否重试。",
-    "The image response is incomplete. Check usage before trying again.": "图片响应不完整，请先查看用量再决定是否重试。"
+    "The image response is incomplete. Check usage before trying again.": "图片响应不完整，请先查看用量再决定是否重试。",
+    "Xingxing public multipliers": "星行公开倍率",
+    "Preview only": "仅预览",
+    "Read public multipliers": "读取公开倍率",
+    "Reading does not bind Keys or channels, import a price book, or enable automatic repricing.": "读取不会绑定 Key 或渠道，也不会导入价表或开启自动跟价。",
+    "Unable to read upstream public multipliers": "无法读取上游公开倍率",
+    "Invalid upstream public multiplier response": "上游公开倍率数据无效",
+    "Prices are unchanged. Retry after checking the upstream service.": "现有售价未变。请检查上游服务后重试。",
+    "Upstream update time": "上游标注更新时间",
+    "Read by this site": "本站读取时间",
+    "Public multipliers do not confirm Key assignments, account discounts or model availability. Reading time does not verify price freshness.": "公开倍率不能确认 Key 所属分组、账号折扣或模型可用性。读取时间不代表价格已更新。",
+    "Upstream group": "上游分组",
+    "Public multiplier": "公开倍率"
   }
 }

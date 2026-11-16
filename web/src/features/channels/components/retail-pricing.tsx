@@ -57,6 +57,7 @@ import {
   type RetailPricePreview,
   type RetailPricingState,
 } from '../retail-pricing-api'
+import { RetailPublicRatesPreview } from './retail-public-rates-preview'
 
 /** Root-only pricing drawer; query identity follows the login session and failures hide old state. */
 export function RetailPricing() {
@@ -87,6 +88,9 @@ export function RetailPricing() {
             </SheetDescription>
           </SheetHeader>
           <div className='flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6'>
+            {open && (
+              <RetailPublicRatesPreview key={identity} identity={identity} />
+            )}
             {query.isPending && (
               <LoadingState inline message={t('Loading...')} />
             )}

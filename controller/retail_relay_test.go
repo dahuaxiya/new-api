@@ -2,7 +2,9 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -518,6 +520,7 @@ func TestRetailPricingManagement(t *testing.T) {
 	engine := gin.New()
 	admin := engine.Group("/api/retail/admin", middleware.RootAuth(), middleware.DisableCache())
 	admin.GET("/pricing", GetRetailPricingAdmin)
+	admin.GET("/pricing/public-rates", GetRetailPublicRates)
 	admin.PUT("/pricing", middleware.SessionCookieOriginGuard(), PutRetailPricingAdmin)
 	admin.POST("/pricing/rates", middleware.SessionCookieOriginGuard(), ImportRetailRates)
 	admin.POST("/pricing/preview", middleware.SessionCookieOriginGuard(), PreviewRetailPricing)
@@ -545,6 +548,8 @@ func TestRetailPricingManagement(t *testing.T) {
 	publish := gin.H{"expected_version": 0, "book": book}
 	w := request("PUT", "/api/retail/admin/pricing", "https://example.com", publish)
 	require.Equal(t, http.StatusForbidden, w.Code, "regular user cannot publish tariffs")
+	w = request("GET", "/api/retail/admin/pricing/public-rates", "https://example.com", nil)
+	require.Equal(t, http.StatusForbidden, w.Code, "public source preview is a root-only management feature")
 	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
 	w = request("PUT", "/api/retail/admin/pricing", "https://attacker.example", publish)
@@ -560,6 +565,24 @@ func TestRetailPricingManagement(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(2), version)
 	require.Equal(t, book.Models, stored.Models, "rate import cannot rewrite official catalog")
+	// The public feed is independent of the price book, even when it uses the same group ID.
+	oldTransport := retailPublicRatesClient.Transport
+	t.Cleanup(func() { retailPublicRatesClient.Transport = oldTransport })
+	retailPublicRatesClient.Transport = retailPublicRatesTestTransport(func(r *http.Request) (*http.Response, error) {
+		require.Equal(t, retailPublicRatesURL, r.URL.String())
+		require.Empty(t, r.Header.Get("Authorization"))
+		require.Empty(t, r.Header.Get("Cookie"))
+		body := `{"success":true,"server":"https://aixingxing.pro","updated_at":"2026-01-01T00:00:00Z","quota_per_unit":1,"groups":[{"group":"supplier/standard","name":"Public only","rate":0.99000001}]}`
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json; charset=utf-8"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})
+	w = request("GET", "/api/retail/admin/pricing/public-rates?url=https://attacker.example", "https://example.com", nil)
+	require.Contains(t, w.Body.String(), `"multiplier":"0.99000001"`)
+	require.NotContains(t, w.Body.String(), "verified_at")
+	require.NotContains(t, w.Body.String(), "quota_per_unit")
+	afterRead, afterVersion, err := model.GetRetailPriceBook()
+	require.NoError(t, err)
+	require.Equal(t, version, afterVersion)
+	require.Equal(t, stored, afterRead, "reading must not change rates, routes, wallet conversion or enabled state")
 	keyPath := fmt.Sprintf("/api/retail/keys/%d/pricing", token.Id)
 	w = request("GET", keyPath, "https://example.com", nil)
 	require.Contains(t, w.Body.String(), `"success":true`)
@@ -611,4 +634,78 @@ func TestRetailPricingManagement(t *testing.T) {
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
 	w = request("GET", "/api/retail/admin/pricing", "https://example.com", nil)
 	require.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
+}
+
+type retailPublicRatesTestTransport func(*http.Request) (*http.Response, error)
+
+// RoundTrip replaces only the HTTP boundary; authentication, validation and publication remain real.
+func (f retailPublicRatesTestTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+// TestRetailPublicRates rejects malformed snapshots as a whole, preserving exact decimals and source timestamps.
+func TestRetailPublicRates(t *testing.T) {
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	valid := `{"success":true,"server":"https://aixingxing.pro","updated_at":"2026-01-01T00:00:00Z","groups":[{"group":"生图","name":"生图","rate":0.05000001}]}`
+	rows, updated, ok := parseRetailPublicRates([]byte(valid), now)
+	require.True(t, ok)
+	require.Equal(t, "0.05000001", rows[0].Multiplier)
+	require.Less(t, updated, now.Unix(), "reading an old snapshot must not relabel it as newly updated")
+	for _, scenario := range []struct{ name, body string }{
+		{"failed", strings.Replace(valid, `"success":true`, `"success":false`, 1)},
+		{"wrong_server", strings.Replace(valid, `https://aixingxing.pro`, `https://other.example`, 1)},
+		{"missing_time", strings.Replace(valid, `2026-01-01T00:00:00Z`, ``, 1)},
+		{"future_time", strings.Replace(valid, `2026-01-01T00:00:00Z`, `2027-01-01T00:00:00Z`, 1)},
+		{"empty_group", strings.Replace(valid, `"group":"生图"`, `"group":""`, 1)},
+		{"duplicate_group", strings.Replace(valid, `}]}`, `},{"group":"生图","name":"alias","rate":0.1}]}`, 1)},
+		{"no_groups", `{"success":true,"server":"https://aixingxing.pro","updated_at":"2026-01-01T00:00:00Z","groups":[]}`},
+		{"trailing_json", valid + `{}`},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			rows, _, ok := parseRetailPublicRates([]byte(scenario.body), now)
+			require.False(t, ok)
+			require.Nil(t, rows)
+		})
+	}
+	for _, rate := range []string{"0", "-0.1", "100.00000001", "null", `"0.1"`, "1e99", "0.123456789", "{}"} {
+		t.Run("invalid_rate_"+rate, func(t *testing.T) {
+			rows, _, ok := parseRetailPublicRates([]byte(strings.Replace(valid, "0.05000001", rate, 1)), now)
+			require.False(t, ok)
+			require.Nil(t, rows)
+		})
+	}
+	oldTransport := retailPublicRatesClient.Transport
+	t.Cleanup(func() { retailPublicRatesClient.Transport = oldTransport })
+	for _, scenario := range []struct {
+		name, contentType, body string
+		status                  int
+		err                     error
+	}{
+		{"redirect", "application/json", valid, 302, nil},
+		{"upstream_403", "application/json", "private diagnostics", 403, nil},
+		{"html", "text/html", "<script>alert(1)</script>", 200, nil},
+		{"oversize", "application/json", strings.Repeat(" ", 256<<10) + valid, 200, nil},
+		{"bad_json", "application/json", "broken", 200, nil},
+		{"cancelled", "", "", 0, context.Canceled},
+		{"timeout", "", "", 0, context.DeadlineExceeded},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			calls := 0
+			retailPublicRatesClient.Transport = retailPublicRatesTestTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if scenario.err != nil {
+					return nil, scenario.err
+				}
+				return &http.Response{StatusCode: scenario.status, Header: http.Header{"Content-Type": {scenario.contentType}, "Location": {"https://attacker.example"}}, Body: io.NopCloser(strings.NewReader(scenario.body)), Request: r}, nil
+			})
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("GET", "/api/retail/admin/pricing/public-rates", nil)
+			GetRetailPublicRates(c)
+			require.Contains(t, w.Body.String(), `"success":false`)
+			require.NotContains(t, w.Body.String(), `"data":`)
+			require.NotContains(t, w.Body.String(), "private diagnostics")
+			require.Equal(t, 1, calls, "no redirect or automatic retry")
+		})
+	}
 }

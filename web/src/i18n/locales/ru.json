@@ -8132,6 +8132,18 @@
     "Generating image…": "Создание изображения…",
     "Generate image": "Создать изображение",
     "Stopped. Check usage before trying again.": "Остановлено. Перед повтором проверьте расход.",
-    "The image response is incomplete. Check usage before trying again.": "Ответ с изображением неполон. Перед повтором проверьте расход."
+    "The image response is incomplete. Check usage before trying again.": "Ответ с изображением неполон. Перед повтором проверьте расход.",
+    "Xingxing public multipliers": "Публичные коэффициенты Xingxing",
+    "Preview only": "Только просмотр",
+    "Read public multipliers": "Загрузить публичные коэффициенты",
+    "Reading does not bind Keys or channels, import a price book, or enable automatic repricing.": "Загрузка не привязывает ключи или каналы, не импортирует прайс-лист и не включает автоматическое изменение цен.",
+    "Unable to read upstream public multipliers": "Не удалось загрузить публичные коэффициенты поставщика",
+    "Invalid upstream public multiplier response": "Некорректный ответ с публичными коэффициентами",
+    "Prices are unchanged. Retry after checking the upstream service.": "Цены не изменены. Проверьте сервис поставщика и повторите попытку.",
+    "Upstream update time": "Время обновления по данным поставщика",
+    "Read by this site": "Время загрузки на этом сайте",
+    "Public multipliers do not confirm Key assignments, account discounts or model availability. Reading time does not verify price freshness.": "Публичные коэффициенты не подтверждают группу ключа, скидки аккаунта или доступность моделей. Время загрузки не гарантирует актуальность цен.",
+    "Upstream group": "Группа поставщика",
+    "Public multiplier": "Публичный коэффициент"
   }
 }

@@ -8132,6 +8132,18 @@
     "Generating image…": "Đang tạo ảnh…",
     "Generate image": "Tạo ảnh",
     "Stopped. Check usage before trying again.": "Đã dừng. Kiểm tra mức sử dụng trước khi thử lại.",
-    "The image response is incomplete. Check usage before trying again.": "Phản hồi ảnh chưa đầy đủ. Kiểm tra mức sử dụng trước khi thử lại."
+    "The image response is incomplete. Check usage before trying again.": "Phản hồi ảnh chưa đầy đủ. Kiểm tra mức sử dụng trước khi thử lại.",
+    "Xingxing public multipliers": "Hệ số công khai Xingxing",
+    "Preview only": "Chỉ xem trước",
+    "Read public multipliers": "Đọc hệ số công khai",
+    "Reading does not bind Keys or channels, import a price book, or enable automatic repricing.": "Việc đọc không liên kết Key hay kênh, không nhập bảng giá và không bật tự động điều chỉnh giá.",
+    "Unable to read upstream public multipliers": "Không thể đọc hệ số công khai của nhà cung cấp",
+    "Invalid upstream public multiplier response": "Dữ liệu hệ số công khai không hợp lệ",
+    "Prices are unchanged. Retry after checking the upstream service.": "Giá hiện tại không thay đổi. Kiểm tra dịch vụ nhà cung cấp rồi thử lại.",
+    "Upstream update time": "Thời gian cập nhật do nhà cung cấp ghi nhận",
+    "Read by this site": "Thời gian trang này đọc dữ liệu",
+    "Public multipliers do not confirm Key assignments, account discounts or model availability. Reading time does not verify price freshness.": "Hệ số công khai không xác nhận nhóm của Key, chiết khấu tài khoản hay khả năng sử dụng mô hình. Thời gian đọc không chứng minh giá đã được cập nhật.",
+    "Upstream group": "Nhóm nhà cung cấp",
+    "Public multiplier": "Hệ số công khai"
   }
 }

@@ -8132,6 +8132,18 @@
     "Generating image…": "画像を生成中…",
     "Generate image": "画像を生成",
     "Stopped. Check usage before trying again.": "停止しました。再試行前に使用量を確認してください。",
-    "The image response is incomplete. Check usage before trying again.": "画像の応答が不完全です。再試行前に使用量を確認してください。"
+    "The image response is incomplete. Check usage before trying again.": "画像の応答が不完全です。再試行前に使用量を確認してください。",
+    "Xingxing public multipliers": "Xingxing 公開倍率",
+    "Preview only": "プレビューのみ",
+    "Read public multipliers": "公開倍率を取得",
+    "Reading does not bind Keys or channels, import a price book, or enable automatic repricing.": "取得しても Key やチャネルの紐付け、価格表の取込、自動価格追従は行いません。",
+    "Unable to read upstream public multipliers": "上流の公開倍率を取得できません",
+    "Invalid upstream public multiplier response": "上流の公開倍率データが無効です",
+    "Prices are unchanged. Retry after checking the upstream service.": "現在の販売価格は変わりません。上流サービスを確認して再試行してください。",
+    "Upstream update time": "上流が示す更新時刻",
+    "Read by this site": "当サイトの取得時刻",
+    "Public multipliers do not confirm Key assignments, account discounts or model availability. Reading time does not verify price freshness.": "公開倍率では Key の所属グループ、アカウント割引、モデルの可用性は確認できません。取得時刻は価格の更新を保証しません。",
+    "Upstream group": "上流グループ",
+    "Public multiplier": "公開倍率"
   }
 }

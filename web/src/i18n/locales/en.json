@@ -8132,6 +8132,18 @@
     "Generating image…": "Generating image…",
     "Generate image": "Generate image",
     "Stopped. Check usage before trying again.": "Stopped. Check usage before trying again.",
-    "The image response is incomplete. Check usage before trying again.": "The image response is incomplete. Check usage before trying again."
+    "The image response is incomplete. Check usage before trying again.": "The image response is incomplete. Check usage before trying again.",
+    "Xingxing public multipliers": "Xingxing public multipliers",
+    "Preview only": "Preview only",
+    "Read public multipliers": "Read public multipliers",
+    "Reading does not bind Keys or channels, import a price book, or enable automatic repricing.": "Reading does not bind Keys or channels, import a price book, or enable automatic repricing.",
+    "Unable to read upstream public multipliers": "Unable to read upstream public multipliers",
+    "Invalid upstream public multiplier response": "Invalid upstream public multiplier response",
+    "Prices are unchanged. Retry after checking the upstream service.": "Prices are unchanged. Retry after checking the upstream service.",
+    "Upstream update time": "Upstream update time",
+    "Read by this site": "Read by this site",
+    "Public multipliers do not confirm Key assignments, account discounts or model availability. Reading time does not verify price freshness.": "Public multipliers do not confirm Key assignments, account discounts or model availability. Reading time does not verify price freshness.",
+    "Upstream group": "Upstream group",
+    "Public multiplier": "Public multiplier"
   }
 }

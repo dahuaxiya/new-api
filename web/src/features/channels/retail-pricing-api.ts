@@ -35,6 +35,21 @@ export type RetailRate = {
   verified_at: number
   valid_until: number
 }
+export type RetailPublicRates = {
+  source: string
+  updated_at: number
+  fetched_at: number
+  groups: Array<{ group: string; name: string; multiplier: string }>
+}
+
+/** Read public multipliers without binding a channel or changing the published price book. */
+export async function getRetailPublicRates(
+  signal: AbortSignal
+): Promise<RetailPublicRates> {
+  return requireServerSuccess(
+    (await api.get('/api/retail/admin/pricing/public-rates', { signal })).data
+  ).data
+}
 export type RetailPriceBook = {
   enabled: boolean
   wallet_cny_per_unit: string

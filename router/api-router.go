@@ -32,6 +32,7 @@ func SetApiRouter(router *gin.Engine) {
 		retailAdmin.GET("/accounting", controller.RetailAccounting)
 		retailAdmin.GET("/supplies", controller.RetailSupplies)
 		retailAdmin.GET("/pricing", controller.GetRetailPricingAdmin)
+		retailAdmin.GET("/pricing/public-rates", middleware.UserCriticalRateLimit("retail-public-rates"), controller.GetRetailPublicRates)
 		retailAdmin.POST("/pricing/preview", middleware.SessionCookieOriginGuard(), controller.PreviewRetailPricing)
 		retailAdmin.PUT("/pricing", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-pricing"), controller.PutRetailPricingAdmin)
 		retailAdmin.POST("/pricing/rates", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-pricing"), controller.ImportRetailRates)
