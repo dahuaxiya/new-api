@@ -43,6 +43,7 @@ import {
   getRetailKeyPolicy,
 } from '@/features/channels/retail-pricing-api'
 import { ApiKeyPricePolicy } from '@/features/keys/components/api-key-price-policy'
+import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getStudio, openStudio, studioFormSchema, type StudioForm } from './api'
@@ -60,6 +61,7 @@ export function ModelStudio() {
 /** Wallet workspace with a separate consent step and server-authorized model catalog. */
 function StudioWorkspace(props: { identity: string }) {
   const { t } = useTranslation()
+  const isRoot = useAuthStore((s) => s.auth.user?.role === ROLE.SUPER_ADMIN)
   const [mode, setMode] = useState<'text' | 'image'>('text')
   const [policyOpen, setPolicyOpen] = useState(false)
   const [openedId, setOpenedId] = useState(0)
@@ -111,6 +113,32 @@ function StudioWorkspace(props: { identity: string }) {
   const available = Boolean(
     query.data?.catalog.enabled && policy?.accept_floating && selected
   )
+  const catalog = query.data?.catalog
+  const hasCatalogModels = catalog?.products.some((item) => item.models.length)
+  // Explain the first blocking prerequisite. A saved binding alone does not
+  // grant model access, and creating a budget cannot open a paused price book.
+  let blockedMessage = ''
+  if (catalog) {
+    if (!catalog.enabled) {
+      blockedMessage = t('Model requests are paused by the site administrator.')
+    } else if (!catalog.products.length) {
+      blockedMessage = t(
+        'No model plan is assigned to your account group. Contact the site administrator.'
+      )
+    } else if (!hasCatalogModels) {
+      blockedMessage = t(
+        'No model route is currently available. Contact the site administrator.'
+      )
+    } else if (!policy?.accept_floating || !product) {
+      blockedMessage = t(
+        'Set your budget and price limits before the first request.'
+      )
+    } else if (!models.length) {
+      blockedMessage = t(
+        'No models are authorized for this mode. Check your plan and price limits.'
+      )
+    }
+  }
 
   /** Saving policy triggers a fresh catalog read; a closed dialog alone never enables spending. */
   const changePolicyOpen = (open: boolean) => {
@@ -217,20 +245,31 @@ function StudioWorkspace(props: { identity: string }) {
           </p>
         )}
       </div>
-      {!policy?.accept_floating && (
-        <p className='bg-muted/40 px-5 py-3 text-sm sm:px-8'>
-          {t('Set your budget and price limits before the first request.')}
-        </p>
+      {blockedMessage && (
+        <div
+          role='status'
+          className='bg-muted/40 space-y-2 px-5 py-3 text-sm sm:px-8'
+        >
+          <p>{blockedMessage}</p>
+          {isRoot && (!catalog?.enabled || !hasCatalogModels) && (
+            <>
+              <p className='text-muted-foreground'>
+                {t(
+                  'In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.'
+                )}
+              </p>
+              <Button
+                variant='outline'
+                size='sm'
+                role='link'
+                render={<a href='/channels' />}
+              >
+                {t('Configure model pricing')}
+              </Button>
+            </>
+          )}
+        </div>
       )}
-      {query.data &&
-        (!query.data.catalog.enabled ||
-          query.data.catalog.products.every((item) => !item.models.length)) && (
-          <p role='status' className='px-5 py-3 text-sm sm:px-8'>
-            {t(
-              'Models are not available yet. Pricing must be published first.'
-            )}
-          </p>
-        )}
       <StudioResults entries={run.entries} busy={run.busy} mode={mode} />
       <form
         onSubmit={form.handleSubmit(submit)}

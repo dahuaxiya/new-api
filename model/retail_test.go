@@ -316,12 +316,29 @@ func TestRetailGroupBindingsDatabases(t *testing.T) {
 			binding := retailprice.GroupBinding{LocalGroup: "default", ChannelID: 101, UpstreamGroup: "ChatGPT-pro稳定"}
 			feed := &retailprice.PublicRateSnapshot{Source: "https://aixingxing.pro/api/public/rates", UpdatedAt: now, FetchedAt: now, Groups: []retailprice.PublicRate{{Group: binding.UpstreamGroup, Name: "Pro", Multiplier: "0.24"}}}
 			ctx := context.Background()
-			version, err := SaveRetailGroupBindings(ctx, 0, []retailprice.GroupBinding{binding}, true, feed, 1)
+			policy := retailprice.SalePolicy{ReceiptRatio: "1", MarginBPS: 2000}
+			version, err := SaveRetailGroupBindings(ctx, 0, nil, false, nil, 1, policy)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, version)
+			// Saving profit policy before any binding or model must survive first publication.
+			version, err = PublishRetailPriceBook(version, retailprice.Book{}, nil, 1)
+			require.NoError(t, err)
+			version, err = SaveRetailGroupBindings(ctx, version, []retailprice.GroupBinding{binding}, true, feed, 1)
+			require.NoError(t, err)
 			draft, version, err := GetRetailPriceBook()
 			require.NoError(t, err)
 			assert.False(t, draft.Enabled, "saving a binding cannot open sales")
+			assert.Empty(t, draft.Models, "following economics need no catalog or file")
+			assert.Equal(t, 2000, draft.MarginBPS)
+			assert.True(t, draft.SalePolicyManaged)
+			for _, invalid := range []retailprice.SalePolicy{
+				{ReceiptRatio: "0"}, {ReceiptRatio: "1.1"},
+				{ReceiptRatio: "1", MarginBPS: -1}, {ReceiptRatio: "1", MarginBPS: 9501},
+				{ReceiptRatio: "1", FeeBPS: 5001}, {ReceiptRatio: "1", BufferBPS: 10001},
+			} {
+				_, err := SaveRetailGroupBindings(ctx, version, []retailprice.GroupBinding{binding}, true, feed, 1, invalid)
+				require.ErrorIs(t, err, retailprice.ErrConfig)
+			}
 			assert.Equal(t, []retailprice.GroupBinding{binding}, draft.GroupBindings)
 			require.NoError(t, migrateDB())
 			require.NoError(t, migrateDB())
@@ -345,14 +362,26 @@ func TestRetailGroupBindingsDatabases(t *testing.T) {
 			book.Models[0].VerifiedAt, book.Models[0].ValidUntil = now, now+86400
 			book.Rates[0].VerifiedAt, book.Rates[0].ValidUntil = now, now+3600
 			// The ordinary price editor must not be able to drop protected bindings or forge a public snapshot.
+			book.MarginBPS = 0
 			version, err = PublishRetailPriceBook(version, book, nil, 1)
 			require.NoError(t, err)
 			book, version, err = GetRetailPriceBook()
 			require.NoError(t, err)
 			require.Len(t, book.GroupBindings, 1)
+			assert.Equal(t, 2000, book.MarginBPS, "catalog publication preserves following margin")
 			key := retailprice.KeyPolicy{ProductID: "standard", AcceptFloating: true, Caps: map[string]retailprice.Prices{"gpt-4o": {Input: "5", Output: "10", CacheRead: "5", CacheWrite: "10", CacheWrite1h: "10"}}, MaxRequestCNY: "10", DailyBudgetCNY: "10"}
 			quote, err := book.MakeQuote(version, "default", key, "gpt-4o", 100, []int{101}, now)
 			require.NoError(t, err)
+			assert.Equal(t, "3", quote.Sale[0].Prices.Input)
+			// A margin-only save changes future quotes, while accepted quotes stay frozen.
+			policy.MarginBPS = 2500
+			version, err = SaveRetailGroupBindings(ctx, version, []retailprice.GroupBinding{binding}, true, feed, 1, policy)
+			require.NoError(t, err)
+			book, _, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			repriced, err := book.MakeQuote(version, "default", key, "gpt-4o", 100, []int{101}, now)
+			require.NoError(t, err)
+			assert.Equal(t, "3.2", repriced.Sale[0].Prices.Input)
 			assert.Equal(t, "3", quote.Sale[0].Prices.Input)
 			// Same rates renew freshness without bumping price versions or breaking requests already admitted.
 			renewal := *feed
@@ -360,6 +389,9 @@ func TestRetailGroupBindingsDatabases(t *testing.T) {
 			same, err := SyncRetailGroupRates(ctx, version, &renewal, false)
 			require.NoError(t, err)
 			assert.Equal(t, version, same)
+			renewed, _, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			assert.Equal(t, 2500, renewed.MarginBPS, "feed refresh retains margin")
 			// A source increase wins over the old manual rate and hits the user's accepted ceiling.
 			raised := *feed
 			raised.FetchedAt = now + 2
@@ -420,6 +452,7 @@ func TestRetailGroupBindingsDatabases(t *testing.T) {
 			book, _, err = GetRetailPriceBook()
 			require.NoError(t, err)
 			assert.False(t, book.PublicRateSync.Enabled)
+			assert.Equal(t, 2500, book.MarginBPS, "older clients omitting policy preserve saved economics")
 			_, err = book.MakeQuote(version, "default", key, "gpt-4o", 100, []int{101}, now)
 			require.ErrorIs(t, err, retailprice.ErrExpired)
 		})

@@ -119,11 +119,12 @@ func mutateRetailPriceBook(ctx context.Context, expected int64, actorID int, ren
 	return version, err
 }
 
-// SaveRetailGroupBindings saves only mappings and feed consent, preserving tariffs and wallet units.
+// SaveRetailGroupBindings atomically saves mappings, consent and optional resale economics.
+// Catalogs, request admission and wallet units remain unchanged before and after first publication.
 // Unknown groups and credentials are rejected server-side. Removing a route in use requires first
 // removing that route from its product, so deletion cannot restore an obsolete manual cost.
-func SaveRetailGroupBindings(ctx context.Context, expected int64, bindings []retailprice.GroupBinding, enabled bool, snapshot *retailprice.PublicRateSnapshot, actorID int) (int64, error) {
-	if actorID <= 0 {
+func SaveRetailGroupBindings(ctx context.Context, expected int64, bindings []retailprice.GroupBinding, enabled bool, snapshot *retailprice.PublicRateSnapshot, actorID int, policy ...retailprice.SalePolicy) (int64, error) {
+	if actorID <= 0 || len(policy) > 1 {
 		return 0, retailprice.ErrConfig
 	}
 	channels, err := RetailBindingChannels()
@@ -159,6 +160,16 @@ func SaveRetailGroupBindings(ctx context.Context, expected int64, bindings []ret
 					return retailprice.ErrAccess
 				}
 			}
+		}
+		// An absent policy preserves older consoles. Explicit values must be validated
+		// even for an empty book, whose catalog validation permits initial setup.
+		if len(policy) == 1 {
+			if err := policy[0].Validate(); err != nil {
+				return err
+			}
+			book.ReceiptRatio = policy[0].ReceiptRatio
+			book.MarginBPS, book.FeeBPS, book.BufferBPS = policy[0].MarginBPS, policy[0].FeeBPS, policy[0].BufferBPS
+			book.SalePolicyManaged = true
 		}
 		book.GroupBindings = bindings
 		book.PublicRateSync = retailprice.PublicRateSync{Enabled: enabled, Snapshot: snapshot}

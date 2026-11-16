@@ -65,6 +65,7 @@ export function RetailPricing() {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [hasPricingDraft, setHasPricingDraft] = useState(false)
+  const [staleDraft, setStaleDraft] = useState(false)
   const identity = useAuthStore(
     (s) => `${s.auth.user?.id}:${s.auth.session?.sid}`
   )
@@ -99,6 +100,9 @@ export function RetailPricing() {
                   if (!hasPricingDraft) {
                     void query.refetch()
                   } else {
+                    // Keep local catalog edits, but block previews/publication with old economics.
+                    // A deliberate refresh reloads the complete committed version atomically.
+                    setStaleDraft(true)
                     toast.info(
                       t(
                         'Bindings saved. Refresh pricing before publishing the existing draft.'
@@ -136,13 +140,18 @@ export function RetailPricing() {
                   variant='ghost'
                   className='self-end'
                   disabled={query.isFetching}
-                  onClick={() => void query.refetch()}
+                  onClick={async () => {
+                    const refreshed = await query.refetch()
+                    // Failed reads must keep old drafts blocked until committed economics are known.
+                    if (refreshed.isSuccess) setStaleDraft(false)
+                  }}
                 >
                   {t('Refresh')}
                 </Button>
                 <RetailPricingEditor
                   key={`${identity}:${query.data.version}`}
                   state={query.data}
+                  staleDraft={staleDraft}
                   onSaved={() => void query.refetch()}
                   onDirtyChange={setHasPricingDraft}
                 />
@@ -158,6 +167,7 @@ export function RetailPricing() {
 /** Keep drafts local and publish only the exact book that the operator has previewed. */
 function RetailPricingEditor(props: {
   state: RetailPricingState
+  staleDraft: boolean
   onSaved: () => void
   onDirtyChange: (dirty: boolean) => void
 }) {
@@ -187,7 +197,7 @@ function RetailPricingEditor(props: {
   useEffect(() => {
     onDirtyChange(draft !== initialDraft)
   }, [draft, initialDraft, onDirtyChange])
-  const previewValid = preview?.draft === draft
+  const previewValid = !props.staleDraft && preview?.draft === draft
   const mutation = useMutation({
     mutationFn: async (action: 'preview' | 'book' | 'rates') => {
       // A parse failure stays in this form; it cannot turn an incomplete import into a successful publication.
@@ -215,12 +225,6 @@ function RetailPricingEditor(props: {
     },
     onError: (error) => handleServerError(error),
   })
-  // Keep exact CNY decimal strings in the preview; wallet display FX is unrelated.
-  const numberFields = [
-    { key: 'margin_bps', label: t('Target margin (%)') },
-    { key: 'fee_bps', label: t('Payment fee (%)') },
-    { key: 'buffer_bps', label: t('Cost buffer (%)') },
-  ] as const
   return (
     <>
       <div className='flex flex-wrap items-center justify-between gap-3'>
@@ -256,72 +260,59 @@ function RetailPricingEditor(props: {
             inputMode='decimal'
           />
         </div>
-        <div className='space-y-2'>
-          <Label htmlFor='retail-receipts'>
-            {t('Cash received per CNY of credit')}
-          </Label>
-          <Input
-            id='retail-receipts'
-            {...form.register('book.receipt_ratio')}
-            inputMode='decimal'
-          />
-        </div>
-        {numberFields.map((field) => (
-          <div className='space-y-2' key={field.key}>
-            <Label htmlFor={field.key}>{field.label}</Label>
-            <Input
-              id={field.key}
-              type='number'
-              min={0}
-              step='0.01'
-              value={book[field.key] / 100}
-              onChange={(e) =>
-                form.setValue(
-                  `book.${field.key}`,
-                  Math.round(Number(e.target.value) * 100)
-                )
-              }
-            />
-          </div>
-        ))}
       </div>
-      <div className='space-y-2'>
-        <Label htmlFor='retail-rates'>
-          {t('Upstream group multipliers (JSON)')}
-        </Label>
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          'Resale margin and fees are saved in the following section above and apply to all retail products.'
+        )}
+      </p>
+      <details className='space-y-3'>
+        <summary className='cursor-pointer text-sm font-medium'>
+          {t('Manual multipliers · other suppliers')}
+        </summary>
         <p className='text-muted-foreground text-sm'>
           {t(
-            'Import a complete group snapshot with id, multiplier, verified_at and valid_until. Times use Unix seconds; validity is at most seven days.'
+            'Only for suppliers without automatic following. Bound Xingxing channels do not need this file or JSON.'
           )}
         </p>
-        <Input
-          type='file'
-          accept='.json,application/json'
-          aria-label={t('Import multiplier file')}
-          onChange={async (e) => {
-            const file = e.target.files?.[0]
-            if (!file) return
-            if (file.size > 128 * 1024) {
-              toast.error(t('Multiplier file must be smaller than 128 KB'))
-              return
-            }
-            try {
-              form.setValue('rates', await file.text())
-              setPreview(null)
-            } catch (error) {
-              handleServerError(error)
-            }
-            e.target.value = ''
-          }}
-        />
-        <Textarea
-          id='retail-rates'
-          {...form.register('rates')}
-          rows={6}
-          spellCheck={false}
-          className='font-mono text-xs'
-        />
-      </div>
+        <div className='space-y-2'>
+          <Label htmlFor='retail-rates'>
+            {t('Upstream group multipliers (JSON)')}
+          </Label>
+          <p className='text-muted-foreground text-sm'>
+            {t(
+              'Import a complete group snapshot with id, multiplier, verified_at and valid_until. Times use Unix seconds; validity is at most seven days.'
+            )}
+          </p>
+          <Input
+            type='file'
+            accept='.json,application/json'
+            aria-label={t('Import multiplier file')}
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              if (file.size > 128 * 1024) {
+                toast.error(t('Multiplier file must be smaller than 128 KB'))
+                return
+              }
+              try {
+                form.setValue('rates', await file.text())
+                setPreview(null)
+              } catch (error) {
+                handleServerError(error)
+              }
+              e.target.value = ''
+            }}
+          />
+          <Textarea
+            id='retail-rates'
+            {...form.register('rates')}
+            rows={6}
+            spellCheck={false}
+            className='font-mono text-xs'
+          />
+        </div>
+      </details>
       <details className='space-y-4'>
         <summary className='cursor-pointer text-sm font-medium'>
           {t('Official catalog and product access')}
@@ -357,9 +348,16 @@ function RetailPricingEditor(props: {
         </div>
       </details>
       <div className='flex flex-wrap gap-2'>
+        {props.staleDraft && (
+          <p role='alert' className='text-muted-foreground w-full text-sm'>
+            {t(
+              'Bindings saved. Refresh pricing before publishing the existing draft.'
+            )}
+          </p>
+        )}
         <Button
           variant='outline'
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || props.staleDraft}
           onClick={form.handleSubmit(() => mutation.mutate('preview'))}
         >
           {t('Preview CNY selling prices')}

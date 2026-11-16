@@ -8176,6 +8176,24 @@
     "Supply channel": "Canal fournisseur",
     "Sync bound multipliers now": "Synchroniser les coefficients liés",
     "Sync every minute. Bound routes pause on failure, missing groups or data older than five minutes. Selling prices keep your margin and user price limits. Changes between polls cannot be detected immediately.": "Synchronisation chaque minute. Les routes liées sont suspendues en cas d’échec, de groupe manquant ou de données de plus de cinq minutes. Les marges et plafonds utilisateurs restent appliqués. Les changements entre deux lectures ne sont pas détectés immédiatement.",
-    "Unable to load group bindings": "Impossible de charger les liaisons"
+    "Unable to load group bindings": "Impossible de charger les liaisons",
+    "Following updates your purchase cost and keeps this margin. No multiplier file is needed.": "Le suivi actualise le coût d’achat et conserve cette marge. Aucun fichier requis.",
+    "This margin applies to all retail products.": "Cette marge concerne tous les produits de revente.",
+    "Selling multiplier = upstream multiplier ÷ (1 − margin). A 0.12 upstream multiplier at 20% margin sells at 0.15.": "Sans frais, remise ni réserve : coefficient de vente = coefficient amont ÷ (1 − marge). Pour 0,12 et 20 %, il est de 0,15.",
+    "Fees, buffer and credit discount": "Frais, réserve et remise sur le crédit",
+    "Estimated selling multiplier": "Coefficient de vente estimé",
+    "Save bindings and margin": "Enregistrer les liaisons et la marge",
+    "Save bindings and margin?": "Enregistrer les liaisons et la marge ?",
+    "Save the selected bindings and resale margin together. New requests use these settings; disabling following pauses bound routes. This does not enable sales.": "Enregistre ensemble liaisons et marge pour les nouvelles requêtes. Désactiver le suivi suspend les routes liées. Les ventes restent désactivées.",
+    "Resale margin and fees are saved in the following section above and apply to all retail products.": "La marge et les frais se règlent dans la section de suivi ci-dessus pour tous les produits.",
+    "Manual multipliers · other suppliers": "Coefficients manuels · autres fournisseurs",
+    "Only for suppliers without automatic following. Bound Xingxing channels do not need this file or JSON.": "Pour les fournisseurs sans suivi automatique uniquement. Les canaux Xingxing liés ne nécessitent ni fichier ni JSON.",
+    "The estimate includes credit discount, payment fees and cost buffer. Final charges use the server price book.": "L’estimation inclut remise sur le crédit, frais et réserve. La facturation suit le barème du serveur.",
+    "Model requests are paused by the site administrator.": "Les requêtes de modèles sont suspendues par l’administrateur.",
+    "No model plan is assigned to your account group. Contact the site administrator.": "Aucune offre de modèles n’est attribuée à votre groupe. Contactez l’administrateur.",
+    "No model route is currently available. Contact the site administrator.": "Aucune route de modèle n’est disponible. Contactez l’administrateur.",
+    "No models are authorized for this mode. Check your plan and price limits.": "Aucun modèle autorisé pour ce mode. Vérifiez votre offre et vos plafonds.",
+    "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "Dans Canaux → Tarification, configurez les tarifs officiels et les routes des produits, puis activez les nouvelles requêtes. Lier un multiplicateur de groupe ne publie pas les modèles.",
+    "Configure model pricing": "Configurer modèles et tarifs"
   }
 }

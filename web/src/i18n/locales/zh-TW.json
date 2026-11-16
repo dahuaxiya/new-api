@@ -8206,6 +8206,24 @@
     "Supply channel": "供貨渠道",
     "Sync bound multipliers now": "立即同步已綁定倍率",
     "Sync every minute. Bound routes pause on failure, missing groups or data older than five minutes. Selling prices keep your margin and user price limits. Changes between polls cannot be detected immediately.": "每分鐘同步。同步失敗、上游分組消失或資料超過 5 分鐘時，暫停對應線路。售價沿用毛利設定和使用者限價；兩次同步之間的變價無法立即感知。",
-    "Unable to load group bindings": "無法讀取分組綁定"
+    "Unable to load group bindings": "無法讀取分組綁定",
+    "Following updates your purchase cost and keeps this margin. No multiplier file is needed.": "自動跟價會更新採購成本，並保持這裡設定的毛利率。無需上傳倍率檔案。",
+    "This margin applies to all retail products.": "此毛利率適用於全部中轉產品。",
+    "Selling multiplier = upstream multiplier ÷ (1 − margin). A 0.12 upstream multiplier at 20% margin sells at 0.15.": "不計手續費、折扣和緩衝時：售價倍率 = 上游倍率 ÷ (1 − 毛利率)。例如上游 0.12、毛利 20%，售價倍率為 0.15。",
+    "Fees, buffer and credit discount": "手續費、緩衝與儲值折扣",
+    "Estimated selling multiplier": "預計售價倍率",
+    "Save bindings and margin": "儲存綁定與毛利",
+    "Save bindings and margin?": "儲存綁定與毛利？",
+    "Save the selected bindings and resale margin together. New requests use these settings; disabling following pauses bound routes. This does not enable sales.": "綁定和毛利率將一起儲存，新請求按這些設定計價。關閉跟價會暫停已綁定線路；儲存不會開啟銷售。",
+    "Resale margin and fees are saved in the following section above and apply to all retail products.": "毛利率和手續費在上方跟價區儲存，適用於全部中轉產品。",
+    "Manual multipliers · other suppliers": "手動倍率 · 其他上游",
+    "Only for suppliers without automatic following. Bound Xingxing channels do not need this file or JSON.": "僅用於不支援自動跟價的上游。已綁定星行分組的渠道無需上傳檔案或填寫 JSON。",
+    "The estimate includes credit discount, payment fees and cost buffer. Final charges use the server price book.": "預估已計入儲值折扣、支付手續費和成本緩衝；最終扣費以服務端價表為準。",
+    "Model requests are paused by the site administrator.": "站點管理員已暫停模型呼叫。",
+    "No model plan is assigned to your account group. Contact the site administrator.": "目前帳號群組尚未分配模型方案，請聯絡管理員。",
+    "No model route is currently available. Contact the site administrator.": "目前沒有可用的模型線路，請聯絡管理員。",
+    "No models are authorized for this mode. Check your plan and price limits.": "目前模式下沒有已授權模型，請檢查模型方案和價格上限。",
+    "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "請在「通道 → 中轉定價」設定官方模型價表和產品路由，再開啟接收新請求。僅綁定群組倍率不會開放模型。",
+    "Configure model pricing": "設定模型與定價"
   }
 }

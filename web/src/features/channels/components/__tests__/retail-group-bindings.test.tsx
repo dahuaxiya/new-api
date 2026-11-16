@@ -40,6 +40,12 @@ const state = {
   sync: { enabled: false },
   pricing_ready: false,
   pricing_enabled: false,
+  sale_policy: {
+    receipt_ratio: '1',
+    margin_bps: 2000,
+    fee_bps: 0,
+    buffer_bps: 0,
+  },
 }
 const source = {
   source: 'https://aixingxing.pro/api/public/rates',
@@ -91,7 +97,9 @@ it('saves explicit group and credential choices without accepting browser-suppli
   fireEvent.change(screen.getByLabelText('Upstream group 1'), {
     target: { value: 'ChatGPT-pro稳定' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Save bindings' }))
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  )
   fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
   await waitFor(() =>
     expect(put).toHaveBeenCalledWith(
@@ -106,6 +114,7 @@ it('saves explicit group and credential choices without accepting browser-suppli
           },
         ],
         enabled: false,
+        sale_policy: state.sale_policy,
       }
     )
   )
@@ -137,7 +146,9 @@ it('reloads saved assignments and shows expired prices as paused without a zero 
   expect(
     screen.getByText('Paused: multiplier unavailable or expired')
   ).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Save bindings' })).toBeDisabled()
+  expect(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  ).toBeDisabled()
 })
 
 it('rejects incomplete selections and keeps the draft when a version conflict occurs', async () => {
@@ -157,7 +168,9 @@ it('rejects incomplete selections and keeps the draft when a version conflict oc
   fireEvent.click(
     await screen.findByRole('button', { name: 'Add group binding' })
   )
-  expect(screen.getByRole('button', { name: 'Save bindings' })).toBeDisabled()
+  expect(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  ).toBeDisabled()
   fireEvent.change(screen.getByLabelText('Local group 1'), {
     target: { value: 'pro' },
   })
@@ -167,7 +180,9 @@ it('rejects incomplete selections and keeps the draft when a version conflict oc
   fireEvent.change(screen.getByLabelText('Upstream group 1'), {
     target: { value: 'ChatGPT-pro稳定' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Save bindings' }))
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  )
   fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Retail pricing changed. Reload before saving.'
@@ -204,4 +219,79 @@ it('keeps the newer saved multiplier when a cached public preview is older', asy
   )
   expect(screen.getByText('0.4×')).toBeInTheDocument()
   expect(screen.queryByText('0.24×')).not.toBeInTheDocument()
+})
+
+/** A margin-only edit must persist without uploading a tariff or changing feed consent. */
+it('saves margin with following settings without requiring a catalog or a file', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: { success: true, data: state },
+  })
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  mount()
+  const margin = await screen.findByLabelText('Target margin (%)')
+  expect(margin).toHaveValue(20)
+  fireEvent.change(margin, { target: { value: '25' } })
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
+  await waitFor(() =>
+    expect(put).toHaveBeenCalledWith(
+      '/api/retail/admin/pricing/group-bindings',
+      expect.objectContaining({
+        enabled: false,
+        bindings: [],
+        sale_policy: {
+          receipt_ratio: '1',
+          margin_bps: 2500,
+          fee_bps: 0,
+          buffer_bps: 0,
+        },
+      })
+    )
+  )
+})
+
+/** User sees the margin effect before committing and cannot publish invalid percentages. */
+it('previews the following multiplier with margin and rejects an out of range margin', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        ...state,
+        bindings: [
+          {
+            local_group: 'default',
+            channel_id: 4,
+            upstream_group: 'ChatGPT-pro稳定',
+          },
+        ],
+        sync: { enabled: true, snapshot: source },
+      },
+    },
+  })
+  mount()
+  expect(
+    await screen.findByLabelText('Estimated selling multiplier 1')
+  ).toHaveTextContent('≈0.3×')
+  fireEvent.change(screen.getByLabelText('Target margin (%)'), {
+    target: { value: '25' },
+  })
+  expect(
+    screen.getByLabelText('Estimated selling multiplier 1')
+  ).toHaveTextContent('≈0.32×')
+  expect(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  ).toBeEnabled()
+  fireEvent.change(screen.getByLabelText('Target margin (%)'), {
+    target: { value: '100' },
+  })
+  expect(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  ).toBeDisabled()
+  expect(
+    screen.queryByLabelText('Estimated selling multiplier 1')
+  ).not.toBeInTheDocument()
 })

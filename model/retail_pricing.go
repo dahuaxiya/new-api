@@ -94,6 +94,12 @@ func PublishRetailPriceBook(expected int64, book retailprice.Book, ratesOnly []r
 			current.Rates = ratesOnly
 		} else {
 			book.GroupBindings, book.PublicRateSync = current.GroupBindings, current.PublicRateSync
+			// Once economics are saved separately, even a first catalog publication
+			// must preserve them. Legacy books retain their original editing contract.
+			book.SalePolicyManaged = current.SalePolicyManaged
+			if current.SalePolicyManaged || (len(current.GroupBindings) > 0 && current.ReceiptRatio != "") {
+				book.ReceiptRatio, book.MarginBPS, book.FeeBPS, book.BufferBPS = current.ReceiptRatio, current.MarginBPS, current.FeeBPS, current.BufferBPS
+			}
 			*current = book
 		}
 		return nil

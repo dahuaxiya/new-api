@@ -8176,6 +8176,24 @@
     "Supply channel": "Supply channel",
     "Sync bound multipliers now": "Sync bound multipliers now",
     "Sync every minute. Bound routes pause on failure, missing groups or data older than five minutes. Selling prices keep your margin and user price limits. Changes between polls cannot be detected immediately.": "Sync every minute. Bound routes pause on failure, missing groups or data older than five minutes. Selling prices keep your margin and user price limits. Changes between polls cannot be detected immediately.",
-    "Unable to load group bindings": "Unable to load group bindings"
+    "Unable to load group bindings": "Unable to load group bindings",
+    "Following updates your purchase cost and keeps this margin. No multiplier file is needed.": "Following updates your purchase cost and keeps this margin. No multiplier file is needed.",
+    "This margin applies to all retail products.": "This margin applies to all retail products.",
+    "Selling multiplier = upstream multiplier ÷ (1 − margin). A 0.12 upstream multiplier at 20% margin sells at 0.15.": "Selling multiplier = upstream multiplier ÷ (1 − margin). A 0.12 upstream multiplier at 20% margin sells at 0.15.",
+    "Fees, buffer and credit discount": "Fees, buffer and credit discount",
+    "Estimated selling multiplier": "Estimated selling multiplier",
+    "Save bindings and margin": "Save bindings and margin",
+    "Save bindings and margin?": "Save bindings and margin?",
+    "Save the selected bindings and resale margin together. New requests use these settings; disabling following pauses bound routes. This does not enable sales.": "Save the selected bindings and resale margin together. New requests use these settings; disabling following pauses bound routes. This does not enable sales.",
+    "Resale margin and fees are saved in the following section above and apply to all retail products.": "Resale margin and fees are saved in the following section above and apply to all retail products.",
+    "Manual multipliers · other suppliers": "Manual multipliers · other suppliers",
+    "Only for suppliers without automatic following. Bound Xingxing channels do not need this file or JSON.": "Only for suppliers without automatic following. Bound Xingxing channels do not need this file or JSON.",
+    "The estimate includes credit discount, payment fees and cost buffer. Final charges use the server price book.": "The estimate includes credit discount, payment fees and cost buffer. Final charges use the server price book.",
+    "Model requests are paused by the site administrator.": "Model requests are paused by the site administrator.",
+    "No model plan is assigned to your account group. Contact the site administrator.": "No model plan is assigned to your account group. Contact the site administrator.",
+    "No model route is currently available. Contact the site administrator.": "No model route is currently available. Contact the site administrator.",
+    "No models are authorized for this mode. Check your plan and price limits.": "No models are authorized for this mode. Check your plan and price limits.",
+    "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.",
+    "Configure model pricing": "Configure model pricing"
   }
 }

@@ -154,6 +154,69 @@ it('rejects malformed JSON without sending a price preview', async () => {
   expect(post).not.toHaveBeenCalled()
 })
 
+/** Independently saved margin invalidates old catalog previews without discarding local edits. */
+it('blocks an existing catalog draft after saving following margin', async () => {
+  vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+    data: {
+      success: true,
+      data: url.endsWith('group-bindings')
+        ? {
+            version: 4,
+            server_time: 1800000000,
+            bindings: [],
+            local_groups: ['default'],
+            channels: [],
+            sync: { enabled: false },
+            pricing_ready: false,
+            pricing_enabled: false,
+            sale_policy: {
+              receipt_ratio: '1',
+              margin_bps: 2000,
+              fee_bps: 0,
+              buffer_bps: 0,
+            },
+          }
+        : { version: 4, book },
+    },
+  }))
+  vi.spyOn(api, 'post').mockResolvedValue({ data: { success: true, data: [] } })
+  vi.spyOn(api, 'put').mockResolvedValue({
+    data: { success: true, data: { version: 5 } },
+  })
+  openPricing()
+  fireEvent.change(
+    await screen.findByLabelText('CNY per existing wallet unit'),
+    { target: { value: '2' } }
+  )
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Preview CNY selling prices' })
+  )
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Publish price book' })
+    ).toBeEnabled()
+  )
+  fireEvent.change(screen.getByLabelText('Target margin (%)'), {
+    target: { value: '25' },
+  })
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  )
+  fireEvent.click(await screen.findByRole('button', { name: 'Confirm save' }))
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Preview CNY selling prices' })
+    ).toBeDisabled()
+  )
+  expect(
+    screen.getByRole('button', { name: 'Publish price book' })
+  ).toBeDisabled()
+  expect(screen.getByLabelText('CNY per existing wallet unit')).toHaveValue('2')
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Bindings saved. Refresh pricing before publishing the existing draft.'
+  )
+})
+
 it('hides editing controls when the price book cannot be loaded', async () => {
   vi.spyOn(api, 'get').mockRejectedValue(new Error('Unavailable'))
   openPricing()
@@ -237,4 +300,26 @@ it('reads public multipliers only on demand and never imports or publishes them'
       screen.queryByRole('table', { name: 'Xingxing public multipliers' })
     ).not.toBeInTheDocument()
   )
+})
+
+/** Importing a file is optional and hidden from the following workflow by default. */
+it('keeps manual multiplier imports collapsed and explains that following needs no file', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: { success: true, data: { version: 4, book } },
+  })
+  openPricing()
+  await screen.findByText('Manual multipliers · other suppliers')
+  expect(screen.getByLabelText('Import multiplier file')).not.toBeVisible()
+  const manual = screen
+    .getByText('Manual multipliers · other suppliers')
+    .closest('details')
+  expect(manual).not.toHaveAttribute('open')
+  fireEvent.click(screen.getByText('Manual multipliers · other suppliers'))
+  expect(manual).toHaveAttribute('open')
+  expect(screen.getByLabelText('Import multiplier file')).toBeVisible()
+  expect(
+    screen.getByText(
+      'Only for suppliers without automatic following. Bound Xingxing channels do not need this file or JSON.'
+    )
+  ).toBeVisible()
 })

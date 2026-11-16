@@ -79,6 +79,11 @@ func PreviewRetailPricing(c *gin.Context) {
 		return
 	}
 	input.Book.GroupBindings, input.Book.PublicRateSync = current.GroupBindings, current.PublicRateSync
+	// Match publication: catalog edits cannot replace independently saved following economics.
+	input.Book.SalePolicyManaged = current.SalePolicyManaged
+	if current.SalePolicyManaged || (len(current.GroupBindings) > 0 && current.ReceiptRatio != "") {
+		input.Book.ReceiptRatio, input.Book.MarginBPS, input.Book.FeeBPS, input.Book.BufferBPS = current.ReceiptRatio, current.MarginBPS, current.FeeBPS, current.BufferBPS
+	}
 	if input.Book.Validate(time.Now().Unix()) != nil {
 		retailPricingManagementError(c, retailprice.ErrConfig)
 		return

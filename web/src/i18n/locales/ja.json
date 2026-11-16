@@ -8176,6 +8176,24 @@
     "Supply channel": "供給チャネル",
     "Sync bound multipliers now": "紐付けた倍率を今すぐ同期",
     "Sync every minute. Bound routes pause on failure, missing groups or data older than five minutes. Selling prices keep your margin and user price limits. Changes between polls cannot be detected immediately.": "毎分同期します。失敗・グループ削除・5分超のデータでは対象ルートを停止します。利益率とユーザー上限を維持しますが、同期間の変更は即時検知できません。",
-    "Unable to load group bindings": "グループの紐付けを取得できません"
+    "Unable to load group bindings": "グループの紐付けを取得できません",
+    "Following updates your purchase cost and keeps this margin. No multiplier file is needed.": "追従は仕入原価を更新し、この利益率を維持します。倍率ファイルは不要です。",
+    "This margin applies to all retail products.": "すべての再販商品に適用されます。",
+    "Selling multiplier = upstream multiplier ÷ (1 − margin). A 0.12 upstream multiplier at 20% margin sells at 0.15.": "手数料・割引・余裕分がなければ、販売倍率 = 上流倍率 ÷ (1 − 利益率)。0.12、20%なら0.15です。",
+    "Fees, buffer and credit discount": "手数料・余裕分・残高割引",
+    "Estimated selling multiplier": "販売倍率の目安",
+    "Save bindings and margin": "紐付けと利益率を保存",
+    "Save bindings and margin?": "紐付けと利益率を保存しますか？",
+    "Save the selected bindings and resale margin together. New requests use these settings; disabling following pauses bound routes. This does not enable sales.": "紐付けと利益率を同時に保存し、新規リクエストに適用します。追従を無効にすると対象ルートは停止します。販売は有効になりません。",
+    "Resale margin and fees are saved in the following section above and apply to all retail products.": "利益率と手数料は上の追従設定で保存し、すべての再販商品に適用されます。",
+    "Manual multipliers · other suppliers": "手動倍率・その他の供給元",
+    "Only for suppliers without automatic following. Bound Xingxing channels do not need this file or JSON.": "自動追従のない供給元専用です。星行グループに紐付けたチャネルはファイルもJSONも不要です。",
+    "The estimate includes credit discount, payment fees and cost buffer. Final charges use the server price book.": "見積りには残高割引・決済手数料・余裕分を含みます。最終料金はサーバーの価格表に従います。",
+    "Model requests are paused by the site administrator.": "管理者がモデルのリクエストを停止しています。",
+    "No model plan is assigned to your account group. Contact the site administrator.": "アカウントのグループにモデルプランが割り当てられていません。管理者にお問い合わせください。",
+    "No model route is currently available. Contact the site administrator.": "現在利用可能なモデル経路がありません。管理者にお問い合わせください。",
+    "No models are authorized for this mode. Check your plan and price limits.": "このモードで許可されたモデルがありません。プランと価格上限を確認してください。",
+    "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "「チャネル → 中継価格」で公式料金と製品ルートを設定してから新しいリクエストを有効にしてください。グループ倍率の連携だけではモデルは公開されません。",
+    "Configure model pricing": "モデルと料金の設定"
   }
 }

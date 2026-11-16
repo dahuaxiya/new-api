@@ -645,7 +645,7 @@ func TestRetailPricingManagement(t *testing.T) {
 		body := fmt.Sprintf(`{"success":true,"server":"https://aixingxing.pro","updated_at":%q,"groups":[{"group":"Pro","name":"Pro","rate":0.24}]}`, time.Now().UTC().Format(time.RFC3339))
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
 	})
-	bindingInput := gin.H{"expected_version": 3, "enabled": true, "bindings": []gin.H{{"local_group": "default", "channel_id": 101, "upstream_group": "Pro", "multiplier": "0.00001"}}}
+	bindingInput := gin.H{"expected_version": 3, "enabled": true, "sale_policy": gin.H{"receipt_ratio": "1", "margin_bps": 2000, "fee_bps": 0, "buffer_bps": 0}, "bindings": []gin.H{{"local_group": "default", "channel_id": 101, "upstream_group": "Pro", "multiplier": "0.00001"}}}
 	w = request("PUT", "/api/retail/admin/pricing/group-bindings", "https://attacker.example", bindingInput)
 	require.Equal(t, 403, w.Code)
 	w = request("PUT", "/api/retail/admin/pricing/group-bindings", "https://example.com", bindingInput)
@@ -653,6 +653,7 @@ func TestRetailPricingManagement(t *testing.T) {
 	w = request("GET", "/api/retail/admin/pricing/group-bindings", "https://example.com", nil)
 	require.Contains(t, w.Body.String(), `"local_group":"default"`)
 	require.Contains(t, w.Body.String(), `"multiplier":"0.24"`)
+	require.Contains(t, w.Body.String(), `"sale_policy":{"receipt_ratio":"1","margin_bps":2000,"fee_bps":0,"buffer_bps":0}`)
 	require.NotContains(t, w.Body.String(), "test-only")
 	bound, _, err := model.GetRetailPriceBook()
 	require.NoError(t, err)
@@ -665,6 +666,7 @@ func TestRetailPricingManagement(t *testing.T) {
 	quote, err := model.RetailQuote(user.Id, token.Id, "gpt-4o", 20, []int{101})
 	require.NoError(t, err)
 	require.Equal(t, "3", quote.Sale[0].Prices.Input, "bound 0.24 cost must replace the manual 0.4 cost")
+	book.MarginBPS = 0 // An old catalog draft cannot preview a different margin from publication.
 	w = request("POST", "/api/retail/admin/pricing/preview", "https://example.com", gin.H{"book": book})
 	require.Contains(t, w.Body.String(), `"input":"3"`, "preview must use saved bindings even when the browser has an older manual draft")
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())

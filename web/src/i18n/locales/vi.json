@@ -8176,6 +8176,24 @@
     "Supply channel": "Kênh cung cấp",
     "Sync bound multipliers now": "Đồng bộ hệ số đã liên kết ngay",
     "Sync every minute. Bound routes pause on failure, missing groups or data older than five minutes. Selling prices keep your margin and user price limits. Changes between polls cannot be detected immediately.": "Đồng bộ mỗi phút. Tuyến liên kết tạm dừng khi lỗi, nhóm biến mất hoặc dữ liệu quá 5 phút. Giá bán giữ biên lợi nhuận và giới hạn người dùng. Không thể phát hiện ngay thay đổi giữa hai lần đồng bộ.",
-    "Unable to load group bindings": "Không thể tải liên kết nhóm"
+    "Unable to load group bindings": "Không thể tải liên kết nhóm",
+    "Following updates your purchase cost and keeps this margin. No multiplier file is needed.": "Theo giá cập nhật chi phí mua và giữ biên lợi nhuận này. Không cần tải tệp.",
+    "This margin applies to all retail products.": "Biên lợi nhuận áp dụng cho mọi sản phẩm bán lại.",
+    "Selling multiplier = upstream multiplier ÷ (1 − margin). A 0.12 upstream multiplier at 20% margin sells at 0.15.": "Không tính phí, chiết khấu và dự phòng: hệ số bán = hệ số thượng nguồn ÷ (1 − biên lợi nhuận). 0,12 và 20% cho kết quả 0,15.",
+    "Fees, buffer and credit discount": "Phí, dự phòng và chiết khấu nạp tiền",
+    "Estimated selling multiplier": "Hệ số bán ước tính",
+    "Save bindings and margin": "Lưu liên kết và biên lợi nhuận",
+    "Save bindings and margin?": "Lưu liên kết và biên lợi nhuận?",
+    "Save the selected bindings and resale margin together. New requests use these settings; disabling following pauses bound routes. This does not enable sales.": "Lưu liên kết và biên lợi nhuận cùng lúc cho yêu cầu mới. Tắt theo giá sẽ dừng tuyến liên kết. Không bật bán hàng.",
+    "Resale margin and fees are saved in the following section above and apply to all retail products.": "Biên lợi nhuận và phí được lưu ở phần theo giá phía trên cho mọi sản phẩm.",
+    "Manual multipliers · other suppliers": "Hệ số thủ công · nhà cung cấp khác",
+    "Only for suppliers without automatic following. Bound Xingxing channels do not need this file or JSON.": "Chỉ cho nhà cung cấp không hỗ trợ theo giá. Kênh Xingxing đã liên kết không cần tệp hoặc JSON.",
+    "The estimate includes credit discount, payment fees and cost buffer. Final charges use the server price book.": "Ước tính gồm chiết khấu nạp tiền, phí và dự phòng. Phí cuối cùng theo bảng giá máy chủ.",
+    "Model requests are paused by the site administrator.": "Quản trị viên đã tạm dừng yêu cầu mô hình.",
+    "No model plan is assigned to your account group. Contact the site administrator.": "Nhóm tài khoản chưa được gán gói mô hình. Hãy liên hệ quản trị viên.",
+    "No model route is currently available. Contact the site administrator.": "Hiện không có tuyến mô hình khả dụng. Hãy liên hệ quản trị viên.",
+    "No models are authorized for this mode. Check your plan and price limits.": "Chế độ này chưa có mô hình được phép. Kiểm tra gói và giới hạn giá.",
+    "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "Trong Kênh → Giá chuyển tiếp, cấu hình giá mô hình chính thức và tuyến sản phẩm, sau đó bật yêu cầu mới. Chỉ liên kết hệ số nhóm sẽ không mở mô hình.",
+    "Configure model pricing": "Cấu hình mô hình và giá"
   }
 }

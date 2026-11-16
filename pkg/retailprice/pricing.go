@@ -80,17 +80,18 @@ type Product struct {
 
 // Book stores an immutable pricing version. Wallet conversion is explicit and never a display FX rate.
 type Book struct {
-	GroupBindings    []GroupBinding `json:"group_bindings,omitempty"`
-	PublicRateSync   PublicRateSync `json:"public_rate_sync"`
-	Enabled          bool           `json:"enabled"`
-	WalletCNYPerUnit string         `json:"wallet_cny_per_unit"`
-	ReceiptRatio     string         `json:"receipt_ratio"`
-	MarginBPS        int            `json:"margin_bps"`
-	FeeBPS           int            `json:"fee_bps"`
-	BufferBPS        int            `json:"buffer_bps"`
-	Models           []Model        `json:"models"`
-	Products         []Product      `json:"products"`
-	Rates            []Rate         `json:"rates"`
+	SalePolicyManaged bool           `json:"sale_policy_managed,omitempty"`
+	GroupBindings     []GroupBinding `json:"group_bindings,omitempty"`
+	PublicRateSync    PublicRateSync `json:"public_rate_sync"`
+	Enabled           bool           `json:"enabled"`
+	WalletCNYPerUnit  string         `json:"wallet_cny_per_unit"`
+	ReceiptRatio      string         `json:"receipt_ratio"`
+	MarginBPS         int            `json:"margin_bps"`
+	FeeBPS            int            `json:"fee_bps"`
+	BufferBPS         int            `json:"buffer_bps"`
+	Models            []Model        `json:"models"`
+	Products          []Product      `json:"products"`
+	Rates             []Rate         `json:"rates"`
 }
 
 // KeyPolicy is an explicit opt-in to floating prices within absolute CNY ceilings.

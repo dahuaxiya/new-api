@@ -28,6 +28,7 @@ import { LoadingState } from '@/components/loading-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
@@ -42,6 +43,7 @@ import {
   syncRetailGroupBindings,
   type RetailBindingState,
   type RetailGroupBinding,
+  type RetailSalePolicy,
 } from '../retail-pricing-api'
 
 /** Root-only configuration, isolated by session and refreshed after explicit writes. */
@@ -106,6 +108,14 @@ function BindingEditor(props: {
     })
   )
   const [enabled, setEnabled] = useState(props.state.sync.enabled)
+  const [salePolicy, setSalePolicy] = useState<RetailSalePolicy>(() => ({
+    ...props.state.sale_policy,
+    receipt_ratio: props.state.sale_policy.receipt_ratio || '1',
+  }))
+  const initialPolicy = {
+    ...props.state.sale_policy,
+    receipt_ratio: props.state.sale_policy.receipt_ratio || '1',
+  }
   const [confirm, setConfirm] = useState(false)
   const [failure, setFailure] = useState('')
   const feed = useQuery({
@@ -124,7 +134,8 @@ function BindingEditor(props: {
       : (feed.data ?? committed)
   const changed =
     JSON.stringify(mapping) !== JSON.stringify(props.state.bindings ?? []) ||
-    enabled !== props.state.sync.enabled
+    enabled !== props.state.sync.enabled ||
+    JSON.stringify(salePolicy) !== JSON.stringify(initialPolicy)
   const incomplete = bindings.some(
     (row) => !row.local_group || !row.channel_id || !row.upstream_group
   )
@@ -137,12 +148,34 @@ function BindingEditor(props: {
           row.upstream_group !== other.upstream_group)
     )
   )
-  const valid = !incomplete && !duplicates && (!enabled || bindings.length > 0)
+  const policyValid =
+    /^(0|[1-9][0-9]{0,8})(\.[0-9]{1,8})?$/.test(salePolicy.receipt_ratio) &&
+    Number(salePolicy.receipt_ratio) > 0 &&
+    Number(salePolicy.receipt_ratio) <= 1 &&
+    Number.isInteger(salePolicy.margin_bps) &&
+    salePolicy.margin_bps >= 0 &&
+    salePolicy.margin_bps <= 9500 &&
+    Number.isInteger(salePolicy.fee_bps) &&
+    salePolicy.fee_bps >= 0 &&
+    salePolicy.fee_bps <= 5000 &&
+    Number.isInteger(salePolicy.buffer_bps) &&
+    salePolicy.buffer_bps >= 0 &&
+    salePolicy.buffer_bps <= 10000
+  const valid =
+    policyValid &&
+    !incomplete &&
+    !duplicates &&
+    (!enabled || bindings.length > 0)
   const mutation = useMutation({
     mutationFn: async (action: 'save' | 'sync') => {
       setFailure('')
       if (action === 'save') {
-        await saveRetailGroupBindings(props.state.version, mapping, enabled)
+        await saveRetailGroupBindings(
+          props.state.version,
+          mapping,
+          enabled,
+          salePolicy
+        )
       } else {
         await syncRetailGroupBindings(props.state.version)
       }
@@ -192,6 +225,103 @@ function BindingEditor(props: {
           'Bind the group used by this channel Key. This changes pricing only; it cannot change the upstream Key assignment.'
         )}
       </p>
+      <div className='bg-muted/50 space-y-3 rounded-md p-3'>
+        <Field>
+          <FieldLabel htmlFor='following-margin'>
+            {t('Target margin (%)')}
+          </FieldLabel>
+          <Input
+            id='following-margin'
+            type='number'
+            min={0}
+            max={95}
+            step='0.01'
+            value={
+              Number.isFinite(salePolicy.margin_bps)
+                ? salePolicy.margin_bps / 100
+                : ''
+            }
+            disabled={mutation.isPending}
+            onChange={(event) =>
+              setSalePolicy({
+                ...salePolicy,
+                margin_bps: Math.round(event.target.valueAsNumber * 100),
+              })
+            }
+          />
+        </Field>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Following updates your purchase cost and keeps this margin. No multiplier file is needed.'
+          )}{' '}
+          {t('This margin applies to all retail products.')}
+        </p>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Selling multiplier = upstream multiplier ÷ (1 − margin). A 0.12 upstream multiplier at 20% margin sells at 0.15.'
+          )}
+        </p>
+        <details className='space-y-3'>
+          <summary className='cursor-pointer text-xs'>
+            {t('Fees, buffer and credit discount')}
+          </summary>
+          <FieldGroup className='grid gap-3 sm:grid-cols-3'>
+            <Field>
+              <FieldLabel htmlFor='following-receipts'>
+                {t('Cash received per CNY of credit')}
+              </FieldLabel>
+              <Input
+                id='following-receipts'
+                inputMode='decimal'
+                value={salePolicy.receipt_ratio}
+                disabled={mutation.isPending}
+                onChange={(event) =>
+                  setSalePolicy({
+                    ...salePolicy,
+                    receipt_ratio: event.target.value,
+                  })
+                }
+              />
+            </Field>
+            {(
+              [
+                { key: 'fee_bps', label: t('Payment fee (%)'), max: 50 },
+                { key: 'buffer_bps', label: t('Cost buffer (%)'), max: 100 },
+              ] as const
+            ).map((field) => (
+              <Field key={field.key}>
+                <FieldLabel htmlFor={`following-${field.key}`}>
+                  {field.label}
+                </FieldLabel>
+                <Input
+                  id={`following-${field.key}`}
+                  type='number'
+                  min={0}
+                  max={field.max}
+                  step='0.01'
+                  value={
+                    Number.isFinite(salePolicy[field.key])
+                      ? salePolicy[field.key] / 100
+                      : ''
+                  }
+                  disabled={mutation.isPending}
+                  onChange={(event) =>
+                    setSalePolicy({
+                      ...salePolicy,
+                      [field.key]: Math.round(event.target.valueAsNumber * 100),
+                    })
+                  }
+                />
+              </Field>
+            ))}
+          </FieldGroup>
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'The estimate includes credit discount, payment fees and cost buffer. Final charges use the server price book.'
+            )}
+          </p>
+        </details>
+      </div>
       {!props.state.pricing_ready && (
         <p className='bg-muted rounded-md p-3 text-sm'>
           {t(
@@ -247,6 +377,9 @@ function BindingEditor(props: {
               (group) => group.group === row.upstream_group
             ) &&
             saved
+          let status = t('Paused: multiplier unavailable or expired')
+          if (active) status = t('Following saved multiplier')
+          if (changed) status = t('Unsaved changes')
           return (
             <div key={row.rowID} className='space-y-3 rounded-md border p-3'>
               <FieldGroup className='grid gap-3 sm:grid-cols-3'>
@@ -360,11 +493,27 @@ function BindingEditor(props: {
                 </Field>
               </FieldGroup>
               <div className='flex flex-wrap items-center justify-between gap-2 text-xs'>
-                <span className='text-muted-foreground'>
-                  {active
-                    ? t('Following saved multiplier')
-                    : t('Paused: multiplier unavailable or expired')}
-                </span>
+                <span className='text-muted-foreground'>{status}</span>
+                {/* Display is approximate; server decimal arithmetic determines quotes and charges. */}
+                {rate && policyValid && (
+                  <output
+                    className='font-mono tabular-nums'
+                    aria-label={`${t('Estimated selling multiplier')} ${index + 1}`}
+                  >
+                    {t('Estimated selling multiplier')}: ≈
+                    {(
+                      (Number(rate.multiplier) *
+                        (1 + salePolicy.buffer_bps / 10000)) /
+                      Number(salePolicy.receipt_ratio) /
+                      (1 - salePolicy.fee_bps / 10000) /
+                      (1 - salePolicy.margin_bps / 10000)
+                    )
+                      .toFixed(8)
+                      .replace(/0+$/, '')
+                      .replace(/\.$/, '')}
+                    ×
+                  </output>
+                )}
                 <Button
                   variant='ghost'
                   size='sm'
@@ -451,7 +600,7 @@ function BindingEditor(props: {
           disabled={!changed || !valid || mutation.isPending}
           onClick={() => setConfirm(true)}
         >
-          {t('Save bindings')}
+          {t('Save bindings and margin')}
         </Button>
         <Button
           variant='outline'
@@ -489,9 +638,9 @@ function BindingEditor(props: {
       <ConfirmDialog
         open={confirm}
         onOpenChange={setConfirm}
-        title={t('Save group bindings?')}
+        title={t('Save bindings and margin?')}
         desc={t(
-          'Only select the group actually used by this upstream Key. New requests use the saved mapping; disabling following pauses bound routes.'
+          'Save the selected bindings and resale margin together. New requests use these settings; disabling following pauses bound routes. This does not enable sales.'
         )}
         confirmText={t('Confirm save')}
         disabled={!valid}

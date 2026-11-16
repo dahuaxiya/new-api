@@ -12,6 +12,23 @@ import (
 // PublicRateMaxAge bounds snapshot validity. Polling cannot detect changes between snapshots.
 const PublicRateMaxAge int64 = 300
 
+// SalePolicy contains resale economics without granting access or converting wallet units.
+type SalePolicy struct {
+	ReceiptRatio string `json:"receipt_ratio"`
+	MarginBPS    int    `json:"margin_bps"`
+	FeeBPS       int    `json:"fee_bps"`
+	BufferBPS    int    `json:"buffer_bps"`
+}
+
+// Validate bounds economics even before the first model catalog is published.
+func (p SalePolicy) Validate() error {
+	receipts, err := Amount(p.ReceiptRatio)
+	if err != nil || !receipts.IsPositive() || receipts.GreaterThan(decimal.NewFromInt(1)) || p.MarginBPS < 0 || p.MarginBPS > 9500 || p.FeeBPS < 0 || p.FeeBPS > 5000 || p.BufferBPS < 0 || p.BufferBPS > 10000 {
+		return ErrConfig
+	}
+	return nil
+}
+
 // GroupBinding associates a customer group and supplier credential with an explicit public cost group.
 // A channel represents one upstream Key, so all its bindings must use the same upstream group.
 type GroupBinding struct {

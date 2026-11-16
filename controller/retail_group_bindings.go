@@ -33,6 +33,7 @@ func GetRetailGroupBindings(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
 		"version": version, "bindings": book.GroupBindings, "sync": book.PublicRateSync,
 		"local_groups": groups, "channels": channels, "server_time": time.Now().Unix(),
+		"sale_policy":   retailprice.SalePolicy{ReceiptRatio: book.ReceiptRatio, MarginBPS: book.MarginBPS, FeeBPS: book.FeeBPS, BufferBPS: book.BufferBPS},
 		"pricing_ready": len(book.Models) > 0 && len(book.Products) > 0, "pricing_enabled": book.Enabled,
 	}})
 }
@@ -45,6 +46,7 @@ func PutRetailGroupBindings(c *gin.Context) {
 		ExpectedVersion int64                      `json:"expected_version"`
 		Bindings        []retailprice.GroupBinding `json:"bindings"`
 		Enabled         bool                       `json:"enabled"`
+		SalePolicy      *retailprice.SalePolicy    `json:"sale_policy"`
 	}
 	if c.ShouldBindJSON(&input) != nil {
 		retailPricingManagementError(c, retailprice.ErrConfig)
@@ -70,7 +72,12 @@ func PutRetailGroupBindings(c *gin.Context) {
 			snapshot = fresh
 		}
 	}
-	version, err = model.SaveRetailGroupBindings(c.Request.Context(), input.ExpectedVersion, input.Bindings, input.Enabled, snapshot, c.GetInt("id"))
+	// Old open consoles omit policy fields; omission must not reset saved economics.
+	var policies []retailprice.SalePolicy
+	if input.SalePolicy != nil {
+		policies = append(policies, *input.SalePolicy)
+	}
+	version, err = model.SaveRetailGroupBindings(c.Request.Context(), input.ExpectedVersion, input.Bindings, input.Enabled, snapshot, c.GetInt("id"), policies...)
 	if err != nil {
 		retailPricingManagementError(c, err)
 		return

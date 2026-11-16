@@ -91,7 +91,12 @@ export type RetailGroupBinding = {
   channel_id: number
   upstream_group: string
 }
+export type RetailSalePolicy = Pick<
+  RetailPriceBook,
+  'receipt_ratio' | 'margin_bps' | 'fee_bps' | 'buffer_bps'
+>
 export type RetailBindingState = {
+  sale_policy: RetailSalePolicy
   version: number
   server_time: number
   bindings: RetailGroupBinding[] | null
@@ -115,7 +120,8 @@ export async function getRetailGroupBindings(
 export async function saveRetailGroupBindings(
   version: number,
   bindings: RetailGroupBinding[],
-  enabled: boolean
+  enabled: boolean,
+  salePolicy: RetailSalePolicy
 ): Promise<void> {
   requireServerSuccess(
     (
@@ -123,6 +129,7 @@ export async function saveRetailGroupBindings(
         expected_version: version,
         bindings,
         enabled,
+        sale_policy: salePolicy,
       })
     ).data
   )

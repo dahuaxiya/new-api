@@ -111,7 +111,7 @@ RETAIL_RELAY_CONFIG=/run/new-api/retail.json
 | `PUT /api/retail/admin/pricing` | root 会话，`{expected_version, book}` 发布完整价表 |
 | `POST /api/retail/admin/pricing/rates` | root 会话，`{expected_version, rates}` 只更新上游倍率 |
 | `GET /api/retail/admin/pricing/group-bindings` | root 会话，读取本站用户组、已批准星行供货渠道、绑定及同步状态 |
-| `PUT /api/retail/admin/pricing/group-bindings` | root 会话，`{expected_version, bindings, enabled}`；绑定含 `local_group`、`channel_id`、`upstream_group`，倍率由服务端重新读取 |
+| `PUT /api/retail/admin/pricing/group-bindings` | root 会话，`{expected_version, bindings, enabled, sale_policy}`；绑定含 `local_group`、`channel_id`、`upstream_group`，倍率由服务端重新读取。`sale_policy` 含 `receipt_ratio`、`margin_bps`、`fee_bps`、`buffer_bps`；旧客户端可省略以保留现值 |
 | `POST /api/retail/admin/pricing/group-bindings/sync` | root 会话，`{expected_version}`，立即同步已经开启的绑定 |
 | `POST /api/retail/admin/pricing/preview` | root 会话，`{book}` 预览，不发布 |
 | `GET /api/retail/catalog` | 用户会话，只返回授权产品的售价，不返回采购倍率及渠道 ID |
@@ -292,6 +292,12 @@ https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html
 ### 本站分组绑定与自动跟价
 
 进入「渠道 → 中转定价 → 分组倍率绑定」，读取上游分组后添加一行，依次选择本站用户分组、供货渠道、星行分组。这里的本站组对应用户所属组和产品的 `user_groups`，不会改写旧版 `GroupRatio`。一个渠道对应一个上游 Key；同渠道可以服务多个本站组，但只能绑定同一个星行组。绑定不能替上游 Key 切组，管理员必须确认 Key 的真实分组；公开接口不能核验专属折扣。
+
+目标毛利率直接在跟价区设置，点击「保存绑定与毛利」与绑定、跟价开关一起原子保存。自动同步只更新采购倍率，保留经营参数。毛利率及高级选项中的实收比例、手续费、缓冲适用于全部零售产品；不是单条绑定的独立利润配置。每行显示的预计售价倍率只作展示，正式报价仍由服务器十进制计算。无手续费、折扣和缓冲时，上游 0.12、毛利 20% 对应售价倍率 0.15；上游涨到 0.16 后对应 0.20。
+
+星行自动跟价无需上传倍率文件。手工倍率导入折叠在「手工倍率 · 其他上游」，只用于没有自动跟价的供应商。保存经营参数不要求先上传官方价表，也不会开启销售；真正开放调用前仍需配置已核实的官方价表、产品路由和钱包单位。已有绑定时，普通价表预览和发布保留单独保存的经营参数；下方有未保存草稿时，保存跟价会保留草稿并要求刷新后再预览发布，避免旧草稿覆盖新毛利。
+
+模型工作台会分别提示站点暂停、账号分组未分配产品、当前没有可报价模型、未设置用户预算或当前模式未授权模型。站点配置未就绪时不再只提示设置预算，避免用户反复保存预算仍无法选择模型。root 可通过「配置模型与定价」进入渠道页继续配置；普通用户只看到联系管理员的提示。页面不自动开启销售、分配权限或创建付费身份，服务端仍独立检查预算和模型权限。
 
 渠道候选来自私有供货白名单，只允许 `reseller` 类型且地址为 `https://aixingxing.pro` 的供货渠道；托管客户渠道不能参与。可先保存对应关系，官方型号、产品路线和经营参数仍需单独配置并发布。保存绑定不会开启「接收新计价请求」；首次保存后也不会回退到未发布版本的旧计价。已被产品使用的绑定不能直接删除，先移除产品路线，或关闭跟价暂停该绑定路线。
 

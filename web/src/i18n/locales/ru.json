@@ -8176,6 +8176,24 @@
     "Supply channel": "Канал поставщика",
     "Sync bound multipliers now": "Обновить привязанные коэффициенты",
     "Sync every minute. Bound routes pause on failure, missing groups or data older than five minutes. Selling prices keep your margin and user price limits. Changes between polls cannot be detected immediately.": "Синхронизация каждую минуту. При ошибке, исчезновении группы или данных старше пяти минут маршруты приостанавливаются. Маржа и лимиты пользователей сохраняются. Изменения между опросами обнаруживаются не сразу.",
-    "Unable to load group bindings": "Не удалось загрузить привязки групп"
+    "Unable to load group bindings": "Не удалось загрузить привязки групп",
+    "Following updates your purchase cost and keeps this margin. No multiplier file is needed.": "Автообновление меняет закупочную стоимость, сохраняя эту маржу. Файл не нужен.",
+    "This margin applies to all retail products.": "Эта маржа применяется ко всем продуктам перепродажи.",
+    "Selling multiplier = upstream multiplier ÷ (1 − margin). A 0.12 upstream multiplier at 20% margin sells at 0.15.": "Без комиссий, скидок и буфера: коэффициент продажи = коэффициент поставщика ÷ (1 − маржа). При 0,12 и 20% он равен 0,15.",
+    "Fees, buffer and credit discount": "Комиссии, буфер и скидка при пополнении",
+    "Estimated selling multiplier": "Расчётный коэффициент продажи",
+    "Save bindings and margin": "Сохранить привязки и маржу",
+    "Save bindings and margin?": "Сохранить привязки и маржу?",
+    "Save the selected bindings and resale margin together. New requests use these settings; disabling following pauses bound routes. This does not enable sales.": "Привязки и маржа сохраняются вместе для новых запросов. Отключение обновления приостанавливает маршруты. Продажи не включаются.",
+    "Resale margin and fees are saved in the following section above and apply to all retail products.": "Маржа и комиссии сохраняются выше в настройках автообновления для всех продуктов.",
+    "Manual multipliers · other suppliers": "Ручные коэффициенты · другие поставщики",
+    "Only for suppliers without automatic following. Bound Xingxing channels do not need this file or JSON.": "Только для поставщиков без автообновления. Привязанным каналам Xingxing не нужны файл или JSON.",
+    "The estimate includes credit discount, payment fees and cost buffer. Final charges use the server price book.": "Оценка включает скидку при пополнении, комиссии и буфер. Итоговое списание определяется серверным прайсом.",
+    "Model requests are paused by the site administrator.": "Администратор приостановил запросы к моделям.",
+    "No model plan is assigned to your account group. Contact the site administrator.": "Вашей группе не назначен тариф моделей. Обратитесь к администратору.",
+    "No model route is currently available. Contact the site administrator.": "Нет доступного маршрута к модели. Обратитесь к администратору.",
+    "No models are authorized for this mode. Check your plan and price limits.": "Для этого режима нет разрешённых моделей. Проверьте тариф и ограничения цен.",
+    "In Channels → Retail pricing, configure official model prices and product routes, then enable new requests. Following a group multiplier alone does not publish models.": "В разделе «Каналы → Цены» настройте официальные цены и маршруты продуктов, затем разрешите новые запросы. Привязка множителя группы не публикует модели.",
+    "Configure model pricing": "Настроить модели и цены"
   }
 }

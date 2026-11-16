@@ -44,40 +44,54 @@ const png =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII='
 
 /** Replace only HTTP responses; render the real consent, form and result components. */
-function mount(ready: boolean) {
-  useAuthStore
-    .getState()
-    .auth.setUser({ id: 1, username: 'studio-user', role: 1 })
+function mount(
+  ready: boolean,
+  options: {
+    paused?: boolean
+    noPlan?: boolean
+    noRoute?: boolean
+    root?: boolean
+  } = {}
+) {
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'studio-user',
+    role: options.root ? 100 : 1,
+  })
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
     let data: unknown = { token_id: ready ? 9 : 0 }
     if (url.endsWith('/catalog')) {
       data = {
-        enabled: true,
+        enabled: !options.paused,
         version: 1,
-        products: [
-          {
-            id: 'standard',
-            name: 'Standard',
-            models: [
+        products: options.noPlan
+          ? []
+          : [
               {
-                id: 'text-model',
-                kind: 'text',
-                tiers: [{ up_to: 1000, prices: price }],
-                max_output: 4096,
-              },
-              {
-                id: 'image-model',
-                kind: 'image',
-                tiers: [{ up_to: 1000, prices: price }],
-                max_output: 4096,
+                id: 'standard',
+                name: 'Standard',
+                models: options.noRoute
+                  ? []
+                  : [
+                      {
+                        id: 'text-model',
+                        kind: 'text',
+                        tiers: [{ up_to: 1000, prices: price }],
+                        max_output: 4096,
+                      },
+                      {
+                        id: 'image-model',
+                        kind: 'image',
+                        tiers: [{ up_to: 1000, prices: price }],
+                        max_output: 4096,
+                      },
+                    ],
               },
             ],
-          },
-        ],
       }
     }
-    if (url.endsWith('/pricing'))
-      {data = {
+    if (url.endsWith('/pricing')) {
+      data = {
         revision: 1,
         policy: {
           product_id: 'standard',
@@ -86,7 +100,8 @@ function mount(ready: boolean) {
           max_request_cny: '1',
           daily_budget_cny: '5',
         },
-      }}
+      }
+    }
     return { data: { success: true, data } }
   })
   const client = new QueryClient({
@@ -116,6 +131,45 @@ it('keeps sending disabled until a price policy exists and does not create ident
       'Set your budget and price limits before the first request.'
     )
   ).toBeVisible()
+  expect(post).not.toHaveBeenCalled()
+})
+
+it.each([
+  [{ paused: true }, 'Model requests are paused by the site administrator.'],
+  [
+    { noPlan: true },
+    'No model plan is assigned to your account group. Contact the site administrator.',
+  ],
+  [
+    { noRoute: true },
+    'No model route is currently available. Contact the site administrator.',
+  ],
+])(
+  'explains the blocking site configuration without creating a spending identity: %s',
+  async (options, message) => {
+    const post = vi.spyOn(api, 'post')
+    mount(false, options)
+    expect(await screen.findByRole('status')).toHaveTextContent(message)
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+    expect(
+      screen.queryByText(
+        'Set your budget and price limits before the first request.'
+      )
+    ).toBeNull()
+    expect(
+      screen.queryByRole('link', { name: 'Configure model pricing' })
+    ).toBeNull()
+    expect(post).not.toHaveBeenCalled()
+  }
+)
+
+it('shows the root operator where to configure models without enabling requests', async () => {
+  const post = vi.spyOn(api, 'post')
+  mount(false, { paused: true, root: true })
+  expect(
+    await screen.findByRole('link', { name: 'Configure model pricing' })
+  ).toHaveAttribute('href', '/channels')
+  expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
   expect(post).not.toHaveBeenCalled()
 })
 
