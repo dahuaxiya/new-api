@@ -1,0 +1,119 @@
+package retailprice
+
+import (
+	"slices"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/shopspring/decimal"
+)
+
+// PublicRateMaxAge bounds snapshot validity. Polling cannot detect changes between snapshots.
+const PublicRateMaxAge int64 = 300
+
+// GroupBinding associates a customer group and supplier credential with an explicit public cost group.
+// A channel represents one upstream Key, so all its bindings must use the same upstream group.
+type GroupBinding struct {
+	LocalGroup    string `json:"local_group"`
+	ChannelID     int    `json:"channel_id"`
+	UpstreamGroup string `json:"upstream_group"`
+}
+
+// PublicRate retains exact decimal values without inferring wallet conversion or account discounts.
+type PublicRate struct {
+	Group      string `json:"group"`
+	Name       string `json:"name"`
+	Multiplier string `json:"multiplier"`
+}
+
+// PublicRateSnapshot records both source publication and retrieval times for freshness checks.
+type PublicRateSnapshot struct {
+	Source    string       `json:"source"`
+	UpdatedAt int64        `json:"updated_at"`
+	FetchedAt int64        `json:"fetched_at"`
+	Groups    []PublicRate `json:"groups"`
+}
+
+// PublicRateSync is committed with the price book, keeping bindings and costs atomic at admission.
+type PublicRateSync struct {
+	Enabled   bool                `json:"enabled"`
+	LastError string              `json:"last_error,omitempty"`
+	Snapshot  *PublicRateSnapshot `json:"snapshot,omitempty"`
+}
+
+// ValidateBindings rejects ambiguous credential assignments even in an otherwise empty disabled book.
+func (b Book) ValidateBindings(now int64) error {
+	if len(b.GroupBindings) > 200 || len(b.PublicRateSync.LastError) > 200 {
+		return ErrConfig
+	}
+	seen := map[GroupBinding]bool{}
+	channelGroups := map[int]string{}
+	for _, binding := range b.GroupBindings {
+		if !validBindingGroup(binding.LocalGroup) || !validBindingGroup(binding.UpstreamGroup) || binding.ChannelID <= 0 || seen[binding] {
+			return ErrConfig
+		}
+		for previous := range seen {
+			if previous.LocalGroup == binding.LocalGroup && previous.ChannelID == binding.ChannelID {
+				return ErrConfig
+			}
+		}
+		if previous, ok := channelGroups[binding.ChannelID]; ok && previous != binding.UpstreamGroup {
+			return ErrConfig
+		}
+		seen[binding], channelGroups[binding.ChannelID] = true, binding.UpstreamGroup
+	}
+	if b.PublicRateSync.Enabled && len(b.GroupBindings) == 0 {
+		return ErrConfig
+	}
+	snapshot := b.PublicRateSync.Snapshot
+	if snapshot == nil {
+		return nil
+	}
+	if snapshot.Source != "https://aixingxing.pro/api/public/rates" || snapshot.UpdatedAt <= 0 || snapshot.FetchedAt <= 0 || snapshot.UpdatedAt > now+30 || snapshot.FetchedAt > now+30 || len(snapshot.Groups) == 0 || len(snapshot.Groups) > 200 {
+		return ErrConfig
+	}
+	groups := map[string]bool{}
+	for _, rate := range snapshot.Groups {
+		value, err := Amount(rate.Multiplier)
+		if !validBindingGroup(rate.Group) || groups[rate.Group] || err != nil || !value.IsPositive() || value.GreaterThan(decimal.NewFromInt(100)) {
+			return ErrConfig
+		}
+		groups[rate.Group] = true
+	}
+	return nil
+}
+
+// validBindingGroup treats names as data and excludes ambiguous whitespace and control characters.
+func validBindingGroup(group string) bool {
+	return group != "" && len(group) <= 128 && utf8.ValidString(group) && strings.TrimSpace(group) == group && !strings.ContainsFunc(group, unicode.IsControl)
+}
+
+// Binding finds an exact customer-group/channel pair; names alone cannot authorize another credential.
+func (b Book) Binding(group string, channelID int) *GroupBinding {
+	for i := range b.GroupBindings {
+		if b.GroupBindings[i].LocalGroup == group && b.GroupBindings[i].ChannelID == channelID {
+			return &b.GroupBindings[i]
+		}
+	}
+	return nil
+}
+
+// BoundRate refuses missing, failed or expired snapshots instead of reverting to a manual cost.
+func (b Book) BoundRate(binding GroupBinding, now int64) (Rate, error) {
+	sync := b.PublicRateSync
+	if !sync.Enabled || sync.LastError != "" || sync.Snapshot == nil {
+		return Rate{}, ErrExpired
+	}
+	snapshot := sync.Snapshot
+	expires := min(snapshot.UpdatedAt, snapshot.FetchedAt) + PublicRateMaxAge
+	if expires <= now {
+		return Rate{}, ErrExpired
+	}
+	index := slices.IndexFunc(snapshot.Groups, func(rate PublicRate) bool { return rate.Group == binding.UpstreamGroup })
+	if index < 0 {
+		return Rate{}, ErrExpired
+	}
+	rate := snapshot.Groups[index]
+	return Rate{ID: rate.Group, Multiplier: rate.Multiplier, VerifiedAt: snapshot.UpdatedAt, ValidUntil: expires}, nil
+}

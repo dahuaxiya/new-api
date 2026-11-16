@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -8,7 +9,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
-	"github.com/QuantumNous/new-api/setting/retail_setting"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -85,50 +85,19 @@ func lockRetailPriceState(tx *gorm.DB) (*RetailPriceState, error) {
 // PublishRetailPriceBook performs compare-and-swap publication and keeps an immutable audit version.
 // Passing ratesOnly updates group multipliers without allowing a caller to rewrite official prices.
 func PublishRetailPriceBook(expected int64, book retailprice.Book, ratesOnly []retailprice.Rate, actorID int) (int64, error) {
-	if actorID <= 0 || expected < 0 {
+	if actorID <= 0 {
 		return 0, retailprice.ErrConfig
 	}
-	var version int64
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		state, err := lockRetailPriceState(tx)
-		if err != nil {
-			return err
-		}
-		if state.Version != expected {
-			return ErrRetailPriceConflict
-		}
+	return mutateRetailPriceBook(context.Background(), expected, actorID, false, func(current *retailprice.Book) error {
 		if ratesOnly != nil {
-			if err = common.UnmarshalJsonStr(state.Payload, &book); err != nil {
-				return retailprice.ErrConfig
-			}
-			// Import is a complete group snapshot: removed rates cannot remain silently usable.
-			book.Rates = ratesOnly
+			// Manual imports cannot overwrite the independently verified public feed.
+			current.Rates = ratesOnly
+		} else {
+			book.GroupBindings, book.PublicRateSync = current.GroupBindings, current.PublicRateSync
+			*current = book
 		}
-		if err := book.Validate(time.Now().Unix()); err != nil {
-			return err
-		}
-		cfg, err := retail_setting.Load()
-		if err != nil {
-			return err
-		}
-		for _, product := range book.Products {
-			for _, route := range product.Routes {
-				if !slices.ContainsFunc(cfg.Supplies, func(s retail_setting.Supply) bool { return s.ChannelID == route.ChannelID }) {
-					return retailprice.ErrAccess
-				}
-			}
-		}
-		payload, err := common.Marshal(book)
-		if err != nil || len(payload) > 1<<20 {
-			return retailprice.ErrConfig
-		}
-		version = state.Version + 1
-		if err := tx.Create(&RetailPriceVersion{Version: version, Payload: string(payload), ActorID: actorID, CreatedAt: time.Now().Unix()}).Error; err != nil {
-			return err
-		}
-		return tx.Model(state).Updates(map[string]any{"version": version, "payload": string(payload)}).Error
+		return nil
 	})
-	return version, err
 }
 
 // GetRetailKeyPolicy verifies key ownership, including for policies that have not yet been configured.

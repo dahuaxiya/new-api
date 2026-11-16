@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sync"
@@ -296,6 +297,131 @@ func TestRetailPricingDatabases(t *testing.T) {
 			var versions int64
 			require.NoError(t, db.Model(&RetailPriceVersion{}).Count(&versions).Error)
 			assert.Equal(t, int64(4), versions)
+		})
+	}
+}
+
+// TestRetailGroupBindingsDatabases protects saved assignments, exact costs, price caps and update races on real engines.
+func TestRetailGroupBindingsDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := useVM2APIEnrollmentDatabase(t, dialect)
+			require.NoError(t, migrateDB())
+			cfg := filepath.Join(t.TempDir(), "retail.json")
+			require.NoError(t, os.WriteFile(cfg, []byte(`{"enabled":true,"group":"retail","supplies":[{"channel_id":101,"kind":"reseller"}]}`), 0600))
+			t.Setenv("RETAIL_RELAY_CONFIG", cfg)
+			endpoint := "https://aixingxing.pro"
+			require.NoError(t, db.Create(&Channel{Id: 101, Name: "Test credential", BaseURL: &endpoint, Group: "retail", Status: 1, Type: 1, Key: "synthetic-only"}).Error)
+			now := time.Now().Unix()
+			binding := retailprice.GroupBinding{LocalGroup: "default", ChannelID: 101, UpstreamGroup: "ChatGPT-pro稳定"}
+			feed := &retailprice.PublicRateSnapshot{Source: "https://aixingxing.pro/api/public/rates", UpdatedAt: now, FetchedAt: now, Groups: []retailprice.PublicRate{{Group: binding.UpstreamGroup, Name: "Pro", Multiplier: "0.24"}}}
+			ctx := context.Background()
+			version, err := SaveRetailGroupBindings(ctx, 0, []retailprice.GroupBinding{binding}, true, feed, 1)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, version)
+			draft, version, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			assert.False(t, draft.Enabled, "saving a binding cannot open sales")
+			assert.Equal(t, []retailprice.GroupBinding{binding}, draft.GroupBindings)
+			require.NoError(t, migrateDB())
+			require.NoError(t, migrateDB())
+			bad := binding
+			bad.ChannelID = 102
+			_, err = SaveRetailGroupBindings(ctx, version, []retailprice.GroupBinding{bad}, true, feed, 1)
+			require.Error(t, err)
+			bad = binding
+			bad.LocalGroup = "unknown"
+			_, err = SaveRetailGroupBindings(ctx, version, []retailprice.GroupBinding{bad}, true, feed, 1)
+			require.Error(t, err)
+			bad = binding
+			bad.LocalGroup = "existing"
+			bad.UpstreamGroup = "other"
+			_, err = SaveRetailGroupBindings(ctx, version, []retailprice.GroupBinding{binding, bad}, true, feed, 1)
+			require.Error(t, err)
+			raw, err := os.ReadFile("../pkg/retailprice/testdata/book.json")
+			require.NoError(t, err)
+			var book retailprice.Book
+			require.NoError(t, common.Unmarshal(raw, &book))
+			book.Models[0].VerifiedAt, book.Models[0].ValidUntil = now, now+86400
+			book.Rates[0].VerifiedAt, book.Rates[0].ValidUntil = now, now+3600
+			// The ordinary price editor must not be able to drop protected bindings or forge a public snapshot.
+			version, err = PublishRetailPriceBook(version, book, nil, 1)
+			require.NoError(t, err)
+			book, version, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Len(t, book.GroupBindings, 1)
+			key := retailprice.KeyPolicy{ProductID: "standard", AcceptFloating: true, Caps: map[string]retailprice.Prices{"gpt-4o": {Input: "5", Output: "10", CacheRead: "5", CacheWrite: "10", CacheWrite1h: "10"}}, MaxRequestCNY: "10", DailyBudgetCNY: "10"}
+			quote, err := book.MakeQuote(version, "default", key, "gpt-4o", 100, []int{101}, now)
+			require.NoError(t, err)
+			assert.Equal(t, "3", quote.Sale[0].Prices.Input)
+			// Same rates renew freshness without bumping price versions or breaking requests already admitted.
+			renewal := *feed
+			renewal.FetchedAt = now + 1
+			same, err := SyncRetailGroupRates(ctx, version, &renewal, false)
+			require.NoError(t, err)
+			assert.Equal(t, version, same)
+			// A source increase wins over the old manual rate and hits the user's accepted ceiling.
+			raised := *feed
+			raised.FetchedAt = now + 2
+			raised.Groups = []retailprice.PublicRate{{Group: binding.UpstreamGroup, Name: "Pro", Multiplier: "0.8"}}
+			version, err = SyncRetailGroupRates(ctx, version, &raised, false)
+			require.NoError(t, err)
+			book, _, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			_, err = book.MakeQuote(version, "default", key, "gpt-4o", 100, []int{101}, now)
+			require.ErrorIs(t, err, retailprice.ErrCap)
+			assert.Equal(t, "3", quote.Sale[0].Prices.Input, "earlier customer quote stays frozen")
+			// A failure is durable and cannot silently reuse either cached public data or manual costs.
+			version, err = SyncRetailGroupRates(ctx, version, nil, true)
+			require.NoError(t, err)
+			book, _, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			_, err = book.MakeQuote(version, "default", key, "gpt-4o", 100, []int{101}, now)
+			require.ErrorIs(t, err, retailprice.ErrExpired)
+			recovered := *feed
+			recovered.FetchedAt = now + 3
+			version, err = SyncRetailGroupRates(ctx, version, &recovered, false)
+			require.NoError(t, err)
+			book, _, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			_, err = book.MakeQuote(version, "default", key, "gpt-4o", 100, []int{101}, now+301)
+			require.ErrorIs(t, err, retailprice.ErrExpired)
+			missing := recovered
+			missing.FetchedAt = now + 4
+			missing.Groups = []retailprice.PublicRate{{Group: "another", Name: "Another", Multiplier: "0.01"}}
+			version, err = SyncRetailGroupRates(ctx, version, &missing, false)
+			require.NoError(t, err)
+			book, _, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			_, err = book.MakeQuote(version, "default", key, "gpt-4o", 100, []int{101}, now)
+			require.ErrorIs(t, err, retailprice.ErrExpired)
+			_, err = SaveRetailGroupBindings(ctx, version, nil, false, nil, 1)
+			require.Error(t, err, "in-use binding cannot be removed to restore manual prices")
+			// Two editors see the same version: exactly one complete configuration may be committed.
+			var wg sync.WaitGroup
+			results := make(chan error, 2)
+			for range 2 {
+				wg.Go(func() {
+					_, err := SaveRetailGroupBindings(ctx, version, []retailprice.GroupBinding{binding}, false, feed, 1)
+					results <- err
+				})
+			}
+			wg.Wait()
+			close(results)
+			success := 0
+			for err := range results {
+				if err == nil {
+					success++
+				} else {
+					require.ErrorIs(t, err, ErrRetailPriceConflict)
+				}
+			}
+			assert.Equal(t, 1, success)
+			book, _, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			assert.False(t, book.PublicRateSync.Enabled)
+			_, err = book.MakeQuote(version, "default", key, "gpt-4o", 100, []int{101}, now)
+			require.ErrorIs(t, err, retailprice.ErrExpired)
 		})
 	}
 }

@@ -1,16 +1,19 @@
 package controller
 
 import (
+	"context"
 	"io"
 	"mime"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 )
@@ -24,55 +27,54 @@ var retailPublicRatesClient = &http.Client{
 }
 var retailPublicRateNumber = regexp.MustCompile(`^(0|[1-9][0-9]{0,2})(\.[0-9]{1,8})?$`)
 
-type retailPublicRate struct {
-	Group      string `json:"group"`
-	Name       string `json:"name"`
-	Multiplier string `json:"multiplier"`
-}
+type retailPublicRate = retailprice.PublicRate
 
-// GetRetailPublicRates reads a fixed, credential-free supplier snapshot for root preview only.
-// It deliberately never publishes rates, guesses channel bindings or changes wallet conversion.
+// GetRetailPublicRates reads a fixed credential-free source without changing a binding or price.
 func GetRetailPublicRates(c *gin.Context) {
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, retailPublicRatesURL, nil)
+	snapshot, err := fetchRetailPublicRates(c.Request.Context())
 	if err != nil {
-		common.ApiError(c, common.NewMessage("Unable to read upstream public multipliers"))
+		common.ApiError(c, err)
 		return
 	}
-	// Do not forward the operator's cookies, authorization headers, URL parameters or upstream Key.
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": snapshot})
+}
+
+// fetchRetailPublicRates is shared by manual preview and the leased synchronizer.
+// It never forwards operator headers or follows redirects to another endpoint.
+func fetchRetailPublicRates(ctx context.Context) (*retailprice.PublicRateSnapshot, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, retailPublicRatesURL, nil)
+	if err != nil {
+		return nil, common.NewMessage("Unable to read upstream public multipliers")
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Cache-Control", "no-cache")
 	response, err := retailPublicRatesClient.Do(req)
 	if err != nil {
-		common.ApiError(c, common.NewMessage("Unable to read upstream public multipliers"))
-		return
+		return nil, common.NewMessage("Unable to read upstream public multipliers")
 	}
 	defer response.Body.Close()
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if response.StatusCode != http.StatusOK || err != nil || mediaType != "application/json" {
-		// Never relay an upstream error body: it may contain HTML, diagnostics or misleading prices.
-		common.ApiError(c, common.NewMessage("Unable to read upstream public multipliers"))
-		return
+		return nil, common.NewMessage("Unable to read upstream public multipliers")
 	}
 	const maxBytes = 256 << 10
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
 	if err != nil || len(body) > maxBytes {
-		common.ApiError(c, common.NewMessage("Invalid upstream public multiplier response"))
-		return
+		return nil, common.NewMessage("Invalid upstream public multiplier response")
 	}
 	fetchedAt := time.Now().UTC()
 	groups, updatedAt, ok := parseRetailPublicRates(body, fetchedAt)
 	if !ok {
-		common.ApiError(c, common.NewMessage("Invalid upstream public multiplier response"))
-		return
+		return nil, common.NewMessage("Invalid upstream public multiplier response")
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
-		"source": retailPublicRatesURL, "updated_at": updatedAt, "fetched_at": fetchedAt.Unix(), "groups": groups,
-	}})
+	// Stable order makes unchanged-price renewals independent of the supplier's display ordering.
+	slices.SortFunc(groups, func(a, b retailPublicRate) int { return strings.Compare(a.Group, b.Group) })
+	return &retailprice.PublicRateSnapshot{Source: retailPublicRatesURL, UpdatedAt: updatedAt, FetchedAt: fetchedAt.Unix(), Groups: groups}, nil
 }
 
 // parseRetailPublicRates validates the entire snapshot before displaying any group.
-// Source update time is informational: its freshness semantics are undocumented, so it must not
-// become a verified_at/valid_until pair for billing. No partial or zero-price fallback is allowed.
+// Preview accepts historical snapshots for inspection. Billing separately requires an explicit binding
+// and both timestamps within its five-minute validity window; no partial or zero-price fallback is allowed.
 func parseRetailPublicRates(body []byte, fetchedAt time.Time) ([]retailPublicRate, int64, bool) {
 	var source struct {
 		Success   bool   `json:"success"`

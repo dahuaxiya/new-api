@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -57,12 +57,14 @@ import {
   type RetailPricePreview,
   type RetailPricingState,
 } from '../retail-pricing-api'
+import { RetailGroupBindings } from './retail-group-bindings'
 import { RetailPublicRatesPreview } from './retail-public-rates-preview'
 
 /** Root-only pricing drawer; query identity follows the login session and failures hide old state. */
 export function RetailPricing() {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [hasPricingDraft, setHasPricingDraft] = useState(false)
   const identity = useAuthStore(
     (s) => `${s.auth.user?.id}:${s.auth.session?.sid}`
   )
@@ -89,7 +91,35 @@ export function RetailPricing() {
           </SheetHeader>
           <div className='flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6'>
             {open && (
-              <RetailPublicRatesPreview key={identity} identity={identity} />
+              <RetailGroupBindings
+                key={identity}
+                identity={identity}
+                onSaved={() => {
+                  // A binding is saved independently; never erase an unsaved tariff draft.
+                  if (!hasPricingDraft) {
+                    void query.refetch()
+                  } else {
+                    toast.info(
+                      t(
+                        'Bindings saved. Refresh pricing before publishing the existing draft.'
+                      )
+                    )
+                  }
+                }}
+              />
+            )}
+            {open && (
+              <details>
+                <summary className='text-muted-foreground cursor-pointer text-sm'>
+                  {t('Public multiplier reference')}
+                </summary>
+                <div className='mt-3'>
+                  <RetailPublicRatesPreview
+                    key={identity}
+                    identity={identity}
+                  />
+                </div>
+              </details>
             )}
             {query.isPending && (
               <LoadingState inline message={t('Loading...')} />
@@ -114,6 +144,7 @@ export function RetailPricing() {
                   key={`${identity}:${query.data.version}`}
                   state={query.data}
                   onSaved={() => void query.refetch()}
+                  onDirtyChange={setHasPricingDraft}
                 />
               </>
             )}
@@ -128,6 +159,7 @@ export function RetailPricing() {
 function RetailPricingEditor(props: {
   state: RetailPricingState
   onSaved: () => void
+  onDirtyChange: (dirty: boolean) => void
 }) {
   const { t } = useTranslation()
   const form = useForm({
@@ -150,6 +182,11 @@ function RetailPricingEditor(props: {
   } | null>(null)
   const [confirm, setConfirm] = useState<'book' | 'rates' | null>(null)
   const draft = JSON.stringify({ book, models, products, rates })
+  const [initialDraft] = useState(draft)
+  const onDirtyChange = props.onDirtyChange
+  useEffect(() => {
+    onDirtyChange(draft !== initialDraft)
+  }, [draft, initialDraft, onDirtyChange])
   const previewValid = preview?.draft === draft
   const mutation = useMutation({
     mutationFn: async (action: 'preview' | 'book' | 'rates') => {

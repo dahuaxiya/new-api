@@ -67,7 +67,19 @@ func PreviewRetailPricing(c *gin.Context) {
 	var input struct {
 		Book retailprice.Book `json:"book"`
 	}
-	if c.ShouldBindJSON(&input) != nil || input.Book.Validate(time.Now().Unix()) != nil {
+	if c.ShouldBindJSON(&input) != nil {
+		retailPricingManagementError(c, retailprice.ErrConfig)
+		return
+	}
+	// Publication preserves server-managed mappings; preview must use the same
+	// source so an older browser draft cannot show a manual price for a bound route.
+	current, _, err := model.GetRetailPriceBook()
+	if err != nil {
+		retailPricingManagementError(c, err)
+		return
+	}
+	input.Book.GroupBindings, input.Book.PublicRateSync = current.GroupBindings, current.PublicRateSync
+	if input.Book.Validate(time.Now().Unix()) != nil {
 		retailPricingManagementError(c, retailprice.ErrConfig)
 		return
 	}

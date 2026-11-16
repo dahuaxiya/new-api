@@ -151,6 +151,13 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	if err != nil || !book.Enabled || version != quote.Version {
 		return retailprice.ErrExpired
 	}
+	// Channel configuration can change after a binding is saved. A Xingxing cost
+	// snapshot must never authorize procurement from a different supplier endpoint.
+	if slices.ContainsFunc(book.GroupBindings, func(binding retailprice.GroupBinding) bool { return binding.ChannelID == info.ChannelId }) {
+		if req.URL == nil || req.URL.Scheme != "https" || req.URL.Host != "aixingxing.pro" || req.URL.User != nil {
+			return retailprice.ErrAccess
+		}
+	}
 	// First release disables automatic retries for guarded calls: failed procurement has unknown cost.
 	if info.RetryIndex > 0 {
 		return retailprice.ErrUsage
@@ -257,7 +264,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		return retailprice.ErrBudget
 	}
 	// Persist the actual supplier tariff, never just the mutable channel identity.
-	snapshot, err := common.Marshal(map[string]any{"pricing_version": version, "product": quote.ProductID, "model": fresh.Model, "rates": book.Rates})
+	snapshot, err := common.Marshal(map[string]any{"pricing_version": version, "product": quote.ProductID, "model": fresh.Model, "rates": book.Rates, "group_bindings": book.GroupBindings, "public_rate_sync": book.PublicRateSync})
 	if err != nil {
 		return err
 	}

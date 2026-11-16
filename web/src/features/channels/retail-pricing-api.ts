@@ -85,6 +85,59 @@ export type RetailPricingState = {
   server_time: number
   book: RetailPriceBook
 }
+
+export type RetailGroupBinding = {
+  local_group: string
+  channel_id: number
+  upstream_group: string
+}
+export type RetailBindingState = {
+  version: number
+  server_time: number
+  bindings: RetailGroupBinding[] | null
+  local_groups: string[]
+  channels: Array<{ id: number; name: string }>
+  sync: { enabled: boolean; last_error?: string; snapshot?: RetailPublicRates }
+  pricing_ready: boolean
+  pricing_enabled: boolean
+}
+
+/** Read safe options and persisted bindings for the current root session. */
+export async function getRetailGroupBindings(
+  signal: AbortSignal
+): Promise<RetailBindingState> {
+  return requireServerSuccess(
+    (await api.get('/api/retail/admin/pricing/group-bindings', { signal })).data
+  ).data
+}
+
+/** Save explicit mappings; the server obtains trusted multipliers itself. */
+export async function saveRetailGroupBindings(
+  version: number,
+  bindings: RetailGroupBinding[],
+  enabled: boolean
+): Promise<void> {
+  requireServerSuccess(
+    (
+      await api.put('/api/retail/admin/pricing/group-bindings', {
+        expected_version: version,
+        bindings,
+        enabled,
+      })
+    ).data
+  )
+}
+
+/** Refresh the committed bindings without publishing any unsaved form changes. */
+export async function syncRetailGroupBindings(version: number): Promise<void> {
+  requireServerSuccess(
+    (
+      await api.post('/api/retail/admin/pricing/group-bindings/sync', {
+        expected_version: version,
+      })
+    ).data
+  )
+}
 export type RetailPricePreview = {
   product: string
   model: string

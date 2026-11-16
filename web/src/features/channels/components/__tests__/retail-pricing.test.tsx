@@ -192,6 +192,7 @@ it('reads public multipliers only on demand and never imports or publishes them'
   expect(
     screen.queryByRole('table', { name: 'Xingxing public multipliers' })
   ).not.toBeInTheDocument()
+  fireEvent.click(screen.getByText('Public multiplier reference'))
   fireEvent.click(
     screen.getByRole('button', { name: 'Read public multipliers' })
   )

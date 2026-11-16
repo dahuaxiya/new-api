@@ -21,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -521,6 +522,9 @@ func TestRetailPricingManagement(t *testing.T) {
 	admin := engine.Group("/api/retail/admin", middleware.RootAuth(), middleware.DisableCache())
 	admin.GET("/pricing", GetRetailPricingAdmin)
 	admin.GET("/pricing/public-rates", GetRetailPublicRates)
+	admin.GET("/pricing/group-bindings", GetRetailGroupBindings)
+	admin.PUT("/pricing/group-bindings", middleware.SessionCookieOriginGuard(), PutRetailGroupBindings)
+	admin.POST("/pricing/group-bindings/sync", middleware.SessionCookieOriginGuard(), SyncRetailGroupBindings)
 	admin.PUT("/pricing", middleware.SessionCookieOriginGuard(), PutRetailPricingAdmin)
 	admin.POST("/pricing/rates", middleware.SessionCookieOriginGuard(), ImportRetailRates)
 	admin.POST("/pricing/preview", middleware.SessionCookieOriginGuard(), PreviewRetailPricing)
@@ -550,6 +554,10 @@ func TestRetailPricingManagement(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code, "regular user cannot publish tariffs")
 	w = request("GET", "/api/retail/admin/pricing/public-rates", "https://example.com", nil)
 	require.Equal(t, http.StatusForbidden, w.Code, "public source preview is a root-only management feature")
+	for _, action := range []struct{ method, path string }{{"GET", "/api/retail/admin/pricing/group-bindings"}, {"PUT", "/api/retail/admin/pricing/group-bindings"}, {"POST", "/api/retail/admin/pricing/group-bindings/sync"}} {
+		w = request(action.method, action.path, "https://example.com", gin.H{})
+		require.Equal(t, http.StatusForbidden, w.Code, "binding operations require root")
+	}
 	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
 	w = request("PUT", "/api/retail/admin/pricing", "https://attacker.example", publish)
@@ -630,6 +638,51 @@ func TestRetailPricingManagement(t *testing.T) {
 	for _, private := range []string{"channel_id", "multiplier", "receipt_ratio", "supplier/standard", "margin_bps"} {
 		require.NotContains(t, w.Body.String(), private)
 	}
+	// Persist via the real management route, ignoring any browser-supplied price.
+	require.NoError(t, model.DB.Model(&channel).Update("base_url", "https://aixingxing.pro").Error)
+	retailPublicRatesClient.Transport = retailPublicRatesTestTransport(func(r *http.Request) (*http.Response, error) {
+		require.Empty(t, r.Header.Get("Authorization"))
+		body := fmt.Sprintf(`{"success":true,"server":"https://aixingxing.pro","updated_at":%q,"groups":[{"group":"Pro","name":"Pro","rate":0.24}]}`, time.Now().UTC().Format(time.RFC3339))
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})
+	bindingInput := gin.H{"expected_version": 3, "enabled": true, "bindings": []gin.H{{"local_group": "default", "channel_id": 101, "upstream_group": "Pro", "multiplier": "0.00001"}}}
+	w = request("PUT", "/api/retail/admin/pricing/group-bindings", "https://attacker.example", bindingInput)
+	require.Equal(t, 403, w.Code)
+	w = request("PUT", "/api/retail/admin/pricing/group-bindings", "https://example.com", bindingInput)
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	w = request("GET", "/api/retail/admin/pricing/group-bindings", "https://example.com", nil)
+	require.Contains(t, w.Body.String(), `"local_group":"default"`)
+	require.Contains(t, w.Body.String(), `"multiplier":"0.24"`)
+	require.NotContains(t, w.Body.String(), "test-only")
+	bound, _, err := model.GetRetailPriceBook()
+	require.NoError(t, err)
+	require.False(t, bound.Enabled, "binding must not reopen disabled sales")
+	// Exercise the actual quote path, then reject a changed destination before any I/O.
+	bound.Enabled = true
+	_, err = model.PublishRetailPriceBook(4, bound, nil, user.Id)
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Model(&token).Update("user_id", user.Id).Error)
+	quote, err := model.RetailQuote(user.Id, token.Id, "gpt-4o", 20, []int{101})
+	require.NoError(t, err)
+	require.Equal(t, "3", quote.Sale[0].Prices.Input, "bound 0.24 cost must replace the manual 0.4 cost")
+	w = request("POST", "/api/retail/admin/pricing/preview", "https://example.com", gin.H{"book": book})
+	require.Contains(t, w.Body.String(), `"input":"3"`, "preview must use saved bindings even when the browser has an older manual draft")
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	for _, endpoint := range []string{"https://another-supplier.example/v1/chat/completions", "http://aixingxing.pro/v1/chat/completions", "https://aixingxing.pro:8443/v1/chat/completions"} {
+		r, err := http.NewRequest("POST", endpoint, strings.NewReader(`{"model":"gpt-4o"}`))
+		require.NoError(t, err)
+		info := &relaycommon.RelayInfo{RetailQuote: quote, ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 101}}
+		require.ErrorIs(t, service.GuardRetailUpstream(c, r, info), retailprice.ErrAccess)
+	}
+	retailPublicRatesClient.Transport = retailPublicRatesTestTransport(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 403, Header: http.Header{"Content-Type": {"text/html"}}, Body: io.NopCloser(strings.NewReader("private upstream error")), Request: r}, nil
+	})
+	w = request("POST", "/api/retail/admin/pricing/group-bindings/sync", "https://example.com", gin.H{"expected_version": 5})
+	require.Contains(t, w.Body.String(), `"success":false`)
+	require.NotContains(t, w.Body.String(), "private upstream error")
+	bound, _, err = model.GetRetailPriceBook()
+	require.NoError(t, err)
+	require.NotEmpty(t, bound.PublicRateSync.LastError)
 	require.NoError(t, model.DB.Model(user).Update("status", common.UserStatusDisabled).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
 	w = request("GET", "/api/retail/admin/pricing", "https://example.com", nil)

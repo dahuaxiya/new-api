@@ -28,6 +28,7 @@ type siteTaskHandler struct{ kind string }
 // registerSiteTasks 按进程站点登记处理器，避免托管站领取钱包任务或中转站接触客户账号。
 func registerSiteTasks() {
 	if common.IsRetailSite() {
+		service.RegisterSystemTaskHandler(retailRatesHandler{})
 		service.RegisterSystemTaskHandler(siteTaskHandler{kind: siteTaskWalletPayment})
 		return
 	}

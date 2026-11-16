@@ -80,15 +80,17 @@ type Product struct {
 
 // Book stores an immutable pricing version. Wallet conversion is explicit and never a display FX rate.
 type Book struct {
-	Enabled          bool      `json:"enabled"`
-	WalletCNYPerUnit string    `json:"wallet_cny_per_unit"`
-	ReceiptRatio     string    `json:"receipt_ratio"`
-	MarginBPS        int       `json:"margin_bps"`
-	FeeBPS           int       `json:"fee_bps"`
-	BufferBPS        int       `json:"buffer_bps"`
-	Models           []Model   `json:"models"`
-	Products         []Product `json:"products"`
-	Rates            []Rate    `json:"rates"`
+	GroupBindings    []GroupBinding `json:"group_bindings,omitempty"`
+	PublicRateSync   PublicRateSync `json:"public_rate_sync"`
+	Enabled          bool           `json:"enabled"`
+	WalletCNYPerUnit string         `json:"wallet_cny_per_unit"`
+	ReceiptRatio     string         `json:"receipt_ratio"`
+	MarginBPS        int            `json:"margin_bps"`
+	FeeBPS           int            `json:"fee_bps"`
+	BufferBPS        int            `json:"buffer_bps"`
+	Models           []Model        `json:"models"`
+	Products         []Product      `json:"products"`
+	Rates            []Rate         `json:"rates"`
 }
 
 // KeyPolicy is an explicit opt-in to floating prices within absolute CNY ceilings.
@@ -135,6 +137,9 @@ func pricesFromValues(v []string) Prices { return Prices{v[0], v[1], v[2], v[3],
 
 // Validate checks complete tariffs before publication; empty disabled configuration is allowed for first setup.
 func (b Book) Validate(now int64) error {
+	if err := b.ValidateBindings(now); err != nil {
+		return err
+	}
 	if !b.Enabled && len(b.Models) == 0 && len(b.Products) == 0 && len(b.Rates) == 0 {
 		return nil
 	}
@@ -187,10 +192,17 @@ func (b Book) Validate(now int64) error {
 		products[p.ID] = true
 		seenChannels := map[int]bool{}
 		for _, route := range p.Routes {
-			if route.ChannelID <= 0 || seenChannels[route.ChannelID] || !rates[route.RateID] || len(route.Models) == 0 || len(route.Models) > 500 {
+			if route.ChannelID <= 0 || seenChannels[route.ChannelID] || (route.RateID != "" && !rates[route.RateID]) || len(route.Models) == 0 || len(route.Models) > 500 {
 				return ErrConfig
 			}
 			seenChannels[route.ChannelID] = true
+			if route.RateID == "" || slices.ContainsFunc(b.GroupBindings, func(binding GroupBinding) bool { return binding.ChannelID == route.ChannelID }) {
+				for _, group := range p.UserGroups {
+					if b.Binding(group, route.ChannelID) == nil {
+						return ErrConfig
+					}
+				}
+			}
 			for name, upstream := range route.Models {
 				if !models[name] || !idPattern.MatchString(upstream) {
 					return ErrConfig
@@ -297,8 +309,17 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		if route.Models[modelName] == "" || !slices.Contains(eligible, route.ChannelID) {
 			continue
 		}
-		for _, r := range b.Rates {
-			if r.ID != route.RateID || r.ValidUntil <= now {
+		routeRates, rateID := b.Rates, route.RateID
+		if binding := b.Binding(group, route.ChannelID); binding != nil {
+			// A failed refresh cannot reactivate an older manually entered multiplier.
+			rate, err := b.BoundRate(*binding, now)
+			if err != nil {
+				continue
+			}
+			routeRates, rateID = []Rate{rate}, rate.ID
+		}
+		for _, r := range routeRates {
+			if r.ID != rateID || r.ValidUntil <= now {
 				continue
 			}
 			factor, err := b.SaleFactor(r.Multiplier)
