@@ -8259,7 +8259,7 @@
     "No call groups are available. Contact the administrator.": "利用可能な呼び出しグループがありません。管理者にお問い合わせください。",
     "Next: price limits": "次へ：価格上限",
     "Set call group": "呼び出しグループを設定",
-    "Call group unavailable": "呼び出しグループは利用できません"
-  },
-  "Choose a call group. Usage is charged to your balance at its current prices.": "呼び出しグループを選択してください。利用料金はその時点のグループ料金で残高から差し引かれます。"
+    "Call group unavailable": "呼び出しグループは利用できません",
+    "Choose a call group. Usage is charged to your balance at its current prices.": "呼び出しグループを選択してください。利用料金はその時点のグループ料金で残高から差し引かれます。"
+  }
 }

@@ -8259,7 +8259,7 @@
     "No call groups are available. Contact the administrator.": "Aucun groupe d’appel disponible. Contactez l’administrateur.",
     "Next: price limits": "Suivant : limites de prix",
     "Set call group": "Définir le groupe d’appel",
-    "Call group unavailable": "Groupe d’appel indisponible"
-  },
-  "Choose a call group. Usage is charged to your balance at its current prices.": "Choisissez un groupe d’appel. Les frais sont déduits de votre solde aux tarifs actuels du groupe."
+    "Call group unavailable": "Groupe d’appel indisponible",
+    "Choose a call group. Usage is charged to your balance at its current prices.": "Choisissez un groupe d’appel. Les frais sont déduits de votre solde aux tarifs actuels du groupe."
+  }
 }
