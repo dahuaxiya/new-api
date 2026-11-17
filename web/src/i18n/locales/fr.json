@@ -8253,6 +8253,12 @@
     "No call groups are available yet. Contact the site administrator.": "Aucun groupe d’appel disponible. Contactez l’administrateur.",
     "Select a call group, then set its budget and price limits.": "Sélectionnez un groupe, puis définissez son budget et ses plafonds.",
     "Public call groups can be selected by every registered user. No account group change is needed.": "Chaque utilisateur inscrit peut choisir un groupe public sans changer de groupe de compte.",
-    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "Choisissez le groupe amont, saisissez sa clé et ses modèles, puis nommez le groupe proposé aux utilisateurs. Enregistrez avec votre marge."
+    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "Choisissez le groupe amont, saisissez sa clé et ses modèles, puis nommez le groupe proposé aux utilisateurs. Enregistrez avec votre marge.",
+    "Set price limits and budgets before creating this key.": "Définissez les plafonds de prix et les budgets avant de créer cette clé.",
+    "Choose the model route for this key. Your account group stays unchanged.": "Choisissez le groupe d’appel de cette clé. Le groupe de votre compte reste inchangé.",
+    "No call groups are available. Contact the administrator.": "Aucun groupe d’appel disponible. Contactez l’administrateur.",
+    "Next: price limits": "Suivant : limites de prix",
+    "Set call group": "Définir le groupe d’appel",
+    "Call group unavailable": "Groupe d’appel indisponible"
   }
 }

@@ -535,6 +535,7 @@ func TestRetailPricingManagement(t *testing.T) {
 	studio.POST("/chat/completions", middleware.RetailStudioRelay("/v1/chat/completions"), func(c *gin.Context) {
 		c.JSON(200, gin.H{"token_id": c.GetInt("token_id"), "retail": c.GetBool("retail_request")})
 	})
+	engine.POST("/api/token/", middleware.UserAuth(), middleware.SessionCookieOriginGuard(), AddToken)
 	users.GET("/catalog", GetRetailCatalog)
 	users.GET("/keys/:id/pricing", GetRetailKeyPricing)
 	users.PUT("/keys/:id/pricing", middleware.SessionCookieOriginGuard(), PutRetailKeyPricing)
@@ -766,6 +767,51 @@ func TestRetailPricingManagement(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
 	w = request("PUT", keyPath, "https://example.com", gin.H{"expected_revision": 2, "policy": policy})
 	require.Contains(t, w.Body.String(), `"success":false`, "private plan remains unavailable")
+	// Creation and policy share one commit, including public access for ordinary
+	// users. Forged ownership and studio-only budget semantics cannot cross this API.
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleCommonUser).Error)
+	require.NoError(t, model.PublishUserAuthCache(user.Id))
+	createInput := gin.H{"name": "public-create", "service_mode": "retail", "unlimited_quota": true, "expired_time": -1, "retail_policy": publicPolicy, "user_id": user.Id + 1}
+	w = request("POST", "/api/token/", "https://attacker.example", createInput)
+	require.Equal(t, http.StatusForbidden, w.Code)
+	w = request("POST", "/api/token/", "https://example.com", createInput)
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	require.NotContains(t, w.Body.String(), `"key":`, "creation must not disclose usable credentials")
+	var created model.Token
+	require.NoError(t, model.DB.Where("name = ?", "public-create").First(&created).Error)
+	require.Equal(t, user.Id, created.UserId)
+	savedPolicy, savedRevision, err := model.GetRetailKeyPolicy(user.Id, created.Id)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, savedRevision)
+	require.Equal(t, publicPolicy, savedPolicy)
+	var account model.User
+	require.NoError(t, model.DB.First(&account, user.Id).Error)
+	require.Equal(t, "another", account.Group, "selecting a call group cannot change account membership")
+	for _, scenario := range []string{"private", "unknown", "no-consent", "zero-budget", "studio", "foreign-model"} {
+		t.Run("atomic-key-"+scenario, func(t *testing.T) {
+			bad := publicPolicy
+			switch scenario {
+			case "private":
+				bad.ProductID = "standard"
+			case "unknown":
+				bad.ProductID = "missing"
+			case "no-consent":
+				bad.AcceptFloating = false
+			case "zero-budget":
+				bad.DailyBudgetCNY = "0"
+			case "studio":
+				bad.StudioCurrent = true
+			case "foreign-model":
+				bad.Caps = map[string]retailprice.Prices{"foreign-model": cap}
+			}
+			var before, after int64
+			require.NoError(t, model.DB.Model(&model.Token{}).Count(&before).Error)
+			w = request("POST", "/api/token/", "https://example.com", gin.H{"name": "rejected-" + scenario, "service_mode": "retail", "unlimited_quota": true, "retail_policy": bad})
+			require.Contains(t, w.Body.String(), `"success":false`, w.Body.String())
+			require.NoError(t, model.DB.Model(&model.Token{}).Count(&after).Error)
+			require.Equal(t, before, after, "rejected policy must roll back the new token")
+		})
+	}
 	require.NoError(t, model.DB.Model(user).Update("status", common.UserStatusDisabled).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
 	w = request("GET", "/api/retail/admin/pricing", "https://example.com", nil)

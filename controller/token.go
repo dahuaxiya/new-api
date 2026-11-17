@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -33,6 +34,8 @@ func (input *tokenAutoGroupsInput) UnmarshalJSON(data []byte) error {
 }
 
 type tokenRequest struct {
+	// 创建时可同时提交调用分组和限价；更新限价继续走带版本校验的专用接口。
+	RetailPolicy *retailprice.KeyPolicy `json:"retail_policy"`
 	model.Token
 	AutoGroups tokenAutoGroupsInput `json:"auto_groups"`
 	// 指针区分“未传”和显式 false：新建时未传即开启，更新时未传则保留原值。
@@ -298,7 +301,8 @@ func GetTokenUsage(c *gin.Context) {
 	})
 }
 
-// AddToken 创建当前用户的客户端 Key，托管目标须属于本人，多名额禁止隐式选择。
+// AddToken 创建当前用户的客户端 Key；托管目标须属于本人，多名额禁止隐式选择。
+// 中转分组和限价可与 Key 一次保存；任一校验失败都会回滚，避免留下无策略的密钥。
 func AddToken(c *gin.Context) {
 	request := tokenRequest{}
 	err := c.ShouldBindJSON(&request)
@@ -394,7 +398,12 @@ func AddToken(c *gin.Context) {
 		AutoGroups:         token.AutoGroups,
 	}
 	cleanToken.AllowUserQuotaQuery = request.AllowUserQuotaQuery == nil || *request.AllowUserQuotaQuery
-	err = cleanToken.Insert()
+	if request.RetailPolicy != nil {
+		err = model.InsertRetailTokenWithPolicy(&cleanToken, *request.RetailPolicy)
+	} else {
+		// Preserve older clients; retail keys without a policy remain blocked by the pricing gate.
+		err = cleanToken.Insert()
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return

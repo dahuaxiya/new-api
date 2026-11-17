@@ -8283,6 +8283,12 @@
     "No call groups are available yet. Contact the site administrator.": "暫時沒有可用的呼叫分組，請聯絡管理員。",
     "Select a call group, then set its budget and price limits.": "先選擇呼叫分組，再設定預算和價格上限。",
     "Public call groups can be selected by every registered user. No account group change is needed.": "所有註冊使用者都可以選擇公開呼叫分組，無需修改帳號所屬組。",
-    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "選擇上游分組，填寫對應 Key 和模型，再設定使用者可選的呼叫分組名稱；在這裡一併儲存毛利。"
+    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "選擇上游分組，填寫對應 Key 和模型，再設定使用者可選的呼叫分組名稱；在這裡一併儲存毛利。",
+    "Set price limits and budgets before creating this key.": "建立前，請設定模型價格上限和消費預算。",
+    "Choose the model route for this key. Your account group stays unchanged.": "選擇這個 Key 使用的呼叫分組，不會更改你的帳號分組。",
+    "No call groups are available. Contact the administrator.": "暫無可用呼叫分組，請聯絡管理員。",
+    "Next: price limits": "下一步：限價與預算",
+    "Set call group": "設定呼叫分組",
+    "Call group unavailable": "呼叫分組已無法使用"
   }
 }

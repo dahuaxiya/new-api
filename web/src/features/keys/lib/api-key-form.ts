@@ -28,6 +28,11 @@ import type { ApiKey, ApiKeyFormData } from '../types'
 // Form Schema
 // ============================================================================
 
+/** Validate basic key settings; retail product permissions and spending limits are checked at the atomic save boundary.
+ * @param t Current locale translator for field errors.
+ * @param maxAutoGroups Maximum legacy Auto routes; unrelated to retail call groups.
+ * @return Schema for the first creation step and existing key metadata edits.
+ */
 export function getApiKeyFormSchema(t: TFunction, maxAutoGroups = 5) {
   const autoGroupLimit =
     Number.isInteger(maxAutoGroups) && maxAutoGroups > 0 ? maxAutoGroups : 5
@@ -35,6 +40,7 @@ export function getApiKeyFormSchema(t: TFunction, maxAutoGroups = 5) {
   return z
     .object({
       name: z.string().min(1, t('Please enter a name')),
+      call_product_id: z.string().optional(),
       remain_quota_dollars: z.number().optional(),
       expired_time: z.date().optional(),
       unlimited_quota: z.boolean(),

@@ -26,6 +26,7 @@ import {
 } from '@tanstack/react-router'
 import {
   act,
+  fireEvent,
   cleanup,
   render,
   screen,
@@ -47,8 +48,9 @@ import {
 
 import { apiKeySchema, type ApiKey } from '../../types'
 import { ApiKeyQuotaCell } from '../api-key-quota-cell'
-import { ApiKeysProvider } from '../api-keys-provider'
+import { ApiKeysProvider, useApiKeys } from '../api-keys-provider'
 import { ApiKeysTable } from '../api-keys-table'
+import { RetailKeyGroupCell } from '../retail-key-group-cell'
 
 const now = 1_700_000_000_000
 const key = apiKeySchema.parse({
@@ -457,4 +459,53 @@ it('hides unlimited mobile quota while keeping model and IP details accessible',
   details = await screen.findByRole('dialog')
   expect(within(details).getByText('192.0.2.1')).toBeVisible()
   expect(within(details).getByText('2001:db8::1')).toBeVisible()
+})
+
+/** Expose only dialog selection so the test verifies the row action without fetching or showing a secret key. */
+function RetailGroupRowFixture() {
+  const state = useApiKeys()
+  return (
+    <>
+      <RetailKeyGroupCell
+        apiKey={{ ...key, service_mode: 'retail', group: '' }}
+      />
+      <output aria-label='dialog selection'>
+        {state.open}:{state.currentRow?.id}
+      </output>
+    </>
+  )
+}
+
+/** A retail key shows its saved shared route and opens its own price policy, never inherited account membership. */
+it('displays the saved retail call group and opens its policy', async () => {
+  vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+    data: {
+      success: true,
+      data: String(url).endsWith('/catalog')
+        ? {
+            enabled: true,
+            version: 1,
+            products: [{ id: 'normal', name: 'gpt-normal', models: [] }],
+          }
+        : { revision: 1, policy: { product_id: 'normal' } },
+    },
+  }))
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  clients.push(client)
+  render(
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={client}>
+        <ApiKeysProvider>
+          <RetailGroupRowFixture />
+        </ApiKeysProvider>
+      </QueryClientProvider>
+    </I18nextProvider>
+  )
+  fireEvent.click(await screen.findByRole('button', { name: 'gpt-normal' }))
+  expect(screen.getByLabelText('dialog selection')).toHaveTextContent(
+    'price-limits:7'
+  )
+  expect(screen.queryByText('Follow user group')).not.toBeInTheDocument()
 })

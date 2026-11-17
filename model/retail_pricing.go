@@ -139,60 +139,88 @@ func PutRetailKeyPolicy(userID, tokenID int, expected int64, policy retailprice.
 		return err
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
-		state, err := lockRetailPriceState(tx)
-		if err != nil {
+		return putRetailKeyPolicy(tx, userID, tokenID, expected, policy)
+	})
+}
+
+// InsertRetailTokenWithPolicy atomically creates an ordinary retail key with its validated spending policy.
+// A rejected product, missing consent or database failure rolls back the key as well; callers supply a server-owned token.
+func InsertRetailTokenWithPolicy(token *Token, policy retailprice.KeyPolicy) error {
+	if token == nil || token.Id != 0 || token.UserId <= 0 || token.ServiceMode != TokenServiceRetail || policy.StudioCurrent {
+		return retailprice.ErrAccess
+	}
+	if err := policy.Validate(); err != nil {
+		return err
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		// Match policy updates' price-state-first locking order. The policy validation
+		// below uses this same transaction, so no unconfigured key can become visible.
+		if _, err := lockRetailPriceState(tx); err != nil {
 			return err
 		}
-		var book retailprice.Book
-		if common.UnmarshalJsonStr(state.Payload, &book) != nil {
-			return retailprice.ErrConfig
+		if err := tx.Create(token).Error; err != nil {
+			return err
 		}
-		var user User
-		if err := tx.Select("id", "group").First(&user, userID).Error; err != nil {
-			return retailprice.ErrAccess
-		}
-		var token Token
-		if err := tx.Select("id", "service_mode").First(&token, "id = ? AND user_id = ? AND service_mode IN ?", tokenID, userID, []string{TokenServiceRetail, TokenServiceStudio}).Error; err != nil {
-			return retailprice.ErrAccess
-		}
-		if policy.StudioCurrent && token.ServiceMode != TokenServiceStudio {
-			return retailprice.ErrAccess
-		}
-		allowedProduct := false
-		allowedModels := map[string]bool{}
-		for _, p := range book.Products {
-			if p.ID == policy.ProductID && p.AllowsGroup(user.Group) {
-				allowedProduct = true
-				for _, r := range p.Routes {
-					for name := range r.Models {
-						allowedModels[name] = true
-					}
+		return putRetailKeyPolicy(tx, token.UserId, token.Id, 0, policy)
+	})
+}
+
+// putRetailKeyPolicy shares authorization and optimistic revision checks between creation and updates.
+// The caller must own the transaction and validate the policy before entering this persistence boundary.
+func putRetailKeyPolicy(tx *gorm.DB, userID, tokenID int, expected int64, policy retailprice.KeyPolicy) error {
+	state, err := lockRetailPriceState(tx)
+	if err != nil {
+		return err
+	}
+	var book retailprice.Book
+	if common.UnmarshalJsonStr(state.Payload, &book) != nil {
+		return retailprice.ErrConfig
+	}
+	var user User
+	if err := tx.Select("id", "group").First(&user, userID).Error; err != nil {
+		return retailprice.ErrAccess
+	}
+	var token Token
+	if err := tx.Select("id", "service_mode").First(&token, "id = ? AND user_id = ? AND service_mode IN ?", tokenID, userID, []string{TokenServiceRetail, TokenServiceStudio}).Error; err != nil {
+		return retailprice.ErrAccess
+	}
+	if policy.StudioCurrent && token.ServiceMode != TokenServiceStudio {
+		return retailprice.ErrAccess
+	}
+	allowedProduct := false
+	allowedModels := map[string]bool{}
+	for _, p := range book.Products {
+		if p.ID == policy.ProductID && p.AllowsGroup(user.Group) {
+			allowedProduct = true
+			for _, r := range p.Routes {
+				for name := range r.Models {
+					allowedModels[name] = true
 				}
 			}
 		}
-		if !allowedProduct {
+	}
+	if !allowedProduct {
+		return retailprice.ErrAccess
+	}
+	for name := range policy.Caps {
+		if !allowedModels[name] {
 			return retailprice.ErrAccess
 		}
-		for name := range policy.Caps {
-			if !allowedModels[name] {
-				return retailprice.ErrAccess
-			}
-		}
-		var row RetailKeyPricePolicy
-		err = tx.First(&row, "token_id = ?", tokenID).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if row.Revision != expected {
-			return ErrRetailPriceConflict
-		}
-		payload, err := common.Marshal(policy)
-		if err != nil {
-			return err
-		}
-		row = RetailKeyPricePolicy{TokenID: tokenID, UserID: userID, Revision: expected + 1, Payload: string(payload)}
-		return tx.Save(&row).Error
-	})
+	}
+	var row RetailKeyPricePolicy
+	err = tx.First(&row, "token_id = ?", tokenID).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if row.Revision != expected {
+		return ErrRetailPriceConflict
+	}
+	payload, err := common.Marshal(policy)
+	if err != nil {
+		return err
+	}
+	row = RetailKeyPricePolicy{TokenID: tokenID, UserID: userID, Revision: expected + 1, Payload: string(payload)}
+	return tx.Save(&row).Error
 }
 
 // RetailQuote constructs a customer quote from a fresh book and verified public supply candidates.
