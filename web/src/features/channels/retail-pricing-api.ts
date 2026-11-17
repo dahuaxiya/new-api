@@ -19,7 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { z } from 'zod'
 
 import { api } from '@/lib/api'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import {
+  getServerErrorMessage,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 
 export type RetailPrices = {
   input: string
@@ -95,13 +98,29 @@ export type RetailSalePolicy = Pick<
   RetailPriceBook,
   'receipt_ratio' | 'margin_bps' | 'fee_bps' | 'buffer_bps'
 >
+export type RetailBindingChannel = {
+  id: number
+  name: string
+  site_id: number
+  base_url: string
+  models: string
+  has_key: boolean
+  status: number
+}
+export type RetailSupplyEdit = {
+  id: number
+  site_id: number
+  name: string
+  key: string
+  models: string
+}
 export type RetailBindingState = {
   sale_policy: RetailSalePolicy
   version: number
   server_time: number
   bindings: RetailGroupBinding[] | null
   local_groups: string[]
-  channels: Array<{ id: number; name: string }>
+  channels: RetailBindingChannel[]
   sync: { enabled: boolean; last_error?: string; snapshot?: RetailPublicRates }
   pricing_ready: boolean
   pricing_enabled: boolean
@@ -121,18 +140,26 @@ export async function saveRetailGroupBindings(
   version: number,
   bindings: RetailGroupBinding[],
   enabled: boolean,
-  salePolicy: RetailSalePolicy
+  salePolicy: RetailSalePolicy,
+  supplies?: RetailSupplyEdit[]
 ): Promise<void> {
-  requireServerSuccess(
-    (
-      await api.put('/api/retail/admin/pricing/group-bindings', {
-        expected_version: version,
-        bindings,
-        enabled,
-        sale_policy: salePolicy,
-      })
-    ).data
-  )
+  try {
+    requireServerSuccess(
+      (
+        await api.put('/api/retail/admin/pricing/group-bindings', {
+          expected_version: version,
+          bindings,
+          enabled,
+          sale_policy: salePolicy,
+          ...(supplies?.length ? { supplies } : {}),
+        })
+      ).data
+    )
+  } catch (error) {
+    // Axios errors retain request bodies. Expose only the safe server message so
+    // credential edits cannot enter mutation caches through error.config/cause.
+    throw new Error(getServerErrorMessage(error))
+  }
 }
 
 /** Refresh the committed bindings without publishing any unsaved form changes. */

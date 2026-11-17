@@ -127,3 +127,68 @@ func TestRetailSupplyGroupsDatabases(t *testing.T) {
 		})
 	}
 }
+
+// TestRetailSupplyConfigurationDatabases verifies that credentials, model abilities, margin and
+// multiplier bindings either commit together or roll back together on all supported engines.
+func TestRetailSupplyConfigurationDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := useVM2APIEnrollmentDatabase(t, dialect)
+			require.NoError(t, migrateDB())
+			endpoint := "https://aixingxing.pro"
+			parent := Channel{Name: "Site", Key: "site-key", BaseURL: &endpoint, Type: 1, Models: "old-model", Group: "retail,default", Status: 1}
+			require.NoError(t, parent.Insert())
+			cfgPath := filepath.Join(t.TempDir(), "retail.json")
+			raw, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"channel_id": parent.Id, "kind": "reseller"}}})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(cfgPath, raw, 0600))
+			t.Setenv("RETAIL_RELAY_CONFIG", cfgPath)
+			ctx := context.Background()
+			now := time.Now().Unix()
+			feed := &retailprice.PublicRateSnapshot{Source: "https://aixingxing.pro/api/public/rates", UpdatedAt: now, FetchedAt: now, Groups: []retailprice.PublicRate{{Group: "pro", Name: "Pro", Multiplier: "0.3"}}}
+			bindings := []retailprice.GroupBinding{{LocalGroup: "default", ChannelID: -1, UpstreamGroup: "pro"}}
+			edits := []RetailSupplyEdit{{ID: -1, SiteID: parent.Id, Name: "Pro", Key: "pro-key", Models: "model-a\nmodel-b"}}
+			policy := &retailprice.SalePolicy{ReceiptRatio: "1", MarginBPS: 2500}
+			version, err := SaveRetailSupplyConfiguration(ctx, 0, bindings, true, feed, 1, policy, edits)
+			require.NoError(t, err)
+			book, _, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Equal(t, 2500, book.MarginBPS)
+			id := book.GroupBindings[0].ChannelID
+			require.Positive(t, id)
+			require.Equal(t, -1, bindings[0].ChannelID, "the browser draft must remain retryable")
+			var ch Channel
+			require.NoError(t, db.First(&ch, id).Error)
+			require.Equal(t, "pro-key", ch.Key)
+			require.Equal(t, "model-a,model-b", ch.Models)
+			require.Equal(t, parent.Id, ch.RetailSiteID)
+			bindings = book.GroupBindings
+			// A channel-only edit still invalidates other editors; blank Key preserves the credential.
+			version2, err := SaveRetailSupplyConfiguration(ctx, version, bindings, true, feed, 1, policy, []RetailSupplyEdit{{ID: id, SiteID: parent.Id, Name: "Pro renamed", Models: "model-c"}})
+			require.NoError(t, err)
+			require.Greater(t, version2, version)
+			require.NoError(t, db.First(&ch, id).Error)
+			require.Equal(t, "pro-key", ch.Key)
+			require.Equal(t, "model-c", ch.Models)
+			_, err = SaveRetailSupplyConfiguration(ctx, version, bindings, true, feed, 1, policy, []RetailSupplyEdit{{ID: id, SiteID: parent.Id, Name: "Stale", Key: "stale-key", Models: "stale-model"}})
+			require.ErrorIs(t, err, ErrRetailPriceConflict)
+			// Invalid upstream mapping after a credential update rolls the whole transaction back.
+			bad := []retailprice.GroupBinding{{LocalGroup: "default", ChannelID: id, UpstreamGroup: "missing"}}
+			_, err = SaveRetailSupplyConfiguration(ctx, version2, bad, true, feed, 1, policy, []RetailSupplyEdit{{ID: id, SiteID: parent.Id, Name: "Bad", Key: "changed-key", Models: "bad-model"}})
+			require.Error(t, err)
+			require.NoError(t, db.First(&ch, id).Error)
+			require.Equal(t, "Pro renamed", ch.Name)
+			require.Equal(t, "pro-key", ch.Key)
+			var abilities []Ability
+			require.NoError(t, db.Where("channel_id = ?", id).Find(&abilities).Error)
+			require.Len(t, abilities, 1)
+			require.Equal(t, "model-c", abilities[0].Model)
+			_, err = SaveRetailSupplyConfiguration(ctx, version2, bindings, true, feed, 1, policy, []RetailSupplyEdit{{ID: id, SiteID: parent.Id, Name: "Pro", Key: parent.Key, Models: "model-c"}})
+			require.ErrorIs(t, err, ErrRetailSupplyGroupKey)
+			// The root site's legacy comma-separated group list is valid and editable.
+			rootBinding := append(append([]retailprice.GroupBinding{}, bindings...), retailprice.GroupBinding{LocalGroup: "existing", ChannelID: parent.Id, UpstreamGroup: "pro"})
+			_, err = SaveRetailSupplyConfiguration(ctx, version2, rootBinding, true, feed, 1, policy, []RetailSupplyEdit{{ID: parent.Id, SiteID: parent.Id, Name: "Site renamed", Models: "old-model"}})
+			require.NoError(t, err)
+		})
+	}
+}

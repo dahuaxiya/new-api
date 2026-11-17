@@ -8209,6 +8209,20 @@
     "Supply group name already exists at this site": "Supply group name already exists at this site",
     "This Key is already used by another group at this site": "This Key is already used by another group at this site",
     "Edit the site channel to change the shared address or protocol": "Edit the site channel to change the shared address or protocol",
-    "Unable to save supply group": "Unable to save supply group"
+    "Unable to save supply group": "Unable to save supply group",
+    "Supply groups, models and multiplier following": "Supply groups, models and multiplier following",
+    "Select an upstream group, enter its Key and models, and assign a local user group. Save everything with your margin here.": "Select an upstream group, enter its Key and models, and assign a local user group. Save everything with your margin here.",
+    "New supply group": "New supply group",
+    "Upstream API Key": "Upstream API Key",
+    "Configured; leave blank to keep": "Configured; leave blank to keep",
+    "Key for the selected upstream group": "Key for the selected upstream group",
+    "Allowed models": "Allowed models",
+    "One model per line, or separated by commas": "One model per line, or separated by commas",
+    "A label on this site; it does not rename the upstream group.": "A label on this site; it does not rename the upstream group.",
+    "A new group without a Key or models is saved as a disabled draft. Existing disabled groups stay disabled.": "A new group without a Key or models is saved as a disabled draft. Existing disabled groups stay disabled.",
+    "Save supply credentials, model permissions, group bindings and margin together. Existing Keys stay unchanged when blank. This does not enable sales.": "Save supply credentials, model permissions, group bindings and margin together. Existing Keys stay unchanged when blank. This does not enable sales.",
+    "Sign in with another account": "Sign in with another account",
+    "Switching signs out the current unified account. Then enter the other account and password.": "Switching signs out the current unified account. Then enter the other account and password.",
+    "Enter your account and password on the unified sign-in page. Already signed in? Choose “Sign in with another account” there.": "Enter your account and password on the unified sign-in page. Already signed in? Choose “Sign in with another account” there."
   }
 }

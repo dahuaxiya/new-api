@@ -24,20 +24,24 @@ import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { logout } from '@/features/auth/api'
+import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import { clearAuthenticatedClientState } from '@/lib/auth-session'
 import { handleServerError } from '@/lib/handle-server-error'
 
 interface SignOutDialogProps {
+  redirectTo?: string
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
+/** Logout always revokes the server session before clearing local state or entering another account. */
+export function SignOutDialog(props: SignOutDialogProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [isSigningOut, setIsSigningOut] = useState(false)
 
+  /** Preserve only a same-origin return path; failed logout leaves the current identity intact. */
   const handleSignOut = async () => {
     setIsSigningOut(true)
     try {
@@ -49,7 +53,15 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
 
       clearAuthenticatedClientState(queryClient)
       toast.success(t('Signed out'))
-      void navigate({ to: '/sign-in', replace: true })
+      const redirect = sanitizeAuthRedirect(
+        props.redirectTo,
+        window.location.origin
+      )
+      void navigate({
+        to: '/sign-in',
+        search: redirect ? { redirect } : {},
+        replace: true,
+      })
     } catch (error: unknown) {
       handleServerError(error, t('Failed to sign out session'))
     } finally {
@@ -59,8 +71,8 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
 
   return (
     <ConfirmDialog
-      open={open}
-      onOpenChange={onOpenChange}
+      open={props.open}
+      onOpenChange={props.onOpenChange}
       title={t('Sign out')}
       desc={t(
         'Are you sure you want to sign out? You will need to sign in again to access your account.'

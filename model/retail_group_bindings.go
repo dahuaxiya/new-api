@@ -17,14 +17,24 @@ import (
 
 // RetailBindingChannel exposes only safe operator labels, never a channel credential.
 type RetailBindingChannel struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	SiteID  int    `json:"site_id"`
+	BaseURL string `json:"base_url"`
+	Models  string `json:"models"`
+	HasKey  bool   `json:"has_key"`
+	Status  int    `json:"status"`
 }
 
 // RetailBindingChannels lists explicitly authorized Xingxing reseller credentials.
 // A matching hostname alone does not enroll a customer-owned or unapproved channel.
 func RetailBindingChannels() ([]RetailBindingChannel, error) {
-	cfg, err := RetailSupplyConfig(DB)
+	return retailBindingChannels(DB)
+}
+
+// retailBindingChannels uses the caller transaction so newly created groups participate in the same save.
+func retailBindingChannels(db *gorm.DB) ([]RetailBindingChannel, error) {
+	cfg, err := RetailSupplyConfig(db)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +46,7 @@ func RetailBindingChannels() ([]RetailBindingChannel, error) {
 	}
 	var channels []Channel
 	if len(ids) > 0 {
-		if err := DB.Select("id", "name", "base_url", "group").Where("id IN ?", ids).Find(&channels).Error; err != nil {
+		if err := db.Select("id", "name", "base_url", "group", "retail_site_id", "models", "key", "status").Where("id IN ?", ids).Find(&channels).Error; err != nil {
 			return nil, err
 		}
 	}
@@ -54,7 +64,11 @@ func RetailBindingChannels() ([]RetailBindingChannel, error) {
 		if !slices.Contains(groups, cfg.Group) || slices.ContainsFunc(groups, func(group string) bool { return strings.HasPrefix(group, "acct_") }) {
 			continue
 		}
-		result = append(result, RetailBindingChannel{ID: channel.Id, Name: channel.Name})
+		siteID := channel.RetailSiteID
+		if siteID == 0 {
+			siteID = channel.Id
+		}
+		result = append(result, RetailBindingChannel{ID: channel.Id, Name: channel.Name, SiteID: siteID, BaseURL: channel.GetBaseURL(), Models: channel.Models, HasKey: channel.Key != "", Status: channel.Status})
 	}
 	return result, nil
 }
@@ -62,11 +76,16 @@ func RetailBindingChannels() ([]RetailBindingChannel, error) {
 // mutateRetailPriceBook serializes operator edits and feed updates with request admission.
 // A timestamp-only renewal keeps the price version and avoids a full audit copy every minute.
 func mutateRetailPriceBook(ctx context.Context, expected int64, actorID int, renewal bool, edit func(*retailprice.Book) error) (int64, error) {
+	return mutateRetailPriceBookIn(DB, ctx, expected, actorID, renewal, edit)
+}
+
+// mutateRetailPriceBookIn composes price publication with credential edits without a second connection.
+func mutateRetailPriceBookIn(db *gorm.DB, ctx context.Context, expected int64, actorID int, renewal bool, edit func(*retailprice.Book) error) (int64, error) {
 	if expected < 0 || actorID < 0 {
 		return 0, retailprice.ErrConfig
 	}
 	var version int64
-	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		state, err := lockRetailPriceState(tx)
 		if err != nil {
 			return err
@@ -124,15 +143,20 @@ func mutateRetailPriceBook(ctx context.Context, expected int64, actorID int, ren
 // Unknown groups and credentials are rejected server-side. Removing a route in use requires first
 // removing that route from its product, so deletion cannot restore an obsolete manual cost.
 func SaveRetailGroupBindings(ctx context.Context, expected int64, bindings []retailprice.GroupBinding, enabled bool, snapshot *retailprice.PublicRateSnapshot, actorID int, policy ...retailprice.SalePolicy) (int64, error) {
+	return saveRetailGroupBindingsIn(DB, ctx, expected, bindings, enabled, snapshot, actorID, policy...)
+}
+
+// saveRetailGroupBindingsIn validates route ownership against the same transaction that writes credentials.
+func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64, bindings []retailprice.GroupBinding, enabled bool, snapshot *retailprice.PublicRateSnapshot, actorID int, policy ...retailprice.SalePolicy) (int64, error) {
 	if actorID <= 0 || len(policy) > 1 {
 		return 0, retailprice.ErrConfig
 	}
-	channels, err := RetailBindingChannels()
+	channels, err := retailBindingChannels(db)
 	if err != nil {
 		return 0, err
 	}
 	localGroups := ratio_setting.GetGroupRatioCopy()
-	return mutateRetailPriceBook(ctx, expected, actorID, false, func(book *retailprice.Book) error {
+	return mutateRetailPriceBookIn(db, ctx, expected, actorID, false, func(book *retailprice.Book) error {
 		for _, binding := range bindings {
 			if _, ok := localGroups[binding.LocalGroup]; !ok {
 				return retailprice.ErrAccess

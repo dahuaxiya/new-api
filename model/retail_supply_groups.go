@@ -5,11 +5,13 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/QuantumNous/new-api/setting/retail_setting"
 	"gorm.io/gorm"
 )
@@ -105,6 +107,11 @@ func validRetailSupplySite(ch Channel, group string) bool {
 // CreateRetailSupplyGroup adds a separate credential under an approved site, never copies its Key.
 // A missing Key creates a disabled draft; credentials can be added through the channel editor later.
 func CreateRetailSupplyGroup(ctx context.Context, siteID int, name, key, models string) (int, error) {
+	return createRetailSupplyGroupIn(DB, ctx, siteID, name, key, models)
+}
+
+// createRetailSupplyGroupIn keeps creation inside the caller's pricing transaction when supplied.
+func createRetailSupplyGroupIn(db *gorm.DB, ctx context.Context, siteID int, name, key, models string) (int, error) {
 	name, key = strings.TrimSpace(name), strings.TrimSpace(key)
 	parts := strings.FieldsFunc(models, func(r rune) bool { return r == ',' || r == '\n' || r == '\r' })
 	for i := range parts {
@@ -118,7 +125,7 @@ func CreateRetailSupplyGroup(ctx context.Context, siteID int, name, key, models 
 		return 0, retail_setting.ErrUnavailable
 	}
 	var id int
-	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// All additions under this site lock the same row, serializing duplicate names and Keys.
 		var site Channel
 		if err := lockForUpdate(tx).First(&site, siteID).Error; err != nil {
@@ -208,4 +215,154 @@ func syncRetailSiteAddress(tx *gorm.DB, ch *Channel) error {
 		return nil
 	}
 	return tx.Model(&Channel{}).Where("retail_site_id = ?", ch.Id).Updates(updates).Error
+}
+
+// RetailSupplyEdit is write-only: negative IDs identify drafts within one request, positive IDs edit
+// an approved group. A blank Key preserves an existing credential and never means copy the site Key.
+type RetailSupplyEdit struct {
+	ID     int    `json:"id"`
+	SiteID int    `json:"site_id"`
+	Name   string `json:"name"`
+	Key    string `json:"key"`
+	Models string `json:"models"`
+}
+
+// SaveRetailSupplyConfiguration commits group credentials, model abilities, bindings and margin together.
+// The price row is locked before site rows. Any stale version, invalid route or credential failure rolls
+// back all changes, so retrying cannot leave paid routes paired with only half of the intended settings.
+func SaveRetailSupplyConfiguration(ctx context.Context, expected int64, bindings []retailprice.GroupBinding, enabled bool, snapshot *retailprice.PublicRateSnapshot, actorID int, policy *retailprice.SalePolicy, edits []RetailSupplyEdit) (int64, error) {
+	if len(edits) > 100 || len(bindings) > 200 {
+		return 0, retailprice.ErrConfig
+	}
+	var version int64
+	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		state, err := lockRetailPriceState(tx)
+		if err != nil {
+			return err
+		}
+		if state.Version != expected {
+			return ErrRetailPriceConflict
+		}
+		channels, err := retailBindingChannels(tx)
+		if err != nil {
+			return err
+		}
+		ids := map[int]int{}
+		for _, edit := range edits {
+			if edit.ID == 0 || ids[edit.ID] != 0 || !slices.ContainsFunc(bindings, func(b retailprice.GroupBinding) bool { return b.ChannelID == edit.ID }) {
+				return retailprice.ErrConfig
+			}
+			if edit.ID < 0 {
+				id, err := createRetailSupplyGroupIn(tx, ctx, edit.SiteID, edit.Name, edit.Key, edit.Models)
+				if err != nil {
+					return err
+				}
+				ids[edit.ID] = id
+				continue
+			}
+			if !slices.ContainsFunc(channels, func(c RetailBindingChannel) bool { return c.ID == edit.ID && c.SiteID == edit.SiteID }) {
+				return retailprice.ErrAccess
+			}
+			name, key := strings.TrimSpace(edit.Name), strings.TrimSpace(edit.Key)
+			models := strings.FieldsFunc(edit.Models, func(r rune) bool { return r == ',' || r == '\n' || r == '\r' })
+			for i := range models {
+				models[i] = strings.TrimSpace(models[i])
+				if models[i] == "" || len(models[i]) > 200 {
+					return retailprice.ErrConfig
+				}
+			}
+			if name == "" || utf8.RuneCountInString(name) > 120 || len(key) > 4096 || strings.ContainsFunc(key, unicode.IsSpace) || len(edit.Models) > 16000 || len(models) > 200 {
+				return retailprice.ErrConfig
+			}
+			// Lock the parent before the child, matching creation and generic credential rotation.
+			var parent Channel
+			if err := lockForUpdate(tx).First(&parent, edit.SiteID).Error; err != nil {
+				return err
+			}
+			var ch Channel
+			if err := lockForUpdate(tx).First(&ch, edit.ID).Error; err != nil {
+				return err
+			}
+			cfg, err := retail_setting.Load()
+			if err != nil {
+				return err
+			}
+			// Recheck the trust boundary after locking: the generic channel editor may have
+			// changed site membership or hosting occupancy since candidates were loaded.
+			if parent.RetailSiteID != 0 || !validRetailSupplySite(parent, cfg.Group) ||
+				!validRetailSupplySite(ch, cfg.Group) || (ch.Id != parent.Id && ch.RetailSiteID != parent.Id) ||
+				ch.Type != parent.Type || ch.GetBaseURL() != parent.GetBaseURL() {
+				return retailprice.ErrAccess
+			}
+			var occupied int64
+			if err := tx.Model(&GPTHostingBinding{}).Where("channel_id IN ?", []int{parent.Id, ch.Id}).Count(&occupied).Error; err != nil {
+				return err
+			}
+			if occupied != 0 {
+				return retailprice.ErrAccess
+			}
+			patch := Channel{Id: ch.Id, Key: key}
+			if err := syncRetailSiteAddress(tx, &patch); err != nil {
+				return err
+			}
+			var duplicates int64
+			if err := tx.Model(&Channel{}).Where("(retail_site_id = ? OR id = ?) AND id <> ? AND name = ?", edit.SiteID, edit.SiteID, ch.Id, name).Count(&duplicates).Error; err != nil {
+				return err
+			}
+			if duplicates != 0 {
+				return ErrRetailSupplyGroupName
+			}
+			ch.Name, ch.Models = name, strings.Join(models, ",")
+			if key != "" {
+				ch.Key = key
+			}
+			if ch.Key == "" || ch.Models == "" {
+				ch.Status = common.ChannelStatusManuallyDisabled
+			}
+			updates := map[string]any{"name": ch.Name, "models": ch.Models, "status": ch.Status}
+			if key != "" {
+				updates["key"] = key
+			}
+			if err := tx.Model(&Channel{}).Where("id = ?", ch.Id).Updates(updates).Error; err != nil {
+				return err
+			}
+			if err := ch.UpdateAbilities(tx); err != nil {
+				return err
+			}
+			ids[edit.ID] = edit.ID
+		}
+		// Copy before resolving draft IDs so failure cannot mutate a caller's retry payload.
+		resolved := slices.Clone(bindings)
+		for i := range resolved {
+			if resolved[i].ChannelID < 0 {
+				id := ids[resolved[i].ChannelID]
+				if id == 0 {
+					return retailprice.ErrConfig
+				}
+				resolved[i].ChannelID = id
+			}
+		}
+		var policies []retailprice.SalePolicy
+		if policy != nil {
+			policies = append(policies, *policy)
+		}
+		version, err = saveRetailGroupBindingsIn(tx, ctx, expected, resolved, enabled, snapshot, actorID, policies...)
+		if err != nil {
+			return err
+		}
+		// Credential/model-only changes must also invalidate stale editors. Price audits carry
+		// only the price book, never the credential payload; all writes share this transaction.
+		if len(edits) > 0 && version == expected {
+			if err := tx.First(&state, state.ID).Error; err != nil {
+				return err
+			}
+			version++
+			if err := tx.Create(&RetailPriceVersion{Version: version, Payload: state.Payload, ActorID: actorID, CreatedAt: time.Now().Unix()}).Error; err != nil {
+				return err
+			}
+			return tx.Model(&state).Update("version", version).Error
+		}
+		return nil
+	})
+	return version, err
 }

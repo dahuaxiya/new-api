@@ -59,6 +59,7 @@ import {
 } from '../retail-pricing-api'
 import { RetailGroupBindings } from './retail-group-bindings'
 import { RetailPublicRatesPreview } from './retail-public-rates-preview'
+import { RetailSupplies } from './retail-supplies'
 
 /** Root-only pricing drawer; query identity follows the login session and failures hide old state. */
 export function RetailPricing() {
@@ -91,6 +92,10 @@ export function RetailPricing() {
             </SheetDescription>
           </SheetHeader>
           <div className='flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6'>
+            {/* Supply overview is diagnostic here; the single editor below owns all Xingxing writes. */}
+            <div className='flex shrink-0 justify-end'>
+              <RetailSupplies readOnly />
+            </div>
             {open && (
               <RetailGroupBindings
                 key={identity}

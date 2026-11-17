@@ -32,6 +32,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
 import { getServerErrorMessage } from '@/lib/server-error-message'
@@ -44,8 +45,8 @@ import {
   type RetailBindingState,
   type RetailGroupBinding,
   type RetailSalePolicy,
+  type RetailSupplyEdit,
 } from '../retail-pricing-api'
-import { RetailSupplies } from './retail-supplies'
 
 /** Root-only configuration, isolated by session and refreshed after explicit writes. */
 export function RetailGroupBindings(props: {
@@ -109,6 +110,70 @@ function BindingEditor(props: {
     })
   )
   const [channels, setChannels] = useState(props.state.channels)
+  const [supplies, setSupplies] = useState<Record<number, RetailSupplyEdit>>({})
+  const [nextDraftID, setNextDraftID] = useState(-1)
+  const supplyEdits = Object.values(supplies).filter((edit) =>
+    bindings.some((row) => row.channel_id === edit.id)
+  )
+  const sites = props.state.channels.filter(
+    (channel) => channel.site_id === channel.id
+  )
+
+  /** Only dirty groups are sent. A blank existing Key retains the server credential. */
+  function editSupply(id: number, patch: Partial<RetailSupplyEdit>): void {
+    const channel = channels.find((item) => item.id === id)
+    if (!channel) return
+    setSupplies((previous) => ({
+      ...previous,
+      [id]: {
+        ...(previous[id] ?? {
+          id,
+          site_id: channel.site_id,
+          name: channel.name,
+          models: channel.models,
+          key: '',
+        }),
+        ...patch,
+      },
+    }))
+  }
+
+  /** Browser-only negative IDs are resolved by the server in the same transaction as the bindings. */
+  function addSupply(siteID: number): void {
+    const site = sites.find((item) => item.id === siteID)
+    if (!site) return
+    setChannels([
+      ...channels,
+      {
+        ...site,
+        id: nextDraftID,
+        name: '',
+        models: '',
+        has_key: false,
+        status: 2,
+      },
+    ])
+    setSupplies({
+      ...supplies,
+      [nextDraftID]: {
+        id: nextDraftID,
+        site_id: siteID,
+        name: '',
+        key: '',
+        models: '',
+      },
+    })
+    setBindings([
+      ...bindings,
+      {
+        local_group: '',
+        channel_id: nextDraftID,
+        upstream_group: '',
+        rowID: crypto.randomUUID(),
+      },
+    ])
+    setNextDraftID(nextDraftID - 1)
+  }
   const [enabled, setEnabled] = useState(props.state.sync.enabled)
   const [salePolicy, setSalePolicy] = useState<RetailSalePolicy>(() => ({
     ...props.state.sale_policy,
@@ -135,6 +200,7 @@ function BindingEditor(props: {
       ? committed
       : (feed.data ?? committed)
   const changed =
+    supplyEdits.length > 0 ||
     JSON.stringify(mapping) !== JSON.stringify(props.state.bindings ?? []) ||
     enabled !== props.state.sync.enabled ||
     JSON.stringify(salePolicy) !== JSON.stringify(initialPolicy)
@@ -166,9 +232,12 @@ function BindingEditor(props: {
   const valid =
     policyValid &&
     !incomplete &&
+    supplyEdits.every((edit) => edit.name.trim().length > 0) &&
     !duplicates &&
     (!enabled || bindings.length > 0)
   const mutation = useMutation({
+    retry: false,
+    gcTime: 0,
     mutationFn: async (action: 'save' | 'sync') => {
       setFailure('')
       if (action === 'save') {
@@ -176,11 +245,23 @@ function BindingEditor(props: {
           props.state.version,
           mapping,
           enabled,
-          salePolicy
+          salePolicy,
+          supplyEdits
         )
       } else {
         await syncRetailGroupBindings(props.state.version)
       }
+    },
+    onSettled: () => {
+      // Keep non-secret drafts for retry, but never retain a submitted Key after an error.
+      setSupplies((previous) =>
+        Object.fromEntries(
+          Object.entries(previous).map(([id, edit]) => [
+            id,
+            { ...edit, key: '' },
+          ])
+        )
+      )
     },
     onSuccess: () => {
       setConfirm(false)
@@ -206,14 +287,14 @@ function BindingEditor(props: {
     Math.min(committed.updated_at, committed.fetched_at) + 300 > now
   return (
     <section
-      className='space-y-4 rounded-lg border p-4'
+      className='shrink-0 space-y-4 rounded-lg border p-4'
       aria-label={t('Group multiplier bindings')}
     >
       <div className='flex flex-wrap items-start justify-between gap-3'>
         <div className='space-y-1'>
           <h3 className='font-medium'>{t('Group multiplier bindings')}</h3>
           <p className='text-muted-foreground text-xs'>
-            {t('Local group → supply channel → Xingxing group')}
+            {t('Supply groups, models and multiplier following')}
           </p>
         </div>
         <Badge variant={healthy ? 'secondary' : 'outline'}>
@@ -224,7 +305,7 @@ function BindingEditor(props: {
       </div>
       <p className='text-muted-foreground text-sm'>
         {t(
-          'Bind the group used by this channel Key. This changes pricing only; it cannot change the upstream Key assignment.'
+          'Select an upstream group, enter its Key and models, and assign a local user group. Save everything with your margin here.'
         )}
       </p>
       <div className='bg-muted/50 space-y-3 rounded-md p-3'>
@@ -348,14 +429,6 @@ function BindingEditor(props: {
         >
           {t('Reload saved bindings')}
         </Button>
-        <RetailSupplies
-          onGroupsChanged={() => {
-            // Refresh candidates only: replacing the binding editor would discard unsaved mappings/margin.
-            void getRetailGroupBindings()
-              .then((state) => setChannels(state.channels))
-              .catch((error) => handleServerError(error))
-          }}
-        />
       </div>
       {feed.isFetching && <LoadingState inline message={t('Loading...')} />}
       {feed.isError && (
@@ -370,8 +443,33 @@ function BindingEditor(props: {
           )}
         </p>
       )}
+      <div className='space-y-2'>
+        {sites.map((site) => (
+          <div
+            key={site.id}
+            className='bg-muted/40 flex flex-wrap items-center justify-between gap-3 rounded-md border p-3'
+          >
+            <div className='min-w-0 space-y-1'>
+              <p className='text-sm font-medium'>{site.name}</p>
+              <p className='text-muted-foreground font-mono text-xs break-all'>
+                {site.base_url}
+              </p>
+            </div>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={mutation.isPending || bindings.length >= 100}
+              onClick={() => addSupply(site.id)}
+            >
+              {t('Add supply group')}
+            </Button>
+          </div>
+        ))}
+      </div>
       <div className='space-y-3'>
         {bindings.map((row, index) => {
+          const channel = channels.find((item) => item.id === row.channel_id)
+          const draft = supplies[row.channel_id]
           const rate = source?.groups.find(
             (group) => group.group === row.upstream_group
           )
@@ -452,7 +550,7 @@ function BindingEditor(props: {
                     <NativeSelectOption value=''>
                       {t('Select channel')}
                     </NativeSelectOption>
-                    {row.channel_id > 0 &&
+                    {row.channel_id !== 0 &&
                       !channels.some(
                         (channel) => channel.id === row.channel_id
                       ) && (
@@ -462,7 +560,10 @@ function BindingEditor(props: {
                       )}
                     {channels.map((channel) => (
                       <NativeSelectOption key={channel.id} value={channel.id}>
-                        {channel.name} · #{channel.id}
+                        {supplies[channel.id]?.name ||
+                          channel.name ||
+                          t('New supply group')}{' '}
+                        {channel.id > 0 ? `· #${channel.id}` : ''}
                       </NativeSelectOption>
                     ))}
                   </NativeSelect>
@@ -476,15 +577,23 @@ function BindingEditor(props: {
                     className='w-full'
                     value={row.upstream_group}
                     disabled={mutation.isPending}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const upstream = event.target.value
                       setBindings(
                         bindings.map((item, i) =>
                           i === index
-                            ? { ...item, upstream_group: event.target.value }
+                            ? { ...item, upstream_group: upstream }
                             : item
                         )
                       )
-                    }
+                      // Use the upstream label as the initial local remark; preserve an operator's rename.
+                      if (
+                        row.channel_id < 0 &&
+                        (!draft?.name || draft.name === row.upstream_group)
+                      ) {
+                        editSupply(row.channel_id, { name: upstream })
+                      }
+                    }}
                   >
                     <NativeSelectOption value=''>
                       {t('Select group')}
@@ -502,6 +611,73 @@ function BindingEditor(props: {
                   </NativeSelect>
                 </Field>
               </FieldGroup>
+              {channel && (
+                <FieldGroup className='grid gap-3 sm:grid-cols-2'>
+                  <Field>
+                    <FieldLabel htmlFor={`supply-name-${row.rowID}`}>
+                      {t('Supply group name')} {index + 1}
+                    </FieldLabel>
+                    <Input
+                      id={`supply-name-${row.rowID}`}
+                      value={draft?.name ?? channel.name}
+                      maxLength={120}
+                      disabled={mutation.isPending}
+                      onChange={(event) =>
+                        editSupply(channel.id, { name: event.target.value })
+                      }
+                    />
+                    <p className='text-muted-foreground text-xs'>
+                      {t(
+                        'A label on this site; it does not rename the upstream group.'
+                      )}
+                    </p>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor={`supply-key-${row.rowID}`}>
+                      {t('Upstream API Key')} {index + 1}
+                    </FieldLabel>
+                    <Input
+                      id={`supply-key-${row.rowID}`}
+                      type='password'
+                      autoComplete='new-password'
+                      spellCheck={false}
+                      maxLength={4096}
+                      value={draft?.key ?? ''}
+                      placeholder={t(
+                        channel.has_key
+                          ? 'Configured; leave blank to keep'
+                          : 'Key for the selected upstream group'
+                      )}
+                      disabled={mutation.isPending}
+                      onChange={(event) =>
+                        editSupply(channel.id, { key: event.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field className='sm:col-span-2'>
+                    <FieldLabel htmlFor={`supply-models-${row.rowID}`}>
+                      {t('Allowed models')} {index + 1}
+                    </FieldLabel>
+                    <Textarea
+                      id={`supply-models-${row.rowID}`}
+                      value={draft?.models ?? channel.models}
+                      maxLength={16000}
+                      placeholder={t(
+                        'One model per line, or separated by commas'
+                      )}
+                      disabled={mutation.isPending}
+                      onChange={(event) =>
+                        editSupply(channel.id, { models: event.target.value })
+                      }
+                    />
+                    <p className='text-muted-foreground text-xs'>
+                      {t(
+                        'A new group without a Key or models is saved as a disabled draft. Existing disabled groups stay disabled.'
+                      )}
+                    </p>
+                  </Field>
+                </FieldGroup>
+              )}
               <div className='flex flex-wrap items-center justify-between gap-2 text-xs'>
                 <span className='text-muted-foreground'>{status}</span>
                 {/* Display is approximate; server decimal arithmetic determines quotes and charges. */}
@@ -528,9 +704,22 @@ function BindingEditor(props: {
                   variant='ghost'
                   size='sm'
                   disabled={mutation.isPending}
-                  onClick={() =>
+                  onClick={() => {
                     setBindings(bindings.filter((_, i) => i !== index))
-                  }
+                    if (
+                      !bindings.some(
+                        (other, i) =>
+                          i !== index && other.channel_id === row.channel_id
+                      )
+                    ) {
+                      // Removing the last reference also removes its unsaved credential from memory.
+                      setSupplies((previous) => {
+                        const remaining = { ...previous }
+                        delete remaining[row.channel_id]
+                        return remaining
+                      })
+                    }
+                  }}
                 >
                   {t('Remove binding')} {index + 1}
                 </Button>
@@ -650,7 +839,7 @@ function BindingEditor(props: {
         onOpenChange={setConfirm}
         title={t('Save bindings and margin?')}
         desc={t(
-          'Save the selected bindings and resale margin together. New requests use these settings; disabling following pauses bound routes. This does not enable sales.'
+          'Save supply credentials, model permissions, group bindings and margin together. Existing Keys stay unchanged when blank. This does not enable sales.'
         )}
         confirmText={t('Confirm save')}
         disabled={!valid}

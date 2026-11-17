@@ -58,7 +58,9 @@ type SupplyOverview = {
 }
 
 /** 超级管理员打开抽屉后读取供货资格快照；缓存按登录会话隔离。 */
-export function RetailSupplies(props: { onGroupsChanged?: () => void } = {}) {
+export function RetailSupplies(
+  props: { onGroupsChanged?: () => void; readOnly?: boolean } = {}
+) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [addingSite, setAddingSite] = useState<number | null>(null)
@@ -191,7 +193,8 @@ export function RetailSupplies(props: { onGroupsChanged?: () => void } = {}) {
                             </Badge>
                           </div>
                         ))}
-                      {supply.kind === 'reseller' &&
+                      {!props.readOnly &&
+                        supply.kind === 'reseller' &&
                         supply.base_url &&
                         (addingSite === supply.channel_id ? (
                           <RetailSupplyGroupForm

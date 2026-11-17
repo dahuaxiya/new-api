@@ -685,6 +685,34 @@ func TestRetailPricingManagement(t *testing.T) {
 	bound, _, err = model.GetRetailPriceBook()
 	require.NoError(t, err)
 	require.NotEmpty(t, bound.PublicRateSync.LastError)
+	// The integrated form creates a credential and publishes its mapping in one HTTP write.
+	retailPublicRatesClient.Transport = retailPublicRatesTestTransport(func(r *http.Request) (*http.Response, error) {
+		body := fmt.Sprintf(`{"success":true,"server":"https://aixingxing.pro","updated_at":%q,"groups":[{"group":"Pro","name":"Pro","rate":0.24}]}`, time.Now().UTC().Format(time.RFC3339))
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})
+	_, currentVersion, err := model.GetRetailPriceBook()
+	require.NoError(t, err)
+	integrated := gin.H{
+		"expected_version": currentVersion, "enabled": true,
+		"bindings":    []gin.H{{"local_group": "default", "channel_id": 101, "upstream_group": "Pro"}, {"local_group": "default", "channel_id": -1, "upstream_group": "Pro"}},
+		"sale_policy": gin.H{"receipt_ratio": "1", "margin_bps": 2500, "fee_bps": 0, "buffer_bps": 0},
+		"supplies":    []gin.H{{"id": -1, "site_id": 101, "name": "Pro dedicated", "key": "new-group-test-only-key", "models": "gpt-4o"}},
+	}
+	w = request("PUT", "/api/retail/admin/pricing/group-bindings", "https://attacker.example", integrated)
+	require.Equal(t, http.StatusForbidden, w.Code)
+	w = request("PUT", "/api/retail/admin/pricing/group-bindings", "https://example.com", integrated)
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	require.NotContains(t, w.Body.String(), "new-group-test-only-key")
+	w = request("GET", "/api/retail/admin/pricing/group-bindings", "https://example.com", nil)
+	require.Contains(t, w.Body.String(), `"name":"Pro dedicated"`)
+	require.Contains(t, w.Body.String(), `"has_key":true`)
+	require.Contains(t, w.Body.String(), `"margin_bps":2500`)
+	require.NotContains(t, w.Body.String(), "new-group-test-only-key")
+	w = request("PUT", "/api/retail/admin/pricing/group-bindings", "https://example.com", integrated)
+	require.Contains(t, w.Body.String(), `"success":false`, "retrying a committed draft must not create another channel")
+	var createdCount int64
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("name = ?", "Pro dedicated").Count(&createdCount).Error)
+	require.EqualValues(t, 1, createdCount)
 	require.NoError(t, model.DB.Model(user).Update("status", common.UserStatusDisabled).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
 	w = request("GET", "/api/retail/admin/pricing", "https://example.com", nil)

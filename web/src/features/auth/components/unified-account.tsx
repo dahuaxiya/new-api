@@ -119,6 +119,11 @@ export function UnifiedAccountSignIn(props: { redirectTo?: string }) {
         )}
         {pending ? t('Connecting...') : t('Continue with unified account')}
       </Button>
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          'Enter your account and password on the unified sign-in page. Already signed in? Choose “Sign in with another account” there.'
+        )}
+      </p>
       <span role='status' className='sr-only'>
         {pending ? t('Connecting...') : ''}
       </span>

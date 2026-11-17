@@ -41,12 +41,13 @@ func GetRetailGroupBindings(c *gin.Context) {
 // PutRetailGroupBindings re-fetches source values rather than trusting browser-supplied multipliers.
 // Disabling sync can be saved during an outage using the last verified group names.
 func PutRetailGroupBindings(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 128<<10)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
 	var input struct {
 		ExpectedVersion int64                      `json:"expected_version"`
 		Bindings        []retailprice.GroupBinding `json:"bindings"`
 		Enabled         bool                       `json:"enabled"`
 		SalePolicy      *retailprice.SalePolicy    `json:"sale_policy"`
+		Supplies        []model.RetailSupplyEdit   `json:"supplies"`
 	}
 	if c.ShouldBindJSON(&input) != nil {
 		retailPricingManagementError(c, retailprice.ErrConfig)
@@ -72,16 +73,18 @@ func PutRetailGroupBindings(c *gin.Context) {
 			snapshot = fresh
 		}
 	}
-	// Old open consoles omit policy fields; omission must not reset saved economics.
-	var policies []retailprice.SalePolicy
-	if input.SalePolicy != nil {
-		policies = append(policies, *input.SalePolicy)
-	}
-	version, err = model.SaveRetailGroupBindings(c.Request.Context(), input.ExpectedVersion, input.Bindings, input.Enabled, snapshot, c.GetInt("id"), policies...)
+	// The model commits credentials and pricing under one transaction; existing consoles
+	// omit supplies and retain their previous bindings-only semantics.
+	version, err = model.SaveRetailSupplyConfiguration(c.Request.Context(), input.ExpectedVersion, input.Bindings, input.Enabled, snapshot, c.GetInt("id"), input.SalePolicy, input.Supplies)
 	if err != nil {
-		retailPricingManagementError(c, err)
+		if err == model.ErrRetailSupplyGroupName || err == model.ErrRetailSupplyGroupKey {
+			common.ApiError(c, err)
+		} else {
+			retailPricingManagementError(c, err)
+		}
 		return
 	}
+	model.InitChannelCache()
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"version": version}})
 }
 

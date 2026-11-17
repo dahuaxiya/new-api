@@ -36,7 +36,17 @@ const state = {
   server_time: 1800000000,
   bindings: [],
   local_groups: ['default', 'pro'],
-  channels: [{ id: 4, name: 'Xingxing key' }],
+  channels: [
+    {
+      id: 4,
+      name: 'Xingxing key',
+      site_id: 4,
+      base_url: 'https://aixingxing.pro',
+      models: 'gpt-test',
+      has_key: true,
+      status: 1,
+    },
+  ],
   sync: { enabled: false },
   pricing_ready: false,
   pricing_enabled: false,
@@ -73,62 +83,110 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-it('refreshes new supply groups without losing unsaved bindings or margin', async () => {
-  let created = false
-  vi.spyOn(api, 'get').mockImplementation(async (path) => ({
+/** 一次保存新分组凭据、模型、用户组、上游倍率和毛利，不重复填写地址。 */
+it('creates supply and bindings in one save without repeating the site address', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
     data: {
       success: true,
-      data: path.endsWith('/supplies')
-        ? {
-            state: 'ready',
-            group: 'retail',
-            items: [
-              {
-                channel_id: 4,
-                name: 'Site',
-                base_url: 'https://aixingxing.pro',
-                kind: 'reseller',
-                status: 'eligible',
-              },
-            ],
-          }
-        : {
-            ...state,
-            channels: created
-              ? [...state.channels, { id: 5, name: 'New group' }]
-              : state.channels,
-          },
+      data: { ...state, sync: { enabled: false, snapshot: source } },
     },
-  }))
-  vi.spyOn(api, 'post').mockImplementation(async () => {
-    created = true
-    return { data: { success: true, data: { channel_id: 5 } } }
   })
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const post = vi.spyOn(api, 'post')
   mount()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add group binding' })
+    await screen.findByRole('button', { name: 'Add supply group' })
   )
+  expect(screen.getAllByText('https://aixingxing.pro')).toHaveLength(1)
   fireEvent.change(screen.getByLabelText('Local group 1'), {
     target: { value: 'pro' },
+  })
+  fireEvent.change(screen.getByLabelText('Upstream group 1'), {
+    target: { value: 'ChatGPT-pro稳定' },
+  })
+  expect(screen.getByLabelText('Supply group name 1')).toHaveValue(
+    'ChatGPT-pro稳定'
+  )
+  fireEvent.change(screen.getByLabelText('Upstream API Key 1'), {
+    target: { value: 'test-only-private-key' },
+  })
+  fireEvent.change(screen.getByLabelText('Allowed models 1'), {
+    target: { value: 'gpt-test' },
   })
   fireEvent.change(screen.getByLabelText('Target margin (%)'), {
     target: { value: '25' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Supply overview' }))
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
+  await waitFor(() =>
+    expect(put).toHaveBeenCalledWith(
+      '/api/retail/admin/pricing/group-bindings',
+      expect.objectContaining({
+        bindings: [
+          {
+            local_group: 'pro',
+            channel_id: -1,
+            upstream_group: 'ChatGPT-pro稳定',
+          },
+        ],
+        supplies: [
+          {
+            id: -1,
+            site_id: 4,
+            name: 'ChatGPT-pro稳定',
+            key: 'test-only-private-key',
+            models: 'gpt-test',
+          },
+        ],
+        sale_policy: { ...state.sale_policy, margin_bps: 2500 },
+      })
+    )
+  )
+  expect(post).not.toHaveBeenCalled()
+  expect(JSON.stringify(clients[0].getMutationCache().getAll())).not.toContain(
+    'test-only-private-key'
+  )
+})
+
+/** 凭据失败清空输入，保留其他草稿；错误缓存也不能留下 Axios 请求配置。 */
+it('clears failed Key submissions while retaining mappings and excluding secrets from caches', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: { ...state, sync: { enabled: false, snapshot: source } },
+    },
+  })
+  vi.spyOn(api, 'put').mockRejectedValue({
+    message: 'Network failed',
+    config: { data: 'test-only-private-key' },
+  })
+  mount()
   fireEvent.click(
     await screen.findByRole('button', { name: 'Add supply group' })
   )
-  fireEvent.change(screen.getByLabelText('Supply group name'), {
-    target: { value: 'New group' },
+  fireEvent.change(screen.getByLabelText('Local group 1'), {
+    target: { value: 'pro' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Create supply group' }))
-  await waitFor(() =>
-    expect(screen.queryByLabelText('Supply group name')).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Upstream group 1'), {
+    target: { value: 'ChatGPT-pro稳定' },
+  })
+  fireEvent.change(screen.getByLabelText('Upstream API Key 1'), {
+    target: { value: 'test-only-private-key' },
+  })
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
   )
-  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
+  await screen.findByRole('alert')
   expect(screen.getByLabelText('Local group 1')).toHaveValue('pro')
-  expect(screen.getByLabelText('Target margin (%)')).toHaveValue(25)
-  expect(screen.getByRole('option', { name: /New group/ })).toBeInTheDocument()
+  expect(screen.getByLabelText('Upstream API Key 1')).toHaveValue('')
+  expect(JSON.stringify(clients[0].getMutationCache().getAll())).not.toContain(
+    'test-only-private-key'
+  )
 })
 
 it('saves explicit group and credential choices without accepting browser-supplied prices', async () => {

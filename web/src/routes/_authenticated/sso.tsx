@@ -17,20 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 
-import { Button } from '@/components/ui/button'
-import { TitledCard } from '@/components/ui/titled-card'
-import {
-  SecureVerificationDialog,
-  useSecureVerification,
-} from '@/features/auth/secure-verification'
-import { useStatus } from '@/hooks/use-status'
-import { api } from '@/lib/api'
-import { handleServerError } from '@/lib/handle-server-error'
-import { useAuthStore } from '@/stores/auth-store'
+import { SiteSSOAuthorize } from '@/features/auth/components/site-sso-authorize'
 
 const schema = z.object({
   state: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
@@ -39,82 +28,12 @@ const schema = z.object({
   verify: z.enum(['login', 'verify']),
 })
 
-/** 第一方站点授权也要求用户点击，敏感操作使用现有验证弹窗重新认证。 */
-function SiteSSOAuthorize() {
-  const { t } = useTranslation()
-  const search = Route.useSearch()
-  const { status } = useStatus()
-  const user = useAuthStore((state) => state.auth.user)
-  const verification = useSecureVerification()
-  const [pending, setPending] = useState(false)
-  const sso = status?.site_sso
-
-  /** 证明绑定本次 state 和挑战；任何错误都留在当前页供用户重试。 */
-  async function authorize() {
-    if (!sso || sso.consumer) return
-    setPending(true)
-    try {
-      const proof =
-        search.verify === 'verify'
-          ? await verification.requestVerification({
-              scope: 'site.sso.authorize',
-              context: { state: search.state, challenge: search.challenge },
-            })
-          : null
-      if (search.verify === 'verify' && !proof) return
-      const { data } = await api.post('/api/site-sso/authorize', search, {
-        headers: proof ? { 'X-Security-Proof': proof.proof_token } : undefined,
-      })
-      if (
-        !data.success ||
-        typeof data.data?.redirect_url !== 'string' ||
-        new URL(data.data.redirect_url).origin !== sso.client_url
-      ) {
-        throw new Error('Verification flow expired')
-      }
-      window.location.replace(data.data.redirect_url)
-    } catch (error) {
-      handleServerError(error)
-    } finally {
-      setPending(false)
-    }
-  }
-
-  return (
-    <div className='mx-auto w-full max-w-lg p-6'>
-      <TitledCard
-        title={t(
-          search.verify === 'verify'
-            ? 'Verify unified account'
-            : 'Continue to API site'
-        )}
-      >
-        <p className='mb-2 font-medium'>
-          {user?.display_name || user?.username}
-        </p>
-        <p className='text-muted-foreground mb-6 text-sm'>
-          {t(
-            'One account for hosting and API access. Balances, orders and API keys stay separate.'
-          )}
-        </p>
-        <Button
-          className='w-full'
-          disabled={pending || !sso || sso.consumer}
-          onClick={() => void authorize()}
-        >
-          {t(
-            search.verify === 'verify'
-              ? 'Verify and continue'
-              : 'Continue to API site'
-          )}
-        </Button>
-      </TitledCard>
-      <SecureVerificationDialog {...verification.dialogProps} />
-    </div>
-  )
+/** Keep route validation ahead of the authorization UI; only validated state/challenge reach the issuer. */
+function SiteSSOPage() {
+  return <SiteSSOAuthorize search={Route.useSearch()} />
 }
 
 export const Route = createFileRoute('/_authenticated/sso')({
   validateSearch: schema,
-  component: SiteSSOAuthorize,
+  component: SiteSSOPage,
 })
