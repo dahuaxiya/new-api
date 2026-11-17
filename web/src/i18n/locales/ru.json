@@ -8259,7 +8259,7 @@
     "No call groups are available. Contact the administrator.": "Нет доступных групп вызовов. Обратитесь к администратору.",
     "Next: price limits": "Далее: пределы цен",
     "Set call group": "Настроить группу вызовов",
-    "Call group unavailable": "Группа вызовов недоступна"
-  },
-  "Choose a call group. Usage is charged to your balance at its current prices.": "Выберите группу вызовов. Стоимость списывается с баланса по текущим тарифам группы."
+    "Call group unavailable": "Группа вызовов недоступна",
+    "Choose a call group. Usage is charged to your balance at its current prices.": "Выберите группу вызовов. Стоимость списывается с баланса по текущим тарифам группы."
+  }
 }

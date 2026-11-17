@@ -8289,7 +8289,7 @@
     "No call groups are available. Contact the administrator.": "暫無可用呼叫分組，請聯絡管理員。",
     "Next: price limits": "下一步：限價與預算",
     "Set call group": "設定呼叫分組",
-    "Call group unavailable": "呼叫分組已無法使用"
-  },
-  "Choose a call group. Usage is charged to your balance at its current prices.": "選擇呼叫分組，使用費用按該分組目前售價從餘額扣除。"
+    "Call group unavailable": "呼叫分組已無法使用",
+    "Choose a call group. Usage is charged to your balance at its current prices.": "選擇呼叫分組，使用費用按該分組目前售價從餘額扣除。"
+  }
 }
