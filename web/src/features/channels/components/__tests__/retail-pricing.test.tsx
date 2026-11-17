@@ -91,73 +91,66 @@ it('keeps empty draft publication blocked after a successful empty preview', asy
   ).toBeDisabled()
 })
 
-it('invalidates the preview after a multiplier edit and requires confirmation to publish', async () => {
+/** Publish calculates a fresh draft, displays it in the modal, and never writes on cancel. */
+it('automatically previews on publish and confirms exactly the reviewed draft', async () => {
   vi.spyOn(api, 'get').mockResolvedValue({
     data: { success: true, data: { version: 4, book: readyBook } },
   })
   const post = vi
     .spyOn(api, 'post')
     .mockResolvedValue({ data: { success: true, data: priceRows } })
-  const put = vi.spyOn(api, 'put').mockResolvedValue({
-    data: {
-      success: false,
-      message: 'Retail pricing changed. Reload before saving.',
-    },
-  })
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
   openPricing()
-  await screen.findByLabelText('Upstream group multipliers (JSON)')
-  expect(
-    screen.getByRole('button', { name: 'Publish price book' })
-  ).toBeDisabled()
   fireEvent.click(
-    screen.getByRole('button', { name: 'Preview CNY selling prices' })
+    await screen.findByRole('button', { name: 'Publish price book' })
   )
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Publish price book' })
-    ).toBeEnabled()
-  )
+  await screen.findByRole('alertdialog')
+  expect(
+    screen.getByText('Selling prices · CNY per million tokens')
+  ).toBeVisible()
+  expect(post).toHaveBeenCalledTimes(1)
+  expect(put).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(put).not.toHaveBeenCalled()
   fireEvent.change(screen.getByLabelText('Upstream group multipliers (JSON)'), {
     target: { value: '[{"id":"test","multiplier":"0.4"}]' },
   })
-  expect(
-    screen.getByRole('button', { name: 'Publish price book' })
-  ).toBeDisabled()
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Preview CNY selling prices' })
-  )
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Publish price book' })
-    ).toBeEnabled()
-  )
   fireEvent.click(screen.getByRole('button', { name: 'Publish price book' }))
-  expect(put).not.toHaveBeenCalled()
   fireEvent.click(await screen.findByRole('button', { name: 'Publish' }))
   await waitFor(() =>
-    expect(put).toHaveBeenCalledWith(
-      '/api/retail/admin/pricing',
-      expect.objectContaining({ expected_version: 4 })
-    )
+    expect(put).toHaveBeenCalledWith('/api/retail/admin/pricing', {
+      expected_version: 4,
+      book: { ...readyBook, rates: [{ id: 'test', multiplier: '0.4' }] },
+    })
   )
-  expect(screen.getByText('Publish new prices?')).toBeInTheDocument()
-  expect(post).toHaveBeenCalledWith(
-    '/api/retail/admin/pricing/preview',
-    expect.objectContaining({ book: expect.anything() })
-  )
-  // A stale publication must be recoverable without closing the whole page.
-  vi.mocked(api.get).mockResolvedValue({
-    data: { success: true, data: { version: 5, book: readyBook } },
+})
+
+/** A response for an earlier draft cannot authorize publication of subsequent edits. */
+it('blocks confirmation when the draft changes during automatic preview', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: { success: true, data: { version: 4, book: readyBook } },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-  await screen.findByText('Price version 5')
-  expect(
-    screen.getByLabelText('Upstream group multipliers (JSON)')
-  ).toHaveValue('[]')
-  expect(
-    screen.getByRole('button', { name: 'Publish price book' })
-  ).toBeDisabled()
+  let resolve: ((value: unknown) => void) | undefined
+  vi.spyOn(api, 'post').mockImplementation(
+    () =>
+      new Promise((done) => {
+        resolve = done
+      })
+  )
+  const put = vi.spyOn(api, 'put')
+  openPricing()
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Publish price book' })
+  )
+  await waitFor(() => expect(resolve).toBeDefined())
+  fireEvent.change(screen.getByLabelText('CNY per existing wallet unit'), {
+    target: { value: '2' },
+  })
+  resolve?.({ data: { success: true, data: priceRows } })
+  expect(await screen.findByRole('button', { name: 'Publish' })).toBeDisabled()
+  expect(put).not.toHaveBeenCalled()
 })
 
 it('rejects malformed JSON without sending a price preview', async () => {
@@ -365,24 +358,22 @@ it('generates a local official catalog and explains account-group mismatches bef
       { id: 'normal', name: 'Normal', user_groups: ['gpt-normal'], routes: [] },
     ],
   }
-  const post = vi
-    .spyOn(api, 'post')
-    .mockResolvedValue({
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: {
+      success: true,
       data: {
-        success: true,
-        data: {
-          version: 4,
-          book: proposal,
-          excluded: [
-            {
-              channel_id: 1,
-              model: 'unknown-alias',
-              reason: 'official_price_missing_or_expired',
-            },
-          ],
-        },
+        version: 4,
+        book: proposal,
+        excluded: [
+          {
+            channel_id: 1,
+            model: 'unknown-alias',
+            reason: 'official_price_missing_or_expired',
+          },
+        ],
       },
-    })
+    },
+  })
   const put = vi.spyOn(api, 'put')
   openPricing()
   fireEvent.click(
@@ -400,7 +391,7 @@ it('generates a local official catalog and explains account-group mismatches bef
   ).not.toBeChecked()
   expect(
     screen.getByRole('button', { name: 'Publish price book' })
-  ).toBeDisabled()
+  ).toBeEnabled()
   expect(
     screen.getByRole('button', { name: 'Generate official prices and routes' })
   ).toBeDisabled()

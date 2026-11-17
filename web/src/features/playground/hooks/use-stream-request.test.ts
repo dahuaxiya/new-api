@@ -197,3 +197,27 @@ describe('latest-wins stream request coordination', () => {
     expect(updates).toEqual(['current'])
   })
 })
+
+/** Metadata is a send-time snapshot and cannot replace session authentication. */
+test('snapshots group headers before asynchronous authentication', async () => {
+  const auth = deferred<Record<string, string>>()
+  let sent: Record<string, string> | undefined
+  const controller = createStreamRequestController({
+    getHeaders: () => auth.promise,
+    createSource: (_url, options) => {
+      sent = options
+      return new FakeStreamSource()
+    },
+    setStreaming: () => undefined,
+  })
+  const metadata = { 'X-Retail-Product': 'first', Authorization: 'untrusted' }
+  const request = controller.send(payload, noopCallbacks, metadata)
+  metadata['X-Retail-Product'] = 'second'
+  auth.resolve({ Authorization: 'Bearer current' })
+  await request
+  expect(sent).toMatchObject({
+    'X-Retail-Product': 'first',
+    Authorization: 'Bearer current',
+  })
+  controller.dispose()
+})

@@ -178,3 +178,40 @@ func TestPublicCallGroupsPinProcurement(t *testing.T) {
 	invalid.Products[0].BindingGroup = ""
 	require.ErrorIs(t, invalid.Validate(now), retailprice.ErrConfig)
 }
+
+// TestStudioCurrentBudgets bounds automatic pricing without requiring model-by-model ceilings.
+func TestStudioCurrentBudgets(t *testing.T) {
+	book, policy := fixture(t)
+	policy.StudioCurrent, policy.Caps = true, nil
+	policy.MaxRequestCNY, policy.DailyBudgetCNY = "0.01", "50"
+	quote, err := book.MakeQuote(1, "default", policy, "gpt-4o", 20, []int{101}, 2)
+	require.NoError(t, err)
+	require.Equal(t, 411, quote.InputLimit)
+	require.Equal(t, "0.009984", quote.ReservedCNY)
+	charge, err := quote.Charge(411, [5]int{411, 20, 411, 411, 411})
+	require.NoError(t, err)
+	reserve, err := retailprice.Amount(quote.ReservedCNY)
+	require.NoError(t, err)
+	require.True(t, charge.LessThanOrEqual(reserve))
+	_, err = quote.Charge(412, [5]int{412, 20, 0, 0, 0})
+	require.ErrorIs(t, err, retailprice.ErrUsage)
+	book.Rates[0].Multiplier = "0.48"
+	increased, err := book.MakeQuote(2, "default", policy, "gpt-4o", 20, []int{101}, 2)
+	require.NoError(t, err)
+	require.Less(t, increased.InputLimit, quote.InputLimit)
+	require.Equal(t, "6", increased.Sale[0].Prices.Input)
+	_, err = book.MakeQuote(2, "unauthorized", policy, "gpt-4o", 20, []int{101}, 2)
+	require.ErrorIs(t, err, retailprice.ErrAccess)
+	_, err = book.MakeQuote(2, "default", policy, "gpt-4o", 20, []int{101}, 3601)
+	require.ErrorIs(t, err, retailprice.ErrExpired)
+	// Output alone cannot fit: do not silently lower the requested output limit.
+	policy.MaxRequestCNY = "0.00001"
+	_, err = book.MakeQuote(2, "default", policy, "gpt-4o", 20, []int{101}, 2)
+	require.ErrorIs(t, err, retailprice.ErrBudget)
+	for _, invalid := range []string{"", "0", "-1", "NaN"} {
+		policy.MaxRequestCNY = invalid
+		require.Error(t, policy.Validate())
+	}
+	policy.MaxRequestCNY, policy.StudioCurrent = "5", false
+	require.Error(t, policy.Validate(), "ordinary keys still require model ceilings")
+}

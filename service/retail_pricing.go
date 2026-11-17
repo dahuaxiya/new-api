@@ -87,7 +87,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if err != nil {
 		return true, retailPriceError(err)
 	}
-	quote, err := model.RetailQuote(info.UserId, info.TokenId, info.OriginModelName, int(output), ids)
+	quote, err := model.RetailQuote(info.UserId, info.TokenId, info.OriginModelName, int(output), ids, c.GetString("retail_studio_product"))
 	if err != nil || quote == nil {
 		if err == nil {
 			err = retailprice.ErrConfig
@@ -104,7 +104,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	// Counting is mandatory for a guarded request, even when the legacy global estimate switch is off.
 	meta := info.Request.GetTokenCountMeta()
 	tokens, err := CountRequestToken(c, meta, info)
-	if err != nil || tokens < 0 || tokens > quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo {
+	if err != nil || tokens < 0 || tokens > quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo || (quote.InputLimit > 0 && tokens > quote.InputLimit) {
 		return true, retailPriceError(retailprice.ErrBudget)
 	}
 	info.SetEstimatePromptTokens(tokens)
@@ -166,7 +166,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	if err != nil || !slices.Contains(ids, info.ChannelId) {
 		return retailprice.ErrAccess
 	}
-	fresh, err := model.RetailQuote(info.UserId, info.TokenId, info.OriginModelName, quote.OutputLimit, []int{info.ChannelId})
+	fresh, err := model.RetailQuote(info.UserId, info.TokenId, info.OriginModelName, quote.OutputLimit, []int{info.ChannelId}, c.GetString("retail_studio_product"))
 	// A publication between these reads invalidates dispatch, even if it lowers
 	// prices. This keeps model mapping and tariff from different versions apart.
 	if err != nil || fresh == nil || fresh.Version != version || fresh.ProductID != quote.ProductID || fresh.WalletCNYPerUnit != quote.WalletCNYPerUnit || len(fresh.Sale) != len(quote.Sale) {
@@ -260,7 +260,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		return retailprice.ErrConfig
 	}
 	tokens, err := CountRequestToken(c, finalRequest.GetTokenCountMeta(), info)
-	if err != nil || tokens < 0 || tokens > quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo {
+	if err != nil || tokens < 0 || tokens > quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo || (quote.InputLimit > 0 && tokens > quote.InputLimit) {
 		return retailprice.ErrBudget
 	}
 	// Persist the actual supplier tariff, never just the mutable channel identity.

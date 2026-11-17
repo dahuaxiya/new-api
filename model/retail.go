@@ -41,7 +41,7 @@ func RetailTokenGroup(userID, tokenID int) (string, error) {
 		return "", retail_setting.ErrUnavailable
 	}
 	cfg, err := retail_setting.Load()
-	if err != nil || !cfg.Enabled || common.RedisEnabled || common.BatchUpdateEnabled || !ratio_setting.ContainsGroupRatio(cfg.Group) {
+	if err != nil || !cfg.Enabled || common.RedisEnabled || common.BatchUpdateEnabled || !retailRoutingGroupAvailable(cfg.Group) {
 		return "", retail_setting.ErrUnavailable
 	}
 	return cfg.Group, nil
@@ -93,7 +93,7 @@ func NormalizeTokenService(userID int, mode, seatID string) (string, error) {
 	switch mode {
 	case TokenServiceRetail:
 		cfg, err := retail_setting.Load()
-		if err != nil || !cfg.Enabled || common.RedisEnabled || common.BatchUpdateEnabled || seatID != "" || !ratio_setting.ContainsGroupRatio(cfg.Group) {
+		if err != nil || !cfg.Enabled || common.RedisEnabled || common.BatchUpdateEnabled || seatID != "" || !retailRoutingGroupAvailable(cfg.Group) {
 			return "", retail_setting.ErrUnavailable
 		}
 		return "", nil
@@ -109,4 +109,15 @@ func NormalizeTokenService(userID int, mode, seatID string) (string, error) {
 	default:
 		return "", retail_setting.ErrUnavailable
 	}
+}
+
+// retailRoutingGroupAvailable separates internal procurement routing from customer-facing
+// legacy multipliers. Published pricebooks validate product access and CNY prices later;
+// unpublished legacy billing still requires its original ratio entry and cannot bypass it.
+func retailRoutingGroupAvailable(group string) bool {
+	if ratio_setting.ContainsGroupRatio(group) {
+		return true
+	}
+	book, version, err := GetRetailPriceBook()
+	return err == nil && version > 0 && book.Enabled
 }

@@ -32,7 +32,8 @@ func RetailStudioRelay(path string) gin.HandlerFunc {
 			abortWithOpenAiMessage(c, http.StatusForbidden, "retail_price_unavailable")
 			return
 		}
-		token, err := model.RetailStudioToken(c.GetInt("id"), false)
+		productID := c.GetHeader("X-Retail-Product")
+		token, err := model.RetailStudioToken(c.GetInt("id"), productID != "", productID)
 		if err != nil {
 			abortWithOpenAiMessage(c, http.StatusForbidden, "retail_product_not_allowed")
 			return
@@ -53,6 +54,8 @@ func RetailStudioRelay(path string) gin.HandlerFunc {
 			return
 		}
 		c.Set("retail_request", true)
+		c.Set("retail_studio_product", productID)
+		c.Request.Header.Del("X-Retail-Product")
 		common.SetContextKey(c, constant.ContextKeyUserGroup, group)
 		common.SetContextKey(c, constant.ContextKeyUsingGroup, group)
 		// Only fixed server route constants may select a relay protocol. Never take

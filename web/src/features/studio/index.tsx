@@ -58,7 +58,7 @@ export function ModelStudio() {
   return <StudioWorkspace key={identity} identity={identity} />
 }
 
-/** Wallet workspace with a separate consent step and server-authorized model catalog. */
+/** Wallet workspace sends directly using server-enforced budgets and the selected call group. */
 function StudioWorkspace(props: { identity: string }) {
   const { t } = useTranslation()
   const isRoot = useAuthStore((s) => s.auth.user?.role === ROLE.SUPER_ADMIN)
@@ -102,23 +102,20 @@ function StudioWorkspace(props: { identity: string }) {
   })
   const tokenId = openedId || query.data?.studio.token_id || 0
   const policy = query.data?.saved?.policy
-  const selectedProductId = chosenProductId ?? policy?.product_id ?? ''
+  const selectedProductId =
+    chosenProductId ??
+    policy?.product_id ??
+    query.data?.catalog.products[0]?.id ??
+    ''
   const product = query.data?.catalog.products.find(
     (item) => item.id === selectedProductId
   )
-  const policyMatches = product?.id === policy?.product_id
   const models =
     product?.models.filter(
       (item) => (item.kind === 'image') === (mode === 'image')
     ) ?? []
   const selected = models.find((item) => item.id === form.watch('model'))
-  const available = Boolean(
-    query.data?.catalog.enabled &&
-    policyMatches &&
-    policy?.accept_floating &&
-    selected &&
-    policy?.caps[selected.id]
-  )
+  const available = Boolean(query.data?.catalog.enabled && selected)
   const catalog = query.data?.catalog
   const hasCatalogModels = catalog?.products.some((item) => item.models.length)
   // Explain the first blocking prerequisite. A saved binding alone does not
@@ -136,16 +133,10 @@ function StudioWorkspace(props: { identity: string }) {
         'No model route is currently available. Contact the site administrator.'
       )
     } else if (!product) {
+      blockedMessage = t('Select a call group and model to start.')
+    } else if (!models.length) {
       blockedMessage = t(
-        'Select a call group, then set its budget and price limits.'
-      )
-    } else if (!policyMatches || !policy?.accept_floating) {
-      blockedMessage = t(
-        'Set your budget and price limits before the first request.'
-      )
-    } else if (!models.length || (selected && !policy?.caps[selected.id])) {
-      blockedMessage = t(
-        'No models are authorized for this mode. Check your plan and price limits.'
+        'No model route is currently available. Contact the site administrator.'
       )
     }
   }
@@ -155,7 +146,7 @@ function StudioWorkspace(props: { identity: string }) {
     setPolicyOpen(open)
     if (!open) void query.refetch()
   }
-  /** Browsing another group must never send under the previous group's spending consent. */
+  /** Group changes clear local context; every request sends its own immutable selection. */
   const changeProduct = (id: string) => {
     if (run.busy) return
     setChosenProductId(id)
@@ -179,7 +170,8 @@ function StudioWorkspace(props: { identity: string }) {
       })
       return
     }
-    await run.send(input, mode)
+    await run.send(input, mode, selectedProductId)
+    void query.refetch()
   }
 
   if (query.isPending) return <LoadingState message={t('Loading...')} />
@@ -206,14 +198,13 @@ function StudioWorkspace(props: { identity: string }) {
           <Button
             variant='ghost'
             size='sm'
-            disabled={run.busy || setup.isPending}
+            disabled={run.busy || setup.isPending || !product}
             onClick={() => {
-              if (tokenId) setPolicyOpen(true)
-              else setup.mutate()
+              setup.mutate(selectedProductId)
             }}
           >
             <SlidersHorizontal aria-hidden='true' />
-            {t('Budget and price limits')}
+            {t('Spending protection')}
           </Button>
           <Button
             variant='outline'
@@ -316,6 +307,22 @@ function StudioWorkspace(props: { identity: string }) {
           </Label>
           <Textarea
             id='studio-prompt'
+            onKeyDown={(event) => {
+              // IME confirmation (including Safari's 229 event) must not send paid requests.
+              if (
+                event.key !== 'Enter' ||
+                event.shiftKey ||
+                event.ctrlKey ||
+                event.metaKey ||
+                event.altKey ||
+                event.nativeEvent.isComposing ||
+                event.keyCode === 229
+              ) {
+                return
+              }
+              event.preventDefault()
+              if (!event.repeat && !run.busy) void form.handleSubmit(submit)()
+            }}
             placeholder={t(
               mode === 'image'
                 ? 'Describe the image you want'
@@ -398,6 +405,18 @@ function StudioWorkspace(props: { identity: string }) {
           )}
         </div>
         <p className='text-muted-foreground text-center text-xs'>
+          {t('Enter to send · Shift+Enter for a new line')}
+        </p>
+        <p className='text-muted-foreground text-center text-xs'>
+          {t('Spending protection')}: ¥
+          {policy?.max_request_cny ||
+            query.data.studio.defaults?.max_request_cny}{' '}
+          / {t('Request')} · ¥
+          {policy?.daily_budget_cny ||
+            query.data.studio.defaults?.daily_budget_cny}{' '}
+          / {t('Day')}
+        </p>
+        <p className='text-muted-foreground text-center text-xs'>
           {t(
             'Content stays on this page only. Refreshing clears it; stopping may still incur charges.'
           )}
@@ -405,10 +424,11 @@ function StudioWorkspace(props: { identity: string }) {
       </form>
       {tokenId > 0 && (
         <ApiKeyPricePolicy
+          studio
           open={policyOpen}
           tokenId={tokenId}
           initialProductId={selectedProductId}
-          title={t('Budget and price limits')}
+          title={t('Spending protection')}
           onOpenChange={changePolicyOpen}
           onSaved={changeProduct}
         />

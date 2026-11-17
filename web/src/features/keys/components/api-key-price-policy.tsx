@@ -47,6 +47,7 @@ export function ApiKeyPricePolicy(props: {
   open: boolean
   tokenId: number
   title?: string
+  studio?: boolean
   initialProductId?: string
   onSaved?: (productId: string) => void
   onOpenChange: (open: boolean) => void
@@ -73,7 +74,9 @@ export function ApiKeyPricePolicy(props: {
       onOpenChange={props.onOpenChange}
       title={props.title ?? t('API key price limits')}
       description={t(
-        'Prices follow upstream changes within your CNY ceilings. Requests above a ceiling pause before reaching the upstream.'
+        props.studio
+          ? 'Price changes apply automatically. Your request limit, daily budget and wallet balance still apply.'
+          : 'Prices follow upstream changes within your CNY ceilings. Requests above a ceiling pause before reaching the upstream.'
       )}
     >
       {query.isPending && <LoadingState inline message={t('Loading...')} />}
@@ -86,6 +89,7 @@ export function ApiKeyPricePolicy(props: {
       {query.data && !query.isError && (
         <PricePolicyEditor
           key={`${identity}:${props.tokenId}:${query.data.saved.revision}:${props.initialProductId ?? ''}`}
+          studio={props.studio}
           tokenId={props.tokenId}
           initialProductId={props.initialProductId}
           catalog={query.data.catalog}
@@ -101,8 +105,9 @@ export function ApiKeyPricePolicy(props: {
   )
 }
 
-/** A user must explicitly accept floating pricing; choosing a product alone never grants unlimited spending. */
+/** Edit bounded spending rules without resetting an existing policy or ordinary API key consent. */
 function PricePolicyEditor(props: {
+  studio?: boolean
   tokenId: number
   initialProductId?: string
   catalog: RetailCatalog
@@ -124,7 +129,9 @@ function PricePolicyEditor(props: {
         ? {
             product_id: props.initialProductId,
             caps: {},
-            accept_floating: false,
+            accept_floating: Boolean(
+              props.studio && props.saved.policy.studio_current
+            ),
           }
         : {}),
     },
@@ -171,7 +178,7 @@ function PricePolicyEditor(props: {
               ...policy,
               product_id: e.target.value,
               caps: {},
-              accept_floating: false,
+              accept_floating: Boolean(policy.studio_current),
             })
           }
         >
@@ -185,8 +192,27 @@ function PricePolicyEditor(props: {
           ))}
         </NativeSelect>
       </div>
-      {product && (
-        <>
+      {props.studio && (
+        <div className='space-y-2'>
+          <div className='flex items-center gap-3'>
+            <Switch
+              id='studio-current-prices'
+              checked={Boolean(policy.studio_current)}
+              onCheckedChange={(studio_current) =>
+                setPolicy({ ...policy, studio_current, accept_floating: true })
+              }
+            />
+            <Label htmlFor='studio-current-prices'>
+              {t('Use current prices within my budget')}
+            </Label>
+          </div>
+        </div>
+      )}
+      {product && !policy.studio_current && (
+        <details open={!props.studio} className='space-y-4'>
+          <summary className='cursor-pointer text-sm font-medium'>
+            {t('Advanced model price limits')}
+          </summary>
           <Button
             type='button'
             variant='outline'
@@ -249,7 +275,7 @@ function PricePolicyEditor(props: {
               </div>
             </div>
           ))}
-        </>
+        </details>
       )}
       <div className='grid gap-4 sm:grid-cols-2'>
         <div className='space-y-2'>
@@ -284,18 +310,20 @@ function PricePolicyEditor(props: {
           'The wallet reserves the maximum context and output cost, then returns the unused amount after settlement.'
         )}
       </p>
-      <div className='flex items-start gap-3'>
-        <Switch
-          id='key-accept-floating'
-          checked={policy.accept_floating || false}
-          onCheckedChange={(accept_floating) =>
-            setPolicy({ ...policy, accept_floating })
-          }
-        />
-        <Label htmlFor='key-accept-floating'>
-          {t('Accept automatic price changes within these limits')}
-        </Label>
-      </div>
+      {!policy.studio_current && (
+        <div className='flex items-start gap-3'>
+          <Switch
+            id='key-accept-floating'
+            checked={policy.accept_floating || false}
+            onCheckedChange={(accept_floating) =>
+              setPolicy({ ...policy, accept_floating })
+            }
+          />
+          <Label htmlFor='key-accept-floating'>
+            {t('Accept automatic price changes within these limits')}
+          </Label>
+        </div>
+      )}
       {Object.keys(form.formState.errors).length > 0 && (
         <p role='alert' className='text-destructive text-sm'>
           {t(
@@ -309,7 +337,7 @@ function PricePolicyEditor(props: {
           mutation.isPending ||
           !policy.accept_floating ||
           !product ||
-          Object.keys(policy.caps).length === 0 ||
+          (!policy.studio_current && Object.keys(policy.caps).length === 0) ||
           !policy.max_request_cny ||
           !policy.daily_budget_cny
         }
