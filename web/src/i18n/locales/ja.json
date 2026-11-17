@@ -8239,6 +8239,13 @@
     "Skipped {{count}} model entries": "Skipped {{count}} model entries",
     "Supply is disabled or missing credentials": "Supply is disabled or missing credentials",
     "Official price is unverified or expired": "Official price is unverified or expired",
-    "Existing product access differs from this binding": "Existing product access differs from this binding"
+    "Existing product access differs from this binding": "Existing product access differs from this binding",
+    "Call group": "呼び出しグループ",
+    "Call groups": "呼び出しグループ",
+    "Select a call group": "呼び出しグループを選択",
+    "No call groups are available yet. Contact the site administrator.": "利用可能な呼び出しグループがありません。管理者にお問い合わせください。",
+    "Select a call group, then set its budget and price limits.": "呼び出しグループを選び、予算と価格上限を設定してください。",
+    "Public call groups can be selected by every registered user. No account group change is needed.": "登録ユーザーはアカウントの所属を変えずに公開グループを選択できます。",
+    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "上流グループのキーとモデルを入力し、ユーザー向けの呼び出しグループ名を設定して利益率と共に保存します。"
   }
 }

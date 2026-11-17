@@ -70,8 +70,9 @@ func OfficialModels() []Model {
 	return models
 }
 
-// GenerateOfficialDraft adds exact official models and one product per saved customer group.
-// Existing operator tariffs/products, wallet units, economics and enabled state are preserved.
+// GenerateOfficialDraft adds exact official models and one public call group per saved supply binding group.
+// An explicit generate-and-publish action upgrades legacy generated groups; custom access rules remain intact.
+// Wallet units, economics and enabled state are preserved.
 // Bindings and supplies must be server-owned snapshots; this function performs no network or database writes.
 func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) OfficialDraft {
 	book.Models, book.Products = slices.Clone(book.Models), slices.Clone(book.Products)
@@ -117,12 +118,15 @@ func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) Offic
 		id := fmt.Sprintf("official-%x", sum[:8])
 		product, ok := products[id]
 		if !ok {
-			product = Product{ID: id, Name: binding.LocalGroup, UserGroups: []string{binding.LocalGroup}}
+			product = Product{ID: id, Name: binding.LocalGroup, Public: true, BindingGroup: binding.LocalGroup, UserGroups: []string{}}
 			if previous := slices.IndexFunc(book.Products, func(p Product) bool { return p.ID == id }); previous >= 0 {
 				product = book.Products[previous]
-				// A matching ID cannot override custom access rules. Only extend the
-				// exact single-group plan created by this workflow.
-				if len(product.UserGroups) != 1 || product.UserGroups[0] != binding.LocalGroup {
+				// Only the exact historical generated shape can be upgraded by this
+				// explicit draft action. Reading a book never expands its access.
+				if product.BindingGroup == "" && !product.Public && len(product.UserGroups) == 1 && product.UserGroups[0] == binding.LocalGroup {
+					product.Public, product.BindingGroup, product.UserGroups = true, binding.LocalGroup, []string{}
+				}
+				if product.BindingGroup != binding.LocalGroup {
 					result.Excluded = append(result.Excluded, CatalogExclusion{ChannelID: binding.ChannelID, Reason: "product_access_conflict"})
 					continue
 				}

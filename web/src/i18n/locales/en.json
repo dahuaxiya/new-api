@@ -8239,6 +8239,13 @@
     "Skipped {{count}} model entries": "Skipped {{count}} model entries",
     "Supply is disabled or missing credentials": "Supply is disabled or missing credentials",
     "Official price is unverified or expired": "Official price is unverified or expired",
-    "Existing product access differs from this binding": "Existing product access differs from this binding"
+    "Existing product access differs from this binding": "Existing product access differs from this binding",
+    "Call group": "Call group",
+    "Call groups": "Call groups",
+    "Select a call group": "Select a call group",
+    "No call groups are available yet. Contact the site administrator.": "No call groups are available yet. Contact the site administrator.",
+    "Select a call group, then set its budget and price limits.": "Select a call group, then set its budget and price limits.",
+    "Public call groups can be selected by every registered user. No account group change is needed.": "Public call groups can be selected by every registered user. No account group change is needed.",
+    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here."
   }
 }

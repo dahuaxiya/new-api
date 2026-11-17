@@ -305,7 +305,7 @@ function BindingEditor(props: {
       </div>
       <p className='text-muted-foreground text-sm'>
         {t(
-          'Select an upstream group, enter its Key and models, and assign a local user group. Save everything with your margin here.'
+          'Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.'
         )}
       </p>
       <div className='bg-muted/50 space-y-3 rounded-md p-3'>
@@ -493,7 +493,7 @@ function BindingEditor(props: {
               <FieldGroup className='grid gap-3 sm:grid-cols-3'>
                 <Field>
                   <FieldLabel htmlFor={`binding-local-${row.rowID}`}>
-                    {t('Local group')} {index + 1}
+                    {t('Call group')} {index + 1}
                   </FieldLabel>
                   <NativeSelect
                     id={`binding-local-${row.rowID}`}

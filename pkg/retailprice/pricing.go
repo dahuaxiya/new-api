@@ -72,10 +72,18 @@ type Route struct {
 
 // Product defines independently authorized sales access and equivalent procurement routes.
 type Product struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	UserGroups []string `json:"user_groups"`
-	Routes     []Route  `json:"routes"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Public       bool     `json:"public,omitempty"`
+	BindingGroup string   `json:"binding_group,omitempty"`
+	UserGroups   []string `json:"user_groups"`
+	Routes       []Route  `json:"routes"`
+}
+
+// AllowsGroup checks sales access only; procurement uses BindingGroup, not the customer's account group.
+// Missing public on historical books retains their explicit account-group restrictions.
+func (p Product) AllowsGroup(group string) bool {
+	return p.Public || slices.Contains(p.UserGroups, group)
 }
 
 // Book stores an immutable pricing version. Wallet conversion is explicit and never a display FX rate.
@@ -187,7 +195,12 @@ func (b Book) Validate(now int64) error {
 		rates[r.ID] = true
 	}
 	for _, p := range b.Products {
-		if !idPattern.MatchString(p.ID) || products[p.ID] || strings.TrimSpace(p.Name) == "" || len(p.Name) > 100 || len(p.UserGroups) == 0 || len(p.UserGroups) > 100 || len(p.Routes) == 0 || len(p.Routes) > 100 {
+		if !idPattern.MatchString(p.ID) || products[p.ID] || strings.TrimSpace(p.Name) == "" || len(p.Name) > 100 || (!p.Public && len(p.UserGroups) == 0) || len(p.UserGroups) > 100 || len(p.Routes) == 0 || len(p.Routes) > 100 {
+			return ErrConfig
+		}
+		// Public access must have an explicit procurement identity. Otherwise a
+		// customer's account group could select a different multiplier or a stale manual rate.
+		if (p.Public && p.BindingGroup == "") || (p.BindingGroup != "" && !validBindingGroup(p.BindingGroup)) {
 			return ErrConfig
 		}
 		products[p.ID] = true
@@ -198,7 +211,11 @@ func (b Book) Validate(now int64) error {
 			}
 			seenChannels[route.ChannelID] = true
 			if route.RateID == "" || slices.ContainsFunc(b.GroupBindings, func(binding GroupBinding) bool { return binding.ChannelID == route.ChannelID }) {
-				for _, group := range p.UserGroups {
+				groups := p.UserGroups
+				if p.BindingGroup != "" {
+					groups = []string{p.BindingGroup}
+				}
+				for _, group := range groups {
 					if b.Binding(group, route.ChannelID) == nil {
 						return ErrConfig
 					}
@@ -285,7 +302,7 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 			official = &b.Models[i]
 		}
 	}
-	if product == nil || official == nil || !slices.Contains(product.UserGroups, group) {
+	if product == nil || official == nil || !product.AllowsGroup(group) {
 		return nil, ErrAccess
 	}
 	if official.ValidUntil <= now {
@@ -306,12 +323,18 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 	var cheapest decimal.Decimal
 	expires := official.ValidUntil
 	channels := []int{}
+	// Legacy private products used account groups as binding selectors. New call
+	// groups pin procurement independently so every customer gets the same group price.
+	bindingGroup := group
+	if product.BindingGroup != "" {
+		bindingGroup = product.BindingGroup
+	}
 	for _, route := range product.Routes {
 		if route.Models[modelName] == "" || !slices.Contains(eligible, route.ChannelID) {
 			continue
 		}
 		routeRates, rateID := b.Rates, route.RateID
-		if binding := b.Binding(group, route.ChannelID); binding != nil {
+		if binding := b.Binding(bindingGroup, route.ChannelID); binding != nil {
 			// A failed refresh cannot reactivate an older manually entered multiplier.
 			rate, err := b.BoundRate(*binding, now)
 			if err != nil {

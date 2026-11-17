@@ -91,7 +91,7 @@ it('requires consent and preserves tiny decimal prices when saving current ceili
     .spyOn(api, 'put')
     .mockResolvedValue({ data: { success: true } })
   const close = openPolicy()
-  fireEvent.change(await screen.findByLabelText('Sales product'), {
+  fireEvent.change(await screen.findByLabelText('Call group'), {
     target: { value: 'standard' },
   })
   fireEvent.click(
@@ -130,7 +130,7 @@ it('requires consent and preserves tiny decimal prices when saving current ceili
 
 it('keeps saving disabled when no current model prices exist', async () => {
   openPolicy(true)
-  fireEvent.change(await screen.findByLabelText('Sales product'), {
+  fireEvent.change(await screen.findByLabelText('Call group'), {
     target: { value: 'standard' },
   })
   expect(

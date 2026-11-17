@@ -2,6 +2,7 @@ package retailprice_test
 
 import (
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -107,7 +108,9 @@ func TestOfficialDraftUsesSavedBindings(t *testing.T) {
 	require.Empty(t, book.Models, "generation cannot mutate the source book")
 	require.Len(t, draft.Book.Models, 2)
 	require.Len(t, draft.Book.Products, 1)
-	require.Equal(t, []string{"gpt-normal"}, draft.Book.Products[0].UserGroups)
+	require.True(t, draft.Book.Products[0].Public)
+	require.Equal(t, "gpt-normal", draft.Book.Products[0].BindingGroup)
+	require.Empty(t, draft.Book.Products[0].UserGroups)
 	require.Len(t, draft.Book.Products[0].Routes, 1, "unbound supply never enters a product")
 	require.Equal(t, 101, draft.Book.Products[0].Routes[0].ChannelID)
 	require.Equal(t, 2000, draft.Book.MarginBPS)
@@ -119,8 +122,19 @@ func TestOfficialDraftUsesSavedBindings(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "0.3", quote.Sale[0].Prices.Input, "upstream 0.12 and 20% margin yield 0.15 sale factor")
 	require.Equal(t, "0.6", quote.Sale[1].Prices.Input, "long context cannot use the short tier")
-	_, err = draft.Book.MakeQuote(1, "default", policy, "gpt-6.1-sol", 1024, []int{101}, now)
-	require.ErrorIs(t, err, retailprice.ErrAccess)
+	defaultQuote, err := draft.Book.MakeQuote(1, "default", policy, "gpt-6.1-sol", 1024, []int{101}, now)
+	require.NoError(t, err)
+	require.Equal(t, quote.Sale, defaultQuote.Sale, "all registered users receive the call group price")
+	legacy := draft.Book
+	legacy.Products = slices.Clone(draft.Book.Products)
+	legacy.Products[0].Public, legacy.Products[0].BindingGroup, legacy.Products[0].UserGroups = false, "", []string{"gpt-normal"}
+	_, err = legacy.MakeQuote(1, "default", policy, "gpt-6.1-sol", 1024, []int{101}, now)
+	require.ErrorIs(t, err, retailprice.ErrAccess, "reading a legacy book cannot expand access")
+	upgraded := retailprice.GenerateOfficialDraft(legacy, supplies, now)
+	require.True(t, upgraded.Book.Products[0].Public)
+	require.False(t, legacy.Products[0].Public, "draft conversion never modifies the published book")
+	legacy.Products[0].UserGroups = []string{"private"}
+	require.False(t, retailprice.GenerateOfficialDraft(legacy, supplies, now).Book.Products[0].Public, "custom restrictions survive generation")
 	draft.Book.Models[0].Tiers[0].Prices.Input = "3"
 	repeated := retailprice.GenerateOfficialDraft(draft.Book, supplies, now+60)
 	require.Equal(t, draft.Book, repeated.Book, "operator overrides and existing products survive repeated generation")
@@ -128,4 +142,39 @@ func TestOfficialDraftUsesSavedBindings(t *testing.T) {
 	require.Empty(t, expired.Book.Models, "generation does not renew the fixed verification date")
 	supplies[0].Available = false
 	require.Empty(t, retailprice.GenerateOfficialDraft(book, supplies, now).Book.Products, "disabled supply is not offered")
+}
+
+// TestPublicCallGroupsPinProcurement prevents account membership from changing a public group's cost.
+func TestPublicCallGroupsPinProcurement(t *testing.T) {
+	now := int64(1794916800)
+	book := retailprice.Book{WalletCNYPerUnit: "1", ReceiptRatio: "1", MarginBPS: 2000,
+		GroupBindings:  []retailprice.GroupBinding{{LocalGroup: "normal", ChannelID: 101, UpstreamGroup: "normal"}, {LocalGroup: "premium", ChannelID: 102, UpstreamGroup: "premium"}},
+		PublicRateSync: retailprice.PublicRateSync{Enabled: true, Snapshot: &retailprice.PublicRateSnapshot{Source: "https://aixingxing.pro/api/public/rates", UpdatedAt: now, FetchedAt: now, Groups: []retailprice.PublicRate{{Group: "normal", Multiplier: "0.12"}, {Group: "premium", Multiplier: "0.24"}}}}}
+	draft := retailprice.GenerateOfficialDraft(book, []retailprice.CatalogSupply{{ID: 101, Models: "gpt-6.1-sol", Available: true}, {ID: 102, Models: "gpt-6.1-sol", Available: true}}, now)
+	require.NoError(t, draft.Book.Validate(now))
+	cap := retailprice.Prices{Input: "100", Output: "100", CacheRead: "100", CacheWrite: "100", CacheWrite1h: "100"}
+	for _, p := range draft.Book.Products {
+		policy := retailprice.KeyPolicy{ProductID: p.ID, AcceptFloating: true, Caps: map[string]retailprice.Prices{"gpt-6.1-sol": cap}, MaxRequestCNY: "999", DailyBudgetCNY: "999"}
+		for _, account := range []string{"default", "normal", "premium"} {
+			q, err := draft.Book.MakeQuote(1, account, policy, "gpt-6.1-sol", 1024, []int{101, 102}, now)
+			require.NoError(t, err)
+			if p.BindingGroup == "normal" {
+				require.Equal(t, "0.3", q.Sale[0].Prices.Input)
+				require.Equal(t, []int{101}, q.Channels)
+			} else {
+				require.Equal(t, "0.6", q.Sale[0].Prices.Input)
+				require.Equal(t, []int{102}, q.Channels)
+			}
+		}
+		failed := draft.Book
+		failed.PublicRateSync.LastError = "failed"
+		_, err := failed.MakeQuote(1, "default", policy, "gpt-6.1-sol", 1024, []int{101, 102}, now)
+		require.Error(t, err, "failed synchronization must not fall back to account pricing")
+		_, err = draft.Book.MakeQuote(1, "default", policy, "gpt-6.1-sol", 1024, []int{101, 102}, now+301)
+		require.Error(t, err, "stale feed cannot admit requests")
+	}
+	invalid := draft.Book
+	invalid.Products = slices.Clone(draft.Book.Products)
+	invalid.Products[0].BindingGroup = ""
+	require.ErrorIs(t, invalid.Validate(now), retailprice.ErrConfig)
 }

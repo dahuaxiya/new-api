@@ -8269,6 +8269,13 @@
     "Skipped {{count}} model entries": "已跳过 {{count}} 项模型配置",
     "Supply is disabled or missing credentials": "供货已停用或尚未填写 Key",
     "Official price is unverified or expired": "官方价格尚未核实或已过期",
-    "Existing product access differs from this binding": "现有方案权限与此绑定不一致"
+    "Existing product access differs from this binding": "现有方案权限与此绑定不一致",
+    "Call group": "调用分组",
+    "Call groups": "调用分组",
+    "Select a call group": "选择调用分组",
+    "No call groups are available yet. Contact the site administrator.": "暂时没有可用的调用分组，请联系管理员。",
+    "Select a call group, then set its budget and price limits.": "先选择调用分组，再设置预算和价格上限。",
+    "Public call groups can be selected by every registered user. No account group change is needed.": "所有注册用户都可以选择公开调用分组，无需修改账号所属组。",
+    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "选择上游分组，填写对应 Key 和模型，再设置用户可选的调用分组名称；在这里一并保存毛利。"
   }
 }

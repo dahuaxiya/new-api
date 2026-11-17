@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -127,7 +126,8 @@ func GetRetailKeyPolicy(userID, tokenID int) (retailprice.KeyPolicy, int64, erro
 	return policy, row.Revision, nil
 }
 
-// PutRetailKeyPolicy grants only products already allowed to the user's current server-side group.
+// PutRetailKeyPolicy accepts public call groups or private products allowed to the current account group.
+// Token ownership, model ceilings and revision checks apply equally to public and private products.
 func PutRetailKeyPolicy(userID, tokenID int, expected int64, policy retailprice.KeyPolicy) error {
 	if userID <= 0 || tokenID <= 0 || expected < 0 {
 		return retailprice.ErrConfig
@@ -154,7 +154,7 @@ func PutRetailKeyPolicy(userID, tokenID int, expected int64, policy retailprice.
 		}
 		allowedModels := map[string]bool{}
 		for _, p := range book.Products {
-			if p.ID == policy.ProductID && slices.Contains(p.UserGroups, user.Group) {
+			if p.ID == policy.ProductID && p.AllowsGroup(user.Group) {
 				for _, r := range p.Routes {
 					for name := range r.Models {
 						allowedModels[name] = true

@@ -297,6 +297,27 @@ func TestRetailPricingDatabases(t *testing.T) {
 			var versions int64
 			require.NoError(t, db.Model(&RetailPriceVersion{}).Count(&versions).Error)
 			assert.Equal(t, int64(4), versions)
+			// Public call groups retain the same transaction and budget checks for
+			// accounts outside the legacy group; there is no account reassignment.
+			book.Enabled = true
+			book.Products[0].Public = true
+			book.Products[0].BindingGroup = "shared"
+			book.Products[0].UserGroups = nil
+			_, err = PublishRetailPriceBook(4, book, nil, 1)
+			require.NoError(t, err)
+			require.NoError(t, db.Model(&user).Update("group", "another").Error)
+			policy.DailyBudgetCNY = "1"
+			require.NoError(t, PutRetailKeyPolicy(user.Id, token.Id, 2, policy))
+			publicQuote, err := RetailQuote(user.Id, token.Id, "gpt-4o", 20, []int{101})
+			require.NoError(t, err)
+			require.Equal(t, quote.Sale, publicQuote.Sale)
+			_, err = ReservePricedRetailCharge("public-group", user.Id, token.Id, publicQuote)
+			require.NoError(t, err)
+			require.NoError(t, ChangeRetailCharge("public-group", user.Id, token.Id, quota, "settled"))
+			var publicCharge RetailCharge
+			require.NoError(t, db.First(&publicCharge, "id = ?", "public-group").Error)
+			require.Equal(t, "0.00036", publicCharge.ActualCNY)
+
 		})
 	}
 }

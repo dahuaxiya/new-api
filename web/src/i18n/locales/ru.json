@@ -8239,6 +8239,13 @@
     "Skipped {{count}} model entries": "Skipped {{count}} model entries",
     "Supply is disabled or missing credentials": "Supply is disabled or missing credentials",
     "Official price is unverified or expired": "Official price is unverified or expired",
-    "Existing product access differs from this binding": "Existing product access differs from this binding"
+    "Existing product access differs from this binding": "Existing product access differs from this binding",
+    "Call group": "Группа вызовов",
+    "Call groups": "Группы вызовов",
+    "Select a call group": "Выберите группу вызовов",
+    "No call groups are available yet. Contact the site administrator.": "Нет доступных групп вызовов. Обратитесь к администратору.",
+    "Select a call group, then set its budget and price limits.": "Выберите группу, затем задайте бюджет и лимиты цен.",
+    "Public call groups can be selected by every registered user. No account group change is needed.": "Все зарегистрированные пользователи могут выбирать публичные группы без изменения группы аккаунта.",
+    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "Выберите группу поставщика, укажите ключ и модели, затем назовите группу для пользователей. Сохраните вместе с маржой."
   }
 }

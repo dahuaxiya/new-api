@@ -100,7 +100,7 @@ it('creates supply and bindings in one save without repeating the site address',
     await screen.findByRole('button', { name: 'Add supply group' })
   )
   expect(screen.getAllByText('https://aixingxing.pro')).toHaveLength(1)
-  fireEvent.change(screen.getByLabelText('Local group 1'), {
+  fireEvent.change(screen.getByLabelText('Call group 1'), {
     target: { value: 'pro' },
   })
   fireEvent.change(screen.getByLabelText('Upstream group 1'), {
@@ -168,7 +168,7 @@ it('clears failed Key submissions while retaining mappings and excluding secrets
   fireEvent.click(
     await screen.findByRole('button', { name: 'Add supply group' })
   )
-  fireEvent.change(screen.getByLabelText('Local group 1'), {
+  fireEvent.change(screen.getByLabelText('Call group 1'), {
     target: { value: 'pro' },
   })
   fireEvent.change(screen.getByLabelText('Upstream group 1'), {
@@ -182,7 +182,7 @@ it('clears failed Key submissions while retaining mappings and excluding secrets
   )
   fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
   await screen.findByRole('alert')
-  expect(screen.getByLabelText('Local group 1')).toHaveValue('pro')
+  expect(screen.getByLabelText('Call group 1')).toHaveValue('pro')
   expect(screen.getByLabelText('Upstream API Key 1')).toHaveValue('')
   expect(JSON.stringify(clients[0].getMutationCache().getAll())).not.toContain(
     'test-only-private-key'
@@ -204,7 +204,7 @@ it('saves explicit group and credential choices without accepting browser-suppli
   fireEvent.click(screen.getByRole('button', { name: 'Load upstream groups' }))
   await screen.findByText('0.24×')
   fireEvent.click(screen.getByRole('button', { name: 'Add group binding' }))
-  fireEvent.change(screen.getByLabelText('Local group 1'), {
+  fireEvent.change(screen.getByLabelText('Call group 1'), {
     target: { value: 'default' },
   })
   fireEvent.change(screen.getByLabelText('Supply channel 1'), {
@@ -255,7 +255,7 @@ it('reloads saved assignments and shows expired prices as paused without a zero 
     },
   })
   mount()
-  expect(await screen.findByLabelText('Local group 1')).toHaveValue('default')
+  expect(await screen.findByLabelText('Call group 1')).toHaveValue('default')
   expect(screen.getByLabelText('Upstream group 1')).toHaveValue(
     'ChatGPT-pro稳定'
   )
@@ -287,7 +287,7 @@ it('rejects incomplete selections and keeps the draft when a version conflict oc
   expect(
     screen.getByRole('button', { name: 'Save bindings and margin' })
   ).toBeDisabled()
-  fireEvent.change(screen.getByLabelText('Local group 1'), {
+  fireEvent.change(screen.getByLabelText('Call group 1'), {
     target: { value: 'pro' },
   })
   fireEvent.change(screen.getByLabelText('Supply channel 1'), {
@@ -303,7 +303,7 @@ it('rejects incomplete selections and keeps the draft when a version conflict oc
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Retail pricing changed. Reload before saving.'
   )
-  expect(screen.getByLabelText('Local group 1')).toHaveValue('pro')
+  expect(screen.getByLabelText('Call group 1')).toHaveValue('pro')
 })
 
 it('keeps the newer saved multiplier when a cached public preview is older', async () => {

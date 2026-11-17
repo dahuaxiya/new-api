@@ -65,6 +65,7 @@ function StudioWorkspace(props: { identity: string }) {
   const [mode, setMode] = useState<'text' | 'image'>('text')
   const [policyOpen, setPolicyOpen] = useState(false)
   const [openedId, setOpenedId] = useState(0)
+  const [chosenProductId, setChosenProductId] = useState<string | null>(null)
   const run = useStudioRun()
   const form = useForm<StudioForm>({
     resolver: zodResolver(studioFormSchema),
@@ -101,17 +102,22 @@ function StudioWorkspace(props: { identity: string }) {
   })
   const tokenId = openedId || query.data?.studio.token_id || 0
   const policy = query.data?.saved?.policy
+  const selectedProductId = chosenProductId ?? policy?.product_id ?? ''
   const product = query.data?.catalog.products.find(
-    (item) => item.id === policy?.product_id
+    (item) => item.id === selectedProductId
   )
+  const policyMatches = product?.id === policy?.product_id
   const models =
     product?.models.filter(
-      (item) =>
-        (item.kind === 'image') === (mode === 'image') && policy?.caps[item.id]
+      (item) => (item.kind === 'image') === (mode === 'image')
     ) ?? []
   const selected = models.find((item) => item.id === form.watch('model'))
   const available = Boolean(
-    query.data?.catalog.enabled && policy?.accept_floating && selected
+    query.data?.catalog.enabled &&
+    policyMatches &&
+    policy?.accept_floating &&
+    selected &&
+    policy?.caps[selected.id]
   )
   const catalog = query.data?.catalog
   const hasCatalogModels = catalog?.products.some((item) => item.models.length)
@@ -123,17 +129,21 @@ function StudioWorkspace(props: { identity: string }) {
       blockedMessage = t('Model requests are paused by the site administrator.')
     } else if (!catalog.products.length) {
       blockedMessage = t(
-        'No model plan is assigned to your account group. Contact the site administrator.'
+        'No call groups are available yet. Contact the site administrator.'
       )
     } else if (!hasCatalogModels) {
       blockedMessage = t(
         'No model route is currently available. Contact the site administrator.'
       )
-    } else if (!policy?.accept_floating || !product) {
+    } else if (!product) {
+      blockedMessage = t(
+        'Select a call group, then set its budget and price limits.'
+      )
+    } else if (!policyMatches || !policy?.accept_floating) {
       blockedMessage = t(
         'Set your budget and price limits before the first request.'
       )
-    } else if (!models.length) {
+    } else if (!models.length || (selected && !policy?.caps[selected.id])) {
       blockedMessage = t(
         'No models are authorized for this mode. Check your plan and price limits.'
       )
@@ -144,6 +154,14 @@ function StudioWorkspace(props: { identity: string }) {
   const changePolicyOpen = (open: boolean) => {
     setPolicyOpen(open)
     if (!open) void query.refetch()
+  }
+  /** Browsing another group must never send under the previous group's spending consent. */
+  const changeProduct = (id: string) => {
+    if (run.busy) return
+    setChosenProductId(id)
+    form.setValue('model', '')
+    // Conversation context is local to the chosen group; do not forward old prompts to a different supplier.
+    run.clear()
   }
   /** Keep generated images and conversations separate; mode switches start a fresh local workspace. */
   const changeMode = (value: unknown) => {
@@ -221,6 +239,23 @@ function StudioWorkspace(props: { identity: string }) {
             </TabsTrigger>
           </TabsList>
         </Tabs>
+        <div className='min-w-40 sm:max-w-56'>
+          <NativeSelect
+            aria-label={t('Call group')}
+            value={selectedProductId}
+            disabled={run.busy || !catalog?.products.length}
+            onChange={(event) => changeProduct(event.target.value)}
+          >
+            <NativeSelectOption value=''>
+              {t('Select a call group')}
+            </NativeSelectOption>
+            {catalog?.products.map((item) => (
+              <NativeSelectOption key={item.id} value={item.id}>
+                {item.name}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </div>
         <div className='min-w-48 flex-1 sm:max-w-xs'>
           <NativeSelect
             aria-label={t('Model')}
@@ -372,8 +407,10 @@ function StudioWorkspace(props: { identity: string }) {
         <ApiKeyPricePolicy
           open={policyOpen}
           tokenId={tokenId}
+          initialProductId={selectedProductId}
           title={t('Budget and price limits')}
           onOpenChange={changePolicyOpen}
+          onSaved={changeProduct}
         />
       )}
     </section>
