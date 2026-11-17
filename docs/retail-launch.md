@@ -34,6 +34,8 @@
 
 ## 单机资源与维护
 
+中转站的 Nginx `server` 块引入 `deploy/retail/nginx-static.conf`，安装路径为 `/etc/nginx/snippets/luobocode-retail-static.conf`。仅 `/static/` 下的公开资源开启 gzip；有预压缩文件时优先使用，否则动态压缩。带内容哈希的资源缓存一年，普通文件继续重新校验；缺失资源返回 404，不能回落为 HTML。首页、发布信息、登录和 API/SSE 保持原策略。修改配置先运行 `nginx -t`，再平滑 reload，不需要重启应用。
+
 容器绑定回环地址，TLS 入口交给 Nginx。模板限制 256 MiB 内存、0.75 CPU，设置 Go 内存目标及 Docker 日志轮转。这些是资源隔离设置，不是容量承诺；上线后以实际 RSS、延迟、在途请求和错误率决定并发数。
 
 日志目录和 SQLite 数据位于独立持久化目录。备份使用 SQLite backup API 生成一致快照，不直接复制正在写入的 DB 主文件。升级保留前一版镜像和前端目录，先排空请求；代码回滚不得用旧数据库覆盖新写入。
