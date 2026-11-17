@@ -528,6 +528,7 @@ func TestRetailPricingManagement(t *testing.T) {
 	admin.PUT("/pricing", middleware.SessionCookieOriginGuard(), PutRetailPricingAdmin)
 	admin.POST("/pricing/rates", middleware.SessionCookieOriginGuard(), ImportRetailRates)
 	admin.POST("/pricing/preview", middleware.SessionCookieOriginGuard(), PreviewRetailPricing)
+	admin.POST("/pricing/official-draft", middleware.SessionCookieOriginGuard(), GenerateRetailOfficialDraft)
 	users := engine.Group("/api/retail", middleware.UserAuth(), middleware.DisableCache())
 	studio := engine.Group("/api/retail/studio", middleware.UserAuth(), middleware.RetailStudioSession())
 	studio.POST("/session", OpenRetailStudio)
@@ -554,12 +555,16 @@ func TestRetailPricingManagement(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code, "regular user cannot publish tariffs")
 	w = request("GET", "/api/retail/admin/pricing/public-rates", "https://example.com", nil)
 	require.Equal(t, http.StatusForbidden, w.Code, "public source preview is a root-only management feature")
+	w = request("POST", "/api/retail/admin/pricing/official-draft", "https://example.com", gin.H{"expected_version": 0})
+	require.Equal(t, http.StatusForbidden, w.Code, "official proposals are root-only")
 	for _, action := range []struct{ method, path string }{{"GET", "/api/retail/admin/pricing/group-bindings"}, {"PUT", "/api/retail/admin/pricing/group-bindings"}, {"POST", "/api/retail/admin/pricing/group-bindings/sync"}} {
 		w = request(action.method, action.path, "https://example.com", gin.H{})
 		require.Equal(t, http.StatusForbidden, w.Code, "binding operations require root")
 	}
 	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
+	emptyPublication := request("PUT", "/api/retail/admin/pricing", "https://example.com", gin.H{"expected_version": 0, "book": retailprice.Book{}})
+	require.Contains(t, emptyPublication.Body.String(), `"success":false`, "empty setup must not be reported as a published catalog")
 	w = request("PUT", "/api/retail/admin/pricing", "https://attacker.example", publish)
 	require.Equal(t, http.StatusForbidden, w.Code)
 	w = request("PUT", "/api/retail/admin/pricing", "https://example.com", publish)
@@ -713,6 +718,32 @@ func TestRetailPricingManagement(t *testing.T) {
 	var createdCount int64
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("name = ?", "Pro dedicated").Count(&createdCount).Error)
 	require.EqualValues(t, 1, createdCount)
+	// Generating official prices is a proposal only: preserve the committed book,
+	// economics, existing manual products and credentials until explicit publication.
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", 101).Update("models", "gpt-6.1-sol,gpt-image-2.6-sunburst,unknown-alias").Error)
+	beforeProposal, proposalVersion, err := model.GetRetailPriceBook()
+	require.NoError(t, err)
+	w = request("POST", "/api/retail/admin/pricing/official-draft", "https://attacker.example", gin.H{"expected_version": proposalVersion})
+	require.Equal(t, http.StatusForbidden, w.Code)
+	w = request("POST", "/api/retail/admin/pricing/official-draft", "https://example.com", gin.H{"expected_version": proposalVersion - 1})
+	require.Contains(t, w.Body.String(), `"success":false`)
+	w = request("POST", "/api/retail/admin/pricing/official-draft", "https://example.com", gin.H{"expected_version": proposalVersion})
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	var proposal struct {
+		Data struct {
+			Book retailprice.Book `json:"book"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &proposal))
+	require.Len(t, proposal.Data.Book.Models, len(beforeProposal.Models)+2)
+	require.Equal(t, beforeProposal.Products[0], proposal.Data.Book.Products[0])
+	require.Equal(t, beforeProposal.MarginBPS, proposal.Data.Book.MarginBPS)
+	require.Contains(t, w.Body.String(), "unknown-alias")
+	require.NotContains(t, w.Body.String(), "new-group-test-only-key")
+	afterProposal, afterVersion, err := model.GetRetailPriceBook()
+	require.NoError(t, err)
+	require.Equal(t, proposalVersion, afterVersion)
+	require.Equal(t, beforeProposal, afterProposal)
 	require.NoError(t, model.DB.Model(user).Update("status", common.UserStatusDisabled).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
 	w = request("GET", "/api/retail/admin/pricing", "https://example.com", nil)

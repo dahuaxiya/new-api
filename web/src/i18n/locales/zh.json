@@ -8253,6 +8253,22 @@
     "Save supply credentials, model permissions, group bindings and margin together. Existing Keys stay unchanged when blank. This does not enable sales.": "一起保存供货 Key、模型权限、分组绑定和毛利率。Key 留空时保留原值，本次保存不会开启销售。",
     "Sign in with another account": "使用其他账号登录",
     "Switching signs out the current unified account. Then enter the other account and password.": "切换前会退出当前统一账号，然后可以输入其他账号和密码。",
-    "Enter your account and password on the unified sign-in page. Already signed in? Choose “Sign in with another account” there.": "账号和密码在统一登录页输入。如果那里已登录，点击「使用其他账号登录」即可换号。"
+    "Enter your account and password on the unified sign-in page. Already signed in? Choose “Sign in with another account” there.": "账号和密码在统一登录页输入。如果那里已登录，点击「使用其他账号登录」即可换号。",
+    "Cannot publish an empty price book. Generate official prices and routes first.": "价表还是空的，请先生成官方价格和模型路由。",
+    "Price book published for new requests": "价表已发布，已开放新请求",
+    "Price book saved; model requests remain paused": "价表已保存，模型调用仍处于暂停状态",
+    "Model catalog setup": "模型与调用线路",
+    "Generate official prices and routes": "生成官方价表与路由",
+    "Uses saved supply bindings and verified official model IDs. Existing prices are preserved. No file upload is needed.": "按已保存的供货绑定生成，使用已核实的官方型号和价格。保留已有价格，无需上传文件。",
+    "{{models}} models · {{products}} plans": "{{models}} 个模型 · {{products}} 个方案",
+    "Authorized account groups": "可用的本站用户分组",
+    "Your account is in {{group}} and has no plan in this draft. Assign an account to an authorized group in User management, or change the saved supply binding.": "你的账号属于 {{group}}，不在这份价表的授权范围内。可在用户管理中调整账号分组，或修改上方的供货绑定。",
+    "Model requests remain paused. Enable new priced requests and preview before publishing.": "目前仍暂停模型调用。请打开「接收新计价请求」，预览售价后再发布。",
+    "Refresh saved pricing before generating another proposal. Unsaved edits are kept until you refresh.": "再次生成前请刷新已保存的价表。刷新会放弃当前未保存的草稿。",
+    "Proposal generated locally. Preview the selling prices, then publish to apply it.": "草稿已生成，尚未生效。预览售价并发布后应用。",
+    "Skipped {{count}} model entries": "已跳过 {{count}} 项模型配置",
+    "Supply is disabled or missing credentials": "供货已停用或尚未填写 Key",
+    "Official price is unverified or expired": "官方价格尚未核实或已过期",
+    "Existing product access differs from this binding": "现有方案权限与此绑定不一致"
   }
 }
