@@ -109,6 +109,37 @@ function installApiFixtures(
             },
           },
         }
+      case '/api/retail/catalog':
+        return {
+          data: {
+            success: true,
+            data: {
+              enabled: true,
+              version: 1,
+              products: ['normal', 'pro'].map((id) => ({
+                id,
+                name: `gpt-${id}`,
+                models: [
+                  {
+                    id: 'retail-model',
+                    tiers: [
+                      {
+                        up_to: 0,
+                        prices: {
+                          input: '1',
+                          output: '2',
+                          cache_read: '0',
+                          cache_write: '0',
+                          cache_write_1h: '0',
+                        },
+                      },
+                    ],
+                  },
+                ],
+              })),
+            },
+          },
+        }
       case '/api/token/service-modes':
         return {
           data: {
@@ -185,7 +216,10 @@ async function renderCreateDrawer(
   )
   await waitFor(
     () => {
-      const saveButton = findButton('Save changes', false)
+      const saveButton = findButton(
+        siteMode === 'retail' ? 'Next: price limits' : 'Save changes',
+        false
+      )
       expect(saveButton).toBeEnabled()
     },
     { timeout: 1500 }
@@ -380,8 +414,8 @@ test('multiple hosted accounts require an explicit target and submit only the ch
   })
 })
 
-/** 中转站默认创建余额计费 Key，不请求托管名额或让用户选择另一类服务。 */
-test('retail mode skips hosted account selection and submits wallet service', async () => {
+/** 中转 Key 在选组和明确消费保护前不创建；一次提交保存完整策略。 */
+test('retail creation selects a shared call group before atomically saving wallet service and limits', async () => {
   const payloads: Array<Record<string, unknown>> = []
   installApiFixtures(payloads, true, 'retail')
   await renderCreateDrawer('retail')
@@ -390,13 +424,95 @@ test('retail mode skips hosted account selection and submits wallet service', as
   fireEvent.change(screen.getByLabelText('Name'), {
     target: { value: 'Wallet API' },
   })
-  fireEvent.click(findButton('Save changes', true))
-  await waitFor(() => expect(payloads.length).toBe(1))
+  fireEvent.click(screen.getByRole('button', { name: 'Next: price limits' }))
+  await screen.findByText('Select a call group', {
+    selector: '[data-slot="form-message"]',
+  })
+  expect(payloads).toHaveLength(0)
+  fireEvent.change(screen.getByLabelText('Call group'), {
+    target: { value: 'normal' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Next: price limits' }))
+  await screen.findByRole('button', { name: 'Use current prices as ceilings' })
+  expect(screen.getByLabelText('Call group')).toHaveValue('normal')
+  expect(payloads).toHaveLength(0)
+  expect(screen.getByRole('button', { name: 'Create API Key' })).toBeDisabled()
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Use current prices as ceilings' })
+  )
+  fireEvent.change(screen.getByLabelText('Maximum request charge (CNY)'), {
+    target: { value: '1' },
+  })
+  fireEvent.change(screen.getByLabelText('Daily budget (CNY, UTC)'), {
+    target: { value: '10' },
+  })
+  fireEvent.click(
+    screen.getByRole('switch', {
+      name: 'Accept automatic price changes within these limits',
+    })
+  )
+  // Changing routes must discard old prices and consent, while keeping the user's budgets.
+  fireEvent.change(screen.getByLabelText('Call group'), {
+    target: { value: 'pro' },
+  })
+  expect(screen.getByRole('button', { name: 'Create API Key' })).toBeDisabled()
+  expect(screen.getByLabelText('Maximum request charge (CNY)')).toHaveValue('1')
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Use current prices as ceilings' })
+  )
+  fireEvent.click(
+    screen.getByRole('switch', {
+      name: 'Accept automatic price changes within these limits',
+    })
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Create API Key' }))
+  await waitFor(() => expect(payloads).toHaveLength(1))
   expect(payloads[0]).toMatchObject({
     service_mode: 'retail',
     group: '',
     auto_groups: [],
     cross_group_retry: false,
+    retail_policy: {
+      product_id: 'pro',
+      accept_floating: true,
+      max_request_cny: '1',
+      daily_budget_cny: '10',
+      caps: { 'retail-model': { input: '1', output: '2' } },
+    },
   })
   expect(payloads[0].hosting_seat_id).toBeUndefined()
 })
+
+/** 目录为空或读取失败时提供明确反馈，不回退到账户 default 分组创建。 */
+test.each(['empty', 'failure'])(
+  'retail creation fails closed when catalog is %s',
+  async (scenario) => {
+    const payloads: Array<Record<string, unknown>> = []
+    installApiFixtures(payloads, false, 'retail')
+    const fixtureGet = apiClient.get
+    apiClient.get = async (url) => {
+      if (url !== '/api/retail/catalog') return fixtureGet(url)
+      if (scenario === 'failure') throw new Error('catalog unavailable')
+      return {
+        data: {
+          success: true,
+          data: { enabled: true, version: 1, products: [] },
+        },
+      }
+    }
+    await renderCreateDrawer('retail')
+    await screen.findByText(
+      scenario === 'empty'
+        ? 'No call groups are available. Contact the administrator.'
+        : 'Unable to load retail pricing'
+    )
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'Wallet API' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Next: price limits' }))
+    await screen.findByText('Select a call group', {
+      selector: '[data-slot="form-message"]',
+    })
+    expect(payloads).toHaveLength(0)
+  }
+)

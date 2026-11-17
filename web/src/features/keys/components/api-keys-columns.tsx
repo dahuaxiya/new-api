@@ -41,6 +41,7 @@ import {
   ModelLimitsCell,
 } from './api-keys-cells'
 import { DataTableRowActions } from './data-table-row-actions'
+import { RetailKeyGroupCell } from './retail-key-group-cell'
 
 const EMPTY_GROUP_RATIOS: Record<string, number | string> = {}
 
@@ -64,6 +65,7 @@ function useGroupRatios(): Record<string, number | string> {
   return data ?? EMPTY_GROUP_RATIOS
 }
 
+/** Build key columns; retail routes are read from their price policies, while legacy keys retain account group display. */
 export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
   const groupRatios = useGroupRatios()
@@ -146,6 +148,9 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         header: t('Group'),
         cell: ({ row }) => {
           const apiKey = row.original
+          if (apiKey.service_mode === 'retail') {
+            return <RetailKeyGroupCell apiKey={apiKey} />
+          }
           const group = row.getValue('group') as string
           return (
             <ApiKeyGroupCell

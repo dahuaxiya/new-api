@@ -8253,6 +8253,12 @@
     "No call groups are available yet. Contact the site administrator.": "Нет доступных групп вызовов. Обратитесь к администратору.",
     "Select a call group, then set its budget and price limits.": "Выберите группу, затем задайте бюджет и лимиты цен.",
     "Public call groups can be selected by every registered user. No account group change is needed.": "Все зарегистрированные пользователи могут выбирать публичные группы без изменения группы аккаунта.",
-    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "Выберите группу поставщика, укажите ключ и модели, затем назовите группу для пользователей. Сохраните вместе с маржой."
+    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "Выберите группу поставщика, укажите ключ и модели, затем назовите группу для пользователей. Сохраните вместе с маржой.",
+    "Set price limits and budgets before creating this key.": "Перед созданием ключа задайте пределы цен и бюджеты.",
+    "Choose the model route for this key. Your account group stays unchanged.": "Выберите группу вызовов для ключа. Группа аккаунта не изменится.",
+    "No call groups are available. Contact the administrator.": "Нет доступных групп вызовов. Обратитесь к администратору.",
+    "Next: price limits": "Далее: пределы цен",
+    "Set call group": "Настроить группу вызовов",
+    "Call group unavailable": "Группа вызовов недоступна"
   }
 }

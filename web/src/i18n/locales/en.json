@@ -8253,6 +8253,12 @@
     "No call groups are available yet. Contact the site administrator.": "No call groups are available yet. Contact the site administrator.",
     "Select a call group, then set its budget and price limits.": "Select a call group, then set its budget and price limits.",
     "Public call groups can be selected by every registered user. No account group change is needed.": "Public call groups can be selected by every registered user. No account group change is needed.",
-    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here."
+    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.",
+    "Set price limits and budgets before creating this key.": "Set price limits and budgets before creating this key.",
+    "Choose the model route for this key. Your account group stays unchanged.": "Choose the model route for this key. Your account group stays unchanged.",
+    "No call groups are available. Contact the administrator.": "No call groups are available. Contact the administrator.",
+    "Next: price limits": "Next: price limits",
+    "Set call group": "Set call group",
+    "Call group unavailable": "Call group unavailable"
   }
 }

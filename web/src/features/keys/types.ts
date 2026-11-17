@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
+import type { RetailKeyPolicy } from '@/features/channels/retail-pricing-api'
+
 // ============================================================================
 // API Key Schema & Types
 // ============================================================================
@@ -87,6 +89,7 @@ export interface SearchApiKeysParams {
 }
 
 export interface ApiKeyFormData {
+  retail_policy?: RetailKeyPolicy
   hosting_seat_id?: string
   service_mode?: '' | 'hosting' | 'retail'
   name: string

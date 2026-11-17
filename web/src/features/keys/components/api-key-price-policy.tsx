@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -53,6 +53,7 @@ export function ApiKeyPricePolicy(props: {
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const identity = useAuthStore(
     (s) => `${s.auth.user?.id}:${s.auth.session?.sid}`
   )
@@ -96,7 +97,9 @@ export function ApiKeyPricePolicy(props: {
           saved={query.data.saved}
           onSaved={(productId) => {
             props.onSaved?.(productId)
-            void query.refetch()
+            void queryClient.invalidateQueries({
+              queryKey: ['retail-key-pricing', identity, props.tokenId],
+            })
             props.onOpenChange(false)
           }}
         />
@@ -106,9 +109,13 @@ export function ApiKeyPricePolicy(props: {
 }
 
 /** Edit bounded spending rules without resetting an existing policy or ordinary API key consent. */
-function PricePolicyEditor(props: {
+export function PricePolicyEditor(props: {
   studio?: boolean
   tokenId: number
+  /** Creation supplies an atomic save; existing keys keep revision-checked policy updates. */
+  savePolicy?: (policy: RetailKeyPolicy) => Promise<void>
+  submitLabel?: string
+  onProductChange?: (productId: string) => void
   initialProductId?: string
   catalog: RetailCatalog
   saved: { revision: number; policy: RetailKeyPolicy }
@@ -144,9 +151,11 @@ function PricePolicyEditor(props: {
   )
   const mutation = useMutation({
     mutationFn: (submitted: RetailKeyPolicy) =>
-      putRetailKeyPolicy(props.tokenId, props.saved.revision, submitted),
+      props.savePolicy
+        ? props.savePolicy(submitted)
+        : putRetailKeyPolicy(props.tokenId, props.saved.revision, submitted),
     onSuccess: (_, submitted) => {
-      toast.success(t('Saved successfully'))
+      if (!props.savePolicy) toast.success(t('Saved successfully'))
       props.onSaved(submitted.product_id)
     },
     onError: (error) => handleServerError(error),
@@ -161,6 +170,8 @@ function PricePolicyEditor(props: {
   return (
     <form
       className='space-y-5 p-1'
+      inert={mutation.isPending ? true : undefined}
+      aria-busy={mutation.isPending}
       onSubmit={form.handleSubmit((submitted) => mutation.mutate(submitted))}
     >
       {!props.catalog.enabled && (
@@ -173,14 +184,15 @@ function PricePolicyEditor(props: {
         <NativeSelect
           id='key-price-product'
           value={policy.product_id || ''}
-          onChange={(e) =>
+          onChange={(e) => {
+            props.onProductChange?.(e.target.value)
             setPolicy({
               ...policy,
               product_id: e.target.value,
               caps: {},
               accept_floating: Boolean(policy.studio_current),
             })
-          }
+          }}
         >
           <NativeSelectOption value=''>
             {t('Select a call group')}
@@ -209,10 +221,7 @@ function PricePolicyEditor(props: {
         </div>
       )}
       {product && !policy.studio_current && (
-        <details open={!props.studio} className='space-y-4'>
-          <summary className='cursor-pointer text-sm font-medium'>
-            {t('Advanced model price limits')}
-          </summary>
+        <div className='space-y-4'>
           <Button
             type='button'
             variant='outline'
@@ -242,40 +251,48 @@ function PricePolicyEditor(props: {
               {t('No models have a current verified price')}
             </p>
           )}
-          {product.models.map((model, modelIndex) => (
-            <div key={model.id} className='space-y-3 border-b pb-4'>
-              <p className='text-sm font-medium'>
-                {model.id} · {t('CNY per million tokens')}
-              </p>
-              <div className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
-                {fields.map((field) => (
-                  <div key={field.key} className='space-y-2'>
-                    <Label htmlFor={`price-cap-${modelIndex}-${field.key}`}>
-                      {field.label}
-                    </Label>
-                    <Input
-                      id={`price-cap-${modelIndex}-${field.key}`}
-                      inputMode='decimal'
-                      value={policy.caps[model.id]?.[field.key] ?? ''}
-                      onChange={(e) =>
-                        setPolicy({
-                          ...policy,
-                          caps: {
-                            ...policy.caps,
-                            [model.id]: {
-                              ...policy.caps[model.id],
-                              [field.key]: e.target.value,
+          <details
+            open={!props.studio && !props.savePolicy}
+            className='space-y-4'
+          >
+            <summary className='cursor-pointer text-sm font-medium'>
+              {t('Advanced model price limits')}
+            </summary>
+            {product.models.map((model, modelIndex) => (
+              <div key={model.id} className='space-y-3 border-b pb-4'>
+                <p className='text-sm font-medium'>
+                  {model.id} · {t('CNY per million tokens')}
+                </p>
+                <div className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
+                  {fields.map((field) => (
+                    <div key={field.key} className='space-y-2'>
+                      <Label htmlFor={`price-cap-${modelIndex}-${field.key}`}>
+                        {field.label}
+                      </Label>
+                      <Input
+                        id={`price-cap-${modelIndex}-${field.key}`}
+                        inputMode='decimal'
+                        value={policy.caps[model.id]?.[field.key] ?? ''}
+                        onChange={(e) =>
+                          setPolicy({
+                            ...policy,
+                            caps: {
+                              ...policy.caps,
+                              [model.id]: {
+                                ...policy.caps[model.id],
+                                [field.key]: e.target.value,
+                              },
                             },
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                ))}
+                          })
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-        </details>
+            ))}
+          </details>
+        </div>
       )}
       <div className='grid gap-4 sm:grid-cols-2'>
         <div className='space-y-2'>
@@ -342,7 +359,7 @@ function PricePolicyEditor(props: {
           !policy.daily_budget_cny
         }
       >
-        {t('Save price limits')}
+        {props.submitLabel ?? t('Save price limits')}
       </Button>
     </form>
   )
