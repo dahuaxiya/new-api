@@ -260,7 +260,7 @@ export function DataTableRowActions<TData>({
               setOpen('price-limits')
             }}
           >
-            {t('API key price limits')}
+            {t('Call group')}
           </DropdownMenuItem>
         )}
         <DropdownMenuItem

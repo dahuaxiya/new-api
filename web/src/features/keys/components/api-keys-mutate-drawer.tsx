@@ -65,10 +65,7 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  getRetailCatalog,
-  type RetailKeyPolicy,
-} from '@/features/channels/retail-pricing-api'
+import { getRetailCatalog } from '@/features/channels/retail-pricing-api'
 import { getHosting, type HostingSelf } from '@/features/gpt-hosting/api'
 import { RelatedPolicyLink } from '@/features/system-settings/request-policies/related-policy-link'
 import { useStatus } from '@/hooks/use-status'
@@ -102,7 +99,6 @@ import {
   ApiKeyGroupCombobox,
   type ApiKeyGroupOption,
 } from './api-key-group-combobox'
-import { PricePolicyEditor } from './api-key-price-policy'
 import { useApiKeys } from './api-keys-provider'
 import { AutoGroupOrderEditor } from './auto-group-order-editor'
 
@@ -125,10 +121,6 @@ export function ApiKeysMutateDrawer({
   const { status, loading: statusLoading } = useStatus()
   const retailSite = status?.site_mode === 'retail'
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [creationDraft, setCreationDraft] = useState<ApiKeyFormValues | null>(
-    null
-  )
-
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [initializedTarget, setInitializedTarget] = useState<string | null>(
     null
@@ -243,7 +235,6 @@ export function ApiKeysMutateDrawer({
   useEffect(() => {
     if (!open) {
       setInitializedTarget(null)
-      setCreationDraft(null)
       return
     }
     if (
@@ -308,7 +299,7 @@ export function ApiKeysMutateDrawer({
   const catalog = useQuery({
     queryKey: ['retail-catalog', viewer, sid],
     queryFn: ({ signal }) => getRetailCatalog(signal),
-    enabled: open && retailMode,
+    enabled: open && retailMode && !isUpdate,
     retry: false,
   })
   const models = retailMode ? modes.data?.data?.models || [] : hostedModels
@@ -331,23 +322,8 @@ export function ApiKeysMutateDrawer({
     }
   }, [groups, form, selectedGroup])
 
-  /** 托管 Key 只提交指定账号；隐藏的默认 Auto 分组不能影响账号路由。 */
+  /** 创建时原子保存调用分组；托管 Key 只提交指定账号，隐藏的 Auto 值不能影响账号路由。 */
   const onSubmit = async (data: ApiKeyFormValues) => {
-    if (!isUpdate && data.service_mode === 'retail') {
-      if (
-        catalog.isError ||
-        !catalog.data?.products.some(
-          (product) => product.id === data.call_product_id
-        )
-      ) {
-        form.setError('call_product_id', { message: t('Select a call group') })
-        return
-      }
-      // Step one is only a draft. No credential exists until the user explicitly
-      // supplies budgets, model ceilings and consent in the second step.
-      setCreationDraft(data)
-      return
-    }
     setIsSubmitting(true)
     try {
       if (
@@ -360,7 +336,23 @@ export function ApiKeysMutateDrawer({
         })
         return
       }
+      if (
+        !isUpdate &&
+        data.service_mode === 'retail' &&
+        (catalog.isError ||
+          !catalog.data?.products.some(
+            (product) => product.id === data.call_product_id
+          ))
+      ) {
+        form.setError('call_product_id', { message: t('Select a call group') })
+        return
+      }
       const basePayload = transformFormDataToPayload(data)
+      if (!isUpdate && data.service_mode === 'retail') {
+        // The server stores group pricing atomically with the key. Customers do
+        // not have to supply model prices, budgets or floating-price consent.
+        basePayload.retail_product_id = data.call_product_id
+      }
       if (data.service_mode !== 'retail' && seats.length) {
         basePayload.hosting_seat_id =
           data.hosting_seat_id || seats[0]?.grant?.seat_id
@@ -387,17 +379,24 @@ export function ApiKeysMutateDrawer({
         let successCount = 0
 
         for (let i = 0; i < count; i++) {
-          const result = await createApiKey({
-            ...basePayload,
-            name:
-              i === 0 && data.name
-                ? data.name
-                : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
-          })
-          if (result.success) {
-            successCount++
-          } else {
-            handleServerError(result, t(ERROR_MESSAGES.CREATE_FAILED))
+          try {
+            const result = await createApiKey({
+              ...basePayload,
+              name:
+                i === 0 && data.name
+                  ? data.name
+                  : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
+            })
+            if (result.success) {
+              successCount++
+            } else {
+              handleServerError(result, t(ERROR_MESSAGES.CREATE_FAILED))
+              break
+            }
+          } catch (error) {
+            // Close and refresh a partially successful batch below, even when
+            // a later network request fails, so retry cannot duplicate confirmed keys.
+            handleServerError(error, t(ERROR_MESSAGES.CREATE_FAILED))
             break
           }
         }
@@ -415,46 +414,6 @@ export function ApiKeysMutateDrawer({
     } catch (error) {
       handleServerError(error, t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  /** Create each key and policy atomically; retain only unfinished batch items after a partial failure. */
-  const createRetailKeys = async (policy: RetailKeyPolicy) => {
-    if (!creationDraft) throw new Error(t('Select a call group'))
-    setIsSubmitting(true)
-    const count = creationDraft.tokenCount || 1
-    let created = 0
-    try {
-      for (let index = 0; index < count; index++) {
-        requireServerSuccess(
-          await createApiKey({
-            ...transformFormDataToPayload(creationDraft),
-            name:
-              index === 0
-                ? creationDraft.name
-                : `${creationDraft.name}-${Math.random().toString(36).slice(2, 8)}`,
-            retail_policy: policy,
-          })
-        )
-        created++
-      }
-      toast.success(
-        t('Successfully created {{count}} API Key(s)', { count: created })
-      )
-    } catch (error) {
-      // Already committed keys must not be recreated when retrying a partially completed batch.
-      if (created > 0) {
-        const remaining = count - created
-        setCreationDraft({ ...creationDraft, tokenCount: remaining })
-        form.setValue('tokenCount', remaining)
-        toast.success(
-          t('Successfully created {{count}} API Key(s)', { count: created })
-        )
-      }
-      throw error
-    } finally {
-      if (created > 0) triggerRefresh()
       setIsSubmitting(false)
     }
   }
@@ -511,411 +470,376 @@ export function ApiKeysMutateDrawer({
               : t('Add a new API key by providing necessary info.')}
           </SheetDescription>
         </SheetHeader>
-        {creationDraft && catalog.data ? (
-          <div className={sideDrawerFormClassName('gap-5')}>
-            <p className='text-muted-foreground text-sm'>
-              {t('Set price limits and budgets before creating this key.')}
-            </p>
-            <PricePolicyEditor
-              tokenId={0}
-              initialProductId={creationDraft.call_product_id}
-              onProductChange={(productId) => {
-                form.setValue('call_product_id', productId)
-                setCreationDraft({
-                  ...creationDraft,
-                  call_product_id: productId,
-                })
-              }}
-              catalog={catalog.data}
-              saved={{
-                revision: 0,
-                policy: {
-                  product_id: '',
-                  accept_floating: false,
-                  caps: {},
-                  max_request_cny: '',
-                  daily_budget_cny: '',
-                },
-              }}
-              savePolicy={createRetailKeys}
-              submitLabel={t('Create API Key')}
-              onSaved={() => onOpenChange(false)}
-            />
-          </div>
-        ) : (
-          <Form {...form}>
-            <form
-              id='api-key-form'
-              onSubmit={form.handleSubmit(onSubmit, onInvalid)}
-              aria-busy={!isFormInitialized}
-              inert={!isFormInitialized || isSubmitting ? true : undefined}
-              className={sideDrawerFormClassName('gap-5')}
-            >
-              <SideDrawerSection>
-                <SideDrawerSectionHeader
-                  title={t('Basic Information')}
-                  description={t('Set API key basic information')}
-                  icon={<KeyRound className='size-4' />}
-                  iconTone='info'
-                />
+        <Form {...form}>
+          <form
+            id='api-key-form'
+            onSubmit={form.handleSubmit(onSubmit, onInvalid)}
+            aria-busy={!isFormInitialized}
+            inert={!isFormInitialized || isSubmitting ? true : undefined}
+            className={sideDrawerFormClassName('gap-5')}
+          >
+            <SideDrawerSection>
+              <SideDrawerSectionHeader
+                title={t('Basic Information')}
+                description={t('Set API key basic information')}
+                icon={<KeyRound className='size-4' />}
+                iconTone='info'
+              />
+              <FormField
+                control={form.control}
+                name='name'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Name')}</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder={t('Enter a name')} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {!retailSite && (modes.data?.data?.retail || retailMode) && (
                 <FormField
                   control={form.control}
-                  name='name'
+                  name='service_mode'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Name')}</FormLabel>
+                      <FormLabel>{t('API service')}</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder={t('Enter a name')} />
+                        <NativeSelect
+                          value={field.value}
+                          disabled={isUpdate}
+                          onChange={field.onChange}
+                        >
+                          <NativeSelectOption value=''>
+                            {t('Existing account service')}
+                          </NativeSelectOption>
+                          <NativeSelectOption value='retail'>
+                            {t('Pay as you go API')}
+                          </NativeSelectOption>
+                          {field.value === 'hosting' && (
+                            <NativeSelectOption value='hosting'>
+                              {t('Hosted account')}
+                            </NativeSelectOption>
+                          )}
+                        </NativeSelect>
                       </FormControl>
+                      <FormDescription>
+                        {retailMode
+                          ? t(
+                              'Uses platform supply and charges your wallet. Hosted accounts are not used.'
+                            )
+                          : t(
+                              'Keeps your existing account routing and billing.'
+                            )}
+                      </FormDescription>
+                      {isUpdate && (
+                        <FormDescription>
+                          {t('Create a new API key to change its service mode')}
+                        </FormDescription>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-
-                {!retailSite && (modes.data?.data?.retail || retailMode) && (
+              )}
+              {retailSite && (
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'API usage is charged to your wallet at the listed model prices.'
+                  )}
+                </p>
+              )}
+              {retailMode && !isUpdate && (
+                <>
                   <FormField
                     control={form.control}
-                    name='service_mode'
+                    name='call_product_id'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('API service')}</FormLabel>
-                        <FormControl>
-                          <NativeSelect
-                            value={field.value}
-                            disabled={isUpdate}
-                            onChange={field.onChange}
-                          >
-                            <NativeSelectOption value=''>
-                              {t('Existing account service')}
-                            </NativeSelectOption>
-                            <NativeSelectOption value='retail'>
-                              {t('Pay as you go API')}
-                            </NativeSelectOption>
-                            {field.value === 'hosting' && (
-                              <NativeSelectOption value='hosting'>
-                                {t('Hosted account')}
-                              </NativeSelectOption>
-                            )}
-                          </NativeSelect>
-                        </FormControl>
-                        <FormDescription>
-                          {retailMode
-                            ? t(
-                                'Uses platform supply and charges your wallet. Hosted accounts are not used.'
-                              )
-                            : t(
-                                'Keeps your existing account routing and billing.'
-                              )}
-                        </FormDescription>
-                        {isUpdate && (
-                          <FormDescription>
-                            {t(
-                              'Create a new API key to change its service mode'
-                            )}
-                          </FormDescription>
-                        )}
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-                {retailSite && (
-                  <p className='text-muted-foreground text-sm'>
-                    {t(
-                      'API usage is charged to your wallet at the listed model prices.'
-                    )}
-                  </p>
-                )}
-                {retailMode && !isUpdate && (
-                  <>
-                    <FormField
-                      control={form.control}
-                      name='call_product_id'
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('Call group')}</FormLabel>
-                          <FormControl>
-                            <NativeSelect
-                              value={field.value || ''}
-                              onChange={field.onChange}
-                              disabled={!catalog.data || catalog.isError}
-                            >
-                              <NativeSelectOption value=''>
-                                {t('Select a call group')}
-                              </NativeSelectOption>
-                              {catalog.data?.products.map((product) => (
-                                <NativeSelectOption
-                                  key={product.id}
-                                  value={product.id}
-                                >
-                                  {product.name}
-                                </NativeSelectOption>
-                              ))}
-                            </NativeSelect>
-                          </FormControl>
-                          <FormDescription>
-                            {t(
-                              'Choose the model route for this key. Your account group stays unchanged.'
-                            )}
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    {catalog.isPending && (
-                      <LoadingState inline message={t('Loading...')} />
-                    )}
-                    {catalog.isError && (
-                      <ErrorState
-                        title={t('Unable to load retail pricing')}
-                        onRetry={() => void catalog.refetch()}
-                      />
-                    )}
-                    {catalog.data?.products.length === 0 && (
-                      <p role='status'>
-                        {t(
-                          'No call groups are available. Contact the administrator.'
-                        )}
-                      </p>
-                    )}
-                  </>
-                )}
-                {!retailMode && !!seats.length && (
-                  <FormField
-                    control={form.control}
-                    name='hosting_seat_id'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          {t('Hosted account for this key')}
-                        </FormLabel>
+                        <FormLabel>{t('Call group')}</FormLabel>
                         <FormControl>
                           <NativeSelect
                             value={field.value || ''}
                             onChange={field.onChange}
+                            disabled={!catalog.data || catalog.isError}
                           >
                             <NativeSelectOption value=''>
-                              {t('Select a hosted account')}
+                              {t('Select a call group')}
                             </NativeSelectOption>
-                            {seats.map((seat, index) => (
+                            {catalog.data?.products.map((product) => (
                               <NativeSelectOption
-                                key={seat.grant?.seat_id}
-                                value={seat.grant?.seat_id}
+                                key={product.id}
+                                value={product.id}
                               >
-                                {t('Seat {{number}}', { number: index + 1 })} ·{' '}
-                                {seat.binding?.platform === 'claude'
-                                  ? 'Claude'
-                                  : 'GPT'}{' '}
-                                ·{' '}
-                                {seat.binding?.account_label ||
-                                  t('Not connected')}
-                                {!seat.valid ? ` · ${t('Inactive')}` : ''}
+                                {product.name}
                               </NativeSelectOption>
                             ))}
                           </NativeSelect>
                         </FormControl>
                         <FormDescription>
                           {t(
-                            'This key uses only the selected account. Other accounts are never used as fallbacks.'
+                            'Choose the model route for this key. Your account group stays unchanged.'
                           )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                )}
-                {!retailMode && !seats.length && (
-                  <FormField
-                    control={form.control}
-                    name='group'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Group')}</FormLabel>
-                        <FormControl>
-                          <ApiKeyGroupCombobox
-                            options={groups}
-                            value={field.value}
-                            onValueChange={(group) => {
-                              field.onChange(group)
-                              if (group === 'auto') {
-                                form.setValue('cross_group_retry', true, {
-                                  shouldDirty: true,
-                                })
-                                return
-                              }
-                              form.setValue('cross_group_retry', false, {
-                                shouldDirty: true,
-                              })
-                            }}
-                            placeholder={t('Select a group')}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-
-                {!retailMode && !seats.length && selectedGroup === 'auto' && (
-                  <FormField
-                    control={form.control}
-                    name='auto_groups'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Auto group order')}</FormLabel>
-                        <FormDescription>
-                          {t(
-                            'Choose and order the groups this API key will try.'
-                          )}
-                        </FormDescription>
-                        <FormControl>
-                          <AutoGroupOrderEditor
-                            value={field.value}
-                            mode={autoGroupsMode}
-                            options={groups}
-                            globalOptions={globalAutoGroupOptions}
-                            maxCount={maxAutoGroups}
-                            onChange={(value) => {
-                              form.setValue('auto_groups_mode', value.mode, {
-                                shouldDirty: true,
-                                shouldValidate: false,
-                              })
-                              form.setValue(
-                                'auto_groups',
-                                value.groups.slice(0, maxAutoGroups),
-                                {
-                                  shouldDirty: true,
-                                  shouldValidate: true,
-                                }
-                              )
-                            }}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-
-                {!retailMode && !seats.length && selectedGroup === 'auto' && (
-                  <FormField
-                    control={form.control}
-                    name='cross_group_retry'
-                    render={({ field }) => (
-                      <FormItem className={sideDrawerSwitchItemClassName()}>
-                        <div className='flex flex-col gap-0.5'>
-                          <FormLabel className='text-sm'>
-                            {t('Cross-group retry')}
-                          </FormLabel>
-                          <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
-                            {t(
-                              'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
-                            )}
-                            <RelatedPolicyLink section='routing' />
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={!!field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                )}
-
+                  {catalog.isPending && (
+                    <LoadingState inline message={t('Loading...')} />
+                  )}
+                  {catalog.isError && (
+                    <ErrorState
+                      title={t('Unable to load retail pricing')}
+                      onRetry={() => void catalog.refetch()}
+                    />
+                  )}
+                  {catalog.data?.products.length === 0 && (
+                    <p role='status'>
+                      {t(
+                        'No call groups are available. Contact the administrator.'
+                      )}
+                    </p>
+                  )}
+                </>
+              )}
+              {!retailMode && !!seats.length && (
                 <FormField
                   control={form.control}
-                  name='expired_time'
+                  name='hosting_seat_id'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Expiration Time')}</FormLabel>
-                      <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center'>
-                        <FormControl>
-                          <DateTimePicker
-                            value={field.value}
-                            onChange={field.onChange}
-                            placeholder={t('Never expires')}
-                            className='min-w-0 [&_input[type=time]]:w-24 sm:[&_input[type=time]]:w-32'
-                          />
-                        </FormControl>
-                        <div className='grid grid-cols-4 gap-2 sm:flex'>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            size='sm'
-                            className='px-2 text-xs sm:px-3 sm:text-sm'
-                            onClick={() => handleSetExpiry(0, 0, 0)}
-                          >
-                            {t('Never')}
-                          </Button>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            size='sm'
-                            className='px-2 text-xs sm:px-3 sm:text-sm'
-                            onClick={() => handleSetExpiry(1, 0, 0)}
-                          >
-                            {t('1 Month')}
-                          </Button>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            size='sm'
-                            className='px-2 text-xs sm:px-3 sm:text-sm'
-                            onClick={() => handleSetExpiry(0, 1, 0)}
-                          >
-                            {t('1 Day')}
-                          </Button>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            size='sm'
-                            className='px-2 text-xs sm:px-3 sm:text-sm'
-                            onClick={() => handleSetExpiry(0, 0, 1)}
-                          >
-                            {t('1 Hour')}
-                          </Button>
-                        </div>
-                      </div>
+                      <FormLabel>{t('Hosted account for this key')}</FormLabel>
+                      <FormControl>
+                        <NativeSelect
+                          value={field.value || ''}
+                          onChange={field.onChange}
+                        >
+                          <NativeSelectOption value=''>
+                            {t('Select a hosted account')}
+                          </NativeSelectOption>
+                          {seats.map((seat, index) => (
+                            <NativeSelectOption
+                              key={seat.grant?.seat_id}
+                              value={seat.grant?.seat_id}
+                            >
+                              {t('Seat {{number}}', { number: index + 1 })} ·{' '}
+                              {seat.binding?.platform === 'claude'
+                                ? 'Claude'
+                                : 'GPT'}{' '}
+                              ·{' '}
+                              {seat.binding?.account_label ||
+                                t('Not connected')}
+                              {!seat.valid ? ` · ${t('Inactive')}` : ''}
+                            </NativeSelectOption>
+                          ))}
+                        </NativeSelect>
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'This key uses only the selected account. Other accounts are never used as fallbacks.'
+                        )}
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-
-                {!isUpdate && (
-                  <FormField
-                    control={form.control}
-                    name='tokenCount'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Quantity')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            type='number'
-                            min='1'
-                            placeholder={t('Number of keys to create')}
-                            onChange={(e) =>
-                              field.onChange(
-                                Number.parseInt(e.target.value, 10) || 1
-                              )
+              )}
+              {!retailMode && !seats.length && (
+                <FormField
+                  control={form.control}
+                  name='group'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Group')}</FormLabel>
+                      <FormControl>
+                        <ApiKeyGroupCombobox
+                          options={groups}
+                          value={field.value}
+                          onValueChange={(group) => {
+                            field.onChange(group)
+                            if (group === 'auto') {
+                              form.setValue('cross_group_retry', true, {
+                                shouldDirty: true,
+                              })
+                              return
                             }
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          {t(
-                            'Create multiple API keys at once (random suffix will be added to names)'
-                          )}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-              </SideDrawerSection>
+                            form.setValue('cross_group_retry', false, {
+                              shouldDirty: true,
+                            })
+                          }}
+                          placeholder={t('Select a group')}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
+              {!retailMode && !seats.length && selectedGroup === 'auto' && (
+                <FormField
+                  control={form.control}
+                  name='auto_groups'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Auto group order')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Choose and order the groups this API key will try.'
+                        )}
+                      </FormDescription>
+                      <FormControl>
+                        <AutoGroupOrderEditor
+                          value={field.value}
+                          mode={autoGroupsMode}
+                          options={groups}
+                          globalOptions={globalAutoGroupOptions}
+                          maxCount={maxAutoGroups}
+                          onChange={(value) => {
+                            form.setValue('auto_groups_mode', value.mode, {
+                              shouldDirty: true,
+                              shouldValidate: false,
+                            })
+                            form.setValue(
+                              'auto_groups',
+                              value.groups.slice(0, maxAutoGroups),
+                              {
+                                shouldDirty: true,
+                                shouldValidate: true,
+                              }
+                            )
+                          }}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              {!retailMode && !seats.length && selectedGroup === 'auto' && (
+                <FormField
+                  control={form.control}
+                  name='cross_group_retry'
+                  render={({ field }) => (
+                    <FormItem className={sideDrawerSwitchItemClassName()}>
+                      <div className='flex flex-col gap-0.5'>
+                        <FormLabel className='text-sm'>
+                          {t('Cross-group retry')}
+                        </FormLabel>
+                        <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
+                          {t(
+                            'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
+                          )}
+                          <RelatedPolicyLink section='routing' />
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={!!field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              <FormField
+                control={form.control}
+                name='expired_time'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Expiration Time')}</FormLabel>
+                    <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center'>
+                      <FormControl>
+                        <DateTimePicker
+                          value={field.value}
+                          onChange={field.onChange}
+                          placeholder={t('Never expires')}
+                          className='min-w-0 [&_input[type=time]]:w-24 sm:[&_input[type=time]]:w-32'
+                        />
+                      </FormControl>
+                      <div className='grid grid-cols-4 gap-2 sm:flex'>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          className='px-2 text-xs sm:px-3 sm:text-sm'
+                          onClick={() => handleSetExpiry(0, 0, 0)}
+                        >
+                          {t('Never')}
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          className='px-2 text-xs sm:px-3 sm:text-sm'
+                          onClick={() => handleSetExpiry(1, 0, 0)}
+                        >
+                          {t('1 Month')}
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          className='px-2 text-xs sm:px-3 sm:text-sm'
+                          onClick={() => handleSetExpiry(0, 1, 0)}
+                        >
+                          {t('1 Day')}
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          className='px-2 text-xs sm:px-3 sm:text-sm'
+                          onClick={() => handleSetExpiry(0, 0, 1)}
+                        >
+                          {t('1 Hour')}
+                        </Button>
+                      </div>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {!isUpdate && (
+                <FormField
+                  control={form.control}
+                  name='tokenCount'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Quantity')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type='number'
+                          min='1'
+                          placeholder={t('Number of keys to create')}
+                          onChange={(e) =>
+                            field.onChange(
+                              Number.parseInt(e.target.value, 10) || 1
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Create multiple API keys at once (random suffix will be added to names)'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </SideDrawerSection>
+
+            {!retailMode && (
               <SideDrawerSection>
                 <SideDrawerSectionHeader
                   title={t('Quota Settings')}
@@ -979,151 +903,132 @@ export function ApiKeysMutateDrawer({
                   )}
                 />
               </SideDrawerSection>
+            )}
 
-              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-                <SideDrawerSection>
-                  <CollapsibleTrigger
-                    render={
-                      <button
-                        type='button'
-                        className='hover:bg-muted/40 flex w-full items-center gap-3 rounded-md py-1.5 text-left transition-colors'
-                      />
-                    }
-                  >
-                    <SideDrawerSectionHeader
-                      className='flex-1'
-                      title={t('Advanced Settings')}
-                      description={t('Set API key access restrictions')}
-                      icon={<Settings2 className='size-4' />}
+            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+              <SideDrawerSection>
+                <CollapsibleTrigger
+                  render={
+                    <button
+                      type='button'
+                      className='hover:bg-muted/40 flex w-full items-center gap-3 rounded-md py-1.5 text-left transition-colors'
                     />
-                    <ChevronDown
-                      className={cn(
-                        'text-muted-foreground size-4 shrink-0 transition-transform',
-                        advancedOpen && 'rotate-180'
+                  }
+                >
+                  <SideDrawerSectionHeader
+                    className='flex-1'
+                    title={t('Advanced Settings')}
+                    description={t('Set API key access restrictions')}
+                    icon={<Settings2 className='size-4' />}
+                  />
+                  <ChevronDown
+                    className={cn(
+                      'text-muted-foreground size-4 shrink-0 transition-transform',
+                      advancedOpen && 'rotate-180'
+                    )}
+                  />
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className='flex flex-col gap-4 pt-2'>
+                    <FormField
+                      control={form.control}
+                      name='model_limits'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Model Limits')}</FormLabel>
+                          <FormControl>
+                            <MultiSelect
+                              options={models.map((m) => ({
+                                label: m,
+                                value: m,
+                              }))}
+                              selected={field.value}
+                              onChange={field.onChange}
+                              placeholder={t(
+                                'Select models (empty for allow all)'
+                              )}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Limit which models can be used with this key')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
                       )}
                     />
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <div className='flex flex-col gap-4 pt-2'>
-                      <FormField
-                        control={form.control}
-                        name='model_limits'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Model Limits')}</FormLabel>
-                            <FormControl>
-                              <MultiSelect
-                                options={models.map((m) => ({
-                                  label: m,
-                                  value: m,
-                                }))}
-                                selected={field.value}
-                                onChange={field.onChange}
-                                placeholder={t(
-                                  'Select models (empty for allow all)'
-                                )}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              {t(
-                                'Limit which models can be used with this key'
-                              )}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
 
-                      <FormField
-                        control={form.control}
-                        name='allow_ips'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>
-                              {t('IP Whitelist (supports CIDR)')}
+                    <FormField
+                      control={form.control}
+                      name='allow_ips'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t('IP Whitelist (supports CIDR)')}
+                          </FormLabel>
+                          <FormControl>
+                            <Textarea
+                              {...field}
+                              className='min-h-20 resize-none'
+                              placeholder={t(
+                                'One IP per line (empty for no restriction)'
+                              )}
+                              rows={3}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Do not over-trust this feature. IP may be spoofed. Please use with nginx, CDN and other gateways.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='allow_user_quota_query'
+                      render={({ field }) => (
+                        <FormItem className={sideDrawerSwitchItemClassName()}>
+                          <div className='flex flex-col gap-0.5'>
+                            <FormLabel className='text-sm'>
+                              {t('Allow querying user quota')}
                             </FormLabel>
-                            <FormControl>
-                              <Textarea
-                                {...field}
-                                className='min-h-20 resize-none'
-                                placeholder={t(
-                                  'One IP per line (empty for no restriction)'
-                                )}
-                                rows={3}
-                              />
-                            </FormControl>
-                            <FormDescription>
+                            <FormDescription className='text-xs'>
                               {t(
-                                'Do not over-trust this feature. IP may be spoofed. Please use with nginx, CDN and other gateways.'
+                                "When enabled, this API key can be used to check your account's remaining and used quota."
                               )}
                             </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name='allow_user_quota_query'
-                        render={({ field }) => (
-                          <FormItem className={sideDrawerSwitchItemClassName()}>
-                            <div className='flex flex-col gap-0.5'>
-                              <FormLabel className='text-sm'>
-                                {t('Allow querying user quota')}
-                              </FormLabel>
-                              <FormDescription className='text-xs'>
-                                {t(
-                                  "When enabled, this API key can be used to check your account's remaining and used quota."
-                                )}
-                              </FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  </CollapsibleContent>
-                </SideDrawerSection>
-              </Collapsible>
-            </form>
-          </Form>
-        )}
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </CollapsibleContent>
+              </SideDrawerSection>
+            </Collapsible>
+          </form>
+        </Form>
         <SheetFooter className={sideDrawerFooterClassName()}>
           <SheetClose
             render={<Button variant='outline' className='w-full sm:w-auto' />}
           >
             {t('Close')}
           </SheetClose>
-          {creationDraft ? (
-            <Button
-              type='button'
-              variant='outline'
-              disabled={isSubmitting}
-              onClick={() => setCreationDraft(null)}
-            >
-              {t('Back')}
-            </Button>
-          ) : (
-            <Button
-              type='button'
-              onClick={form.handleSubmit(onSubmit, onInvalid)}
-              disabled={!isFormInitialized || isSubmitting}
-              className='w-full sm:w-auto'
-            >
-              {isSubmitting
-                ? t('Saving...')
-                : t(
-                    retailMode && !isUpdate
-                      ? 'Next: price limits'
-                      : 'Save changes'
-                  )}
-            </Button>
-          )}
+          <Button
+            type='button'
+            onClick={form.handleSubmit(onSubmit, onInvalid)}
+            disabled={!isFormInitialized || isSubmitting}
+            className='w-full sm:w-auto'
+          >
+            {isSubmitting ? t('Saving...') : t('Save changes')}
+          </Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>

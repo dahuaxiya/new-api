@@ -219,6 +219,7 @@ export type RetailCatalog = {
   }>
 }
 export type RetailKeyPolicy = {
+  group_current?: boolean
   studio_current?: boolean
   product_id: string
   accept_floating: boolean
@@ -336,6 +337,22 @@ export async function putRetailKeyPolicy(
       await api.put(`/api/retail/keys/${id}/pricing`, {
         expected_revision: revision,
         policy,
+      })
+    ).data
+  )
+}
+
+/** Save only the selected call group; the server owns current-price billing and validates ownership and revision. */
+export async function putRetailKeyGroup(
+  id: number,
+  revision: number,
+  productId: string
+): Promise<void> {
+  requireServerSuccess(
+    (
+      await api.put(`/api/retail/keys/${id}/pricing`, {
+        expected_revision: revision,
+        product_id: productId,
       })
     ).data
   )

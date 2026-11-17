@@ -89,6 +89,7 @@ export interface SearchApiKeysParams {
 }
 
 export interface ApiKeyFormData {
+  retail_product_id?: string
   retail_policy?: RetailKeyPolicy
   hosting_seat_id?: string
   service_mode?: '' | 'hosting' | 'retail'

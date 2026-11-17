@@ -812,6 +812,51 @@ func TestRetailPricingManagement(t *testing.T) {
 			require.Equal(t, before, after, "rejected policy must roll back the new token")
 		})
 	}
+	// Group-only creation and switching use the same ownership, permission and
+	// optimistic-lock boundaries without requiring customer prices or budgets.
+	groupInput := gin.H{"name": "group-only", "service_mode": "retail", "unlimited_quota": true, "expired_time": -1, "retail_product_id": publicProduct.ID}
+	w = request("POST", "/api/token/", "https://attacker.example", groupInput)
+	require.Equal(t, http.StatusForbidden, w.Code)
+	w = request("POST", "/api/token/", "https://example.com", groupInput)
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	var groupKey model.Token
+	require.NoError(t, model.DB.Where("name = ?", "group-only").First(&groupKey).Error)
+	simple := retailprice.KeyPolicy{ProductID: publicProduct.ID, GroupCurrent: true}
+	savedPolicy, savedRevision, err = model.GetRetailKeyPolicy(user.Id, groupKey.Id)
+	require.NoError(t, err)
+	require.Equal(t, simple, savedPolicy)
+	require.EqualValues(t, 1, savedRevision)
+	// Saving a group also replaces an older explicit policy in one transaction.
+	w = request("PUT", keyPath, "https://example.com", gin.H{"expected_revision": 2, "product_id": publicProduct.ID})
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	savedPolicy, savedRevision, err = model.GetRetailKeyPolicy(user.Id, token.Id)
+	require.NoError(t, err)
+	require.Equal(t, simple, savedPolicy)
+	require.EqualValues(t, 3, savedRevision)
+	w = request("PUT", keyPath, "https://example.com", gin.H{"expected_revision": 2, "product_id": publicProduct.ID})
+	require.Contains(t, w.Body.String(), `"success":false`, "stale group selection must not overwrite")
+	w = request("PUT", keyPath, "https://attacker.example", gin.H{"expected_revision": 3, "product_id": publicProduct.ID})
+	require.Equal(t, http.StatusForbidden, w.Code)
+	for _, productID := range []string{"standard", "missing", ""} {
+		var before, after int64
+		require.NoError(t, model.DB.Model(&model.Token{}).Count(&before).Error)
+		w = request("POST", "/api/token/", "https://example.com", gin.H{"name": "denied-group", "service_mode": "retail", "retail_product_id": productID})
+		require.Contains(t, w.Body.String(), `"success":false`)
+		require.NoError(t, model.DB.Model(&model.Token{}).Count(&after).Error)
+		require.Equal(t, before, after)
+		w = request("PUT", keyPath, "https://example.com", gin.H{"expected_revision": 3, "product_id": productID})
+		require.Contains(t, w.Body.String(), `"success":false`)
+	}
+	w = request("POST", "/api/token/", "https://example.com", gin.H{"name": "mixed", "retail_product_id": publicProduct.ID, "retail_policy": publicPolicy})
+	require.Contains(t, w.Body.String(), `"success":false`)
+	w = request("PUT", keyPath, "https://example.com", gin.H{"expected_revision": 3, "product_id": publicProduct.ID, "policy": publicPolicy})
+	require.Contains(t, w.Body.String(), `"success":false`)
+	require.NoError(t, model.DB.Model(&token).Update("user_id", user.Id+1).Error)
+	w = request("PUT", keyPath, "https://example.com", gin.H{"expected_revision": 3, "product_id": publicProduct.ID})
+	require.Contains(t, w.Body.String(), `"success":false`)
+	require.NoError(t, model.DB.Model(&token).Update("user_id", user.Id).Error)
+	require.NoError(t, model.DB.First(&account, user.Id).Error)
+	require.Equal(t, "another", account.Group)
 	require.NoError(t, model.DB.Model(user).Update("status", common.UserStatusDisabled).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
 	w = request("GET", "/api/retail/admin/pricing", "https://example.com", nil)
