@@ -33,6 +33,23 @@ import { useAuthStore } from '@/stores/auth-store'
 import { ModelStudio } from '..'
 import { imageDataURL } from '../api'
 
+const streamSend = vi.hoisted(() =>
+  vi.fn(
+    async (
+      _payload: unknown,
+      _update: unknown,
+      complete: () => void,
+      _error: unknown,
+      _headers: Record<string, string>
+    ) => complete()
+  )
+)
+vi.mock('@/features/playground/hooks/use-stream-request', () => ({
+  useStreamRequest: () => ({
+    sendStreamRequest: streamSend,
+    stopStream: vi.fn(),
+  }),
+}))
 const clients: QueryClient[] = []
 const price = {
   input: '1',
@@ -53,6 +70,7 @@ function mount(
     noRoute?: boolean
     root?: boolean
     secondGroup?: boolean
+    automatic?: boolean
   } = {}
 ) {
   useAuthStore.getState().auth.setUser({
@@ -61,7 +79,10 @@ function mount(
     role: options.root ? 100 : 1,
   })
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
-    let data: unknown = { token_id: ready ? 9 : 0 }
+    let data: unknown = {
+      token_id: ready ? 9 : 0,
+      defaults: { max_request_cny: '5', daily_budget_cny: '50' },
+    }
     if (url.endsWith('/catalog')) {
       data = {
         enabled: !options.paused,
@@ -112,6 +133,7 @@ function mount(
       data = {
         revision: 1,
         policy: {
+          studio_current: options.automatic,
           product_id: 'standard',
           accept_floating: true,
           caps: { 'text-model': price, 'image-model': price },
@@ -137,18 +159,43 @@ afterEach(() => {
   cleanup()
   clients.splice(0).forEach((client) => client.clear())
   vi.restoreAllMocks()
+  streamSend.mockClear()
   useAuthStore.getState().auth.reset()
 })
 
-it('keeps sending disabled until a price policy exists and does not create identities on load', async () => {
+/** First send needs no policy modal; only the real model request initializes defaults. */
+it('sends the first chat directly with its selected group and no setup request', async () => {
   const post = vi.spyOn(api, 'post')
   mount(false)
-  expect(await screen.findByRole('button', { name: 'Send' })).toBeDisabled()
-  expect(
-    screen.getByText(
-      'Select a call group, then set its budget and price limits.'
-    )
-  ).toBeVisible()
+  fireEvent.change(await screen.findByLabelText('Model'), {
+    target: { value: 'text-model' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Hello' },
+  })
+  fireEvent.keyDown(screen.getByLabelText('Prompt'), {
+    key: 'Enter',
+    shiftKey: true,
+  })
+  fireEvent.keyDown(screen.getByLabelText('Prompt'), {
+    key: 'Enter',
+    isComposing: true,
+  })
+  fireEvent.keyDown(screen.getByLabelText('Prompt'), {
+    key: 'Enter',
+    keyCode: 229,
+  })
+  expect(streamSend).not.toHaveBeenCalled()
+  fireEvent.keyDown(screen.getByLabelText('Prompt'), { key: 'Enter' })
+  await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(1))
+  expect(streamSend.mock.calls[0][0]).toMatchObject({
+    model: 'text-model',
+    messages: [{ role: 'user', content: 'Hello' }],
+  })
+  expect(streamSend.mock.calls[0][4]).toEqual({
+    'X-Retail-Product': 'standard',
+  })
+  expect(screen.queryByRole('dialog')).toBeNull()
   expect(post).not.toHaveBeenCalled()
 })
 
@@ -246,41 +293,34 @@ it('rejects URL-only and non-PNG upstream output instead of embedding arbitrary 
   )
 })
 
-/** Changing a public group requires new consent and never reuses the previous model. */
-it('allows browsing another call group but blocks sending until its own policy is saved', async () => {
-  const post = vi.spyOn(api, 'post')
-  mount(true, { secondGroup: true })
+/** Each tab sends its own group without overwriting the shared budget policy. */
+it('sends a newly selected group without reusing its previous model or saving a policy', async () => {
+  const put = vi.spyOn(api, 'put')
+  mount(true, { secondGroup: true, automatic: true })
   fireEvent.change(await screen.findByLabelText('Model'), {
     target: { value: 'text-model' },
   })
-  fireEvent.change(screen.getByLabelText('Prompt'), {
-    target: { value: 'Hello' },
-  })
-  expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
   fireEvent.change(screen.getByLabelText('Call group'), {
     target: { value: 'premium' },
   })
   expect(screen.getByLabelText('Model')).toHaveValue('')
-  expect(screen.queryByRole('option', { name: 'text-model' })).toBeNull()
   fireEvent.change(screen.getByLabelText('Model'), {
     target: { value: 'premium-text' },
   })
-  expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
-  expect(post).not.toHaveBeenCalled()
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Budget and price limits' })
-  )
-  expect(
-    await screen.findByRole('switch', {
-      name: 'Accept automatic price changes within these limits',
-    })
-  ).not.toBeChecked()
-  expect(screen.getByLabelText('Input')).toHaveValue('')
-  expect(screen.getByLabelText('Maximum request charge (CNY)')).toHaveValue('1')
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Hello' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(1))
+  expect(streamSend.mock.calls[0][4]).toEqual({ 'X-Retail-Product': 'premium' })
+  expect(put).not.toHaveBeenCalled()
 })
 
 /** The workspace follows the committed group, including changes made inside the policy dialog. */
 it('updates the visible group only after saving and leaves browsing selection unchanged on cancel', async () => {
+  vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: { token_id: 9 } },
+  })
   const put = vi
     .spyOn(api, 'put')
     .mockResolvedValue({ data: { success: true } })
@@ -288,22 +328,19 @@ it('updates the visible group only after saving and leaves browsing selection un
   fireEvent.change(await screen.findByLabelText('Call group'), {
     target: { value: 'premium' },
   })
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Budget and price limits' })
-  )
+  fireEvent.click(screen.getByRole('button', { name: 'Spending protection' }))
   let dialog = await screen.findByRole('dialog')
   await within(dialog).findByLabelText('Call group')
   fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   expect(screen.getByLabelText('Call group')).toHaveValue('premium')
   expect(put).not.toHaveBeenCalled()
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Budget and price limits' })
-  )
+  fireEvent.click(screen.getByRole('button', { name: 'Spending protection' }))
   dialog = await screen.findByRole('dialog')
   fireEvent.change(await within(dialog).findByLabelText('Call group'), {
     target: { value: 'standard' },
   })
+  fireEvent.click(within(dialog).getByText('Advanced model price limits'))
   fireEvent.click(
     within(dialog).getByRole('button', {
       name: 'Use current prices as ceilings',

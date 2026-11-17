@@ -70,9 +70,11 @@ export function createStreamRequestController(
     }
   }
 
+  /** Snapshot request metadata and keep only the latest authenticated stream active. */
   const send = async (
     payload: ChatCompletionRequest,
-    callbacks: StreamRequestCallbacks
+    callbacks: StreamRequestCallbacks,
+    requestHeaders: Record<string, string> = {}
   ) => {
     const requestGeneration = generation + 1
     generation = requestGeneration
@@ -83,7 +85,8 @@ export function createStreamRequestController(
 
     let headers: Record<string, string>
     try {
-      headers = await runtime.getHeaders()
+      // Snapshot request metadata before awaiting authentication; it cannot replace auth headers.
+      headers = { ...requestHeaders, ...(await runtime.getHeaders()) }
     } catch (error: unknown) {
       if (generation !== requestGeneration) return
       callbacks.onError(
@@ -208,13 +211,18 @@ export function useStreamRequest(
       payload: ChatCompletionRequest,
       onUpdate: (type: 'reasoning' | 'content', chunk: string) => void,
       onComplete: () => void,
-      onError: (error: string, errorCode?: string) => void
+      onError: (error: string, errorCode?: string) => void,
+      requestHeaders: Record<string, string> = {}
     ) =>
-      controllerRef.current?.send(payload, {
-        onUpdate,
-        onComplete,
-        onError,
-      }),
+      controllerRef.current?.send(
+        payload,
+        {
+          onUpdate,
+          onComplete,
+          onError,
+        },
+        requestHeaders
+      ),
     []
   )
 

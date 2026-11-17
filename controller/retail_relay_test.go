@@ -895,3 +895,153 @@ func TestRetailSupplyGroupManagement(t *testing.T) {
 	w = request("POST", "/groups", access, "https://example.com", strings.Repeat(" ", 33<<10)+payload)
 	require.Contains(t, w.Body.String(), `"success":false`)
 }
+
+// TestRetailStudioDirectRequests exercises first-send identity initialization, real
+// routing and settlement with synthetic upstreams; no setup modal or legacy ratio is required.
+func TestRetailStudioDirectRequests(t *testing.T) {
+	user, identity := setupSecurityEnrollmentTest(t)
+	// Initialize dialect-specific quoted columns through normal startup, using
+	// the disposable fixture database and keeping its original connection alive.
+	fixtureDB, master, sqlitePath := model.DB, common.IsMasterNode, common.SQLitePath
+	dialect := os.Getenv("TEST_SECURITY_DIALECT")
+	if dialect == "" || dialect == "sqlite" {
+		var databases []struct{ File string }
+		require.NoError(t, fixtureDB.Raw("PRAGMA database_list").Scan(&databases).Error)
+		common.SQLitePath = databases[0].File
+		t.Setenv("SQL_DSN", "local")
+	} else {
+		t.Setenv("SQL_DSN", os.Getenv("TEST_"+strings.ToUpper(dialect)+"_DSN"))
+	}
+	common.IsMasterNode = false
+	require.NoError(t, model.InitDB())
+	startupConnection, err := model.DB.DB()
+	require.NoError(t, err)
+	require.NoError(t, startupConnection.Close())
+	model.DB, common.IsMasterNode, common.SQLitePath = fixtureDB, master, sqlitePath
+
+	t.Setenv("SITE_MODE", "retail")
+	oldBatch, oldLogs := common.BatchUpdateEnabled, common.LogConsumeEnabled
+	common.BatchUpdateEnabled, common.LogConsumeEnabled = false, false
+	t.Cleanup(func() { common.BatchUpdateEnabled, common.LogConsumeEnabled = oldBatch, oldLogs })
+	oldGroups := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() { _ = ratio_setting.UpdateGroupRatioByJSONString(oldGroups) })
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"gpt-normal":1}`))
+	require.NoError(t, model.DB.AutoMigrate(&model.Token{}, &model.Channel{}, &model.Ability{}, &model.GPTHostingBinding{}, &model.RetailCharge{}, &model.RetailAttempt{}, &model.RetailPriceState{}, &model.RetailPriceVersion{}, &model.RetailKeyPricePolicy{}, &model.RetailPriceBudget{}))
+	require.NoError(t, model.DB.Model(user).Update("quota", 10000000).Error)
+	var hits atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.Header.Get("X-Retail-Product") != "" {
+			t.Error("internal group header leaked upstream")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/images/generations" {
+			_, _ = w.Write([]byte(`{"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":10,"image_tokens":0}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"studio-test","choices":[{"index":0,"message":{"role":"assistant","content":"synthetic OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`))
+	}))
+	t.Cleanup(upstream.Close)
+	channel := model.Channel{Id: 101, Name: "local-test", Type: 1, Status: 1, Group: "retail", Models: "gpt-4o,test-image", Key: "test-only", BaseURL: &upstream.URL}
+	require.NoError(t, model.DB.Create(&channel).Error)
+	for _, name := range []string{"gpt-4o", "test-image"} {
+		require.NoError(t, model.DB.Create(&model.Ability{ChannelId: 101, Model: name, Group: "retail", Enabled: true}).Error)
+	}
+	config := filepath.Join(t.TempDir(), "retail.json")
+	require.NoError(t, os.WriteFile(config, []byte(`{"enabled":true,"group":"retail","supplies":[{"channel_id":101,"kind":"reseller"}]}`), 0600))
+	t.Setenv("RETAIL_RELAY_CONFIG", config)
+	raw, err := os.ReadFile("../pkg/retailprice/testdata/book.json")
+	require.NoError(t, err)
+	var book retailprice.Book
+	require.NoError(t, common.Unmarshal(raw, &book))
+	now := time.Now().Unix()
+	book.Models[0].VerifiedAt, book.Models[0].ValidUntil = now, now+86400
+	book.Rates[0].VerifiedAt, book.Rates[0].ValidUntil = now, now+3600
+	image := book.Models[0]
+	image.ID, image.Kind = "test-image", "image"
+	book.Models = append(book.Models, image)
+	book.Products[0].Public = true
+	book.Products[0].BindingGroup = "gpt-normal"
+	book.Products[0].UserGroups = nil
+	book.Products[0].Routes[0].Models[image.ID] = image.ID
+	premium := book.Products[0]
+	premium.ID, premium.Name = "premium", "Premium"
+	book.Products = append(book.Products, premium)
+	private := premium
+	private.ID, private.Public, private.UserGroups = "private", false, []string{"vip"}
+	book.Products = append(book.Products, private)
+	_, err = model.PublishRetailPriceBook(0, book, nil, user.Id)
+	require.NoError(t, err)
+	access, _, err := service.IssueAccessToken(identity)
+	require.NoError(t, err)
+	engine := gin.New()
+	engine.Use(middleware.BodyStorageCleanup())
+	studio := engine.Group("/api/retail/studio", middleware.UserAuth(), middleware.RetailStudioSession())
+	for _, route := range []struct {
+		path, relay string
+		format      types.RelayFormat
+	}{
+		{"/chat/completions", "/v1/chat/completions", types.RelayFormatOpenAI},
+		{"/images/generations", "/v1/images/generations", types.RelayFormatOpenAIImage},
+	} {
+		studio.POST(route.path, middleware.RetailStudioRelay(route.relay), middleware.Distribute(), func(c *gin.Context) { c.Set(common.RequestIdKey, common.NewRequestId()); Relay(c, route.format) })
+	}
+	// Sessions and Origin are real; only procurement uses the synthetic local server.
+	send := func(path, product, origin, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest("POST", "https://example.com/api/retail/studio"+path, strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+access)
+		r.Header.Set("Origin", origin)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Retail-Product", product)
+		r.RequestURI = r.URL.RequestURI()
+		r.URL.Scheme, r.URL.Host = "", ""
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, r)
+		return w
+	}
+	chat := `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20}`
+	w := send("/chat/completions", "standard", "https://attacker.example", chat)
+	require.Equal(t, 403, w.Code)
+	_, err = model.RetailStudioToken(user.Id, false)
+	require.Error(t, err, "untrusted requests cannot create wallet identities")
+	w = send("/chat/completions", "standard", "https://example.com", chat)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "synthetic OK")
+	token, err := model.RetailStudioToken(user.Id, false)
+	require.NoError(t, err)
+	policy, revision, err := model.GetRetailKeyPolicy(user.Id, token.Id)
+	require.NoError(t, err)
+	require.True(t, policy.StudioCurrent)
+	require.Equal(t, "5", policy.MaxRequestCNY)
+	require.Equal(t, "50", policy.DailyBudgetCNY)
+	w = send("/images/generations", "premium", "https://example.com", `{"model":"test-image","prompt":"a tree","n":1,"output_format":"png"}`)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.EqualValues(t, 2, hits.Load())
+	after, afterRevision, err := model.GetRetailKeyPolicy(user.Id, token.Id)
+	require.NoError(t, err)
+	require.Equal(t, policy, after)
+	require.Equal(t, revision, afterRevision, "group switches must not overwrite shared budgets")
+	var charges []model.RetailCharge
+	require.NoError(t, model.DB.Find(&charges, "token_id = ?", token.Id).Error)
+	require.Len(t, charges, 2)
+	for _, charge := range charges {
+		require.Equal(t, "settled", charge.Status)
+		require.Positive(t, charge.Actual)
+	}
+	w = send("/chat/completions", "private", "https://example.com", chat)
+	require.Equal(t, 403, w.Code)
+	require.EqualValues(t, 2, hits.Load())
+	// Existing customized limits survive subsequent sends and cannot be bypassed by group selection.
+	policy.DailyBudgetCNY = "0.000001"
+	require.NoError(t, model.PutRetailKeyPolicy(user.Id, token.Id, revision, policy))
+	w = send("/chat/completions", "premium", "https://example.com", chat)
+	require.Equal(t, 403, w.Code, w.Body.String())
+	require.EqualValues(t, 2, hits.Load())
+	after, _, err = model.GetRetailKeyPolicy(user.Id, token.Id)
+	require.NoError(t, err)
+	require.Equal(t, policy, after)
+	ordinary := model.Token{UserId: user.Id, ServiceMode: model.TokenServiceRetail, Key: "test-ordinary", Status: 1, ExpiredTime: -1}
+	require.NoError(t, model.DB.Create(&ordinary).Error)
+	require.Error(t, model.PutRetailKeyPolicy(user.Id, ordinary.Id, 0, policy), "API keys cannot opt into studio-only pricing")
+}

@@ -196,6 +196,7 @@ function RetailPricingEditor(props: {
   const [preview, setPreview] = useState<{
     draft: string
     rows: RetailPricePreview[]
+    book: RetailPriceBook
   } | null>(null)
   const [confirm, setConfirm] = useState<'book' | 'rates' | null>(null)
   const [generated, setGenerated] = useState<RetailOfficialDraft | null>(null)
@@ -235,7 +236,9 @@ function RetailPricingEditor(props: {
     (!book.enabled || preview?.rows.some((row) => row.available))
   )
   const mutation = useMutation({
-    mutationFn: async (action: 'generate' | 'preview' | 'book' | 'rates') => {
+    mutationFn: async (
+      action: 'generate' | 'preview' | 'review' | 'book' | 'rates'
+    ) => {
       if (action === 'generate') {
         const proposal = await generateRetailOfficialDraft(props.state.version)
         // Only the model catalog and routes enter the local draft. Generation
@@ -259,11 +262,15 @@ function RetailPricingEditor(props: {
         products: JSON.parse(products),
         rates: JSON.parse(rates),
       }
-      if (action === 'preview') {
-        setPreview({ draft, rows: await previewRetailPricing(next) })
+      if (action === 'preview' || action === 'review') {
+        const rows = await previewRetailPricing(next)
+        // Bind the review to its submitted snapshot. Edits while the request is
+        // running invalidate confirmation instead of publishing unseen changes.
+        setPreview({ draft, rows, book: next })
+        if (action === 'review') setConfirm('book')
         return
       }
-      if (!previewValid) {
+      if (!previewValid || !preview) {
         throw new Error(t('Preview the current draft before publishing'))
       }
       if (action === 'rates') {
@@ -276,7 +283,7 @@ function RetailPricingEditor(props: {
             )
           )
         }
-        await publishRetailPricing(props.state.version, next)
+        await publishRetailPricing(props.state.version, preview.book)
       }
       setConfirm(null)
       toast.success(
@@ -523,8 +530,13 @@ function RetailPricingEditor(props: {
           {t('Preview CNY selling prices')}
         </Button>
         <Button
-          disabled={mutation.isPending || !canPublish}
-          onClick={() => setConfirm('book')}
+          disabled={
+            mutation.isPending ||
+            props.staleDraft ||
+            !catalog?.models ||
+            !catalog.products
+          }
+          onClick={form.handleSubmit(() => mutation.mutate('review'))}
         >
           {t('Publish price book')}
         </Button>
@@ -554,57 +566,11 @@ function RetailPricingEditor(props: {
           {t('Import valid JSON arrays before previewing')}
         </p>
       )}
-      {previewValid && (
-        <div className='space-y-4' aria-live='polite'>
-          <p className='text-sm font-medium'>
-            {t('Selling prices · CNY per million tokens')}
-          </p>
-          {preview.rows.length === 0 && (
-            <p className='text-muted-foreground text-sm'>
-              {t('No products configured')}
-            </p>
-          )}
-          {preview.rows.map((row) => (
-            <div
-              key={`${row.product}:${row.model}`}
-              className='space-y-2 border-b pb-4'
-            >
-              <p className='text-sm'>
-                {row.product} · {row.model}
-              </p>
-              {!row.available && (
-                <Badge variant='warning'>{t('Unavailable or expired')}</Badge>
-              )}
-              {row.tiers?.map((tier) => (
-                <div
-                  key={tier.up_to}
-                  className='grid grid-cols-2 gap-2 text-sm sm:grid-cols-3'
-                >
-                  <span>
-                    {t('Context limit')}: {formatNumber(tier.up_to)}
-                  </span>
-                  <span>
-                    {t('Input')}: ¥{tier.prices.input}
-                  </span>
-                  <span>
-                    {t('Output')}: ¥{tier.prices.output}
-                  </span>
-                  <span>
-                    {t('Cache read')}: ¥{tier.prices.cache_read}
-                  </span>
-                  <span>
-                    {t('Cache write')}: ¥{tier.prices.cache_write}
-                  </span>
-                  <span>
-                    {t('Cache write (1h)')}: ¥{tier.prices.cache_write_1h}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
+      {previewValid && confirm === null && (
+        <SellingPricePreview rows={preview.rows} />
       )}
       <ConfirmDialog
+        className='data-[size=default]:max-w-[calc(100vw-2rem)] data-[size=default]:sm:max-w-3xl'
         open={confirm !== null}
         onOpenChange={(open) => !open && setConfirm(null)}
         title={t('Publish new prices?')}
@@ -615,7 +581,73 @@ function RetailPricingEditor(props: {
         isLoading={mutation.isPending}
         disabled={confirm === 'book' ? !canPublish : !previewValid}
         handleConfirm={() => confirm && mutation.mutate(confirm)}
-      />
+      >
+        <div className='max-h-[55dvh] overflow-y-auto'>
+          {preview && <SellingPricePreview rows={preview.rows} />}
+          {(!previewValid || (confirm === 'book' && !canPublish)) && (
+            <p role='alert' className='text-destructive text-sm'>
+              {t(
+                'Prices cannot be published. Close this review, check the draft and available routes, then try again.'
+              )}
+            </p>
+          )}
+        </div>
+      </ConfirmDialog>
     </>
+  )
+}
+
+/** Show the full calculated tariff both in the optional preview and the publication review. */
+function SellingPricePreview(props: { rows: RetailPricePreview[] }) {
+  const { t } = useTranslation()
+  return (
+    <div className='space-y-4' aria-live='polite'>
+      <p className='text-sm font-medium'>
+        {t('Selling prices · CNY per million tokens')}
+      </p>
+      {props.rows.length === 0 && (
+        <p className='text-muted-foreground text-sm'>
+          {t('No products configured')}
+        </p>
+      )}
+      {props.rows.map((row) => (
+        <div
+          key={`${row.product}:${row.model}`}
+          className='space-y-2 border-b pb-4'
+        >
+          <p className='text-sm'>
+            {row.product} · {row.model}
+          </p>
+          {!row.available && (
+            <Badge variant='warning'>{t('Unavailable or expired')}</Badge>
+          )}
+          {row.tiers?.map((tier) => (
+            <div
+              key={tier.up_to}
+              className='grid grid-cols-2 gap-2 text-sm sm:grid-cols-3'
+            >
+              <span>
+                {t('Context limit')}: {formatNumber(tier.up_to)}
+              </span>
+              <span>
+                {t('Input')}: ¥{tier.prices.input}
+              </span>
+              <span>
+                {t('Output')}: ¥{tier.prices.output}
+              </span>
+              <span>
+                {t('Cache read')}: ¥{tier.prices.cache_read}
+              </span>
+              <span>
+                {t('Cache write')}: ¥{tier.prices.cache_write}
+              </span>
+              <span>
+                {t('Cache write (1h)')}: ¥{tier.prices.cache_write_1h}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
   )
 }

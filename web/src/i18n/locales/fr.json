@@ -1,5 +1,12 @@
 {
   "translation": {
+    "Spending protection": "Spending protection",
+    "Enter to send · Shift+Enter for a new line": "Enter to send · Shift+Enter for a new line",
+    "Select a call group and model to start.": "Select a call group and model to start.",
+    "Use current prices within my budget": "Use current prices within my budget",
+    "Price changes apply automatically. Your request limit, daily budget and wallet balance still apply.": "Price changes apply automatically. Your request limit, daily budget and wallet balance still apply.",
+    "Advanced model price limits": "Advanced model price limits",
+    "Prices cannot be published. Close this review, check the draft and available routes, then try again.": "Prices cannot be published. Close this review, check the draft and available routes, then try again.",
     "Hosting overview": "Vue d’ensemble de l’hébergement",
     "API overview": "Vue d’ensemble de l’API",
     "Manage hosted accounts, subscription quota and hosting plans.": "Gérez les comptes hébergés, les quotas d’abonnement et les offres d’hébergement.",

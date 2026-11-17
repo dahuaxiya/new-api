@@ -102,8 +102,11 @@ type Book struct {
 	Rates             []Rate         `json:"rates"`
 }
 
-// KeyPolicy is an explicit opt-in to floating prices within absolute CNY ceilings.
+// KeyPolicy bounds floating prices with monetary budgets and optional per-model ceilings.
 type KeyPolicy struct {
+	// StudioCurrent is restricted to session-only studio identities by the model layer.
+	// It follows current prices while retaining positive per-request and daily budgets.
+	StudioCurrent  bool              `json:"studio_current,omitempty"`
 	ProductID      string            `json:"product_id"`
 	AcceptFloating bool              `json:"accept_floating"`
 	Caps           map[string]Prices `json:"caps"`
@@ -121,6 +124,7 @@ type Quote struct {
 	ValidUntil       int64  `json:"valid_until"`
 	OutputLimit      int    `json:"output_limit"`
 	ReservedCNY      string `json:"reserved_cny"`
+	InputLimit       int    `json:"input_limit,omitempty"`
 	Channels         []int  `json:"channels"`
 }
 
@@ -231,9 +235,9 @@ func (b Book) Validate(now int64) error {
 	return nil
 }
 
-// Validate rejects missing price ceilings; no Key silently opts in to unlimited floating pricing.
+// Validate requires positive budgets; ordinary API keys also need explicit per-model ceilings.
 func (p KeyPolicy) Validate() error {
-	if !idPattern.MatchString(p.ProductID) || !p.AcceptFloating || len(p.Caps) == 0 || len(p.Caps) > 500 {
+	if !idPattern.MatchString(p.ProductID) || !p.AcceptFloating || (!p.StudioCurrent && len(p.Caps) == 0) || len(p.Caps) > 500 {
 		return ErrConfig
 	}
 	for name, cap := range p.Caps {
@@ -314,7 +318,7 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		outputLimit = official.MaxOutput
 	}
 	cap, ok := key.Caps[modelName]
-	if !ok {
+	if !ok && !key.StudioCurrent {
 		return nil, ErrAccess
 	}
 	if outputLimit <= 0 || outputLimit > official.MaxOutput {
@@ -369,7 +373,7 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 			base, _ := Amount(raw)
 			price := base.Mul(cheapest).RoundCeil(8)
 			limit, _ := Amount(cap.Values()[i])
-			if price.GreaterThan(limit) {
+			if !key.StudioCurrent && price.GreaterThan(limit) {
 				return nil, ErrCap
 			}
 			values[i] = price.String()
@@ -387,7 +391,27 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 	reserve := maxInput.Mul(decimal.NewFromInt(inputBound * 4)).Add(maxOutput.Mul(decimal.NewFromInt(int64(outputLimit)))).Div(decimal.NewFromInt(1000000)).RoundCeil(8)
 	limit, _ := Amount(key.MaxRequestCNY)
 	if reserve.GreaterThan(limit) {
-		return nil, ErrBudget
+		if !key.StudioCurrent || !maxInput.IsPositive() {
+			return nil, ErrBudget
+		}
+		remaining := limit.Mul(decimal.NewFromInt(1000000)).Sub(maxOutput.Mul(decimal.NewFromInt(int64(outputLimit))))
+		if !remaining.IsPositive() {
+			return nil, ErrBudget
+		}
+		// The quotient is bounded by the already validated official context limit,
+		// so conversion cannot overflow. Four input categories remain reserved.
+		allowed := remaining.Div(maxInput.Mul(decimal.NewFromInt(4))).Floor()
+		if allowed.LessThan(decimal.NewFromInt(1)) {
+			return nil, ErrBudget
+		}
+		if allowed.LessThan(decimal.NewFromInt(inputBound)) {
+			inputBound = allowed.IntPart()
+		}
+		quote.InputLimit = int(inputBound)
+		reserve = maxInput.Mul(decimal.NewFromInt(inputBound * 4)).Add(maxOutput.Mul(decimal.NewFromInt(int64(outputLimit)))).Div(decimal.NewFromInt(1000000)).RoundCeil(8)
+		if reserve.GreaterThan(limit) {
+			return nil, ErrBudget
+		}
 	}
 	quote.ReservedCNY = reserve.String()
 	return quote, nil
@@ -396,7 +420,7 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 // Charge evaluates normalized text/cache counts using the accepted CNY schedule.
 // Caller must not feed provider estimates or non-text modalities into this contract.
 func (q Quote) Charge(context int, counts [5]int) (decimal.Decimal, error) {
-	if context < 0 || len(q.Sale) == 0 || context > q.Sale[len(q.Sale)-1].UpTo || counts[1] > q.OutputLimit {
+	if context < 0 || (q.InputLimit > 0 && context > q.InputLimit) || len(q.Sale) == 0 || context > q.Sale[len(q.Sale)-1].UpTo || counts[1] > q.OutputLimit {
 		return decimal.Zero, ErrUsage
 	}
 	for i, count := range counts {

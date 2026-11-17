@@ -123,6 +123,9 @@ func GetRetailKeyPolicy(userID, tokenID int) (retailprice.KeyPolicy, int64, erro
 	if common.UnmarshalJsonStr(row.Payload, &policy) != nil {
 		return policy, 0, retailprice.ErrConfig
 	}
+	if policy.StudioCurrent && token.ServiceMode != TokenServiceStudio {
+		return policy, 0, retailprice.ErrAccess
+	}
 	return policy, row.Revision, nil
 }
 
@@ -149,18 +152,26 @@ func PutRetailKeyPolicy(userID, tokenID int, expected int64, policy retailprice.
 			return retailprice.ErrAccess
 		}
 		var token Token
-		if err := tx.Select("id").First(&token, "id = ? AND user_id = ? AND service_mode IN ?", tokenID, userID, []string{TokenServiceRetail, TokenServiceStudio}).Error; err != nil {
+		if err := tx.Select("id", "service_mode").First(&token, "id = ? AND user_id = ? AND service_mode IN ?", tokenID, userID, []string{TokenServiceRetail, TokenServiceStudio}).Error; err != nil {
 			return retailprice.ErrAccess
 		}
+		if policy.StudioCurrent && token.ServiceMode != TokenServiceStudio {
+			return retailprice.ErrAccess
+		}
+		allowedProduct := false
 		allowedModels := map[string]bool{}
 		for _, p := range book.Products {
 			if p.ID == policy.ProductID && p.AllowsGroup(user.Group) {
+				allowedProduct = true
 				for _, r := range p.Routes {
 					for name := range r.Models {
 						allowedModels[name] = true
 					}
 				}
 			}
+		}
+		if !allowedProduct {
+			return retailprice.ErrAccess
 		}
 		for name := range policy.Caps {
 			if !allowedModels[name] {
@@ -185,7 +196,7 @@ func PutRetailKeyPolicy(userID, tokenID int, expected int64, policy retailprice.
 }
 
 // RetailQuote constructs a customer quote from a fresh book and verified public supply candidates.
-func RetailQuote(userID, tokenID int, modelName string, outputLimit int, eligible []int) (*retailprice.Quote, error) {
+func RetailQuote(userID, tokenID int, modelName string, outputLimit int, eligible []int, productIDs ...string) (*retailprice.Quote, error) {
 	book, version, err := GetRetailPriceBook()
 	if err != nil {
 		return nil, err
@@ -199,6 +210,17 @@ func RetailQuote(userID, tokenID int, modelName string, outputLimit int, eligibl
 	policy, _, err := GetRetailKeyPolicy(userID, tokenID)
 	if err != nil {
 		return nil, err
+	}
+	// The selected group belongs to this request, never a mutable shared tab preference.
+	if len(productIDs) > 0 && productIDs[0] != "" {
+		var token Token
+		if err := DB.Select("service_mode").First(&token, "id = ? AND user_id = ?", tokenID, userID).Error; err != nil || token.ServiceMode != TokenServiceStudio {
+			return nil, retailprice.ErrAccess
+		}
+		if !policy.StudioCurrent && policy.ProductID != productIDs[0] {
+			return nil, retailprice.ErrAccess
+		}
+		policy.ProductID = productIDs[0]
 	}
 	var user User
 	if err := DB.Select("id", "group", "status").First(&user, userID).Error; err != nil || user.Status != common.UserStatusEnabled {
@@ -262,8 +284,14 @@ func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailpric
 			return retailprice.ErrAccess
 		}
 		var token Token
-		if err := tx.Select("id", "status", "expired_time").First(&token, "id = ? AND user_id = ? AND service_mode IN ?", tokenID, userID, []string{TokenServiceRetail, TokenServiceStudio}).Error; err != nil || token.Status != common.TokenStatusEnabled || token.ExpiredTime != -1 && token.ExpiredTime < time.Now().Unix() {
+		if err := tx.Select("id", "status", "expired_time", "service_mode").First(&token, "id = ? AND user_id = ? AND service_mode IN ?", tokenID, userID, []string{TokenServiceRetail, TokenServiceStudio}).Error; err != nil || token.Status != common.TokenStatusEnabled || token.ExpiredTime != -1 && token.ExpiredTime < time.Now().Unix() {
 			return retailprice.ErrAccess
+		}
+		if policy.StudioCurrent {
+			if token.ServiceMode != TokenServiceStudio {
+				return retailprice.ErrAccess
+			}
+			policy.ProductID = quote.ProductID
 		}
 		fresh, err := book.MakeQuote(state.Version, user.Group, policy, quote.Model.ID, quote.OutputLimit, quote.Channels, time.Now().Unix())
 		if err != nil {

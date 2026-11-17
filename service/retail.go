@@ -44,7 +44,7 @@ func ApplyRetailRouting(c *gin.Context, retry *RetryParam) error {
 		return retail_setting.ErrUnavailable
 	}
 	// Product authorization and current prices narrow the pre-existing public supply allowlist.
-	quote, err := model.RetailQuote(c.GetInt("id"), c.GetInt("token_id"), retry.ModelName, 1, ids)
+	quote, err := model.RetailQuote(c.GetInt("id"), c.GetInt("token_id"), retry.ModelName, 1, ids, c.GetString("retail_studio_product"))
 	if err != nil {
 		return err
 	}

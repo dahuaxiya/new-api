@@ -33,16 +33,22 @@ export type StudioForm = z.infer<typeof studioFormSchema>
 /** Read the current owner's setup state; no key or conversation is returned. */
 export async function getStudio(
   signal: AbortSignal
-): Promise<{ token_id: number }> {
+): Promise<{
+  token_id: number
+  defaults: { max_request_cny: string; daily_budget_cny: string }
+}> {
   return requireServerSuccess(
     (await api.get('/api/retail/studio', { signal })).data
   ).data
 }
 
-/** Explicit setup allocates one accounting identity but does not authorize spending. */
-export async function openStudio(): Promise<{ token_id: number }> {
+/** Opening protection initializes bounded defaults only when the owner has no saved policy. */
+export async function openStudio(
+  productId: string
+): Promise<{ token_id: number }> {
   return requireServerSuccess(
-    (await api.post('/api/retail/studio/session', {})).data
+    (await api.post('/api/retail/studio/session', { product_id: productId }))
+      .data
   ).data
 }
 
@@ -81,7 +87,8 @@ export function imageDataURL(response: unknown): string {
 /** Submit exactly one PNG generation. No automatic replay is safe after an uncertain paid request. */
 export async function generateStudioImage(
   input: StudioForm,
-  signal: AbortSignal
+  signal: AbortSignal,
+  productId: string
 ): Promise<string> {
   const response = await api.post(
     '/api/retail/studio/images/generations',
@@ -94,7 +101,12 @@ export async function generateStudioImage(
       output_format: 'png',
       stream: false,
     },
-    { signal, timeout: 300000, singleUseAuthorization: true }
+    {
+      signal,
+      timeout: 300000,
+      singleUseAuthorization: true,
+      headers: { 'X-Retail-Product': productId },
+    }
   )
   return imageDataURL(response.data)
 }

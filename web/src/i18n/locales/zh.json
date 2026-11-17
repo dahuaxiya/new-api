@@ -1,5 +1,12 @@
 {
   "translation": {
+    "Spending protection": "消费保护",
+    "Enter to send · Shift+Enter for a new line": "Enter 发送 · Shift+Enter 换行",
+    "Select a call group and model to start.": "选择调用分组和模型即可开始。",
+    "Use current prices within my budget": "在预算内按当前价格使用",
+    "Price changes apply automatically. Your request limit, daily budget and wallet balance still apply.": "价格随上游调整，单次上限、每日预算和账户余额仍会限制消费。",
+    "Advanced model price limits": "高级设置 · 模型单价上限",
+    "Prices cannot be published. Close this review, check the draft and available routes, then try again.": "当前价表无法发布。请关闭预览，检查草稿和可用线路后重试。",
     "Hosting overview": "托管概览",
     "API overview": "API 概览",
     "Manage hosted accounts, subscription quota and hosting plans.": "管理托管账号，查看订阅额度与托管套餐。",

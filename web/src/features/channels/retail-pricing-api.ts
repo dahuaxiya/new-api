@@ -219,6 +219,7 @@ export type RetailCatalog = {
   }>
 }
 export type RetailKeyPolicy = {
+  studio_current?: boolean
   product_id: string
   accept_floating: boolean
   caps: Record<string, RetailPrices>
@@ -234,15 +235,16 @@ const priceFields = z.object({
   cache_write: money,
   cache_write_1h: money,
 })
-export const retailKeyPolicySchema = z.object({
-  product_id: z.string().min(1),
-  accept_floating: z.boolean().refine((value) => value),
-  caps: z
-    .record(z.string(), priceFields)
-    .refine((value) => Object.keys(value).length > 0),
-  max_request_cny: money.refine((value) => Number(value) > 0),
-  daily_budget_cny: money.refine((value) => Number(value) > 0),
-})
+export const retailKeyPolicySchema = z
+  .object({
+    studio_current: z.boolean().optional(),
+    product_id: z.string().min(1),
+    accept_floating: z.boolean().refine((value) => value),
+    caps: z.record(z.string(), priceFields),
+    max_request_cny: money.refine((value) => Number(value) > 0),
+    daily_budget_cny: money.refine((value) => Number(value) > 0),
+  })
+  .refine((value) => value.studio_current || Object.keys(value.caps).length > 0)
 
 const jsonArray = z.string().refine((value) => {
   try {

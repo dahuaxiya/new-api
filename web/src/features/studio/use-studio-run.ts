@@ -65,7 +65,8 @@ export function useStudioRun() {
   /** Submit a snapshot of the input; failed or interrupted turns never enter future model context. */
   const send = async (
     input: StudioForm,
-    mode: 'text' | 'image'
+    mode: 'text' | 'image',
+    productId: string
   ): Promise<void> => {
     if (locked.current) return
     locked.current = true
@@ -86,7 +87,11 @@ export function useStudioRun() {
       const controller = new AbortController()
       imageAbort.current = controller
       try {
-        const image = await generateStudioImage(input, controller.signal)
+        const image = await generateStudioImage(
+          input,
+          controller.signal,
+          productId
+        )
         finish(id, { image, complete: true })
       } catch (error) {
         if (!controller.signal.aborted) {
@@ -120,7 +125,8 @@ export function useStudioRun() {
         )
       },
       () => finish(id, { complete: true }),
-      (message) => finish(id, { error: message })
+      (message) => finish(id, { error: message }),
+      { 'X-Retail-Product': productId }
     )
   }
 

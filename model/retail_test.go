@@ -216,6 +216,17 @@ func TestRetailPricingDatabases(t *testing.T) {
 			version, err := PublishRetailPriceBook(0, book, nil, 1)
 			require.NoError(t, err)
 			assert.Equal(t, int64(1), version)
+			// Published pricebooks use their own products and tariffs. Removing
+			// the internal supply group from legacy UI ratios must not block studio.
+			previousGroups := ratio_setting.GroupRatio2JSONString()
+			require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"gpt-normal":1}`))
+			routed, routeErr := RetailTokenGroup(user.Id, studio.Id)
+			require.NoError(t, routeErr)
+			require.Equal(t, "retail", routed)
+			_, routeErr = NormalizeTokenService(user.Id, "retail", "")
+			require.NoError(t, routeErr)
+			require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroups))
+
 			_, err = PublishRetailPriceBook(0, book, nil, 1)
 			require.ErrorIs(t, err, ErrRetailPriceConflict)
 			policy := retailprice.KeyPolicy{ProductID: "standard", AcceptFloating: true, Caps: map[string]retailprice.Prices{"gpt-4o": {Input: "4.5", Output: "9", CacheRead: ".45", CacheWrite: "5.625", CacheWrite1h: "9"}}, MaxRequestCNY: "1", DailyBudgetCNY: "1"}

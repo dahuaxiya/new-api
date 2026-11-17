@@ -7,6 +7,7 @@ import (
 	"regexp"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/retailprice"
 )
 
 var ErrUnavailable = common.NewMessage("Retail API is unavailable")
@@ -19,9 +20,11 @@ type Supply struct {
 }
 
 type Config struct {
-	Enabled  bool     `json:"enabled"`
-	Group    string   `json:"group"`
-	Supplies []Supply `json:"supplies"`
+	StudioMaxRequestCNY  string   `json:"studio_max_request_cny,omitempty"`
+	StudioDailyBudgetCNY string   `json:"studio_daily_budget_cny,omitempty"`
+	Enabled              bool     `json:"enabled"`
+	Group                string   `json:"group"`
+	Supplies             []Supply `json:"supplies"`
 }
 
 // Load 每次读取小型本地配置，使停止销售立即生效；路径只来自部署环境，不能由请求指定。
@@ -61,4 +64,26 @@ func Load() (Config, error) {
 		seen[supply.ChannelID] = true
 	}
 	return cfg, nil
+}
+
+// StudioBudgets returns bounded site defaults for new identities only; saved user policies never reset.
+func StudioBudgets() (string, string, error) {
+	cfg, err := Load()
+	if err != nil {
+		return "", "", err
+	}
+	request, daily := cfg.StudioMaxRequestCNY, cfg.StudioDailyBudgetCNY
+	if request == "" {
+		request = "5"
+	}
+	if daily == "" {
+		daily = "50"
+	}
+	for _, raw := range []string{request, daily} {
+		v, e := retailprice.Amount(raw)
+		if e != nil || !v.IsPositive() {
+			return "", "", retailprice.ErrConfig
+		}
+	}
+	return request, daily, nil
 }
