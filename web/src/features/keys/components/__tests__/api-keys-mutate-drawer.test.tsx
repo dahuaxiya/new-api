@@ -216,10 +216,7 @@ async function renderCreateDrawer(
   )
   await waitFor(
     () => {
-      const saveButton = findButton(
-        siteMode === 'retail' ? 'Next: price limits' : 'Save changes',
-        false
-      )
+      const saveButton = findButton('Save changes', false)
       expect(saveButton).toBeEnabled()
     },
     { timeout: 1500 }
@@ -414,17 +411,17 @@ test('multiple hosted accounts require an explicit target and submit only the ch
   })
 })
 
-/** 中转 Key 在选组和明确消费保护前不创建；一次提交保存完整策略。 */
-test('retail creation selects a shared call group before atomically saving wallet service and limits', async () => {
+/** 中转用户只填写名称和调用分组，一次提交，不要求价格、预算或同意开关。 */
+test('retail creation needs only a name and shared call group', async () => {
   const payloads: Array<Record<string, unknown>> = []
   installApiFixtures(payloads, true, 'retail')
   await renderCreateDrawer('retail')
-  expect(screen.queryByLabelText('API service')).toBeNull()
   expect(screen.queryByLabelText('Hosted account for this key')).toBeNull()
+  expect(screen.queryByText('Quota Settings')).toBeNull()
   fireEvent.change(screen.getByLabelText('Name'), {
     target: { value: 'Wallet API' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Next: price limits' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
   await screen.findByText('Select a call group', {
     selector: '[data-slot="form-message"]',
   })
@@ -432,55 +429,30 @@ test('retail creation selects a shared call group before atomically saving walle
   fireEvent.change(screen.getByLabelText('Call group'), {
     target: { value: 'normal' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Next: price limits' }))
-  await screen.findByRole('button', { name: 'Use current prices as ceilings' })
-  expect(screen.getByLabelText('Call group')).toHaveValue('normal')
-  expect(payloads).toHaveLength(0)
-  expect(screen.getByRole('button', { name: 'Create API Key' })).toBeDisabled()
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Use current prices as ceilings' })
-  )
-  fireEvent.change(screen.getByLabelText('Maximum request charge (CNY)'), {
-    target: { value: '1' },
+  fireEvent.change(screen.getByLabelText('Quantity'), {
+    target: { value: '2' },
   })
-  fireEvent.change(screen.getByLabelText('Daily budget (CNY, UTC)'), {
-    target: { value: '10' },
-  })
-  fireEvent.click(
-    screen.getByRole('switch', {
-      name: 'Accept automatic price changes within these limits',
+  expect(
+    screen.queryByRole('button', { name: 'Next: price limits' })
+  ).toBeNull()
+  expect(screen.queryByLabelText('Maximum request charge (CNY)')).toBeNull()
+  expect(screen.queryByLabelText('Daily budget (CNY, UTC)')).toBeNull()
+  expect(
+    screen.queryByText('Accept automatic price changes within these limits')
+  ).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+  await waitFor(() => expect(payloads).toHaveLength(2))
+  for (const payload of payloads) {
+    expect(payload).toMatchObject({
+      service_mode: 'retail',
+      retail_product_id: 'normal',
+      group: '',
+      auto_groups: [],
+      cross_group_retry: false,
     })
-  )
-  // Changing routes must discard old prices and consent, while keeping the user's budgets.
-  fireEvent.change(screen.getByLabelText('Call group'), {
-    target: { value: 'pro' },
-  })
-  expect(screen.getByRole('button', { name: 'Create API Key' })).toBeDisabled()
-  expect(screen.getByLabelText('Maximum request charge (CNY)')).toHaveValue('1')
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Use current prices as ceilings' })
-  )
-  fireEvent.click(
-    screen.getByRole('switch', {
-      name: 'Accept automatic price changes within these limits',
-    })
-  )
-  fireEvent.click(screen.getByRole('button', { name: 'Create API Key' }))
-  await waitFor(() => expect(payloads).toHaveLength(1))
-  expect(payloads[0]).toMatchObject({
-    service_mode: 'retail',
-    group: '',
-    auto_groups: [],
-    cross_group_retry: false,
-    retail_policy: {
-      product_id: 'pro',
-      accept_floating: true,
-      max_request_cny: '1',
-      daily_budget_cny: '10',
-      caps: { 'retail-model': { input: '1', output: '2' } },
-    },
-  })
-  expect(payloads[0].hosting_seat_id).toBeUndefined()
+    expect(payload.retail_policy).toBeUndefined()
+    expect(payload.hosting_seat_id).toBeUndefined()
+  }
 })
 
 /** 目录为空或读取失败时提供明确反馈，不回退到账户 default 分组创建。 */
@@ -509,7 +481,7 @@ test.each(['empty', 'failure'])(
     fireEvent.change(screen.getByLabelText('Name'), {
       target: { value: 'Wallet API' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Next: price limits' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
     await screen.findByText('Select a call group', {
       selector: '[data-slot="form-message"]',
     })

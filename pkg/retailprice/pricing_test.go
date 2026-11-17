@@ -215,3 +215,23 @@ func TestStudioCurrentBudgets(t *testing.T) {
 	policy.MaxRequestCNY, policy.StudioCurrent = "5", false
 	require.Error(t, policy.Validate(), "ordinary keys still require model ceilings")
 }
+
+// TestGroupCurrentPricing follows current group prices without manufacturing customer limits or consent.
+func TestGroupCurrentPricing(t *testing.T) {
+	book, _ := fixture(t)
+	key := retailprice.KeyPolicy{ProductID: "standard", GroupCurrent: true}
+	require.NoError(t, key.Validate())
+	quote, err := book.MakeQuote(1, "default", key, "gpt-4o", 20, []int{101}, 2)
+	require.NoError(t, err)
+	require.Equal(t, "3", quote.Sale[0].Prices.Input)
+	book.Rates[0].Multiplier = "1"
+	raised, err := book.MakeQuote(2, "default", key, "gpt-4o", 20, []int{101}, 2)
+	require.NoError(t, err)
+	require.NotEqual(t, quote.Sale, raised.Sale)
+	_, err = book.MakeQuote(2, "other", key, "gpt-4o", 20, []int{101}, 2)
+	require.ErrorIs(t, err, retailprice.ErrAccess)
+	key.MaxRequestCNY = "1"
+	require.Error(t, key.Validate(), "a group selection must not silently carry a hidden customer cap")
+	key.MaxRequestCNY, key.StudioCurrent = "", true
+	require.Error(t, key.Validate(), "ordinary group mode cannot impersonate studio mode")
+}

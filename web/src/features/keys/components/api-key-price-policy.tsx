@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -34,6 +35,7 @@ import {
   getRetailCatalog,
   getRetailKeyPolicy,
   putRetailKeyPolicy,
+  putRetailKeyGroup,
   retailKeyPolicySchema,
   type RetailCatalog,
   type RetailKeyPolicy,
@@ -73,11 +75,13 @@ export function ApiKeyPricePolicy(props: {
     <Dialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      title={props.title ?? t('API key price limits')}
+      title={
+        props.title ?? t(props.studio ? 'API key price limits' : 'Call group')
+      }
       description={t(
         props.studio
           ? 'Price changes apply automatically. Your request limit, daily budget and wallet balance still apply.'
-          : 'Prices follow upstream changes within your CNY ceilings. Requests above a ceiling pause before reaching the upstream.'
+          : 'Choose a call group. Usage is charged to your balance at its current prices.'
       )}
     >
       {query.isPending && <LoadingState inline message={t('Loading...')} />}
@@ -87,23 +91,39 @@ export function ApiKeyPricePolicy(props: {
           onRetry={() => void query.refetch()}
         />
       )}
-      {query.data && !query.isError && (
-        <PricePolicyEditor
-          key={`${identity}:${props.tokenId}:${query.data.saved.revision}:${props.initialProductId ?? ''}`}
-          studio={props.studio}
-          tokenId={props.tokenId}
-          initialProductId={props.initialProductId}
-          catalog={query.data.catalog}
-          saved={query.data.saved}
-          onSaved={(productId) => {
-            props.onSaved?.(productId)
-            void queryClient.invalidateQueries({
-              queryKey: ['retail-key-pricing', identity, props.tokenId],
-            })
-            props.onOpenChange(false)
-          }}
-        />
-      )}
+      {query.data &&
+        !query.isError &&
+        (props.studio ? (
+          <PricePolicyEditor
+            key={`${identity}:${props.tokenId}:${query.data.saved.revision}:${props.initialProductId ?? ''}`}
+            studio={props.studio}
+            tokenId={props.tokenId}
+            initialProductId={props.initialProductId}
+            catalog={query.data.catalog}
+            saved={query.data.saved}
+            onSaved={(productId) => {
+              props.onSaved?.(productId)
+              void queryClient.invalidateQueries({
+                queryKey: ['retail-key-pricing', identity, props.tokenId],
+              })
+              props.onOpenChange(false)
+            }}
+          />
+        ) : (
+          <CallGroupEditor
+            key={`${identity}:${props.tokenId}:${query.data.saved.revision}`}
+            tokenId={props.tokenId}
+            catalog={query.data.catalog}
+            saved={query.data.saved}
+            onSaved={(productId) => {
+              props.onSaved?.(productId)
+              void queryClient.invalidateQueries({
+                queryKey: ['retail-key-pricing', identity, props.tokenId],
+              })
+              props.onOpenChange(false)
+            }}
+          />
+        ))}
     </Dialog>
   )
 }
@@ -112,10 +132,6 @@ export function ApiKeyPricePolicy(props: {
 export function PricePolicyEditor(props: {
   studio?: boolean
   tokenId: number
-  /** Creation supplies an atomic save; existing keys keep revision-checked policy updates. */
-  savePolicy?: (policy: RetailKeyPolicy) => Promise<void>
-  submitLabel?: string
-  onProductChange?: (productId: string) => void
   initialProductId?: string
   catalog: RetailCatalog
   saved: { revision: number; policy: RetailKeyPolicy }
@@ -151,11 +167,9 @@ export function PricePolicyEditor(props: {
   )
   const mutation = useMutation({
     mutationFn: (submitted: RetailKeyPolicy) =>
-      props.savePolicy
-        ? props.savePolicy(submitted)
-        : putRetailKeyPolicy(props.tokenId, props.saved.revision, submitted),
+      putRetailKeyPolicy(props.tokenId, props.saved.revision, submitted),
     onSuccess: (_, submitted) => {
-      if (!props.savePolicy) toast.success(t('Saved successfully'))
+      toast.success(t('Saved successfully'))
       props.onSaved(submitted.product_id)
     },
     onError: (error) => handleServerError(error),
@@ -185,7 +199,6 @@ export function PricePolicyEditor(props: {
           id='key-price-product'
           value={policy.product_id || ''}
           onChange={(e) => {
-            props.onProductChange?.(e.target.value)
             setPolicy({
               ...policy,
               product_id: e.target.value,
@@ -251,10 +264,7 @@ export function PricePolicyEditor(props: {
               {t('No models have a current verified price')}
             </p>
           )}
-          <details
-            open={!props.studio && !props.savePolicy}
-            className='space-y-4'
-          >
+          <details open={!props.studio} className='space-y-4'>
             <summary className='cursor-pointer text-sm font-medium'>
               {t('Advanced model price limits')}
             </summary>
@@ -359,7 +369,79 @@ export function PricePolicyEditor(props: {
           !policy.daily_budget_cny
         }
       >
-        {props.submitLabel ?? t('Save price limits')}
+        {t('Save price limits')}
+      </Button>
+    </form>
+  )
+}
+
+/** Change a key's group with optimistic concurrency; no customer price or budget values are synthesized.
+ * @param props Owner-scoped key, visible catalog, saved revision and completion callback.
+ * @return A group selector and save action.
+ */
+function CallGroupEditor(props: {
+  tokenId: number
+  catalog: RetailCatalog
+  saved: { revision: number; policy: RetailKeyPolicy }
+  onSaved: (productId: string) => void
+}) {
+  const { t } = useTranslation()
+  const [productId, setProductId] = useState(
+    props.saved.policy.product_id || ''
+  )
+  const mutation = useMutation({
+    mutationFn: (selected: string) =>
+      putRetailKeyGroup(props.tokenId, props.saved.revision, selected),
+    onSuccess: (_, selected) => {
+      toast.success(t('Saved successfully'))
+      props.onSaved(selected)
+    },
+    onError: (error) => handleServerError(error),
+  })
+  return (
+    <form
+      className='space-y-5 p-1'
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (
+          !mutation.isPending &&
+          props.catalog.products.some((product) => product.id === productId)
+        ) {
+          mutation.mutate(productId)
+        }
+      }}
+    >
+      <div className='space-y-2'>
+        <Label htmlFor='key-call-group'>{t('Call group')}</Label>
+        <NativeSelect
+          id='key-call-group'
+          value={productId}
+          disabled={mutation.isPending}
+          onChange={(event) => setProductId(event.target.value)}
+        >
+          <NativeSelectOption value=''>
+            {t('Select a call group')}
+          </NativeSelectOption>
+          {props.catalog.products.map((product) => (
+            <NativeSelectOption key={product.id} value={product.id}>
+              {product.name}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </div>
+      {props.catalog.products.length === 0 && (
+        <p role='status'>
+          {t('No call groups are available. Contact the administrator.')}
+        </p>
+      )}
+      <Button
+        type='submit'
+        disabled={
+          mutation.isPending ||
+          !props.catalog.products.some((product) => product.id === productId)
+        }
+      >
+        {t('Save')}
       </Button>
     </form>
   )

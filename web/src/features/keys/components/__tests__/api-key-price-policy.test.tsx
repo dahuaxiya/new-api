@@ -86,60 +86,54 @@ afterEach(() => {
   useAuthStore.getState().auth.reset()
 })
 
-it('requires consent and preserves tiny decimal prices when saving current ceilings', async () => {
+/** Existing keys can select a group directly, including keys without a previous pricing policy. */
+it('saves only the selected group and revision without customer budgets or price consent', async () => {
   const put = vi
     .spyOn(api, 'put')
     .mockResolvedValue({ data: { success: true } })
   const close = openPolicy()
-  fireEvent.change(await screen.findByLabelText('Call group'), {
-    target: { value: 'standard' },
-  })
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Use current prices as ceilings' })
+  fireEvent.change(
+    await screen.findByRole('combobox', { name: 'Call group' }),
+    {
+      target: { value: 'standard' },
+    }
   )
-  expect(screen.getByLabelText('Input')).toHaveValue('0.00000001')
-  fireEvent.change(screen.getByLabelText('Maximum request charge (CNY)'), {
-    target: { value: '1' },
-  })
-  fireEvent.change(screen.getByLabelText('Daily budget (CNY, UTC)'), {
-    target: { value: '10' },
-  })
-  expect(
-    screen.getByRole('button', { name: 'Save price limits' })
-  ).toBeDisabled()
-  fireEvent.click(
-    screen.getByRole('switch', {
-      name: 'Accept automatic price changes within these limits',
-    })
-  )
-  fireEvent.click(screen.getByRole('button', { name: 'Save price limits' }))
+  expect(screen.queryByText('Use current prices as ceilings')).toBeNull()
+  expect(screen.queryByLabelText('Maximum request charge (CNY)')).toBeNull()
+  expect(screen.queryByLabelText('Daily budget (CNY, UTC)')).toBeNull()
+  expect(screen.queryByRole('switch')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
   await waitFor(() =>
     expect(put).toHaveBeenCalledWith('/api/retail/keys/7/pricing', {
       expected_revision: 0,
-      policy: {
-        product_id: 'standard',
-        accept_floating: true,
-        caps: { 'test-model': prices },
-        max_request_cny: '1',
-        daily_budget_cny: '10',
-      },
+      product_id: 'standard',
     })
   )
   await waitFor(() => expect(close).toHaveBeenCalledWith(false))
 })
 
-it('keeps saving disabled when no current model prices exist', async () => {
-  openPolicy(true)
-  fireEvent.change(await screen.findByLabelText('Call group'), {
-    target: { value: 'standard' },
+/** A group selection remains a draft on save failure; no success callback or hidden follow-up mutation occurs. */
+it('keeps the selected group open when the server rejects the save', async () => {
+  vi.spyOn(api, 'put').mockResolvedValue({
+    data: {
+      success: false,
+      message: 'This product or API key is not available to this account',
+    },
   })
-  expect(
-    screen.getByText('No models have a current verified price')
-  ).toBeInTheDocument()
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Use current prices as ceilings' })
+  const close = openPolicy()
+  fireEvent.change(
+    await screen.findByRole('combobox', { name: 'Call group' }),
+    {
+      target: { value: 'standard' },
+    }
   )
-  expect(
-    screen.getByRole('button', { name: 'Save price limits' })
-  ).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(api.put).toHaveBeenCalled())
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+  )
+  expect(close).not.toHaveBeenCalled()
+  expect(screen.getByRole('combobox', { name: 'Call group' })).toHaveValue(
+    'standard'
+  )
 })

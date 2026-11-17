@@ -184,7 +184,8 @@ func GetRetailKeyPricing(c *gin.Context) {
 	c.JSON(200, gin.H{"success": true, "data": gin.H{"policy": policy, "revision": revision}})
 }
 
-// PutRetailKeyPricing saves explicit user consent and CNY ceilings, never accepting a caller-supplied owner ID.
+// PutRetailKeyPricing saves a call group at current site prices, or a legacy explicit policy.
+// The owner comes only from the authenticated session; revisions prevent concurrent group switches from overwriting each other.
 func PutRetailKeyPricing(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -193,14 +194,26 @@ func PutRetailKeyPricing(c *gin.Context) {
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 128<<10)
 	var input struct {
-		ExpectedRevision int64                 `json:"expected_revision"`
-		Policy           retailprice.KeyPolicy `json:"policy"`
+		ExpectedRevision int64                  `json:"expected_revision"`
+		Policy           *retailprice.KeyPolicy `json:"policy"`
+		ProductID        *string                `json:"product_id"`
 	}
 	if c.ShouldBindJSON(&input) != nil {
 		retailPricingManagementError(c, retailprice.ErrConfig)
 		return
 	}
-	if err := model.PutRetailKeyPolicy(c.GetInt("id"), id, input.ExpectedRevision, input.Policy); err != nil {
+	if input.ProductID != nil {
+		if input.Policy != nil {
+			retailPricingManagementError(c, retailprice.ErrConfig)
+			return
+		}
+		input.Policy = &retailprice.KeyPolicy{ProductID: *input.ProductID, GroupCurrent: true}
+	}
+	if input.Policy == nil {
+		retailPricingManagementError(c, retailprice.ErrConfig)
+		return
+	}
+	if err := model.PutRetailKeyPolicy(c.GetInt("id"), id, input.ExpectedRevision, *input.Policy); err != nil {
 		retailPricingManagementError(c, err)
 		return
 	}

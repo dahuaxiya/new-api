@@ -34,8 +34,9 @@ func (input *tokenAutoGroupsInput) UnmarshalJSON(data []byte) error {
 }
 
 type tokenRequest struct {
-	// 创建时可同时提交调用分组和限价；更新限价继续走带版本校验的专用接口。
-	RetailPolicy *retailprice.KeyPolicy `json:"retail_policy"`
+	// 创建时直接提交调用分组；保留旧策略字段兼容已有客户端，二者不能同时提交。
+	RetailPolicy    *retailprice.KeyPolicy `json:"retail_policy"`
+	RetailProductID *string                `json:"retail_product_id"`
 	model.Token
 	AutoGroups tokenAutoGroupsInput `json:"auto_groups"`
 	// 指针区分“未传”和显式 false：新建时未传即开启，更新时未传则保留原值。
@@ -303,12 +304,23 @@ func GetTokenUsage(c *gin.Context) {
 
 // AddToken 创建当前用户的客户端 Key；托管目标须属于本人，多名额禁止隐式选择。
 // 中转分组和限价可与 Key 一次保存；任一校验失败都会回滚，避免留下无策略的密钥。
+// AddToken creates a key for the authenticated owner; retail group selection is saved atomically.
+// Legacy policy clients remain supported, but cannot combine explicit limits with group-only pricing.
 func AddToken(c *gin.Context) {
 	request := tokenRequest{}
 	err := c.ShouldBindJSON(&request)
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	// A group-only request is normalized server-side. No invented budgets,
+	// inflated ceilings or fabricated floating-price consent are stored.
+	if request.RetailProductID != nil {
+		if request.RetailPolicy != nil {
+			retailPricingManagementError(c, retailprice.ErrConfig)
+			return
+		}
+		request.RetailPolicy = &retailprice.KeyPolicy{ProductID: *request.RetailProductID, GroupCurrent: true}
 	}
 	token := request.Token
 	seatID := ""

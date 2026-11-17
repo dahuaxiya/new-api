@@ -123,7 +123,7 @@ func GetRetailKeyPolicy(userID, tokenID int) (retailprice.KeyPolicy, int64, erro
 	if common.UnmarshalJsonStr(row.Payload, &policy) != nil {
 		return policy, 0, retailprice.ErrConfig
 	}
-	if policy.StudioCurrent && token.ServiceMode != TokenServiceStudio {
+	if policy.StudioCurrent && token.ServiceMode != TokenServiceStudio || policy.GroupCurrent && token.ServiceMode != TokenServiceRetail {
 		return policy, 0, retailprice.ErrAccess
 	}
 	return policy, row.Revision, nil
@@ -144,7 +144,7 @@ func PutRetailKeyPolicy(userID, tokenID int, expected int64, policy retailprice.
 }
 
 // InsertRetailTokenWithPolicy atomically creates an ordinary retail key with its validated spending policy.
-// A rejected product, missing consent or database failure rolls back the key as well; callers supply a server-owned token.
+// A rejected product, invalid policy or database failure rolls back the key as well; callers supply a server-owned token.
 func InsertRetailTokenWithPolicy(token *Token, policy retailprice.KeyPolicy) error {
 	if token == nil || token.Id != 0 || token.UserId <= 0 || token.ServiceMode != TokenServiceRetail || policy.StudioCurrent {
 		return retailprice.ErrAccess
@@ -184,7 +184,7 @@ func putRetailKeyPolicy(tx *gorm.DB, userID, tokenID int, expected int64, policy
 	if err := tx.Select("id", "service_mode").First(&token, "id = ? AND user_id = ? AND service_mode IN ?", tokenID, userID, []string{TokenServiceRetail, TokenServiceStudio}).Error; err != nil {
 		return retailprice.ErrAccess
 	}
-	if policy.StudioCurrent && token.ServiceMode != TokenServiceStudio {
+	if policy.StudioCurrent && token.ServiceMode != TokenServiceStudio || policy.GroupCurrent && token.ServiceMode != TokenServiceRetail {
 		return retailprice.ErrAccess
 	}
 	allowedProduct := false
@@ -277,7 +277,8 @@ func RetailCNYQuota(amount decimal.Decimal, walletRate string) (int, decimal.Dec
 	return quota, actual, nil
 }
 
-// ReservePricedRetailCharge atomically revalidates price/permissions, occupies a daily budget and reserves funds.
+// ReservePricedRetailCharge atomically revalidates price/permissions and reserves actual wallet funds.
+// Legacy explicit budgets remain enforced; group-only pricing keeps the settlement ledger without a customer budget.
 func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailprice.Quote) (int, error) {
 	amount, err := retailprice.Amount(quote.ReservedCNY)
 	if err != nil {
@@ -315,6 +316,9 @@ func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailpric
 		if err := tx.Select("id", "status", "expired_time", "service_mode").First(&token, "id = ? AND user_id = ? AND service_mode IN ?", tokenID, userID, []string{TokenServiceRetail, TokenServiceStudio}).Error; err != nil || token.Status != common.TokenStatusEnabled || token.ExpiredTime != -1 && token.ExpiredTime < time.Now().Unix() {
 			return retailprice.ErrAccess
 		}
+		if policy.GroupCurrent && token.ServiceMode != TokenServiceRetail {
+			return retailprice.ErrAccess
+		}
 		if policy.StudioCurrent {
 			if token.ServiceMode != TokenServiceStudio {
 				return retailprice.ErrAccess
@@ -329,9 +333,12 @@ func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailpric
 			return retailprice.ErrAccess
 		}
 		limit, _ := retailprice.Amount(policy.MaxRequestCNY)
-		if amount.GreaterThan(limit) {
+		if !policy.GroupCurrent && amount.GreaterThan(limit) {
 			return retailprice.ErrBudget
 		}
+		// Keep the reservation ledger for settlement/refund idempotency in both modes.
+		// Group pricing has no customer daily cap; applyRetailDelta still locks and
+		// enforces the actual wallet balance and any existing token quota.
 		day := time.Now().UTC().Format("2006-01-02")
 		budgetID := fmt.Sprintf("%d/%s", tokenID, day)
 		budget := RetailPriceBudget{ID: budgetID, Reserved: "0", Spent: "0"}
@@ -350,7 +357,7 @@ func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailpric
 			return err
 		}
 		daily, _ := retailprice.Amount(policy.DailyBudgetCNY)
-		if reserved.Add(spent).Add(amount).GreaterThan(daily) {
+		if !policy.GroupCurrent && reserved.Add(spent).Add(amount).GreaterThan(daily) {
 			return retailprice.ErrBudget
 		}
 		if err := tx.Model(&budget).Update("reserved", reserved.Add(amount).String()).Error; err != nil {

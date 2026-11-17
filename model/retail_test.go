@@ -328,6 +328,25 @@ func TestRetailPricingDatabases(t *testing.T) {
 			var publicCharge RetailCharge
 			require.NoError(t, db.First(&publicCharge, "id = ?", "public-group").Error)
 			require.Equal(t, "0.00036", publicCharge.ActualCNY)
+			// Group-only mode removes user pricing forms, but actual funds remain
+			// atomic: quote, reserve and settle still debit the wallet, and an empty
+			// wallet must fail before a charge or reservation ledger can commit.
+			groupPolicy := retailprice.KeyPolicy{ProductID: policy.ProductID, GroupCurrent: true}
+			require.NoError(t, PutRetailKeyPolicy(user.Id, token.Id, 3, groupPolicy))
+			groupQuote, err := RetailQuote(user.Id, token.Id, "gpt-4o", 20, []int{101})
+			require.NoError(t, err)
+			_, err = ReservePricedRetailCharge("group-current", user.Id, token.Id, groupQuote)
+			require.NoError(t, err)
+			require.NoError(t, ChangeRetailCharge("group-current", user.Id, token.Id, quota, "settled"))
+			var groupCharge RetailCharge
+			require.NoError(t, db.First(&groupCharge, "id = ?", "group-current").Error)
+			require.Equal(t, "0.00036", groupCharge.ActualCNY)
+			require.NoError(t, db.Model(&user).Update("quota", 0).Error)
+			_, err = ReservePricedRetailCharge("group-empty-wallet", user.Id, token.Id, groupQuote)
+			require.Error(t, err)
+			var failedCount int64
+			require.NoError(t, db.Model(&RetailCharge{}).Where("id = ?", "group-empty-wallet").Count(&failedCount).Error)
+			require.Zero(t, failedCount)
 
 		})
 	}

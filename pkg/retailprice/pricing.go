@@ -102,8 +102,11 @@ type Book struct {
 	Rates             []Rate         `json:"rates"`
 }
 
-// KeyPolicy bounds floating prices with monetary budgets and optional per-model ceilings.
+// KeyPolicy selects a call group; legacy explicit limits remain readable for existing clients.
 type KeyPolicy struct {
+	// GroupCurrent uses the site's current group prices with no customer-entered
+	// price ceilings or budgets. Wallet and token quota enforcement remain mandatory.
+	GroupCurrent bool `json:"group_current,omitempty"`
 	// StudioCurrent is restricted to session-only studio identities by the model layer.
 	// It follows current prices while retaining positive per-request and daily budgets.
 	StudioCurrent  bool              `json:"studio_current,omitempty"`
@@ -235,8 +238,15 @@ func (b Book) Validate(now int64) error {
 	return nil
 }
 
-// Validate requires positive budgets; ordinary API keys also need explicit per-model ceilings.
+// Validate separates simple current-group pricing from legacy explicit spending policies.
+// Mixed modes are rejected rather than silently ignoring a caller-supplied limit.
 func (p KeyPolicy) Validate() error {
+	if p.GroupCurrent {
+		if !idPattern.MatchString(p.ProductID) || p.StudioCurrent || p.AcceptFloating || len(p.Caps) != 0 || p.MaxRequestCNY != "" || p.DailyBudgetCNY != "" {
+			return ErrConfig
+		}
+		return nil
+	}
 	if !idPattern.MatchString(p.ProductID) || !p.AcceptFloating || (!p.StudioCurrent && len(p.Caps) == 0) || len(p.Caps) > 500 {
 		return ErrConfig
 	}
@@ -318,7 +328,7 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		outputLimit = official.MaxOutput
 	}
 	cap, ok := key.Caps[modelName]
-	if !ok && !key.StudioCurrent {
+	if !ok && !key.StudioCurrent && !key.GroupCurrent {
 		return nil, ErrAccess
 	}
 	if outputLimit <= 0 || outputLimit > official.MaxOutput {
@@ -373,7 +383,7 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 			base, _ := Amount(raw)
 			price := base.Mul(cheapest).RoundCeil(8)
 			limit, _ := Amount(cap.Values()[i])
-			if !key.StudioCurrent && price.GreaterThan(limit) {
+			if !key.StudioCurrent && !key.GroupCurrent && price.GreaterThan(limit) {
 				return nil, ErrCap
 			}
 			values[i] = price.String()
@@ -390,7 +400,7 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 	inputBound := int64(official.Tiers[len(official.Tiers)-1].UpTo)
 	reserve := maxInput.Mul(decimal.NewFromInt(inputBound * 4)).Add(maxOutput.Mul(decimal.NewFromInt(int64(outputLimit)))).Div(decimal.NewFromInt(1000000)).RoundCeil(8)
 	limit, _ := Amount(key.MaxRequestCNY)
-	if reserve.GreaterThan(limit) {
+	if !key.GroupCurrent && reserve.GreaterThan(limit) {
 		if !key.StudioCurrent || !maxInput.IsPositive() {
 			return nil, ErrBudget
 		}
