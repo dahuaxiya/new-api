@@ -744,6 +744,28 @@ func TestRetailPricingManagement(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, proposalVersion, afterVersion)
 	require.Equal(t, beforeProposal, afterProposal)
+	// Public call groups are shared catalog choices. Account membership remains
+	// independent, while private plans and key ownership keep their restrictions.
+	w = request("PUT", "/api/retail/admin/pricing", "https://example.com", gin.H{"expected_version": proposalVersion, "book": proposal.Data.Book})
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	require.NoError(t, model.DB.Model(user).Update("group", "another").Error)
+	require.NoError(t, model.PublishUserAuthCache(user.Id))
+	w = request("GET", "/api/retail/catalog", "https://example.com", nil)
+	require.Contains(t, w.Body.String(), `"id":"gpt-6.1-sol"`, w.Body.String())
+	require.NotContains(t, w.Body.String(), `"id":"standard"`)
+	for _, privateField := range []string{"binding_group", "upstream_group", "channel_id", "user_groups"} {
+		require.NotContains(t, w.Body.String(), privateField)
+	}
+	publicProduct := proposal.Data.Book.Products[len(proposal.Data.Book.Products)-1]
+	publicPolicy := retailprice.KeyPolicy{ProductID: publicProduct.ID, AcceptFloating: true, Caps: map[string]retailprice.Prices{"gpt-6.1-sol": cap}, MaxRequestCNY: "10", DailyBudgetCNY: "10"}
+	require.NoError(t, model.DB.Model(&token).Update("user_id", user.Id+1).Error)
+	w = request("PUT", keyPath, "https://example.com", gin.H{"expected_revision": 1, "policy": publicPolicy})
+	require.Contains(t, w.Body.String(), `"success":false`, "public access never bypasses key ownership")
+	require.NoError(t, model.DB.Model(&token).Update("user_id", user.Id).Error)
+	w = request("PUT", keyPath, "https://example.com", gin.H{"expected_revision": 1, "policy": publicPolicy})
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	w = request("PUT", keyPath, "https://example.com", gin.H{"expected_revision": 2, "policy": policy})
+	require.Contains(t, w.Body.String(), `"success":false`, "private plan remains unavailable")
 	require.NoError(t, model.DB.Model(user).Update("status", common.UserStatusDisabled).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
 	w = request("GET", "/api/retail/admin/pricing", "https://example.com", nil)

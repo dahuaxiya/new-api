@@ -8239,6 +8239,13 @@
     "Skipped {{count}} model entries": "Skipped {{count}} model entries",
     "Supply is disabled or missing credentials": "Supply is disabled or missing credentials",
     "Official price is unverified or expired": "Official price is unverified or expired",
-    "Existing product access differs from this binding": "Existing product access differs from this binding"
+    "Existing product access differs from this binding": "Existing product access differs from this binding",
+    "Call group": "Nhóm gọi",
+    "Call groups": "Nhóm gọi",
+    "Select a call group": "Chọn nhóm gọi",
+    "No call groups are available yet. Contact the site administrator.": "Chưa có nhóm gọi khả dụng. Hãy liên hệ quản trị viên.",
+    "Select a call group, then set its budget and price limits.": "Chọn nhóm gọi, rồi đặt ngân sách và giới hạn giá.",
+    "Public call groups can be selected by every registered user. No account group change is needed.": "Mọi người dùng đã đăng ký đều có thể chọn nhóm công khai mà không đổi nhóm tài khoản.",
+    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "Chọn nhóm thượng nguồn, nhập Key và mô hình, đặt tên nhóm gọi cho người dùng rồi lưu cùng biên lợi nhuận."
   }
 }

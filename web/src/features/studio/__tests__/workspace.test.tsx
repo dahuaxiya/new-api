@@ -23,6 +23,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -51,6 +52,7 @@ function mount(
     noPlan?: boolean
     noRoute?: boolean
     root?: boolean
+    secondGroup?: boolean
   } = {}
 ) {
   useAuthStore.getState().auth.setUser({
@@ -87,6 +89,22 @@ function mount(
                       },
                     ],
               },
+              ...(options.secondGroup
+                ? [
+                    {
+                      id: 'premium',
+                      name: 'Premium',
+                      models: [
+                        {
+                          id: 'premium-text',
+                          kind: 'text',
+                          tiers: [{ up_to: 1000, prices: price }],
+                          max_output: 4096,
+                        },
+                      ],
+                    },
+                  ]
+                : []),
             ],
       }
     }
@@ -128,7 +146,7 @@ it('keeps sending disabled until a price policy exists and does not create ident
   expect(await screen.findByRole('button', { name: 'Send' })).toBeDisabled()
   expect(
     screen.getByText(
-      'Set your budget and price limits before the first request.'
+      'Select a call group, then set its budget and price limits.'
     )
   ).toBeVisible()
   expect(post).not.toHaveBeenCalled()
@@ -138,7 +156,7 @@ it.each([
   [{ paused: true }, 'Model requests are paused by the site administrator.'],
   [
     { noPlan: true },
-    'No model plan is assigned to your account group. Contact the site administrator.',
+    'No call groups are available yet. Contact the site administrator.',
   ],
   [
     { noRoute: true },
@@ -225,5 +243,87 @@ it('rejects URL-only and non-PNG upstream output instead of embedding arbitrary 
   expect(() => imageDataURL({ data: [{ b64_json: 'PHN2Zz4=' }] })).toThrow()
   expect(imageDataURL({ data: { b64_json: png } })).toBe(
     `data:image/png;base64,${png}`
+  )
+})
+
+/** Changing a public group requires new consent and never reuses the previous model. */
+it('allows browsing another call group but blocks sending until its own policy is saved', async () => {
+  const post = vi.spyOn(api, 'post')
+  mount(true, { secondGroup: true })
+  fireEvent.change(await screen.findByLabelText('Model'), {
+    target: { value: 'text-model' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Hello' },
+  })
+  expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
+  fireEvent.change(screen.getByLabelText('Call group'), {
+    target: { value: 'premium' },
+  })
+  expect(screen.getByLabelText('Model')).toHaveValue('')
+  expect(screen.queryByRole('option', { name: 'text-model' })).toBeNull()
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'premium-text' },
+  })
+  expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+  expect(post).not.toHaveBeenCalled()
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Budget and price limits' })
+  )
+  expect(
+    await screen.findByRole('switch', {
+      name: 'Accept automatic price changes within these limits',
+    })
+  ).not.toBeChecked()
+  expect(screen.getByLabelText('Input')).toHaveValue('')
+  expect(screen.getByLabelText('Maximum request charge (CNY)')).toHaveValue('1')
+})
+
+/** The workspace follows the committed group, including changes made inside the policy dialog. */
+it('updates the visible group only after saving and leaves browsing selection unchanged on cancel', async () => {
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  mount(true, { secondGroup: true })
+  fireEvent.change(await screen.findByLabelText('Call group'), {
+    target: { value: 'premium' },
+  })
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Budget and price limits' })
+  )
+  let dialog = await screen.findByRole('dialog')
+  await within(dialog).findByLabelText('Call group')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(screen.getByLabelText('Call group')).toHaveValue('premium')
+  expect(put).not.toHaveBeenCalled()
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Budget and price limits' })
+  )
+  dialog = await screen.findByRole('dialog')
+  fireEvent.change(await within(dialog).findByLabelText('Call group'), {
+    target: { value: 'standard' },
+  })
+  fireEvent.click(
+    within(dialog).getByRole('button', {
+      name: 'Use current prices as ceilings',
+    })
+  )
+  fireEvent.click(
+    within(dialog).getByRole('switch', {
+      name: 'Accept automatic price changes within these limits',
+    })
+  )
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Save price limits' })
+  )
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(screen.getByLabelText('Call group')).toHaveValue('standard')
+  expect(screen.getByLabelText('Model')).toHaveValue('')
+  expect(put).toHaveBeenCalledWith(
+    '/api/retail/keys/9/pricing',
+    expect.objectContaining({
+      policy: expect.objectContaining({ product_id: 'standard' }),
+    })
   )
 })

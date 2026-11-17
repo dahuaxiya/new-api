@@ -74,6 +74,8 @@ export type RetailPriceBook = {
   products: Array<{
     id: string
     name: string
+    public?: boolean
+    binding_group?: string
     user_groups: string[]
     routes: Array<{
       channel_id: number

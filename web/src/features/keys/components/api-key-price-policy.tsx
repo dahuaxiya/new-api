@@ -47,6 +47,8 @@ export function ApiKeyPricePolicy(props: {
   open: boolean
   tokenId: number
   title?: string
+  initialProductId?: string
+  onSaved?: (productId: string) => void
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
@@ -83,11 +85,13 @@ export function ApiKeyPricePolicy(props: {
       )}
       {query.data && !query.isError && (
         <PricePolicyEditor
-          key={`${identity}:${props.tokenId}:${query.data.saved.revision}`}
+          key={`${identity}:${props.tokenId}:${query.data.saved.revision}:${props.initialProductId ?? ''}`}
           tokenId={props.tokenId}
+          initialProductId={props.initialProductId}
           catalog={query.data.catalog}
           saved={query.data.saved}
-          onSaved={() => {
+          onSaved={(productId) => {
+            props.onSaved?.(productId)
             void query.refetch()
             props.onOpenChange(false)
           }}
@@ -100,9 +104,10 @@ export function ApiKeyPricePolicy(props: {
 /** A user must explicitly accept floating pricing; choosing a product alone never grants unlimited spending. */
 function PricePolicyEditor(props: {
   tokenId: number
+  initialProductId?: string
   catalog: RetailCatalog
   saved: { revision: number; policy: RetailKeyPolicy }
-  onSaved: () => void
+  onSaved: (productId: string) => void
 }) {
   const { t } = useTranslation()
   const form = useForm<RetailKeyPolicy>({
@@ -112,6 +117,16 @@ function PricePolicyEditor(props: {
       caps: props.saved.policy.caps ?? {},
       max_request_cny: props.saved.policy.max_request_cny || '',
       daily_budget_cny: props.saved.policy.daily_budget_cny || '',
+      // Selecting another call group is only a draft. Reuse budget values, but
+      // require fresh ceilings and consent before it can replace the saved policy.
+      ...(props.initialProductId &&
+      props.initialProductId !== props.saved.policy.product_id
+        ? {
+            product_id: props.initialProductId,
+            caps: {},
+            accept_floating: false,
+          }
+        : {}),
     },
   })
   const policy = form.watch()
@@ -121,11 +136,11 @@ function PricePolicyEditor(props: {
     (item) => item.id === policy.product_id
   )
   const mutation = useMutation({
-    mutationFn: () =>
-      putRetailKeyPolicy(props.tokenId, props.saved.revision, policy),
-    onSuccess: () => {
+    mutationFn: (submitted: RetailKeyPolicy) =>
+      putRetailKeyPolicy(props.tokenId, props.saved.revision, submitted),
+    onSuccess: (_, submitted) => {
       toast.success(t('Saved successfully'))
-      props.onSaved()
+      props.onSaved(submitted.product_id)
     },
     onError: (error) => handleServerError(error),
   })
@@ -139,7 +154,7 @@ function PricePolicyEditor(props: {
   return (
     <form
       className='space-y-5 p-1'
-      onSubmit={form.handleSubmit(() => mutation.mutate())}
+      onSubmit={form.handleSubmit((submitted) => mutation.mutate(submitted))}
     >
       {!props.catalog.enabled && (
         <p className='text-muted-foreground text-sm'>
@@ -147,7 +162,7 @@ function PricePolicyEditor(props: {
         </p>
       )}
       <div className='space-y-2'>
-        <Label htmlFor='key-price-product'>{t('Sales product')}</Label>
+        <Label htmlFor='key-price-product'>{t('Call group')}</Label>
         <NativeSelect
           id='key-price-product'
           value={policy.product_id || ''}
@@ -161,7 +176,7 @@ function PricePolicyEditor(props: {
           }
         >
           <NativeSelectOption value=''>
-            {t('Select a product')}
+            {t('Select a call group')}
           </NativeSelectOption>
           {props.catalog.products.map((item) => (
             <NativeSelectOption value={item.id} key={item.id}>

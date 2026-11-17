@@ -2,7 +2,6 @@ package controller
 
 import (
 	"net/http"
-	"slices"
 	"strconv"
 	"time"
 
@@ -142,7 +141,12 @@ func PreviewRetailPricing(c *gin.Context) {
 		for _, official := range input.Book.Models {
 			ceiling := retailprice.Prices{Input: "99999999", Output: "99999999", CacheRead: "99999999", CacheWrite: "99999999", CacheWrite1h: "99999999"}
 			policy := retailprice.KeyPolicy{ProductID: product.ID, AcceptFloating: true, Caps: map[string]retailprice.Prices{official.ID: ceiling}, MaxRequestCNY: "99999999", DailyBudgetCNY: "99999999"}
-			quote, err := input.Book.MakeQuote(0, product.UserGroups[0], policy, official.ID, 1, ids, time.Now().Unix())
+			// Public products need no account allowlist; validation pins their cost binding explicitly.
+			group := product.BindingGroup
+			if !product.Public {
+				group = product.UserGroups[0]
+			}
+			quote, err := input.Book.MakeQuote(0, group, policy, official.ID, 1, ids, time.Now().Unix())
 			if err != nil {
 				rows = append(rows, gin.H{"product": product.Name, "model": official.ID, "available": false})
 				continue
@@ -231,7 +235,7 @@ func GetRetailCatalog(c *gin.Context) {
 		return
 	}
 	for _, p := range book.Products {
-		if !slices.Contains(p.UserGroups, user.Group) {
+		if !p.AllowsGroup(user.Group) {
 			continue
 		}
 		models := []gin.H{}

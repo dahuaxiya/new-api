@@ -8269,6 +8269,13 @@
     "Skipped {{count}} model entries": "Skipped {{count}} model entries",
     "Supply is disabled or missing credentials": "Supply is disabled or missing credentials",
     "Official price is unverified or expired": "Official price is unverified or expired",
-    "Existing product access differs from this binding": "Existing product access differs from this binding"
+    "Existing product access differs from this binding": "Existing product access differs from this binding",
+    "Call group": "呼叫分組",
+    "Call groups": "呼叫分組",
+    "Select a call group": "選擇呼叫分組",
+    "No call groups are available yet. Contact the site administrator.": "暫時沒有可用的呼叫分組，請聯絡管理員。",
+    "Select a call group, then set its budget and price limits.": "先選擇呼叫分組，再設定預算和價格上限。",
+    "Public call groups can be selected by every registered user. No account group change is needed.": "所有註冊使用者都可以選擇公開呼叫分組，無需修改帳號所屬組。",
+    "Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.": "選擇上游分組，填寫對應 Key 和模型，再設定使用者可選的呼叫分組名稱；在這裡一併儲存毛利。"
   }
 }

@@ -219,6 +219,8 @@ function RetailPricingEditor(props: {
         groups: [
           ...new Set(parsedProducts.flatMap((item) => item?.user_groups ?? [])),
         ],
+        hasPublic: parsedProducts.some((item) => item?.public),
+        callGroups: parsedProducts.map((item) => item.name),
       }
     } catch {
       return null
@@ -357,10 +359,17 @@ function RetailPricingEditor(props: {
           })}
         </p>
         <p className='text-muted-foreground text-sm'>
-          {t('Authorized account groups')}:{' '}
-          {catalog?.groups.join(', ') || t('None')}
+          {t('Call groups')}: {catalog?.callGroups.join(', ') || t('None')}
         </p>
+        {catalog?.hasPublic && (
+          <p className='text-muted-foreground text-sm'>
+            {t(
+              'Public call groups can be selected by every registered user. No account group change is needed.'
+            )}
+          </p>
+        )}
         {props.state.account_group &&
+          !catalog?.hasPublic &&
           !catalog?.groups.includes(props.state.account_group) && (
             <p className='text-sm text-amber-700 dark:text-amber-400'>
               {t(
