@@ -87,6 +87,26 @@ export type RetailPricingState = {
   version: number
   server_time: number
   book: RetailPriceBook
+  account_group?: string
+}
+
+export type RetailOfficialDraft = {
+  version: number
+  book: RetailPriceBook
+  excluded: Array<{ channel_id: number; model: string; reason: string }>
+}
+
+/** Generate an unpublished proposal from saved bindings; stale versions and unapproved supplies are rejected. */
+export async function generateRetailOfficialDraft(
+  version: number
+): Promise<RetailOfficialDraft> {
+  return requireServerSuccess(
+    (
+      await api.post('/api/retail/admin/pricing/official-draft', {
+        expected_version: version,
+      })
+    ).data
+  ).data
 }
 
 export type RetailGroupBinding = {

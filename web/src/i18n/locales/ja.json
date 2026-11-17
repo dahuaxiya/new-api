@@ -8223,6 +8223,22 @@
     "Save supply credentials, model permissions, group bindings and margin together. Existing Keys stay unchanged when blank. This does not enable sales.": "キー、モデル権限、グループ紐付け、利益率を一括保存します。空欄の既存キーは保持し、販売は有効化しません。",
     "Sign in with another account": "別のアカウントでログイン",
     "Switching signs out the current unified account. Then enter the other account and password.": "現在の統合アカウントからログアウトした後、別のアカウントとパスワードを入力できます。",
-    "Enter your account and password on the unified sign-in page. Already signed in? Choose “Sign in with another account” there.": "アカウントとパスワードは統合ログイン画面で入力します。ログイン済みの場合は「別のアカウントでログイン」を選択してください。"
+    "Enter your account and password on the unified sign-in page. Already signed in? Choose “Sign in with another account” there.": "アカウントとパスワードは統合ログイン画面で入力します。ログイン済みの場合は「別のアカウントでログイン」を選択してください。",
+    "Cannot publish an empty price book. Generate official prices and routes first.": "Cannot publish an empty price book. Generate official prices and routes first.",
+    "Price book published for new requests": "Price book published for new requests",
+    "Price book saved; model requests remain paused": "Price book saved; model requests remain paused",
+    "Model catalog setup": "Model catalog setup",
+    "Generate official prices and routes": "Generate official prices and routes",
+    "Uses saved supply bindings and verified official model IDs. Existing prices are preserved. No file upload is needed.": "Uses saved supply bindings and verified official model IDs. Existing prices are preserved. No file upload is needed.",
+    "{{models}} models · {{products}} plans": "{{models}} models · {{products}} plans",
+    "Authorized account groups": "Authorized account groups",
+    "Your account is in {{group}} and has no plan in this draft. Assign an account to an authorized group in User management, or change the saved supply binding.": "Your account is in {{group}} and has no plan in this draft. Assign an account to an authorized group in User management, or change the saved supply binding.",
+    "Model requests remain paused. Enable new priced requests and preview before publishing.": "Model requests remain paused. Enable new priced requests and preview before publishing.",
+    "Refresh saved pricing before generating another proposal. Unsaved edits are kept until you refresh.": "Refresh saved pricing before generating another proposal. Unsaved edits are kept until you refresh.",
+    "Proposal generated locally. Preview the selling prices, then publish to apply it.": "Proposal generated locally. Preview the selling prices, then publish to apply it.",
+    "Skipped {{count}} model entries": "Skipped {{count}} model entries",
+    "Supply is disabled or missing credentials": "Supply is disabled or missing credentials",
+    "Official price is unverified or expired": "Official price is unverified or expired",
+    "Existing product access differs from this binding": "Existing product access differs from this binding"
   }
 }

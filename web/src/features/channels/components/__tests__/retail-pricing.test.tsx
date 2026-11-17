@@ -44,6 +44,15 @@ const book = {
   rates: [],
 }
 
+const readyBook = {
+  ...book,
+  models: [{ id: 'gpt-6.1-sol' }],
+  products: [
+    { id: 'normal', name: 'Normal', user_groups: ['default'], routes: [] },
+  ],
+}
+const priceRows = [{ product: 'Normal', model: 'gpt-6.1-sol', available: true }]
+
 /** Mount the production drawer with only the HTTP boundary replaced. */
 function openPricing() {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'root', role: 100 })
@@ -66,13 +75,29 @@ afterEach(() => {
   useAuthStore.getState().auth.reset()
 })
 
-it('invalidates the preview after a multiplier edit and requires confirmation to publish', async () => {
+/** 空草稿可以预览，但不能再被描述为可用价表发布。 */
+it('keeps empty draft publication blocked after a successful empty preview', async () => {
   vi.spyOn(api, 'get').mockResolvedValue({
     data: { success: true, data: { version: 4, book } },
   })
+  vi.spyOn(api, 'post').mockResolvedValue({ data: { success: true, data: [] } })
+  openPricing()
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Preview CNY selling prices' })
+  )
+  await screen.findByText('No products configured')
+  expect(
+    screen.getByRole('button', { name: 'Publish price book' })
+  ).toBeDisabled()
+})
+
+it('invalidates the preview after a multiplier edit and requires confirmation to publish', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: { success: true, data: { version: 4, book: readyBook } },
+  })
   const post = vi
     .spyOn(api, 'post')
-    .mockResolvedValue({ data: { success: true, data: [] } })
+    .mockResolvedValue({ data: { success: true, data: priceRows } })
   const put = vi.spyOn(api, 'put').mockResolvedValue({
     data: {
       success: false,
@@ -122,7 +147,7 @@ it('invalidates the preview after a multiplier edit and requires confirmation to
   )
   // A stale publication must be recoverable without closing the whole page.
   vi.mocked(api.get).mockResolvedValue({
-    data: { success: true, data: { version: 5, book } },
+    data: { success: true, data: { version: 5, book: readyBook } },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
@@ -176,10 +201,12 @@ it('blocks an existing catalog draft after saving following margin', async () =>
               buffer_bps: 0,
             },
           }
-        : { version: 4, book },
+        : { version: 4, book: readyBook },
     },
   }))
-  vi.spyOn(api, 'post').mockResolvedValue({ data: { success: true, data: [] } })
+  vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: priceRows },
+  })
   vi.spyOn(api, 'put').mockResolvedValue({
     data: { success: true, data: { version: 5 } },
   })
@@ -322,4 +349,66 @@ it('keeps manual multiplier imports collapsed and explains that following needs 
       'Only for suppliers without automatic following. Bound Xingxing channels do not need this file or JSON.'
     )
   ).toBeVisible()
+})
+
+/** Generating a proposal must not publish or consent to spending. */
+it('generates a local official catalog and explains account-group mismatches before publication', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: { version: 4, book, account_group: 'default' },
+    },
+  })
+  const proposal = {
+    ...readyBook,
+    products: [
+      { id: 'normal', name: 'Normal', user_groups: ['gpt-normal'], routes: [] },
+    ],
+  }
+  const post = vi
+    .spyOn(api, 'post')
+    .mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          version: 4,
+          book: proposal,
+          excluded: [
+            {
+              channel_id: 1,
+              model: 'unknown-alias',
+              reason: 'official_price_missing_or_expired',
+            },
+          ],
+        },
+      },
+    })
+  const put = vi.spyOn(api, 'put')
+  openPricing()
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: 'Generate official prices and routes',
+    })
+  )
+  await screen.findByText('1 models · 1 plans')
+  expect(screen.getByText(/Your account is in default/)).toBeInTheDocument()
+  expect(screen.getByLabelText('Official model catalog (JSON)')).toHaveValue(
+    JSON.stringify(proposal.models, null, 2)
+  )
+  expect(
+    screen.getByRole('switch', { name: 'Accept new priced requests' })
+  ).not.toBeChecked()
+  expect(
+    screen.getByRole('button', { name: 'Publish price book' })
+  ).toBeDisabled()
+  expect(
+    screen.getByRole('button', { name: 'Generate official prices and routes' })
+  ).toBeDisabled()
+  fireEvent.click(screen.getByText('Skipped 1 model entries'))
+  expect(screen.getByText(/unknown-alias/)).toBeVisible()
+  expect(post).toHaveBeenCalledWith(
+    '/api/retail/admin/pricing/official-draft',
+    { expected_version: 4 }
+  )
+  expect(put).not.toHaveBeenCalled()
 })

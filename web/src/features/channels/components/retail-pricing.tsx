@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -48,6 +48,7 @@ import { handleServerError } from '@/lib/handle-server-error'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  generateRetailOfficialDraft,
   getRetailPricing,
   importRetailRates,
   previewRetailPricing,
@@ -56,6 +57,7 @@ import {
   type RetailPriceBook,
   type RetailPricePreview,
   type RetailPricingState,
+  type RetailOfficialDraft,
 } from '../retail-pricing-api'
 import { RetailGroupBindings } from './retail-group-bindings'
 import { RetailPublicRatesPreview } from './retail-public-rates-preview'
@@ -196,6 +198,7 @@ function RetailPricingEditor(props: {
     rows: RetailPricePreview[]
   } | null>(null)
   const [confirm, setConfirm] = useState<'book' | 'rates' | null>(null)
+  const [generated, setGenerated] = useState<RetailOfficialDraft | null>(null)
   const draft = JSON.stringify({ book, models, products, rates })
   const [initialDraft] = useState(draft)
   const onDirtyChange = props.onDirtyChange
@@ -203,8 +206,50 @@ function RetailPricingEditor(props: {
     onDirtyChange(draft !== initialDraft)
   }, [draft, initialDraft, onDirtyChange])
   const previewValid = !props.staleDraft && preview?.draft === draft
+  const catalog = useMemo(() => {
+    try {
+      const parsedModels: RetailPriceBook['models'] = JSON.parse(models)
+      const parsedProducts: RetailPriceBook['products'] = JSON.parse(products)
+      if (!Array.isArray(parsedModels) || !Array.isArray(parsedProducts)) {
+        return null
+      }
+      return {
+        models: parsedModels.length,
+        products: parsedProducts.length,
+        groups: [
+          ...new Set(parsedProducts.flatMap((item) => item?.user_groups ?? [])),
+        ],
+      }
+    } catch {
+      return null
+    }
+  }, [models, products])
+  // A successful empty preview is a setup draft, not a publishable price book.
+  // Pausing an existing book is still allowed when all current routes have expired.
+  const canPublish = Boolean(
+    previewValid &&
+    catalog?.models &&
+    catalog.products &&
+    (!book.enabled || preview?.rows.some((row) => row.available))
+  )
   const mutation = useMutation({
-    mutationFn: async (action: 'preview' | 'book' | 'rates') => {
+    mutationFn: async (action: 'generate' | 'preview' | 'book' | 'rates') => {
+      if (action === 'generate') {
+        const proposal = await generateRetailOfficialDraft(props.state.version)
+        // Only the model catalog and routes enter the local draft. Generation
+        // cannot change the sales switch, economics or consent on the server.
+        form.setValue(
+          'models',
+          JSON.stringify(proposal.book.models ?? [], null, 2)
+        )
+        form.setValue(
+          'products',
+          JSON.stringify(proposal.book.products ?? [], null, 2)
+        )
+        setGenerated(proposal)
+        setPreview(null)
+        return
+      }
       // A parse failure stays in this form; it cannot turn an incomplete import into a successful publication.
       const next: RetailPriceBook = {
         ...book,
@@ -222,10 +267,23 @@ function RetailPricingEditor(props: {
       if (action === 'rates') {
         await importRetailRates(props.state.version, next.rates)
       } else {
+        if (!canPublish) {
+          throw new Error(
+            t(
+              'Cannot publish an empty price book. Generate official prices and routes first.'
+            )
+          )
+        }
         await publishRetailPricing(props.state.version, next)
       }
       setConfirm(null)
-      toast.success(t('Saved successfully'))
+      toast.success(
+        t(
+          next.enabled
+            ? 'Price book published for new requests'
+            : 'Price book saved; model requests remain paused'
+        )
+      )
       props.onSaved()
     },
     onError: (error) => handleServerError(error),
@@ -271,6 +329,94 @@ function RetailPricingEditor(props: {
           'Resale margin and fees are saved in the following section above and apply to all retail products.'
         )}
       </p>
+      <section
+        className='space-y-3 rounded-xl border p-4'
+        aria-label={t('Model catalog setup')}
+      >
+        <div className='flex flex-wrap items-center justify-between gap-3'>
+          <h3 className='text-sm font-medium'>{t('Model catalog setup')}</h3>
+          <Button
+            variant='outline'
+            disabled={
+              mutation.isPending || props.staleDraft || draft !== initialDraft
+            }
+            onClick={() => mutation.mutate('generate')}
+          >
+            {t('Generate official prices and routes')}
+          </Button>
+        </div>
+        <p className='text-muted-foreground text-sm'>
+          {t(
+            'Uses saved supply bindings and verified official model IDs. Existing prices are preserved. No file upload is needed.'
+          )}
+        </p>
+        <p className='text-sm' aria-live='polite'>
+          {t('{{models}} models · {{products}} plans', {
+            models: catalog?.models ?? 0,
+            products: catalog?.products ?? 0,
+          })}
+        </p>
+        <p className='text-muted-foreground text-sm'>
+          {t('Authorized account groups')}:{' '}
+          {catalog?.groups.join(', ') || t('None')}
+        </p>
+        {props.state.account_group &&
+          !catalog?.groups.includes(props.state.account_group) && (
+            <p className='text-sm text-amber-700 dark:text-amber-400'>
+              {t(
+                'Your account is in {{group}} and has no plan in this draft. Assign an account to an authorized group in User management, or change the saved supply binding.',
+                { group: props.state.account_group }
+              )}
+            </p>
+          )}
+        {!book.enabled && (
+          <p className='text-muted-foreground text-sm'>
+            {t(
+              'Model requests remain paused. Enable new priced requests and preview before publishing.'
+            )}
+          </p>
+        )}
+        {draft !== initialDraft && (
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Refresh saved pricing before generating another proposal. Unsaved edits are kept until you refresh.'
+            )}
+          </p>
+        )}
+        {generated && (
+          <div className='space-y-2' aria-live='polite'>
+            <p className='text-sm'>
+              {t(
+                'Proposal generated locally. Preview the selling prices, then publish to apply it.'
+              )}
+            </p>
+            {generated.excluded.length > 0 && (
+              <details>
+                <summary className='cursor-pointer text-sm'>
+                  {t('Skipped {{count}} model entries', {
+                    count: generated.excluded.length,
+                  })}
+                </summary>
+                <ul className='text-muted-foreground mt-2 space-y-1 text-xs'>
+                  {generated.excluded.map((item) => (
+                    <li key={`${item.channel_id}:${item.model}:${item.reason}`}>
+                      #{item.channel_id} · {item.model || t('Supply channel')} ·{' '}
+                      {item.reason === 'product_access_conflict' &&
+                        t('Existing product access differs from this binding')}
+                      {item.reason !== 'product_access_conflict' &&
+                        t(
+                          item.reason === 'supply_unavailable'
+                            ? 'Supply is disabled or missing credentials'
+                            : 'Official price is unverified or expired'
+                        )}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+      </section>
       <details className='space-y-3'>
         <summary className='cursor-pointer text-sm font-medium'>
           {t('Manual multipliers · other suppliers')}
@@ -368,7 +514,7 @@ function RetailPricingEditor(props: {
           {t('Preview CNY selling prices')}
         </Button>
         <Button
-          disabled={mutation.isPending || !previewValid}
+          disabled={mutation.isPending || !canPublish}
           onClick={() => setConfirm('book')}
         >
           {t('Publish price book')}
@@ -458,7 +604,7 @@ function RetailPricingEditor(props: {
         )}
         confirmText={t('Publish')}
         isLoading={mutation.isPending}
-        disabled={!previewValid}
+        disabled={confirm === 'book' ? !canPublish : !previewValid}
         handleConfirm={() => confirm && mutation.mutate(confirm)}
       />
     </>

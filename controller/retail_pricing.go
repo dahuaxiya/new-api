@@ -13,14 +13,53 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetRetailPricingAdmin returns the current immutable book to the root management boundary.
+// GetRetailPricingAdmin returns the current book and the operator's actual account group.
+// Group information explains access mismatches without changing any account permissions.
 func GetRetailPricingAdmin(c *gin.Context) {
 	book, version, err := model.GetRetailPriceBook()
 	if err != nil {
 		common.ApiError(c, common.NewMessage("Unable to load retail pricing"))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"book": book, "version": version, "server_time": time.Now().Unix()}})
+	var user model.User
+	if err := model.DB.Select("group").First(&user, c.GetInt("id")).Error; err != nil {
+		retailPricingManagementError(c, retailprice.ErrAccess)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"book": book, "version": version, "server_time": time.Now().Unix(), "account_group": user.Group}})
+}
+
+// GenerateRetailOfficialDraft builds a version-bound proposal from enrolled supplies and saved bindings.
+// It cannot edit the database, fetch arbitrary URLs, expose credentials or consent to spending.
+func GenerateRetailOfficialDraft(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
+	var input struct {
+		ExpectedVersion int64 `json:"expected_version"`
+	}
+	if c.ShouldBindJSON(&input) != nil {
+		retailPricingManagementError(c, retailprice.ErrConfig)
+		return
+	}
+	book, version, err := model.GetRetailPriceBook()
+	if err != nil {
+		retailPricingManagementError(c, err)
+		return
+	}
+	if version != input.ExpectedVersion {
+		retailPricingManagementError(c, model.ErrRetailPriceConflict)
+		return
+	}
+	channels, err := model.RetailBindingChannels()
+	if err != nil {
+		retailPricingManagementError(c, err)
+		return
+	}
+	supplies := make([]retailprice.CatalogSupply, 0, len(channels))
+	for _, channel := range channels {
+		supplies = append(supplies, retailprice.CatalogSupply{ID: channel.ID, Models: channel.Models, Available: channel.HasKey && channel.Status == common.ChannelStatusEnabled})
+	}
+	draft := retailprice.GenerateOfficialDraft(book, supplies, time.Now().Unix())
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"version": version, "book": draft.Book, "excluded": draft.Excluded}})
 }
 
 // PutRetailPricingAdmin publishes a complete reviewed book with optimistic concurrency protection.
@@ -32,6 +71,12 @@ func PutRetailPricingAdmin(c *gin.Context) {
 	}
 	if c.ShouldBindJSON(&input) != nil {
 		common.ApiError(c, common.NewMessage("Retail pricing configuration is invalid"))
+		return
+	}
+	// Empty disabled state remains valid for saving bindings during initial setup,
+	// but the publish endpoint must not present it as a usable catalog release.
+	if len(input.Book.Models) == 0 || len(input.Book.Products) == 0 {
+		common.ApiError(c, common.NewMessage("Cannot publish an empty price book. Generate official prices and routes first."))
 		return
 	}
 	version, err := model.PublishRetailPriceBook(input.ExpectedVersion, input.Book, nil, c.GetInt("id"))
