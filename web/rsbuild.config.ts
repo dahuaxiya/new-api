@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -89,6 +90,32 @@ export default defineConfig(({ envMode }) => {
     },
     tools: {
       rspack: {
+        module: {
+          rules: [
+            {
+              test: /[\\/]i18n[\\/]locales[\\/](?:fr|ja|ru|vi|zh|zh-TW)\.json$/,
+              type: 'json',
+              parser: {
+                /** Fill absent translation keys at build time to avoid a second locale request at startup. */
+                parse(source: string) {
+                  const english = JSON.parse(
+                    fs.readFileSync(
+                      path.join(__dirname, 'src/i18n/locales/en.json'),
+                      'utf8'
+                    )
+                  )
+                  const selected = JSON.parse(source)
+                  return {
+                    translation: {
+                      ...english.translation,
+                      ...selected.translation,
+                    },
+                  }
+                },
+              },
+            },
+          ],
+        },
         plugins: [
           tanstackRouter({
             target: 'react',
