@@ -16,10 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { SiteSSOAuthorize } from '@/features/auth/components/site-sso-authorize'
+import {
+  approveSiteSwitch,
+  consumeSiteSwitch,
+  switchNonce,
+} from '@/features/auth/lib/site-switch'
+import type { SystemStatus } from '@/features/auth/types'
+import { handleServerError } from '@/lib/handle-server-error'
+import { statusQueryOptions } from '@/lib/status-query'
+import { useAuthStore } from '@/stores/auth-store'
 
 const schema = z.object({
   state: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
@@ -35,5 +44,27 @@ function SiteSSOPage() {
 
 export const Route = createFileRoute('/_authenticated/sso')({
   validateSearch: schema,
+  beforeLoad: async ({ search, context, preload }) => {
+    const nonce = switchNonce()
+    const user = useAuthStore.getState().auth.user
+    if (preload || search.verify !== 'login' || !nonce || !user) return
+    const status = (await context.queryClient.fetchQuery(
+      statusQueryOptions
+    )) as SystemStatus | null
+    const sso = status?.site_sso
+    if (!sso || sso.consumer || !consumeSiteSwitch(nonce, user.id)) return
+    let url: string
+    try {
+      url = await approveSiteSwitch(
+        { ...search, verify: 'login' },
+        sso.client_url
+      )
+    } catch (error) {
+      // 自动步骤只执行一次，失败后显示原有手动授权与换号入口。
+      handleServerError(error)
+      return
+    }
+    throw redirect({ href: url, replace: true, reloadDocument: true })
+  },
   component: SiteSSOPage,
 })

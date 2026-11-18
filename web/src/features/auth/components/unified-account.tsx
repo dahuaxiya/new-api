@@ -29,9 +29,11 @@ import {
 import { TitledCard } from '@/components/ui/titled-card'
 import { useStatus } from '@/hooks/use-status'
 import { handleServerError } from '@/lib/handle-server-error'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { createOAuthAuthorization } from '../api'
 import { rememberOAuthLoginRedirect } from '../lib/oauth-callback-mode'
+import { hostingSwitchTarget } from '../lib/site-switch'
 import { UserAuthForm } from '../sign-in/components/user-auth-form'
 
 /**
@@ -192,6 +194,7 @@ export function SiteSwitcher() {
   const { t } = useTranslation()
   const { status } = useStatus()
   const sso = status?.site_sso
+  const user = useAuthStore((store) => store.auth.user)
   if (!sso) return null
   return (
     <Button
@@ -200,6 +203,22 @@ export function SiteSwitcher() {
       render={
         <a
           href={`${sso.consumer ? sso.issuer_url : sso.client_url}/dashboard`}
+          onClick={(event) => {
+            // 新标签页没有当前页的切站意图，保留链接原生行为。
+            if (
+              sso.consumer ||
+              !user ||
+              event.defaultPrevented ||
+              event.button !== 0 ||
+              event.ctrlKey ||
+              event.metaKey ||
+              event.shiftKey ||
+              event.altKey
+            )
+              return
+            event.preventDefault()
+            window.location.assign(hostingSwitchTarget(sso.client_url, user.id))
+          }}
         />
       }
     >
