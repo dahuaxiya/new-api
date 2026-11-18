@@ -283,12 +283,39 @@ it('filters models by mode, locks a pending image request and displays its downl
   )
 })
 
-it('rejects URL-only and non-PNG upstream output instead of embedding arbitrary content', () => {
-  expect(() =>
-    imageDataURL({ data: [{ url: 'javascript:alert(1)' }] })
-  ).toThrow()
-  expect(() => imageDataURL({ data: [{ b64_json: 'PHN2Zz4=' }] })).toThrow()
-  expect(imageDataURL({ data: { b64_json: png } })).toBe(
+/** Replay an URL-only supplier response without spending money on another generation. */
+it('loads the completed supplier image as downloadable bytes without credentials or a second generation', async () => {
+  const signal = new AbortController().signal
+  const url =
+    'https://pub-13fd1d3607a441b4a9d232b3a223f5f6.r2.dev/images/completed.png'
+  const get = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValue(
+      new Response(Uint8Array.from(atob(png), (c) => c.charCodeAt(0)))
+    )
+  await expect(imageDataURL({ data: [{ url }] }, signal)).resolves.toBe(
+    `data:image/png;base64,${png}`
+  )
+  expect(get).toHaveBeenCalledExactlyOnceWith(url, {
+    credentials: 'omit',
+    redirect: 'error',
+    referrerPolicy: 'no-referrer',
+    signal,
+  })
+  for (const untrusted of [
+    'javascript:alert(1)',
+    'https://example.org/images/a.png',
+    url.replace('https://', 'https://user@'),
+  ]) {
+    await expect(
+      imageDataURL({ data: [{ url: untrusted }] }, signal)
+    ).rejects.toThrow()
+  }
+  expect(get).toHaveBeenCalledTimes(1)
+  await expect(
+    imageDataURL({ data: [{ b64_json: 'PHN2Zz4=' }] }, signal)
+  ).rejects.toThrow()
+  await expect(imageDataURL({ data: { b64_json: png } }, signal)).resolves.toBe(
     `data:image/png;base64,${png}`
   )
 })

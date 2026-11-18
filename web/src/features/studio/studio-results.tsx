@@ -87,7 +87,7 @@ export function StudioResults(props: {
                     render={
                       <a
                         href={item.image}
-                        download={`luobocode-${item.id}.png`}
+                        download={`luobocode-${item.id}.${item.image.slice('data:image/'.length, item.image.indexOf(';'))}`}
                       />
                     }
                   >
