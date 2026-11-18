@@ -16,36 +16,50 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import i18n from 'i18next'
+import i18n, { type BackendModule } from 'i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 import { initReactI18next } from 'react-i18next'
 
 import { convertDetectedLanguage } from './languages'
-import en from './locales/en.json'
-import fr from './locales/fr.json'
-import ja from './locales/ja.json'
-import ru from './locales/ru.json'
-import vi from './locales/vi.json'
-import zhTW from './locales/zh-TW.json'
-import zhCN from './locales/zh.json'
 
-export const resources = {
-  en,
-  zhCN,
-  fr,
-  ru,
-  ja,
-  vi,
-  zhTW,
-} as const
+// Each literal import produces an independent, content-hashed cache entry.
+const catalogs = {
+  en: () => import(/* webpackChunkName: "locale-en" */ './locales/en.json'),
+  zhCN: () => import(/* webpackChunkName: "locale-zhCN" */ './locales/zh.json'),
+  zhTW: () =>
+    import(/* webpackChunkName: "locale-zhTW" */ './locales/zh-TW.json'),
+  ja: () => import(/* webpackChunkName: "locale-ja" */ './locales/ja.json'),
+  fr: () => import(/* webpackChunkName: "locale-fr" */ './locales/fr.json'),
+  ru: () => import(/* webpackChunkName: "locale-ru" */ './locales/ru.json'),
+  vi: () => import(/* webpackChunkName: "locale-vi" */ './locales/vi.json'),
+}
+
+const catalogBackend: BackendModule = {
+  type: 'backend',
+  /** The loader needs no instance-specific configuration. */
+  init() {},
+  /** i18next owns pending loads and reuses loaded languages when switching back. */
+  async read(language: keyof typeof catalogs, _namespace: string) {
+    try {
+      return (await catalogs[language]()).default.translation
+    } catch (error) {
+      // A failed translation download must still leave the site usable in English.
+      if (language === 'en') throw error
+      return (await catalogs.en()).default.translation
+    }
+  },
+}
 
 i18n
+  .use(catalogBackend)
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
-    resources,
-    fallbackLng: 'en',
-    supportedLngs: ['en', 'zhCN', 'fr', 'ru', 'ja', 'vi', 'zhTW'],
+    // Each shipped catalog already includes missing English keys from the build.
+    // Keep English for unsupported browser languages without fetching two packs.
+    fallbackLng: (code) =>
+      code && Object.hasOwn(catalogs, code) ? [] : ['en'],
+    supportedLngs: Object.keys(catalogs),
     load: 'currentOnly',
     nsSeparator: false, // Allow literal colons in keys (e.g., URLs, labels)
     debug: import.meta.env.DEV,
