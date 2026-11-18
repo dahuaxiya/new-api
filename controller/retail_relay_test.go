@@ -722,6 +722,10 @@ func TestRetailPricingManagement(t *testing.T) {
 	// Generating official prices is a proposal only: preserve the committed book,
 	// economics, existing manual products and credentials until explicit publication.
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", 101).Update("models", "gpt-6.1-sol,gpt-image-2.6-sunburst,unknown-alias").Error)
+	// Production channel edits update routing abilities along with the configured model names.
+	publishedChannel, err := model.GetChannelById(101, false)
+	require.NoError(t, err)
+	require.NoError(t, publishedChannel.UpdateAbilities(nil))
 	beforeProposal, proposalVersion, err := model.GetRetailPriceBook()
 	require.NoError(t, err)
 	w = request("POST", "/api/retail/admin/pricing/official-draft", "https://attacker.example", gin.H{"expected_version": proposalVersion})

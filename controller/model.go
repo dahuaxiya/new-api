@@ -294,7 +294,12 @@ func ListModels(c *gin.Context, modelType int) {
 			}
 			guardedPrice = quote != nil
 			allowed := false
-			for _, id := range retailIDs {
+			// The ability and the accepted price must belong to the same supply.
+			pricedIDs := retailIDs
+			if quote != nil {
+				pricedIDs = quote.Channels
+			}
+			for _, id := range pricedIDs {
 				if model.IsChannelEnabledForGroupModel(groups.userGroup, modelName, id) {
 					allowed = true
 					break

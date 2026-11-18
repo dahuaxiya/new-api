@@ -411,3 +411,44 @@ it('previews the following multiplier with margin and rejects an out of range ma
     screen.queryByLabelText('Estimated selling multiplier 1')
   ).not.toBeInTheDocument()
 })
+
+/** Model following is opt-in per credential binding, independently of automatic price updates. */
+it('saves model following on the selected binding without enabling multiplier sync', async () => {
+  const binding = {
+    local_group: 'default',
+    channel_id: 4,
+    upstream_group: 'ChatGPT-pro稳定',
+  }
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        ...state,
+        bindings: [binding],
+        sync: { enabled: false, snapshot: source },
+      },
+    },
+  })
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  mount()
+  fireEvent.click(
+    await screen.findByRole('switch', {
+      name: 'Follow this supply group’s models',
+    })
+  )
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
+  await waitFor(() =>
+    expect(put).toHaveBeenCalledWith(
+      '/api/retail/admin/pricing/group-bindings',
+      expect.objectContaining({
+        bindings: [{ ...binding, follow_models: true }],
+        enabled: false,
+      })
+    )
+  )
+})

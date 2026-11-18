@@ -195,6 +195,14 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 			book.MarginBPS, book.FeeBPS, book.BufferBPS = policy[0].MarginBPS, policy[0].FeeBPS, policy[0].BufferBPS
 			book.SalePolicyManaged = true
 		}
+		// Discard observations only when the upstream identity changes or the binding is removed.
+		for _, old := range book.GroupBindings {
+			if !slices.ContainsFunc(bindings, func(next retailprice.GroupBinding) bool {
+				return old.LocalGroup == next.LocalGroup && old.ChannelID == next.ChannelID && old.UpstreamGroup == next.UpstreamGroup
+			}) {
+				delete(book.ModelSync, old.SyncID())
+			}
+		}
 		book.GroupBindings = bindings
 		book.PublicRateSync = retailprice.PublicRateSync{Enabled: enabled, Snapshot: snapshot}
 		if enabled {

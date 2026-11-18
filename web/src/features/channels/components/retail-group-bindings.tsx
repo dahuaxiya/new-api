@@ -103,10 +103,11 @@ function BindingEditor(props: {
   )
   // Row identity survives edits/removal; UI-only IDs never enter the price contract.
   const mapping = bindings.map(
-    ({ local_group, channel_id, upstream_group }) => ({
+    ({ local_group, channel_id, upstream_group, follow_models }) => ({
       local_group,
       channel_id,
       upstream_group,
+      ...(follow_models ? { follow_models: true } : {}),
     })
   )
   const [channels, setChannels] = useState(props.state.channels)
@@ -305,7 +306,7 @@ function BindingEditor(props: {
       </div>
       <p className='text-muted-foreground text-sm'>
         {t(
-          'Select an upstream group, enter its Key and models, and name the call group offered to users. Save everything with your margin here.'
+          'Select an upstream group and its Key. Choose whether this call group follows its models.'
         )}
       </p>
       <div className='bg-muted/50 space-y-3 rounded-md p-3'>
@@ -487,6 +488,8 @@ function BindingEditor(props: {
             saved
           let status = t('Paused: multiplier unavailable or expired')
           if (active) status = t('Following saved multiplier')
+          const modelState =
+            props.state.model_sync?.[`${row.channel_id}:${row.local_group}`]
           if (changed) status = t('Unsaved changes')
           return (
             <div key={row.rowID} className='space-y-3 rounded-md border p-3'>
@@ -678,6 +681,47 @@ function BindingEditor(props: {
                   </Field>
                 </FieldGroup>
               )}
+              <div className='space-y-1 text-sm'>
+                <div className='flex items-center gap-2'>
+                  <Switch
+                    id={`follow-models-${row.rowID}`}
+                    checked={!!row.follow_models}
+                    disabled={mutation.isPending}
+                    onCheckedChange={(on) =>
+                      setBindings(
+                        bindings.map((item, i) =>
+                          i === index ? { ...item, follow_models: on } : item
+                        )
+                      )
+                    }
+                  />
+                  <Label htmlFor={`follow-models-${row.rowID}`}>
+                    {t('Follow this supply group’s models')}
+                  </Label>
+                </div>
+                {row.follow_models && (
+                  <p className='text-muted-foreground text-xs'>
+                    {t(
+                      'Every 10 minutes while sales are enabled. Missing prices need review; two complete reads confirm removals.'
+                    )}
+                  </p>
+                )}
+                {row.follow_models && modelState?.failed && (
+                  <p role='status'>
+                    {t('Model list unavailable. Previous routes retained.')}
+                  </p>
+                )}
+                {!!modelState?.pending?.length && (
+                  <p>
+                    {t('Models to review')}: {modelState.pending.join(', ')}
+                  </p>
+                )}
+                {!!modelState?.paused?.length && (
+                  <p>
+                    {t('Paused on this route')}: {modelState.paused.join(', ')}
+                  </p>
+                )}
+              </div>
               <div className='flex flex-wrap items-center justify-between gap-2 text-xs'>
                 <span className='text-muted-foreground'>{status}</span>
                 {/* Display is approximate; server decimal arithmetic determines quotes and charges. */}

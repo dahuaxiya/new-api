@@ -247,6 +247,11 @@ func GetRetailCatalog(c *gin.Context) {
 		retailPricingManagementError(c, err)
 		return
 	}
+	abilities, err := model.RetailCatalogAbilities(cfg.Group, ids)
+	if err != nil {
+		retailPricingManagementError(c, err)
+		return
+	}
 	for _, p := range book.Products {
 		if !p.AllowsGroup(user.Group) {
 			continue
@@ -256,7 +261,7 @@ func GetRetailCatalog(c *gin.Context) {
 			// Synthetic generous caps are only for displaying a price, never a persisted user consent.
 			ceiling := retailprice.Prices{Input: "99999999", Output: "99999999", CacheRead: "99999999", CacheWrite: "99999999", CacheWrite1h: "99999999"}
 			policy := retailprice.KeyPolicy{ProductID: p.ID, AcceptFloating: true, Caps: map[string]retailprice.Prices{official.ID: ceiling}, MaxRequestCNY: "99999999", DailyBudgetCNY: "99999999"}
-			quote, err := book.MakeQuote(version, user.Group, policy, official.ID, 1, ids, time.Now().Unix())
+			quote, err := book.MakeQuote(version, user.Group, policy, official.ID, 1, abilities[official.ID], time.Now().Unix())
 			if err != nil {
 				continue
 			}

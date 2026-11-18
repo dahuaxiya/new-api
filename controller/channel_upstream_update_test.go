@@ -611,3 +611,14 @@ func TestDetectAllChannelUpstreamModelUpdatesRejectsExistingActiveTask(t *testin
 	require.Contains(t, recorder.Body.String(), existing.TaskID)
 	require.Contains(t, recorder.Body.String(), "A model update task is already running or queued")
 }
+
+// TestRetailModelSyncListContract prevents empty, malformed and paginated responses from causing withdrawals.
+func TestRetailModelSyncListContract(t *testing.T) {
+	for _, raw := range []string{`{"object":"list","data":[]}`, `{"object":"list","data":[{"id":"one"}],"has_more":true}`, `{"object":"list","data":[{"id":"valid"},{}]}`, `{"object":"list","data":[{"id":"valid"}],"next_cursor":"two"}`, `{"error":"denied"}`} {
+		_, err := parseRetailModelList([]byte(raw))
+		require.Error(t, err)
+	}
+	ids, err := parseRetailModelList([]byte(`{"object":"list","data":[{"id":"z"},{"id":"a"},{"id":"a"}]}`))
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "z"}, ids)
+}

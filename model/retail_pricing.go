@@ -92,6 +92,7 @@ func PublishRetailPriceBook(expected int64, book retailprice.Book, ratesOnly []r
 			// Manual imports cannot overwrite the independently verified public feed.
 			current.Rates = ratesOnly
 		} else {
+			book.ModelSync = current.ModelSync // Observation history is server-owned, never supplied by a price editor.
 			book.GroupBindings, book.PublicRateSync = current.GroupBindings, current.PublicRateSync
 			// Once economics are saved separately, even a first catalog publication
 			// must preserve them. Legacy books retain their original editing contract.

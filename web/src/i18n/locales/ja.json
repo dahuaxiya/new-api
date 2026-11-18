@@ -8260,6 +8260,12 @@
     "Next: price limits": "次へ：価格上限",
     "Set call group": "呼び出しグループを設定",
     "Call group unavailable": "呼び出しグループは利用できません",
-    "Choose a call group. Usage is charged to your balance at its current prices.": "呼び出しグループを選択してください。利用料金はその時点のグループ料金で残高から差し引かれます。"
+    "Choose a call group. Usage is charged to your balance at its current prices.": "呼び出しグループを選択してください。利用料金はその時点のグループ料金で残高から差し引かれます。",
+    "Follow this supply group’s models": "この供給グループのモデルに追従",
+    "Every 10 minutes while sales are enabled. Missing prices need review; two complete reads confirm removals.": "販売中は10分ごとに確認します。価格が不明なモデルは要確認です。完全な一覧に2回続けてない場合に経路を停止します。",
+    "Model list unavailable. Previous routes retained.": "モデル一覧を取得できません。既存の経路を維持します。",
+    "Models to review": "要確認のモデル",
+    "Paused on this route": "この経路で停止中",
+    "Select an upstream group and its Key. Choose whether this call group follows its models.": "上流グループとそのキーを選び、モデルに追従するかを指定します。"
   }
 }

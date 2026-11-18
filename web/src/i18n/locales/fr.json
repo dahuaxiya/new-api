@@ -8260,6 +8260,12 @@
     "Next: price limits": "Suivant : limites de prix",
     "Set call group": "Définir le groupe d’appel",
     "Call group unavailable": "Groupe d’appel indisponible",
-    "Choose a call group. Usage is charged to your balance at its current prices.": "Choisissez un groupe d’appel. Les frais sont déduits de votre solde aux tarifs actuels du groupe."
+    "Choose a call group. Usage is charged to your balance at its current prices.": "Choisissez un groupe d’appel. Les frais sont déduits de votre solde aux tarifs actuels du groupe.",
+    "Follow this supply group’s models": "Suivre les modèles de ce groupe fournisseur",
+    "Every 10 minutes while sales are enabled. Missing prices need review; two complete reads confirm removals.": "Toutes les 10 minutes pendant les ventes. Vérifiez les tarifs manquants ; deux listes complètes confirment un retrait.",
+    "Model list unavailable. Previous routes retained.": "Liste indisponible. Les routes précédentes sont conservées.",
+    "Models to review": "Modèles à vérifier",
+    "Paused on this route": "Suspendus sur cette route",
+    "Select an upstream group and its Key. Choose whether this call group follows its models.": "Sélectionnez le groupe fournisseur et sa clé, puis choisissez de suivre ou non ses modèles."
   }
 }

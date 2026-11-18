@@ -8260,6 +8260,12 @@
     "Next: price limits": "Tiếp theo: giới hạn giá",
     "Set call group": "Đặt nhóm gọi",
     "Call group unavailable": "Nhóm gọi không khả dụng",
-    "Choose a call group. Usage is charged to your balance at its current prices.": "Chọn nhóm gọi. Phí sử dụng được trừ vào số dư theo giá hiện tại của nhóm."
+    "Choose a call group. Usage is charged to your balance at its current prices.": "Chọn nhóm gọi. Phí sử dụng được trừ vào số dư theo giá hiện tại của nhóm.",
+    "Follow this supply group’s models": "Theo dõi mô hình của nhóm cung cấp này",
+    "Every 10 minutes while sales are enabled. Missing prices need review; two complete reads confirm removals.": "Kiểm tra mỗi 10 phút khi đang mở bán. Cần xác minh giá còn thiếu; chỉ tạm dừng sau hai danh sách đầy đủ liên tiếp không còn mô hình.",
+    "Model list unavailable. Previous routes retained.": "Không đọc được danh sách. Giữ nguyên các tuyến cũ.",
+    "Models to review": "Mô hình cần xác minh",
+    "Paused on this route": "Tạm dừng trên tuyến này",
+    "Select an upstream group and its Key. Choose whether this call group follows its models.": "Chọn nhóm nhà cung cấp và Key tương ứng, rồi chọn có theo dõi mô hình của nhóm hay không."
   }
 }
