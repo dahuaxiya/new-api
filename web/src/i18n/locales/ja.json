@@ -8269,6 +8269,17 @@
     "Select an upstream group and its Key. Choose whether this call group follows its models.": "上流グループとそのキーを選び、モデルに追従するかを指定します。",
     "Enter the supply group Key to fetch models.": "供給グループのキーを入力してモデルを取得してください。",
     "To select models manually, turn off model following for all bindings using this supply channel.": "手動で選択するには、この供給チャネルを使うすべての設定でモデルの自動同期をオフにしてください。",
-    "Drag across models to select or deselect them.": "ドラッグして複数のモデルを選択または解除できます。"
+    "Drag across models to select or deselect them.": "ドラッグして複数のモデルを選択または解除できます。",
+    "Users select a group on this site. Its supply route determines the upstream Key and purchase price.": "利用者は本站のグループを選びます。供給ルートで上流のキーと仕入価格が決まります。",
+    "Supply routes": "供給ルート",
+    "Price book": "料金表",
+    "Purchase multiplier": "仕入倍率",
+    "Skipped on last sync": "前回の同期で追加されなかったモデル",
+    "Check the official price, model ID and call type before publishing these models.": "公開前に公式価格、モデルID、呼び出し方法を確認してください。",
+    "Advanced settings": "詳細設定",
+    "Select upstream group": "上流グループを選択",
+    "Customer group": "利用者向けグループ",
+    "Credential label": "キーの表示名",
+    "Supply credential": "供給元の認証情報"
   }
 }
