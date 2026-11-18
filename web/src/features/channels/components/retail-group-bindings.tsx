@@ -32,7 +32,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
 import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
 import { getServerErrorMessage } from '@/lib/server-error-message'
@@ -47,6 +46,8 @@ import {
   type RetailSalePolicy,
   type RetailSupplyEdit,
 } from '../retail-pricing-api'
+
+import { RetailSupplyModelPicker } from './retail-supply-model-picker'
 
 /** Root-only configuration, isolated by session and refreshed after explicit writes. */
 export function RetailGroupBindings(props: {
@@ -658,20 +659,18 @@ function BindingEditor(props: {
                     />
                   </Field>
                   <Field className='sm:col-span-2'>
-                    <FieldLabel htmlFor={`supply-models-${row.rowID}`}>
-                      {t('Allowed models')} {index + 1}
-                    </FieldLabel>
-                    <Textarea
-                      id={`supply-models-${row.rowID}`}
+                    <RetailSupplyModelPicker
+                      key={channel.id}
+                      channel={channel}
+                      draftKey={draft?.key ?? ''}
                       value={draft?.models ?? channel.models}
-                      maxLength={16000}
-                      placeholder={t(
-                        'One model per line, or separated by commas'
+                      label={`${t('Allowed models')} ${index + 1}`}
+                      following={bindings.some(
+                        (other) =>
+                          other.channel_id === channel.id && other.follow_models
                       )}
                       disabled={mutation.isPending}
-                      onChange={(event) =>
-                        editSupply(channel.id, { models: event.target.value })
-                      }
+                      onChange={(models) => editSupply(channel.id, { models })}
                     />
                     <p className='text-muted-foreground text-xs'>
                       {t(

@@ -21,6 +21,7 @@ type RetailBindingChannel struct {
 	Name    string `json:"name"`
 	SiteID  int    `json:"site_id"`
 	BaseURL string `json:"base_url"`
+	Type    int    `json:"type"`
 	Models  string `json:"models"`
 	HasKey  bool   `json:"has_key"`
 	Status  int    `json:"status"`
@@ -46,7 +47,7 @@ func retailBindingChannels(db *gorm.DB) ([]RetailBindingChannel, error) {
 	}
 	var channels []Channel
 	if len(ids) > 0 {
-		if err := db.Select("id", "name", "base_url", "group", "retail_site_id", "models", "key", "status").Where("id IN ?", ids).Find(&channels).Error; err != nil {
+		if err := db.Select("id", "name", "base_url", "type", "group", "retail_site_id", "models", "key", "status").Where("id IN ?", ids).Find(&channels).Error; err != nil {
 			return nil, err
 		}
 	}
@@ -68,7 +69,7 @@ func retailBindingChannels(db *gorm.DB) ([]RetailBindingChannel, error) {
 		if siteID == 0 {
 			siteID = channel.Id
 		}
-		result = append(result, RetailBindingChannel{ID: channel.Id, Name: channel.Name, SiteID: siteID, BaseURL: channel.GetBaseURL(), Models: channel.Models, HasKey: channel.Key != "", Status: channel.Status})
+		result = append(result, RetailBindingChannel{ID: channel.Id, Name: channel.Name, SiteID: siteID, BaseURL: channel.GetBaseURL(), Type: channel.Type, Models: channel.Models, HasKey: channel.Key != "", Status: channel.Status})
 	}
 	return result, nil
 }

@@ -8296,6 +8296,9 @@
     "Model list unavailable. Previous routes retained.": "未能读取分组模型，保留原有线路。",
     "Models to review": "待确认模型",
     "Paused on this route": "此线路已暂停",
-    "Select an upstream group and its Key. Choose whether this call group follows its models.": "选择上游分组和对应的 Key，再决定本站调用分组是否跟随上游模型。"
+    "Select an upstream group and its Key. Choose whether this call group follows its models.": "选择上游分组和对应的 Key，再决定本站调用分组是否跟随上游模型。",
+    "Enter the supply group Key to fetch models.": "填入该供货分组的 Key 后即可读取模型。",
+    "To select models manually, turn off model following for all bindings using this supply channel.": "要手动勾选，请先关闭使用此供货渠道的各行「跟随该供货分组的模型」。",
+    "Drag across models to select or deselect them.": "按住鼠标拖过多项即可连续勾选，从已勾选项开始拖动可连续取消。"
   }
 }

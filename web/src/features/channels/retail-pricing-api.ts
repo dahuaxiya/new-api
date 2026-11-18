@@ -125,6 +125,7 @@ export type RetailBindingChannel = {
   id: number
   name: string
   site_id: number
+  type: number
   base_url: string
   models: string
   has_key: boolean
