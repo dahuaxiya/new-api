@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -41,6 +42,7 @@ const state = {
       id: 4,
       name: 'Xingxing key',
       site_id: 4,
+      type: 1,
       base_url: 'https://aixingxing.pro',
       models: 'gpt-test',
       has_key: true,
@@ -94,7 +96,9 @@ it('creates supply and bindings in one save without repeating the site address',
   const put = vi
     .spyOn(api, 'put')
     .mockResolvedValue({ data: { success: true } })
-  const post = vi.spyOn(api, 'post')
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: ['gpt-test', 'extra'] },
+  })
   mount()
   fireEvent.click(
     await screen.findByRole('button', { name: 'Add supply group' })
@@ -112,9 +116,17 @@ it('creates supply and bindings in one save without repeating the site address',
   fireEvent.change(screen.getByLabelText('Upstream API Key 1'), {
     target: { value: 'test-only-private-key' },
   })
-  fireEvent.change(screen.getByLabelText('Allowed models 1'), {
-    target: { value: 'gpt-test' },
-  })
+  fireEvent.click(screen.getByRole('button', { name: 'Fetch Models' }))
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'gpt-test' }))
+  expect(post).toHaveBeenCalledWith(
+    '/api/channel/fetch_models',
+    {
+      type: 1,
+      base_url: 'https://aixingxing.pro',
+      key: 'test-only-private-key',
+    },
+    expect.anything()
+  )
   fireEvent.change(screen.getByLabelText('Target margin (%)'), {
     target: { value: '25' },
   })
@@ -146,7 +158,7 @@ it('creates supply and bindings in one save without repeating the site address',
       })
     )
   )
-  expect(post).not.toHaveBeenCalled()
+  expect(post).toHaveBeenCalledTimes(1)
   expect(JSON.stringify(clients[0].getMutationCache().getAll())).not.toContain(
     'test-only-private-key'
   )
@@ -410,4 +422,161 @@ it('previews the following multiplier with margin and rejects an out of range ma
   expect(
     screen.queryByLabelText('Estimated selling multiplier 1')
   ).not.toBeInTheDocument()
+})
+
+/** Model following is opt-in per credential binding, independently of automatic price updates. */
+it('saves model following on the selected binding without enabling multiplier sync', async () => {
+  const binding = {
+    local_group: 'default',
+    channel_id: 4,
+    upstream_group: 'ChatGPT-pro稳定',
+  }
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        ...state,
+        bindings: [binding],
+        sync: { enabled: false, snapshot: source },
+      },
+    },
+  })
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  mount()
+  fireEvent.click(
+    await screen.findByRole('switch', {
+      name: 'Follow this supply group’s models',
+    })
+  )
+  expect(screen.getByRole('checkbox', { name: 'gpt-test' })).toBeDisabled()
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
+  await waitFor(() =>
+    expect(put).toHaveBeenCalledWith(
+      '/api/retail/admin/pricing/group-bindings',
+      expect.objectContaining({
+        bindings: [{ ...binding, follow_models: true }],
+        enabled: false,
+      })
+    )
+  )
+})
+
+/** Dragging across skipped rows applies one direction, and a failed refresh preserves the draft. */
+it('fetches a saved supply by ID and saves only the models left checked after dragging', async () => {
+  const binding = {
+    local_group: 'pro',
+    channel_id: 4,
+    upstream_group: 'ChatGPT-pro稳定',
+  }
+  const get = vi.spyOn(api, 'get').mockImplementation(async (path) => ({
+    data: {
+      success: true,
+      data: path.endsWith('/fetch_models/4')
+        ? ['a', 'b', 'c']
+        : {
+            ...state,
+            bindings: [binding],
+            sync: { enabled: false, snapshot: source },
+          },
+    },
+  }))
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  mount()
+  const fetch = await screen.findByRole('button', { name: 'Fetch Models' })
+  fireEvent.click(fetch)
+  const a = await screen.findByRole('checkbox', { name: 'a' })
+  const b = screen.getByRole('checkbox', { name: 'b' })
+  const c = screen.getByRole('checkbox', { name: 'c' })
+  expect(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  ).toBeDisabled()
+  fireEvent.mouseDown(a, { button: 0, buttons: 1 })
+  fireEvent.mouseEnter(c, { buttons: 1 })
+  fireEvent.mouseEnter(b, { buttons: 1 })
+  fireEvent.mouseUp(window)
+  expect(a).toBeChecked()
+  expect(b).toBeChecked()
+  expect(c).toBeChecked()
+  fireEvent.mouseDown(c, { button: 0, buttons: 1 })
+  fireEvent.mouseEnter(b, { buttons: 1 })
+  fireEvent.mouseUp(window)
+  expect(b).not.toBeChecked()
+  expect(c).not.toBeChecked()
+  get.mockRejectedValueOnce(new Error('unavailable'))
+  fireEvent.click(fetch)
+  await screen.findByRole('alert')
+  expect(screen.getByRole('checkbox', { name: 'a' })).toBeChecked()
+  expect(screen.getByRole('checkbox', { name: 'gpt-test' })).toBeChecked()
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
+  await waitFor(() =>
+    expect(put).toHaveBeenCalledWith(
+      '/api/retail/admin/pricing/group-bindings',
+      expect.objectContaining({
+        supplies: [
+          expect.objectContaining({ id: 4, models: 'gpt-test,a', key: '' }),
+        ],
+      })
+    )
+  )
+})
+
+/** Rotating a draft Key must invalidate in-flight suggestions without clearing previously selected models. */
+it('ignores a late saved-key response after previewing a replacement key', async () => {
+  type Response = { data: { success: boolean; data: string[] } }
+  let resolveStale!: (result: Response) => void
+  const stale = new Promise<Response>((resolve) => {
+    resolveStale = resolve
+  })
+  vi.spyOn(api, 'get').mockImplementation(async (path) =>
+    path.endsWith('/fetch_models/4')
+      ? stale
+      : {
+          data: {
+            success: true,
+            data: {
+              ...state,
+              bindings: [
+                {
+                  local_group: 'pro',
+                  channel_id: 4,
+                  upstream_group: 'ChatGPT-pro稳定',
+                },
+              ],
+            },
+          },
+        }
+  )
+  const preview = vi
+    .spyOn(api, 'post')
+    .mockResolvedValue({ data: { success: true, data: ['replacement-model'] } })
+  mount()
+  fireEvent.click(await screen.findByRole('button', { name: 'Fetch Models' }))
+  fireEvent.change(screen.getByLabelText('Upstream API Key 1'), {
+    target: { value: 'replacement-key' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Fetch Models' }))
+  expect(
+    await screen.findByRole('checkbox', { name: 'replacement-model' })
+  ).not.toBeChecked()
+  expect(preview).toHaveBeenCalledWith(
+    '/api/channel/fetch_models',
+    { type: 1, base_url: 'https://aixingxing.pro', key: 'replacement-key' },
+    expect.anything()
+  )
+  await act(async () => {
+    resolveStale({ data: { success: true, data: ['stale-model'] } })
+    await stale
+  })
+  expect(screen.queryByRole('checkbox', { name: 'stale-model' })).toBeNull()
+  expect(screen.getByRole('checkbox', { name: 'gpt-test' })).toBeChecked()
 })

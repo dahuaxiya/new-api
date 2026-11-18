@@ -8290,6 +8290,15 @@
     "Next: price limits": "下一步：限价与预算",
     "Set call group": "设置调用分组",
     "Call group unavailable": "调用分组已不可用",
-    "Choose a call group. Usage is charged to your balance at its current prices.": "选择调用分组，使用费用按该分组当前售价从余额扣除。"
+    "Choose a call group. Usage is charged to your balance at its current prices.": "选择调用分组，使用费用按该分组当前售价从余额扣除。",
+    "Follow this supply group’s models": "跟随该供货分组的模型",
+    "Every 10 minutes while sales are enabled. Missing prices need review; two complete reads confirm removals.": "开放销售后每 10 分钟检查一次。缺价的模型待确认，连续两次完整清单中缺失才暂停线路。",
+    "Model list unavailable. Previous routes retained.": "未能读取分组模型，保留原有线路。",
+    "Models to review": "待确认模型",
+    "Paused on this route": "此线路已暂停",
+    "Select an upstream group and its Key. Choose whether this call group follows its models.": "选择上游分组和对应的 Key，再决定本站调用分组是否跟随上游模型。",
+    "Enter the supply group Key to fetch models.": "填入该供货分组的 Key 后即可读取模型。",
+    "To select models manually, turn off model following for all bindings using this supply channel.": "要手动勾选，请先关闭使用此供货渠道的各行「跟随该供货分组的模型」。",
+    "Drag across models to select or deselect them.": "按住鼠标拖过多项即可连续勾选，从已勾选项开始拖动可连续取消。"
   }
 }

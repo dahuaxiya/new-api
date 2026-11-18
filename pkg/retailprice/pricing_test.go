@@ -235,3 +235,51 @@ func TestGroupCurrentPricing(t *testing.T) {
 	key.MaxRequestCNY, key.StudioCurrent = "", true
 	require.Error(t, key.Validate(), "ordinary group mode cannot impersonate studio mode")
 }
+
+// TestRetailModelSync exercises an existing Key on two equivalent routes: incomplete data never
+// removes availability, and withdrawing one supply does not change the price or the other supply.
+func TestRetailModelSync(t *testing.T) {
+	now := int64(1794916800)
+	a := retailprice.GroupBinding{LocalGroup: "normal", UpstreamGroup: "up", ChannelID: 1, FollowModels: true}
+	b := a
+	b.ChannelID = 2
+	c := a
+	c.LocalGroup = "premium"
+	c.FollowModels = false
+	book := retailprice.Book{Enabled: true, GroupBindings: []retailprice.GroupBinding{a, b, c}, WalletCNYPerUnit: "1", ReceiptRatio: "1", MarginBPS: 2000, PublicRateSync: retailprice.PublicRateSync{Enabled: true, Snapshot: &retailprice.PublicRateSnapshot{Source: "https://aixingxing.pro/api/public/rates", FetchedAt: now, UpdatedAt: now, Groups: []retailprice.PublicRate{{Group: "up", Multiplier: "0.12"}}}}}
+	const text = "gpt-6.1-sol"
+	const image = "gpt-image-2"
+	names := []string{text, image, "unknown-model"}
+	for _, binding := range []retailprice.GroupBinding{a, b, c} {
+		book.ApplyModelList(binding, names, nil, now)
+	}
+	require.Len(t, book.Products, 1)
+	require.Equal(t, []string{"unknown-model"}, book.ModelSync[a.SyncID()].Pending)
+	key := retailprice.KeyPolicy{GroupCurrent: true, ProductID: book.Products[0].ID}
+	quoteCart := func() []int {
+		q, err := book.MakeQuote(1, "default", key, text, 1, []int{1, 2}, now)
+		require.NoError(t, err)
+		require.Equal(t, "0.3", q.Sale[0].Prices.Input)
+		return q.Channels
+	}
+	require.Equal(t, []int{1, 2}, quoteCart())
+	book.ApplyModelList(a, []string{image}, nil, now)
+	book.ApplyModelList(a, nil, nil, now)
+	require.True(t, book.ModelSync[a.SyncID()].Failed)
+	require.Equal(t, []int{1, 2}, quoteCart())
+	book.ApplyModelList(a, []string{image}, nil, now)
+	require.Equal(t, []int{2}, quoteCart())
+	book.ApplyModelList(a, names, nil, now)
+	require.Equal(t, []int{1, 2}, quoteCart())
+	require.Empty(t, book.ModelSync[a.SyncID()].Paused)
+	// Preserve operator aliases; an expired operator price cannot be replaced by the built-in tariff.
+	book.Products[0].Routes[0].Models[text] = "provider-alias"
+	for i := range book.Models {
+		if book.Models[i].ID == text {
+			book.Models[i].ValidUntil = now
+		}
+	}
+	book.ApplyModelList(a, []string{text, "provider-alias"}, nil, now)
+	require.Equal(t, "provider-alias", book.Products[0].Routes[0].Models[text])
+	require.Contains(t, book.ModelSync[a.SyncID()].Pending, text)
+}

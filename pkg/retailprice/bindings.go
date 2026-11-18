@@ -35,6 +35,7 @@ type GroupBinding struct {
 	LocalGroup    string `json:"local_group"`
 	ChannelID     int    `json:"channel_id"`
 	UpstreamGroup string `json:"upstream_group"`
+	FollowModels  bool   `json:"follow_models,omitempty"`
 }
 
 // PublicRate retains exact decimal values without inferring wallet conversion or account discounts.

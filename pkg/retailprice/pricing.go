@@ -88,18 +88,19 @@ func (p Product) AllowsGroup(group string) bool {
 
 // Book stores an immutable pricing version. Wallet conversion is explicit and never a display FX rate.
 type Book struct {
-	SalePolicyManaged bool           `json:"sale_policy_managed,omitempty"`
-	GroupBindings     []GroupBinding `json:"group_bindings,omitempty"`
-	PublicRateSync    PublicRateSync `json:"public_rate_sync"`
-	Enabled           bool           `json:"enabled"`
-	WalletCNYPerUnit  string         `json:"wallet_cny_per_unit"`
-	ReceiptRatio      string         `json:"receipt_ratio"`
-	MarginBPS         int            `json:"margin_bps"`
-	FeeBPS            int            `json:"fee_bps"`
-	BufferBPS         int            `json:"buffer_bps"`
-	Models            []Model        `json:"models"`
-	Products          []Product      `json:"products"`
-	Rates             []Rate         `json:"rates"`
+	ModelSync         map[string]ModelSyncState `json:"model_sync,omitempty"`
+	SalePolicyManaged bool                      `json:"sale_policy_managed,omitempty"`
+	GroupBindings     []GroupBinding            `json:"group_bindings,omitempty"`
+	PublicRateSync    PublicRateSync            `json:"public_rate_sync"`
+	Enabled           bool                      `json:"enabled"`
+	WalletCNYPerUnit  string                    `json:"wallet_cny_per_unit"`
+	ReceiptRatio      string                    `json:"receipt_ratio"`
+	MarginBPS         int                       `json:"margin_bps"`
+	FeeBPS            int                       `json:"fee_bps"`
+	BufferBPS         int                       `json:"buffer_bps"`
+	Models            []Model                   `json:"models"`
+	Products          []Product                 `json:"products"`
+	Rates             []Rate                    `json:"rates"`
 }
 
 // KeyPolicy selects a call group; legacy explicit limits remain readable for existing clients.
@@ -349,6 +350,10 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		}
 		routeRates, rateID := b.Rates, route.RateID
 		if binding := b.Binding(bindingGroup, route.ChannelID); binding != nil {
+			// Pauses are scoped to the bound credential and upstream ID; manual aliases survive outages.
+			if slices.Contains(b.ModelSync[binding.SyncID()].Paused, route.Models[modelName]) {
+				continue
+			}
 			// A failed refresh cannot reactivate an older manually entered multiplier.
 			rate, err := b.BoundRate(*binding, now)
 			if err != nil {

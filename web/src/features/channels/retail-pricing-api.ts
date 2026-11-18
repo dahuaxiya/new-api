@@ -115,6 +115,7 @@ export type RetailGroupBinding = {
   local_group: string
   channel_id: number
   upstream_group: string
+  follow_models?: boolean
 }
 export type RetailSalePolicy = Pick<
   RetailPriceBook,
@@ -124,6 +125,7 @@ export type RetailBindingChannel = {
   id: number
   name: string
   site_id: number
+  type: number
   base_url: string
   models: string
   has_key: boolean
@@ -140,6 +142,10 @@ export type RetailBindingState = {
   sale_policy: RetailSalePolicy
   version: number
   server_time: number
+  model_sync?: Record<
+    string,
+    { pending?: string[]; paused?: string[]; failed?: boolean }
+  >
   bindings: RetailGroupBinding[] | null
   local_groups: string[]
   channels: RetailBindingChannel[]

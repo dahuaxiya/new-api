@@ -114,8 +114,7 @@ func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) Offic
 			continue
 		}
 		// Hash only names for stable, bounded IDs. Never derive an executable path from a group label.
-		sum := sha256.Sum256([]byte(binding.LocalGroup))
-		id := fmt.Sprintf("official-%x", sum[:8])
+		id := officialProductID(binding.LocalGroup)
 		product, ok := products[id]
 		if !ok {
 			product = Product{ID: id, Name: binding.LocalGroup, Public: true, BindingGroup: binding.LocalGroup, UserGroups: []string{}}
@@ -165,4 +164,10 @@ func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) Offic
 	}
 	result.Excluded = unique
 	return result
+}
+
+// officialProductID keeps the public call group stable across manual publication and discovery.
+func officialProductID(group string) string {
+	sum := sha256.Sum256([]byte(group))
+	return fmt.Sprintf("official-%x", sum[:8])
 }

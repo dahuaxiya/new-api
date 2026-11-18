@@ -192,3 +192,66 @@ func TestRetailSupplyConfigurationDatabases(t *testing.T) {
 		})
 	}
 }
+
+// TestRetailModelSyncAtomicPublication exercises the DB boundary shared by the scheduler and admission.
+// A stale editor or rotated credential must not install an ability even if the model list looked valid.
+func TestRetailModelSyncAtomicPublication(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := useVM2APIEnrollmentDatabase(t, dialect)
+			require.NoError(t, migrateDB())
+			endpoint := "https://aixingxing.pro"
+			ch := Channel{Name: "Test site", Key: "test-only", BaseURL: &endpoint, Type: 1, Models: "already-listed", Group: "retail,default", Status: 1}
+			require.NoError(t, ch.Insert())
+			path := filepath.Join(t.TempDir(), "retail.json")
+			raw, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"channel_id": ch.Id, "kind": "reseller"}}})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(path, raw, 0600))
+			t.Setenv("RETAIL_RELAY_CONFIG", path)
+			now := time.Now().Unix()
+			b := retailprice.GroupBinding{LocalGroup: "default", ChannelID: ch.Id, UpstreamGroup: "up", FollowModels: true}
+			ctx := context.Background()
+			v, err := SaveRetailGroupBindings(ctx, 0, []retailprice.GroupBinding{b}, true, &retailprice.PublicRateSnapshot{Source: "https://aixingxing.pro/api/public/rates", FetchedAt: now, UpdatedAt: now, Groups: []retailprice.PublicRate{{Group: "up", Multiplier: "0.12"}}}, 1)
+			require.NoError(t, err)
+			// Seed two verified, synthetic tariffs rather than depending on the expiry of a real catalog.
+			price := retailprice.OfficialModels()[0]
+			price.ID = "already-listed"
+			price.OfficialModel = price.ID
+			price.VerifiedAt = now - 30
+			price.ValidUntil = now + 3600
+			next := price
+			next.ID = "new-model"
+			next.OfficialModel = next.ID
+			book := retailprice.Book{Enabled: true, WalletCNYPerUnit: "1", ReceiptRatio: "1", Models: []retailprice.Model{price, next}, Products: []retailprice.Product{{ID: "manual", Name: "manual", UserGroups: []string{"default"}, Routes: []retailprice.Route{{ChannelID: ch.Id, Models: map[string]string{price.ID: price.ID}}}}}}
+			v, err = PublishRetailPriceBook(v, book, nil, 1)
+			require.NoError(t, err)
+			src, err := RetailModelListSource(db, ch.Id)
+			require.NoError(t, err)
+			_, err = ApplyRetailModelList(ctx, v-1, ch.Id, src, []string{next.ID})
+			require.ErrorIs(t, err, ErrRetailPriceConflict)
+			var n int64
+			abilities := db.Model(&Ability{}).Where("channel_id = ? AND model = ?", ch.Id, next.ID)
+			require.NoError(t, abilities.Count(&n).Error)
+			require.Zero(t, n)
+			_, err = ApplyRetailModelList(ctx, v, ch.Id, src, []string{next.ID})
+			require.NoError(t, err)
+			book, v, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Len(t, book.Products, 2)
+			require.NoError(t, abilities.Count(&n).Error)
+			require.Positive(t, n)
+			policy := retailprice.KeyPolicy{ProductID: book.Products[1].ID, GroupCurrent: true}
+			q, err := book.MakeQuote(v, "default", policy, next.ID, 1, []int{ch.Id}, now)
+			require.NoError(t, err)
+			require.Equal(t, []int{ch.Id}, q.Channels)
+			_, err = ApplyRetailModelList(ctx, v, ch.Id, src, []string{next.ID})
+			require.NoError(t, err)
+			_, again, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Equal(t, v, again, "unchanged models must not invalidate active quotes")
+			require.NoError(t, db.Model(&ch).Update("key", "replacement-test-key").Error)
+			_, err = ApplyRetailModelList(ctx, v, ch.Id, src, []string{"stale"})
+			require.ErrorIs(t, err, ErrRetailPriceConflict)
+		})
+	}
+}
