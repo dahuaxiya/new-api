@@ -220,11 +220,12 @@ func syncRetailSiteAddress(tx *gorm.DB, ch *Channel) error {
 // RetailSupplyEdit is write-only: negative IDs identify drafts within one request, positive IDs edit
 // an approved group. A blank Key preserves an existing credential and never means copy the site Key.
 type RetailSupplyEdit struct {
-	ID     int    `json:"id"`
-	SiteID int    `json:"site_id"`
-	Name   string `json:"name"`
-	Key    string `json:"key"`
-	Models string `json:"models"`
+	ConfirmKeyGroup string `json:"confirm_key_group,omitempty"`
+	ID              int    `json:"id"`
+	SiteID          int    `json:"site_id"`
+	Name            string `json:"name"`
+	Key             string `json:"key"`
+	Models          string `json:"models"`
 }
 
 // SaveRetailSupplyConfiguration commits group credentials, model abilities, bindings and margin together.
@@ -304,6 +305,15 @@ func SaveRetailSupplyConfiguration(ctx context.Context, expected int64, bindings
 			patch := Channel{Id: ch.Id, Key: key}
 			if err := syncRetailSiteAddress(tx, &patch); err != nil {
 				return err
+			}
+			// Rotating an existing Key requires confirming its upstream identity. A different
+			// upstream group needs its own credential because other routes may still use this one.
+			if key != "" && ch.Key != "" && ch.Key != key {
+				for _, b := range bindings {
+					if b.ChannelID == ch.Id && (edit.ConfirmKeyGroup == "" || edit.ConfirmKeyGroup != b.UpstreamGroup) {
+						return retailprice.ErrConfig
+					}
+				}
 			}
 			var duplicates int64
 			if err := tx.Model(&Channel{}).Where("(retail_site_id = ? OR id = ?) AND id <> ? AND name = ?", edit.SiteID, edit.SiteID, ch.Id, name).Count(&duplicates).Error; err != nil {

@@ -31,7 +31,7 @@ func GetRetailGroupBindings(c *gin.Context) {
 	}
 	slices.Sort(groups)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
-		"version": version, "bindings": book.GroupBindings, "model_sync": book.ModelSync, "sync": book.PublicRateSync,
+		"credential_groups": book.RegisteredGroups(), "version": version, "bindings": book.GroupBindings, "model_sync": book.ModelSync, "sync": book.PublicRateSync,
 		"local_groups": groups, "channels": channels, "server_time": time.Now().Unix(),
 		"sale_policy":   retailprice.SalePolicy{ReceiptRatio: book.ReceiptRatio, MarginBPS: book.MarginBPS, FeeBPS: book.FeeBPS, BufferBPS: book.BufferBPS},
 		"pricing_ready": len(book.Models) > 0 && len(book.Products) > 0, "pricing_enabled": book.Enabled,

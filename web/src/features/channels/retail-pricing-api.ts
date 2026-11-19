@@ -132,6 +132,7 @@ export type RetailBindingChannel = {
   status: number
 }
 export type RetailSupplyEdit = {
+  confirm_key_group?: string
   id: number
   site_id: number
   name: string
@@ -139,6 +140,7 @@ export type RetailSupplyEdit = {
   models: string
 }
 export type RetailBindingState = {
+  credential_groups?: Record<number, string>
   sale_policy: RetailSalePolicy
   version: number
   server_time: number

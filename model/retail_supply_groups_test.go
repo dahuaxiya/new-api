@@ -187,7 +187,28 @@ func TestRetailSupplyConfigurationDatabases(t *testing.T) {
 			require.ErrorIs(t, err, ErrRetailSupplyGroupKey)
 			// The root site's legacy comma-separated group list is valid and editable.
 			rootBinding := append(append([]retailprice.GroupBinding{}, bindings...), retailprice.GroupBinding{LocalGroup: "existing", ChannelID: parent.Id, UpstreamGroup: "pro"})
-			_, err = SaveRetailSupplyConfiguration(ctx, version2, rootBinding, true, feed, 1, policy, []RetailSupplyEdit{{ID: parent.Id, SiteID: parent.Id, Name: "Site renamed", Models: "old-model"}})
+			version3, err := SaveRetailSupplyConfiguration(ctx, version2, rootBinding, true, feed, 1, policy, []RetailSupplyEdit{{ID: parent.Id, SiteID: parent.Id, Name: "Site renamed", Models: "old-model"}})
+			require.NoError(t, err)
+			// Simulate the payload from before credential ownership was recorded. Removing all
+			// customer routes must retain both upstream identities when the editor reopens.
+			legacy, _, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			legacy.CredentialGroups = nil
+			payload, err := common.Marshal(legacy)
+			require.NoError(t, err)
+			require.NoError(t, db.Model(&RetailPriceState{}).Where("id = ?", 1).Update("payload", string(payload)).Error)
+			version4, err := SaveRetailGroupBindings(ctx, version3, nil, false, feed, 1)
+			require.NoError(t, err)
+			reopened, _, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Equal(t, map[int]string{id: "pro", parent.Id: "pro"}, reopened.RegisteredGroups())
+			feed.Groups = append(feed.Groups, retailprice.PublicRate{Group: "cheap", Multiplier: "0.01"})
+			wrong := []retailprice.GroupBinding{{ChannelID: id, LocalGroup: "default", UpstreamGroup: "cheap"}}
+			_, err = SaveRetailSupplyConfiguration(ctx, version4, wrong, true, feed, 1, nil, []RetailSupplyEdit{{ID: id, SiteID: parent.Id, Name: "Must roll back", Models: "model-x"}})
+			require.Error(t, err)
+			require.NoError(t, db.First(&ch, id).Error)
+			require.Equal(t, "Pro renamed", ch.Name)
+			_, err = SaveRetailGroupBindings(ctx, version4, bindings, true, feed, 1)
 			require.NoError(t, err)
 		})
 	}

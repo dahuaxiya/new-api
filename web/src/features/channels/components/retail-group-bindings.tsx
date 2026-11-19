@@ -112,6 +112,13 @@ function BindingEditor(props: {
   )
   const [channels, setChannels] = useState(props.state.channels)
   const [supplies, setSupplies] = useState<Record<number, RetailSupplyEdit>>({})
+  // Older servers expose registrations through saved routes only. Drafts never override saved ownership.
+  const registered =
+    props.state.credential_groups ??
+    Object.fromEntries(
+      (props.state.bindings ?? []).map((b) => [b.channel_id, b.upstream_group])
+    )
+  const [draftGroups, setDraftGroups] = useState<Record<number, string>>({})
   const [nextDraftID, setNextDraftID] = useState(-1)
   const supplyEdits = Object.values(supplies).filter((edit) =>
     bindings.some((row) => row.channel_id === edit.id)
@@ -234,7 +241,18 @@ function BindingEditor(props: {
   const valid =
     policyValid &&
     !incomplete &&
-    supplyEdits.every((edit) => edit.name.trim().length > 0) &&
+    supplyEdits.every(
+      (edit) =>
+        edit.name.trim().length > 0 &&
+        (!edit.key ||
+          !channels.find((ch) => ch.id === edit.id)?.has_key ||
+          (!!edit.confirm_key_group &&
+            bindings.every(
+              (b) =>
+                b.channel_id !== edit.id ||
+                b.upstream_group === edit.confirm_key_group
+            )))
+    ) &&
     !duplicates &&
     (!enabled || bindings.length > 0)
   const mutation = useMutation({
@@ -570,6 +588,11 @@ function BindingEditor(props: {
                             ? {
                                 ...item,
                                 channel_id: Number(event.target.value),
+                                // Resolve both fields together so a quote cannot use the previous credential's rate.
+                                upstream_group:
+                                  registered[Number(event.target.value)] ??
+                                  draftGroups[Number(event.target.value)] ??
+                                  '',
                               }
                             : item
                         )
@@ -605,12 +628,20 @@ function BindingEditor(props: {
                     id={`binding-upstream-${row.rowID}`}
                     className='w-full'
                     value={row.upstream_group}
-                    disabled={mutation.isPending}
+                    disabled={
+                      mutation.isPending ||
+                      !row.channel_id ||
+                      !!registered[row.channel_id]
+                    }
                     onChange={(event) => {
                       const upstream = event.target.value
+                      setDraftGroups({
+                        ...draftGroups,
+                        [row.channel_id]: upstream,
+                      })
                       setBindings(
-                        bindings.map((item, i) =>
-                          i === index
+                        bindings.map((item) =>
+                          item.channel_id === row.channel_id
                             ? { ...item, upstream_group: upstream }
                             : item
                         )
@@ -674,10 +705,34 @@ function BindingEditor(props: {
                       )}
                       disabled={mutation.isPending}
                       onChange={(event) =>
-                        editSupply(channel.id, { key: event.target.value })
+                        editSupply(channel.id, {
+                          key: event.target.value,
+                          confirm_key_group: undefined,
+                        })
                       }
                     />
                   </Field>
+                  {channel.has_key && draft?.key && (
+                    <label className='text-sm sm:col-span-2'>
+                      <input
+                        type='checkbox'
+                        disabled={!row.upstream_group || mutation.isPending}
+                        checked={
+                          !!row.upstream_group &&
+                          draft.confirm_key_group === row.upstream_group
+                        }
+                        onChange={(event) =>
+                          editSupply(channel.id, {
+                            confirm_key_group: event.target.checked
+                              ? row.upstream_group
+                              : undefined,
+                          })
+                        }
+                      />{' '}
+                      {t('The replacement Key belongs to this upstream group')}:{' '}
+                      {row.upstream_group}
+                    </label>
+                  )}
                   <Field className='sm:col-span-2'>
                     <RetailSupplyModelPicker
                       key={channel.id}

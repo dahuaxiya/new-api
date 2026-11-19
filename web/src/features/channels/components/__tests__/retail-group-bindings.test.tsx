@@ -590,3 +590,61 @@ it('ignores a late saved-key response after previewing a replacement key', async
   expect(screen.queryByRole('checkbox', { name: 'stale-model' })).toBeNull()
   expect(screen.getByRole('checkbox', { name: 'gpt-test' })).toBeChecked()
 })
+
+/** Switching credentials replaces both the upstream label and the quote, even without a saved route. */
+it('reuses the registered group and clears the quote for an unregistered credential', async () => {
+  const first = source.groups[0].group
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        ...state,
+        credential_groups: { 4: first, 5: 'regular' },
+        channels: [
+          ...state.channels,
+          { ...state.channels[0], id: 5 },
+          { ...state.channels[0], id: 6 },
+        ],
+        sync: {
+          enabled: false,
+          snapshot: {
+            ...source,
+            groups: [
+              ...source.groups,
+              { group: 'regular', multiplier: '0.12' },
+            ],
+          },
+        },
+      },
+    },
+  })
+  mount()
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add group binding' })
+  )
+  const select = screen.getByLabelText('Supply credential 1')
+  const group = screen.getByLabelText('Upstream group 1')
+  fireEvent.change(select, { target: { value: '4' } })
+  expect(group).toHaveValue(first)
+  expect(group).toBeDisabled()
+  const initialQuote = screen.getByLabelText(
+    'Estimated selling multiplier 1'
+  ).textContent
+  fireEvent.change(select, { target: { value: '5' } })
+  expect(group).toHaveValue('regular')
+  expect(
+    screen.getByLabelText('Estimated selling multiplier 1').textContent
+  ).not.toBe(initialQuote)
+  fireEvent.change(select, { target: { value: '6' } })
+  expect(group).toHaveValue('')
+  expect(group).toBeEnabled()
+  expect(screen.queryByLabelText('Estimated selling multiplier 1')).toBeNull()
+  fireEvent.change(group, { target: { value: first } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add group binding' }))
+  fireEvent.change(screen.getByLabelText('Supply credential 2'), {
+    target: { value: '6' },
+  })
+  expect(screen.getByLabelText('Upstream group 2')).toHaveValue(first)
+  fireEvent.change(group, { target: { value: 'regular' } })
+  expect(screen.getByLabelText('Upstream group 2')).toHaveValue('regular')
+})

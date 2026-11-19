@@ -158,7 +158,13 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 	}
 	localGroups := ratio_setting.GetGroupRatioCopy()
 	return mutateRetailPriceBookIn(db, ctx, expected, actorID, false, func(book *retailprice.Book) error {
+		// Seed from the old routes before replacing them, including the last route being removed.
+		groups := book.RegisteredGroups()
 		for _, binding := range bindings {
+			if group := groups[binding.ChannelID]; group != "" && group != binding.UpstreamGroup {
+				return retailprice.ErrConfig
+			}
+			groups[binding.ChannelID] = binding.UpstreamGroup
 			if _, ok := localGroups[binding.LocalGroup]; !ok {
 				return retailprice.ErrAccess
 			}
@@ -204,6 +210,7 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 				delete(book.ModelSync, old.SyncID())
 			}
 		}
+		book.CredentialGroups = groups
 		book.GroupBindings = bindings
 		book.PublicRateSync = retailprice.PublicRateSync{Enabled: enabled, Snapshot: snapshot}
 		if enabled {

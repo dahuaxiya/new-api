@@ -86,8 +86,24 @@ func (p Product) AllowsGroup(group string) bool {
 	return p.Public || slices.Contains(p.UserGroups, group)
 }
 
+// RegisteredGroups returns the upstream identity independently of any customer route.
+// Older books carry the same identity on their routes until the next bindings save.
+func (b Book) RegisteredGroups() map[int]string {
+	groups := make(map[int]string, len(b.CredentialGroups))
+	for id, group := range b.CredentialGroups {
+		groups[id] = group
+	}
+	for _, binding := range b.GroupBindings {
+		if groups[binding.ChannelID] == "" {
+			groups[binding.ChannelID] = binding.UpstreamGroup
+		}
+	}
+	return groups
+}
+
 // Book stores an immutable pricing version. Wallet conversion is explicit and never a display FX rate.
 type Book struct {
+	CredentialGroups  map[int]string            `json:"credential_groups,omitempty"`
 	ModelSync         map[string]ModelSyncState `json:"model_sync,omitempty"`
 	SalePolicyManaged bool                      `json:"sale_policy_managed,omitempty"`
 	GroupBindings     []GroupBinding            `json:"group_bindings,omitempty"`
