@@ -109,14 +109,65 @@ func ApplyRetailModelList(ctx context.Context, expected int64, id int, source *C
 	return changed && err == nil, err
 }
 
-// RetailCatalogAbilities loads enabled model-to-supply pairs in one query for an entire catalog.
-// Eligibility supplied by the caller already excludes disabled, private and occupied channels.
-func RetailCatalogAbilities(group string, ids []int) (map[string][]int, error) {
-	var rows []Ability
-	err := DB.Select("model", "channel_id").Where(commonGroupCol+" = ? AND enabled = ? AND channel_id IN ?", group, true, ids).Find(&rows).Error
-	result := map[string][]int{}
-	for _, r := range rows {
-		result[r.Model] = append(result[r.Model], r.ChannelId)
+// RetailRouteTargets records the outbound ID for each enabled public model and eligible credential.
+type RetailRouteTargets map[string]map[int]string
+
+// Eligible returns only routes whose configured upstream ID is still the one the relay sends.
+func (targets RetailRouteTargets) Eligible(product retailprice.Product, name string) []int {
+	var ids []int
+	for _, route := range product.Routes {
+		if expected := route.Models[name]; expected != "" && targets[name][route.ChannelID] == expected {
+			ids = append(ids, route.ChannelID)
+		}
 	}
-	return result, err
+	return ids
+}
+
+// RetailCatalogTargets intersects enrolled supplies with enabled abilities and channel mappings.
+// Optional names restrict per-request work; an empty list loads the whole catalog for display.
+func RetailCatalogTargets(group string, ids []int, names ...string) (RetailRouteTargets, error) {
+	type row struct {
+		Model        string
+		ChannelID    int
+		ModelMapping *string
+	}
+	var rows []row
+	query := DB.Model(&Ability{}).Select("abilities.model, abilities.channel_id, channels.model_mapping").Joins("JOIN channels ON channels.id = abilities.channel_id").Where(&Ability{Group: group, Enabled: true}).Where("channels.status = ? AND abilities.channel_id IN ?", common.ChannelStatusEnabled, ids)
+	if len(names) > 0 {
+		query = query.Where("abilities.model IN ?", names)
+	}
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	mappings := map[int]retailprice.ChannelMapping{}
+	targets := RetailRouteTargets{}
+	for _, r := range rows {
+		mapping, ok := mappings[r.ChannelID]
+		if !ok {
+			raw := ""
+			if r.ModelMapping != nil {
+				raw = *r.ModelMapping
+			}
+			mapping = retailprice.ParseChannelMapping(raw)
+			mappings[r.ChannelID] = mapping
+		}
+		if targets[r.Model] == nil {
+			targets[r.Model] = map[int]string{}
+		}
+		targets[r.Model][r.ChannelID] = mapping.Target(r.Model)
+	}
+	return targets, nil
+}
+
+// RetailDisplayTargets loads the same active supply set for preview and customer catalogs.
+func RetailDisplayTargets() (RetailRouteTargets, error) {
+	cfg, err := retail_setting.Load()
+	if err != nil {
+		return nil, err
+	}
+	ids, err := RetailSupplyIDs(cfg.Group)
+	if err != nil {
+		return nil, err
+	}
+	return RetailCatalogTargets(cfg.Group, ids)
 }

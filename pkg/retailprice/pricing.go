@@ -367,7 +367,7 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		routeRates, rateID := b.Rates, route.RateID
 		if binding := b.Binding(bindingGroup, route.ChannelID); binding != nil {
 			// Pauses are scoped to the bound credential and upstream ID; manual aliases survive outages.
-			if slices.Contains(b.ModelSync[binding.SyncID()].Paused, route.Models[modelName]) {
+			if binding.FollowModels && slices.Contains(b.ModelSync[binding.SyncID()].Paused, route.Models[modelName]) {
 				continue
 			}
 			// A failed refresh cannot reactivate an older manually entered multiplier.

@@ -76,9 +76,9 @@ func (b *Book) ApplyModelList(binding GroupBinding, upstream []string, mapping m
 			continue
 		}
 		m, ok := prices[name]
-		target := mapping[name]
+		target := (ChannelMapping{values: mapping}).Target(name)
 		// Only new routes need an explicit supported modality. Historical routes keep their contract.
-		if !ok || (m.Kind != "text" && m.Kind != "image") || m.OfficialModel != name || m.VerifiedAt > now || m.ValidUntil <= now || (target != "" && target != name) || (route.Models[name] != "" && route.Models[name] != name) {
+		if !ok || (m.Kind != "text" && m.Kind != "image") || m.OfficialModel != name || m.VerifiedAt > now || m.ValidUntil <= now || target != name || (route.Models[name] != "" && route.Models[name] != name) {
 			state.Pending = append(state.Pending, name)
 			continue
 		}

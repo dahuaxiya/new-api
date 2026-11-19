@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
+	"github.com/QuantumNous/new-api/setting/retail_setting"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -93,7 +94,7 @@ func PublishRetailPriceBook(expected int64, book retailprice.Book, ratesOnly []r
 			current.Rates = ratesOnly
 		} else {
 			book.CredentialGroups = current.CredentialGroups // Only the credential editor may establish ownership.
-			book.ModelSync = current.ModelSync // Observation history is server-owned, never supplied by a price editor.
+			book.ModelSync = current.ModelSync               // Observation history is server-owned, never supplied by a price editor.
 			book.GroupBindings, book.PublicRateSync = current.GroupBindings, current.PublicRateSync
 			// Once economics are saved separately, even a first catalog publication
 			// must preserve them. Legacy books retain their original editing contract.
@@ -256,7 +257,20 @@ func RetailQuote(userID, tokenID int, modelName string, outputLimit int, eligibl
 	if err := DB.Select("id", "group", "status").First(&user, userID).Error; err != nil || user.Status != common.UserStatusEnabled {
 		return nil, retailprice.ErrAccess
 	}
-	return book.MakeQuote(version, user.Group, policy, modelName, outputLimit, eligible, time.Now().Unix())
+	cfg, err := retail_setting.Load()
+	if err != nil {
+		return nil, err
+	}
+	targets, err := RetailCatalogTargets(cfg.Group, eligible, modelName)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range book.Products {
+		if p.ID == policy.ProductID {
+			return book.MakeQuote(version, user.Group, policy, modelName, outputLimit, targets.Eligible(p, modelName), time.Now().Unix())
+		}
+	}
+	return nil, retailprice.ErrAccess
 }
 
 // RetailCNYQuota converts a frozen RMB quote to legacy wallet units without changing historical balances.

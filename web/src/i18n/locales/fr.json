@@ -8250,6 +8250,7 @@
     "Skipped {{count}} model entries": "Skipped {{count}} model entries",
     "Supply is disabled or missing credentials": "Supply is disabled or missing credentials",
     "Official price is unverified or expired": "Official price is unverified or expired",
+    "Channel model mapping differs from the price route": "Le modèle envoyé par le canal diffère du modèle tarifé",
     "Existing product access differs from this binding": "Existing product access differs from this binding",
     "Call group": "Groupe d’appel",
     "Call groups": "Groupes d’appel",

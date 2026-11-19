@@ -392,7 +392,10 @@ function RetailPricingEditor(props: {
                       #{item.channel_id} · {item.model || t('Supply channel')} ·{' '}
                       {item.reason === 'product_access_conflict' &&
                         t('Existing product access differs from this binding')}
+                      {item.reason === 'model_mapping_conflict' &&
+                        t('Channel model mapping differs from the price route')}
                       {item.reason !== 'product_access_conflict' &&
+                        item.reason !== 'model_mapping_conflict' &&
                         t(
                           item.reason === 'supply_unavailable'
                             ? 'Supply is disabled or missing credentials'

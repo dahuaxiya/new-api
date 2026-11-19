@@ -303,6 +303,36 @@ func TestRetailModelSyncAtomicPublication(t *testing.T) {
 			_, again, err := GetRetailPriceBook()
 			require.NoError(t, err)
 			require.Equal(t, v, again, "unchanged models must not invalidate active quotes")
+			// A sibling binding sharing the same credential is removable until its own product references it.
+			extra := b
+			extra.LocalGroup = "existing"
+			extra.FollowModels = false
+			feed := book.PublicRateSync.Snapshot
+			v, err = SaveRetailGroupBindings(ctx, v, []retailprice.GroupBinding{b, extra}, true, feed, 1)
+			require.NoError(t, err)
+			_, err = SaveRetailGroupBindings(ctx, v, []retailprice.GroupBinding{extra}, true, feed, 1)
+			require.ErrorIs(t, err, retailprice.ErrAccess)
+			v, err = SaveRetailGroupBindings(ctx, v, []retailprice.GroupBinding{b}, true, feed, 1)
+			require.NoError(t, err)
+			// Two complete observations pause the missing model. Switching to manual then selecting it must restore quotation.
+			for range 2 {
+				_, err = ApplyRetailModelList(ctx, v, ch.Id, src, []string{"other"})
+				require.NoError(t, err)
+				book, v, err = GetRetailPriceBook()
+				require.NoError(t, err)
+			}
+			require.Contains(t, book.ModelSync[b.SyncID()].Paused, next.ID)
+			_, err = book.MakeQuote(v, "default", policy, next.ID, 1, []int{ch.Id}, now)
+			require.ErrorIs(t, err, retailprice.ErrExpired)
+			b.FollowModels = false
+			v, err = SaveRetailSupplyConfiguration(ctx, v, []retailprice.GroupBinding{b}, true, feed, 1, nil, []RetailSupplyEdit{{ID: ch.Id, SiteID: ch.Id, Name: ch.Name, Models: next.ID}})
+			require.NoError(t, err)
+			book, v, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			targets, err := RetailDisplayTargets()
+			require.NoError(t, err)
+			_, err = book.MakeQuote(v, "default", policy, next.ID, 1, targets.Eligible(book.Products[1], next.ID), now)
+			require.NoError(t, err)
 			require.NoError(t, db.Model(&ch).Update("key", "replacement-test-key").Error)
 			_, err = ApplyRetailModelList(ctx, v, ch.Id, src, []string{"stale"})
 			require.ErrorIs(t, err, ErrRetailPriceConflict)

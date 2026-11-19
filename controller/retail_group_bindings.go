@@ -63,6 +63,17 @@ func PutRetailGroupBindings(c *gin.Context) {
 		retailPricingManagementError(c, model.ErrRetailPriceConflict)
 		return
 	}
+	// Suspension does not buy capacity. Commit it even when the rate feed is down, without renewing any price.
+	version, err = model.SuspendRetailSupplies(c.Request.Context(), input.ExpectedVersion, input.Bindings, input.Enabled, c.GetInt("id"), input.SalePolicy, input.Supplies)
+	if err == nil {
+		model.InitChannelCache()
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"version": version}})
+		return
+	}
+	if err != model.ErrRetailMixedSupplyEdit {
+		retailPricingManagementError(c, err)
+		return
+	}
 	snapshot := book.PublicRateSync.Snapshot
 	if input.Enabled || len(input.Bindings) > 0 {
 		fresh, readErr := fetchRetailPublicRates(c.Request.Context())

@@ -8,7 +8,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
-	"github.com/QuantumNous/new-api/setting/retail_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -55,7 +54,7 @@ func GenerateRetailOfficialDraft(c *gin.Context) {
 	}
 	supplies := make([]retailprice.CatalogSupply, 0, len(channels))
 	for _, channel := range channels {
-		supplies = append(supplies, retailprice.CatalogSupply{ID: channel.ID, Models: channel.Models, Available: channel.HasKey && channel.Status == common.ChannelStatusEnabled})
+		supplies = append(supplies, retailprice.CatalogSupply{ID: channel.ID, Models: channel.Models, Mapping: channel.ModelMapping, Available: channel.HasKey && channel.Status == common.ChannelStatusEnabled})
 	}
 	draft := retailprice.GenerateOfficialDraft(book, supplies, time.Now().Unix())
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"version": version, "book": draft.Book, "excluded": draft.Excluded}})
@@ -124,6 +123,7 @@ func PreviewRetailPricing(c *gin.Context) {
 	}
 	input.Book.GroupBindings, input.Book.PublicRateSync = current.GroupBindings, current.PublicRateSync
 	// Match publication: catalog edits cannot replace independently saved following economics.
+	input.Book.ModelSync = current.ModelSync
 	input.Book.SalePolicyManaged = current.SalePolicyManaged
 	if current.SalePolicyManaged || (len(current.GroupBindings) > 0 && current.ReceiptRatio != "") {
 		input.Book.ReceiptRatio, input.Book.MarginBPS, input.Book.FeeBPS, input.Book.BufferBPS = current.ReceiptRatio, current.MarginBPS, current.FeeBPS, current.BufferBPS
@@ -132,12 +132,13 @@ func PreviewRetailPricing(c *gin.Context) {
 		retailPricingManagementError(c, retailprice.ErrConfig)
 		return
 	}
+	targets, err := model.RetailDisplayTargets()
+	if err != nil {
+		retailPricingManagementError(c, err)
+		return
+	}
 	rows := []gin.H{}
 	for _, product := range input.Book.Products {
-		ids := []int{}
-		for _, route := range product.Routes {
-			ids = append(ids, route.ChannelID)
-		}
 		for _, official := range input.Book.Models {
 			ceiling := retailprice.Prices{Input: "99999999", Output: "99999999", CacheRead: "99999999", CacheWrite: "99999999", CacheWrite1h: "99999999"}
 			policy := retailprice.KeyPolicy{ProductID: product.ID, AcceptFloating: true, Caps: map[string]retailprice.Prices{official.ID: ceiling}, MaxRequestCNY: "99999999", DailyBudgetCNY: "99999999"}
@@ -146,7 +147,7 @@ func PreviewRetailPricing(c *gin.Context) {
 			if !product.Public {
 				group = product.UserGroups[0]
 			}
-			quote, err := input.Book.MakeQuote(0, group, policy, official.ID, 1, ids, time.Now().Unix())
+			quote, err := input.Book.MakeQuote(0, group, policy, official.ID, 1, targets.Eligible(product, official.ID), time.Now().Unix())
 			if err != nil {
 				rows = append(rows, gin.H{"product": product.Name, "model": official.ID, "available": false})
 				continue
@@ -237,17 +238,7 @@ func GetRetailCatalog(c *gin.Context) {
 		retailPricingManagementError(c, retailprice.ErrAccess)
 		return
 	}
-	cfg, err := retail_setting.Load()
-	if err != nil {
-		retailPricingManagementError(c, err)
-		return
-	}
-	ids, err := model.RetailSupplyIDs(cfg.Group)
-	if err != nil {
-		retailPricingManagementError(c, err)
-		return
-	}
-	abilities, err := model.RetailCatalogAbilities(cfg.Group, ids)
+	targets, err := model.RetailDisplayTargets()
 	if err != nil {
 		retailPricingManagementError(c, err)
 		return
@@ -261,7 +252,7 @@ func GetRetailCatalog(c *gin.Context) {
 			// Synthetic generous caps are only for displaying a price, never a persisted user consent.
 			ceiling := retailprice.Prices{Input: "99999999", Output: "99999999", CacheRead: "99999999", CacheWrite: "99999999", CacheWrite1h: "99999999"}
 			policy := retailprice.KeyPolicy{ProductID: p.ID, AcceptFloating: true, Caps: map[string]retailprice.Prices{official.ID: ceiling}, MaxRequestCNY: "99999999", DailyBudgetCNY: "99999999"}
-			quote, err := book.MakeQuote(version, user.Group, policy, official.ID, 1, abilities[official.ID], time.Now().Unix())
+			quote, err := book.MakeQuote(version, user.Group, policy, official.ID, 1, targets.Eligible(p, official.ID), time.Now().Unix())
 			if err != nil {
 				continue
 			}

@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"slices"
 	"strings"
@@ -234,6 +235,31 @@ type RetailSupplyEdit struct {
 // The price row is locked before site rows. Any stale version, invalid route or credential failure rolls
 // back all changes, so retrying cannot leave paid routes paired with only half of the intended settings.
 func SaveRetailSupplyConfiguration(ctx context.Context, expected int64, bindings []retailprice.GroupBinding, enabled bool, snapshot *retailprice.PublicRateSnapshot, actorID int, policy *retailprice.SalePolicy, edits []RetailSupplyEdit) (int64, error) {
+	return saveRetailSupplyConfiguration(ctx, expected, bindings, enabled, snapshot, actorID, policy, edits, false)
+}
+
+// ErrRetailMixedSupplyEdit asks the caller to validate a combined rate/credential edit using a fresh upstream feed.
+var ErrRetailMixedSupplyEdit = errors.New("not a suspension-only edit")
+
+// SuspendRetailSupplies accepts the normal form only when it exclusively disables existing credentials.
+// An unrelated form change is retried by the caller using the full pricing workflow.
+func SuspendRetailSupplies(ctx context.Context, expected int64, bindings []retailprice.GroupBinding, enabled bool, actorID int, policy *retailprice.SalePolicy, edits []RetailSupplyEdit) (int64, error) {
+	if len(edits) == 0 {
+		return 0, ErrRetailMixedSupplyEdit
+	}
+	for _, e := range edits {
+		if e.ID <= 0 || e.Enabled == nil || *e.Enabled || e.Key != "" {
+			return 0, ErrRetailMixedSupplyEdit
+		}
+	}
+	return saveRetailSupplyConfiguration(ctx, expected, bindings, enabled, nil, actorID, policy, edits, true)
+}
+
+// saveRetailSupplyConfiguration validates the locked credential and commits its abilities and price revision together.
+func saveRetailSupplyConfiguration(ctx context.Context, expected int64, bindings []retailprice.GroupBinding, enabled bool, snapshot *retailprice.PublicRateSnapshot, actorID int, policy *retailprice.SalePolicy, edits []RetailSupplyEdit, suspendOnly bool) (int64, error) {
+	if actorID <= 0 {
+		return 0, retailprice.ErrAccess
+	}
 	if len(edits) > 100 || len(bindings) > 200 {
 		return 0, retailprice.ErrConfig
 	}
@@ -245,6 +271,19 @@ func SaveRetailSupplyConfiguration(ctx context.Context, expected int64, bindings
 		}
 		if state.Version != expected {
 			return ErrRetailPriceConflict
+		}
+		if suspendOnly {
+			var book retailprice.Book
+			if err := common.UnmarshalJsonStr(state.Payload, &book); err != nil {
+				return err
+			}
+			current := retailprice.SalePolicy{ReceiptRatio: book.ReceiptRatio, MarginBPS: book.MarginBPS, FeeBPS: book.FeeBPS, BufferBPS: book.BufferBPS}
+			if current.ReceiptRatio == "" {
+				current.ReceiptRatio = "1"
+			}
+			if enabled != book.PublicRateSync.Enabled || !slices.Equal(bindings, book.GroupBindings) || (policy != nil && *policy != current) {
+				return ErrRetailMixedSupplyEdit
+			}
 		}
 		channels, err := retailBindingChannels(tx)
 		if err != nil {
@@ -310,6 +349,21 @@ func SaveRetailSupplyConfiguration(ctx context.Context, expected int64, bindings
 			if occupied != 0 {
 				return retailprice.ErrAccess
 			}
+			if suspendOnly {
+				// Match the unchanged form fields under the row lock. A stale or combined edit must never bypass rate validation.
+				if name != ch.Name || strings.Join(models, ",") != ch.Models {
+					return ErrRetailMixedSupplyEdit
+				}
+				ch.Status = common.ChannelStatusManuallyDisabled
+				if err := tx.Model(&ch).Update("status", ch.Status).Error; err != nil {
+					return err
+				}
+				if err := ch.UpdateAbilities(tx); err != nil {
+					return err
+				}
+				ids[edit.ID] = edit.ID
+				continue
+			}
 			patch := Channel{Id: ch.Id, Key: key}
 			if err := syncRetailSiteAddress(tx, &patch); err != nil {
 				return err
@@ -371,9 +425,12 @@ func SaveRetailSupplyConfiguration(ctx context.Context, expected int64, bindings
 		if policy != nil {
 			policies = append(policies, *policy)
 		}
-		version, err = saveRetailGroupBindingsIn(tx, ctx, expected, resolved, enabled, snapshot, actorID, policies...)
-		if err != nil {
-			return err
+		version = expected
+		if !suspendOnly {
+			version, err = saveRetailGroupBindingsIn(tx, ctx, expected, resolved, enabled, snapshot, actorID, policies...)
+			if err != nil {
+				return err
+			}
 		}
 		// Credential/model-only changes must also invalidate stale editors. Price audits carry
 		// only the price book, never the credential payload; all writes share this transaction.

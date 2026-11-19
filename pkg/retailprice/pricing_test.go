@@ -161,6 +161,14 @@ func TestDraftAddsSavedOfficialTariffToNewGroup(t *testing.T) {
 	for _, p := range draft.Book.Products {
 		require.Equal(t, price.ID, p.Routes[0].Models[price.ID])
 	}
+	// A conflicting or unreadable alias cannot create a same-name route for the second group.
+	for _, mapping := range []string{`{"gpt-6.2-sol":"other"}`, `{"gpt-6.2-sol":"other","other":"gpt-6.2-sol"}`, `{`} {
+		supplies[1].Mapping = mapping
+		result := retailprice.GenerateOfficialDraft(book, supplies, now)
+		require.Len(t, result.Book.Products, 1)
+		require.Equal(t, "model_mapping_conflict", result.Excluded[0].Reason)
+	}
+	supplies[1].Mapping = ""
 	book.Models[0].OfficialModel = "other-upstream"
 	require.Empty(t, retailprice.GenerateOfficialDraft(book, supplies, now).Book.Products)
 	// An expired saved override also wins over a still-valid bundled tariff.

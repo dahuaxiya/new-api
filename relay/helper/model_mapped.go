@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ModelMappedHelper applies the channel mapping to the relay metadata and outbound request before dispatch.
 func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.Request) error {
 	if info.ChannelMeta == nil {
 		info.ChannelMeta = &relaycommon.ChannelMeta{}
@@ -25,40 +26,20 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 			return fmt.Errorf("unmarshal_model_mapping_failed")
 		}
 
-		// 支持链式模型重定向，最终使用链尾的模型
-		currentModel := info.OriginModelName
-		visitedModels := map[string]bool{
-			currentModel: true,
+		target, identity := hostreasoning.ResolveChannelModel(modelMap, info.OriginModelName)
+		if target == "" && info.OriginModelName != "" {
+			return errors.New("model_mapping_contains_cycle")
 		}
-		for {
-			mappedModel, exists := modelMap[currentModel]
-			baseModel := hostreasoning.BaseModelName(currentModel)
-			if (!exists || mappedModel == "") && baseModel != currentModel {
-				mappedModel, exists = modelMap[baseModel]
-			}
-			if exists && mappedModel != "" {
-				// 模型重定向循环检测，避免无限循环
-				if visitedModels[mappedModel] {
-					if mappedModel == currentModel {
-						if currentModel == info.OriginModelName {
-							info.IsModelMapped = false
-							return nil
-						}
-
-						info.IsModelMapped = true
-						break
-					}
-					return errors.New("model_mapping_contains_cycle")
-				}
-				visitedModels[mappedModel] = true
-				currentModel = mappedModel
-				info.IsModelMapped = true
-			} else {
-				break
-			}
+		// An explicit identity mapping preserves the caller's preconfigured upstream name and request.
+		if identity {
+			info.IsModelMapped = false
+			return nil
+		}
+		if target != info.OriginModelName {
+			info.IsModelMapped = true
 		}
 		if info.IsModelMapped {
-			info.UpstreamModelName = currentModel
+			info.UpstreamModelName = target
 		}
 	}
 

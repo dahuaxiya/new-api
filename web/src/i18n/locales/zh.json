@@ -8280,6 +8280,7 @@
     "Skipped {{count}} model entries": "已跳过 {{count}} 项模型配置",
     "Supply is disabled or missing credentials": "供货已停用或尚未填写 Key",
     "Official price is unverified or expired": "官方价格尚未核实或已过期",
+    "Channel model mapping differs from the price route": "渠道实际发送的型号与价表不符，请检查模型映射",
     "Existing product access differs from this binding": "现有方案权限与此绑定不一致",
     "Call group": "调用分组",
     "Call groups": "调用分组",

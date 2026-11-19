@@ -161,6 +161,9 @@ func TestRetailPricingDatabases(t *testing.T) {
 		t.Run(dialect, func(t *testing.T) {
 			db := useVM2APIEnrollmentDatabase(t, dialect)
 			require.NoError(t, migrateDB())
+			// Quotes use live channel abilities as well as a published route. Supply the real admission fixture.
+			ch := Channel{Id: 101, Type: 1, Group: "retail", Status: 1, Models: "gpt-4o", Key: "test-only"}
+			require.NoError(t, ch.Insert())
 			// Reconstruct the latest release's charge columns, keep a real legacy reservation, then upgrade twice.
 			user := User{Username: "price-user", AffCode: "price", Group: "default", Status: 1, Quota: 1000000}
 			require.NoError(t, db.Create(&user).Error)

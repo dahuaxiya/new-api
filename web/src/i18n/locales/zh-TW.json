@@ -8280,6 +8280,7 @@
     "Skipped {{count}} model entries": "Skipped {{count}} model entries",
     "Supply is disabled or missing credentials": "Supply is disabled or missing credentials",
     "Official price is unverified or expired": "Official price is unverified or expired",
+    "Channel model mapping differs from the price route": "渠道實際傳送的型號與價表不符，請檢查模型映射",
     "Existing product access differs from this binding": "Existing product access differs from this binding",
     "Call group": "呼叫分組",
     "Call groups": "呼叫分組",

@@ -860,6 +860,58 @@ func TestRetailPricingManagement(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"success":false`)
 	require.NoError(t, model.DB.Model(&token).Update("user_id", user.Id).Error)
 	require.NoError(t, model.DB.First(&account, user.Id).Error)
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
+	require.NoError(t, model.PublishUserAuthCache(user.Id))
+	// The same public group must lose the model in preview, catalog and request pricing on a changed alias or a disabled Key.
+	current, currentVersion, err := model.GetRetailPriceBook()
+	require.NoError(t, err)
+	checkUnavailable := func() {
+		t.Helper()
+		preview := request("POST", "/api/retail/admin/pricing/preview", "https://example.com", gin.H{"book": current})
+		var response struct {
+			Success bool
+			Data    []struct {
+				Product, Model string
+				Available      bool
+			}
+		}
+		require.NoError(t, common.Unmarshal(preview.Body.Bytes(), &response))
+		require.True(t, response.Success, preview.Body.String())
+		found := false
+		for _, row := range response.Data {
+			if row.Product == publicProduct.Name && row.Model == "gpt-6.1-sol" {
+				found = true
+				require.False(t, row.Available)
+			}
+		}
+		require.True(t, found)
+		catalog := request("GET", "/api/retail/catalog", "https://example.com", nil)
+		require.Contains(t, catalog.Body.String(), `"success":true`)
+		require.NotContains(t, catalog.Body.String(), `"id":"gpt-6.1-sol"`)
+		_, err := model.RetailQuote(user.Id, groupKey.Id, "gpt-6.1-sol", 1, []int{101})
+		require.ErrorIs(t, err, retailprice.ErrExpired)
+	}
+	require.NoError(t, model.DB.Model(&channel).Update("model_mapping", `{"gpt-6.1-sol":"supplier-alias"}`).Error)
+	checkUnavailable()
+	require.NoError(t, model.DB.Model(&channel).Update("model_mapping", "{}").Error)
+	retailPublicRatesClient.Transport = retailPublicRatesTestTransport(func(*http.Request) (*http.Response, error) { return nil, io.ErrUnexpectedEOF })
+	off := false
+	edits := []model.RetailSupplyEdit{{ID: 101, SiteID: 101, Name: publishedChannel.Name, Models: publishedChannel.Models, Enabled: &off}}
+	payload := gin.H{"expected_version": currentVersion, "bindings": current.GroupBindings, "enabled": true, "supplies": edits}
+	edits[0].Name += " changed"
+	w = request("PUT", "/api/retail/admin/pricing/group-bindings", "https://example.com", payload)
+	require.Contains(t, w.Body.String(), `"success":false`)
+	edits[0].Name = publishedChannel.Name
+	w = request("PUT", "/api/retail/admin/pricing/group-bindings", "https://example.com", payload)
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	checkUnavailable()
+	after, newVersion, err := model.GetRetailPriceBook()
+	require.NoError(t, err)
+	require.Equal(t, current, after)
+	require.Equal(t, currentVersion+1, newVersion)
+	w = request("PUT", "/api/retail/admin/pricing/group-bindings", "https://example.com", payload)
+	require.Contains(t, w.Body.String(), `"success":false`)
+
 	require.Equal(t, "another", account.Group)
 	require.NoError(t, model.DB.Model(user).Update("status", common.UserStatusDisabled).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))

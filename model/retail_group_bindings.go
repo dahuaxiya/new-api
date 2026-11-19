@@ -17,14 +17,15 @@ import (
 
 // RetailBindingChannel exposes only safe operator labels, never a channel credential.
 type RetailBindingChannel struct {
-	ID      int    `json:"id"`
-	Name    string `json:"name"`
-	SiteID  int    `json:"site_id"`
-	BaseURL string `json:"base_url"`
-	Type    int    `json:"type"`
-	Models  string `json:"models"`
-	HasKey  bool   `json:"has_key"`
-	Status  int    `json:"status"`
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	SiteID       int    `json:"site_id"`
+	BaseURL      string `json:"base_url"`
+	Type         int    `json:"type"`
+	Models       string `json:"models"`
+	HasKey       bool   `json:"has_key"`
+	Status       int    `json:"status"`
+	ModelMapping string `json:"-"` // Internal only: used to compare published and actual upstream model IDs.
 }
 
 // RetailBindingChannels lists explicitly authorized Xingxing reseller credentials.
@@ -47,7 +48,7 @@ func retailBindingChannels(db *gorm.DB) ([]RetailBindingChannel, error) {
 	}
 	var channels []Channel
 	if len(ids) > 0 {
-		if err := db.Select("id", "name", "base_url", "type", "group", "retail_site_id", "models", "key", "status").Where("id IN ?", ids).Find(&channels).Error; err != nil {
+		if err := db.Select("id", "name", "base_url", "type", "group", "retail_site_id", "models", "key", "status", "model_mapping").Where("id IN ?", ids).Find(&channels).Error; err != nil {
 			return nil, err
 		}
 	}
@@ -69,7 +70,7 @@ func retailBindingChannels(db *gorm.DB) ([]RetailBindingChannel, error) {
 		if siteID == 0 {
 			siteID = channel.Id
 		}
-		result = append(result, RetailBindingChannel{ID: channel.Id, Name: channel.Name, SiteID: siteID, BaseURL: channel.GetBaseURL(), Type: channel.Type, Models: channel.Models, HasKey: channel.Key != "", Status: channel.Status})
+		result = append(result, RetailBindingChannel{ID: channel.Id, Name: channel.Name, SiteID: siteID, BaseURL: channel.GetBaseURL(), Type: channel.Type, Models: channel.Models, HasKey: channel.Key != "", Status: channel.Status, ModelMapping: channel.GetModelMapping()})
 	}
 	return result, nil
 }
@@ -187,6 +188,10 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 				continue
 			}
 			for _, product := range book.Products {
+				// Public products buy through their pinned group. Legacy private products use the caller's allowed group.
+				if product.BindingGroup != previous.LocalGroup && (product.BindingGroup != "" || !slices.Contains(product.UserGroups, previous.LocalGroup)) {
+					continue
+				}
 				if slices.ContainsFunc(product.Routes, func(route retailprice.Route) bool { return route.ChannelID == previous.ChannelID }) {
 					return retailprice.ErrAccess
 				}
@@ -202,10 +207,10 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 			book.MarginBPS, book.FeeBPS, book.BufferBPS = policy[0].MarginBPS, policy[0].FeeBPS, policy[0].BufferBPS
 			book.SalePolicyManaged = true
 		}
-		// Discard observations only when the upstream identity changes or the binding is removed.
+		// Only uninterrupted automatic following inherits observations. Manual overrides and a fresh opt-in start without old pauses.
 		for _, old := range book.GroupBindings {
 			if !slices.ContainsFunc(bindings, func(next retailprice.GroupBinding) bool {
-				return old.LocalGroup == next.LocalGroup && old.ChannelID == next.ChannelID && old.UpstreamGroup == next.UpstreamGroup
+				return old.LocalGroup == next.LocalGroup && old.ChannelID == next.ChannelID && old.UpstreamGroup == next.UpstreamGroup && old.FollowModels && next.FollowModels
 			}) {
 				delete(book.ModelSync, old.SyncID())
 			}

@@ -14,6 +14,7 @@ type CatalogSupply struct {
 	ID        int
 	Models    string
 	Available bool
+	Mapping   string
 }
 
 // CatalogExclusion identifies a configured model that could not safely enter a generated route.
@@ -96,10 +97,31 @@ func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) Offic
 			result.Excluded = append(result.Excluded, CatalogExclusion{ChannelID: binding.ChannelID, Reason: "supply_unavailable"})
 			continue
 		}
+		targets := ParseChannelMapping(supplies[channel].Mapping)
+		// Existing explicit route mappings may legitimately differ from the public model ID.
+		savedTargets := map[string]string{}
+		for _, p := range book.Products {
+			if p.ID == officialProductID(binding.LocalGroup) {
+				for _, r := range p.Routes {
+					if r.ChannelID == binding.ChannelID {
+						savedTargets = r.Models
+						break
+					}
+				}
+			}
+		}
 		routes := map[string]string{}
 		for name := range strings.SplitSeq(supplies[channel].Models, ",") {
 			name = strings.TrimSpace(name)
 			if name == "" {
+				continue
+			}
+			expected := savedTargets[name]
+			if expected == "" {
+				expected = name
+			}
+			if targets.Target(name) != expected {
+				result.Excluded = append(result.Excluded, CatalogExclusion{binding.ChannelID, name, "model_mapping_conflict"})
 				continue
 			}
 			official, ok := known[name]

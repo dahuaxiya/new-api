@@ -8250,6 +8250,7 @@
     "Skipped {{count}} model entries": "Skipped {{count}} model entries",
     "Supply is disabled or missing credentials": "Supply is disabled or missing credentials",
     "Official price is unverified or expired": "Official price is unverified or expired",
+    "Channel model mapping differs from the price route": "チャネルの送信モデルが料金表のモデルと一致しません",
     "Existing product access differs from this binding": "Existing product access differs from this binding",
     "Call group": "呼び出しグループ",
     "Call groups": "呼び出しグループ",
