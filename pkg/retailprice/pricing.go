@@ -136,16 +136,17 @@ type KeyPolicy struct {
 
 // Quote freezes customer prices and the wallet conversion before procurement.
 type Quote struct {
-	Version          int64  `json:"version"`
-	ProductID        string `json:"product_id"`
-	Model            Model  `json:"model"`
-	Sale             []Tier `json:"sale"`
-	WalletCNYPerUnit string `json:"wallet_cny_per_unit"`
-	ValidUntil       int64  `json:"valid_until"`
-	OutputLimit      int    `json:"output_limit"`
-	ReservedCNY      string `json:"reserved_cny"`
-	InputLimit       int    `json:"input_limit,omitempty"`
-	Channels         []int  `json:"channels"`
+	Version             int64  `json:"version"`
+	ProductID           string `json:"product_id"`
+	Model               Model  `json:"model"`
+	Sale                []Tier `json:"sale"`
+	WalletCNYPerUnit    string `json:"wallet_cny_per_unit"`
+	ValidUntil          int64  `json:"valid_until"`
+	OutputLimit         int    `json:"output_limit"`
+	ReservedInputTokens int    `json:"reserved_input_tokens,omitempty"`
+	ReservedCNY         string `json:"reserved_cny"`
+	InputLimit          int    `json:"input_limit,omitempty"`
+	Channels            []int  `json:"channels"`
 }
 
 // Amount parses bounded decimal money without accepting exponents or silently rounding invalid inputs.
@@ -312,7 +313,7 @@ func (b Book) SaleFactor(multiplier string) (decimal.Decimal, error) {
 
 // MakeQuote uses the cheapest eligible group and freezes its entire sales schedule.
 // More expensive fallbacks are not admitted under an already accepted cheaper quote.
-func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName string, outputLimit int, eligible []int, now int64) (*Quote, error) {
+func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName string, outputLimit int, eligible []int, now int64, inputTokens ...int) (*Quote, error) {
 	// Persisted state is still an input boundary: corrupted or partially restored
 	// catalogs must fail closed before indexing tiers or evaluating a cost floor.
 	if err := b.Validate(now); err != nil {
@@ -416,9 +417,20 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		}
 		quote.Sale = append(quote.Sale, Tier{UpTo: tier.UpTo, Prices: pricesFromValues(values)})
 	}
-	// Reserve the configured maximum context, not an uncertain local token estimate.
-	// Cache write/read counters can overlap in compatible providers, so reserve each category's bound.
-	inputBound := int64(official.Tiers[len(official.Tiers)-1].UpTo)
+	// Runtime callers pass the token count for this request. Preview and legacy callers
+	// omit it and retain the model-wide bound. Using the request estimate avoids holding
+	// funds for an entire million-token context when the actual prompt is only a few KB.
+	// Cache write/read counters can overlap in compatible providers, so retain the
+	// conservative four-category input bound at the selected context length.
+	maxInputBound := official.Tiers[len(official.Tiers)-1].UpTo
+	reservedInputTokens := maxInputBound
+	if len(inputTokens) > 0 {
+		if inputTokens[0] <= 0 || inputTokens[0] > maxInputBound {
+			return nil, ErrBudget
+		}
+		reservedInputTokens = inputTokens[0]
+	}
+	inputBound := int64(reservedInputTokens)
 	reserve := maxInput.Mul(decimal.NewFromInt(inputBound * 4)).Add(maxOutput.Mul(decimal.NewFromInt(int64(outputLimit)))).Div(decimal.NewFromInt(1000000)).RoundCeil(8)
 	limit, _ := Amount(key.MaxRequestCNY)
 	if !key.GroupCurrent && reserve.GreaterThan(limit) {
@@ -439,11 +451,13 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 			inputBound = allowed.IntPart()
 		}
 		quote.InputLimit = int(inputBound)
+		reservedInputTokens = quote.InputLimit
 		reserve = maxInput.Mul(decimal.NewFromInt(inputBound * 4)).Add(maxOutput.Mul(decimal.NewFromInt(int64(outputLimit)))).Div(decimal.NewFromInt(1000000)).RoundCeil(8)
 		if reserve.GreaterThan(limit) {
 			return nil, ErrBudget
 		}
 	}
+	quote.ReservedInputTokens = reservedInputTokens
 	quote.ReservedCNY = reserve.String()
 	return quote, nil
 }

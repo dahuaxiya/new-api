@@ -228,6 +228,20 @@ func putRetailKeyPolicy(tx *gorm.DB, userID, tokenID int, expected int64, policy
 
 // RetailQuote constructs a customer quote from a fresh book and verified public supply candidates.
 func RetailQuote(userID, tokenID int, modelName string, outputLimit int, eligible []int, productIDs ...string) (*retailprice.Quote, error) {
+	return retailQuote(userID, tokenID, modelName, outputLimit, 0, eligible, productIDs...)
+}
+
+// RetailQuoteWithInput includes the request's measured input size in the wallet
+// reservation. Runtime relay paths must use this function so a short prompt does
+// not reserve the model's entire context window.
+func RetailQuoteWithInput(userID, tokenID int, modelName string, outputLimit, inputTokens int, eligible []int, productIDs ...string) (*retailprice.Quote, error) {
+	if inputTokens <= 0 {
+		return nil, retailprice.ErrBudget
+	}
+	return retailQuote(userID, tokenID, modelName, outputLimit, inputTokens, eligible, productIDs...)
+}
+
+func retailQuote(userID, tokenID int, modelName string, outputLimit, inputTokens int, eligible []int, productIDs ...string) (*retailprice.Quote, error) {
 	book, version, err := GetRetailPriceBook()
 	if err != nil {
 		return nil, err
@@ -267,7 +281,11 @@ func RetailQuote(userID, tokenID int, modelName string, outputLimit int, eligibl
 	}
 	for _, p := range book.Products {
 		if p.ID == policy.ProductID {
-			return book.MakeQuote(version, user.Group, policy, modelName, outputLimit, targets.Eligible(p, modelName), time.Now().Unix())
+			now := time.Now().Unix()
+			if inputTokens > 0 {
+				return book.MakeQuote(version, user.Group, policy, modelName, outputLimit, targets.Eligible(p, modelName), now, inputTokens)
+			}
+			return book.MakeQuote(version, user.Group, policy, modelName, outputLimit, targets.Eligible(p, modelName), now)
 		}
 	}
 	return nil, retailprice.ErrAccess
@@ -341,7 +359,7 @@ func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailpric
 			}
 			policy.ProductID = quote.ProductID
 		}
-		fresh, err := book.MakeQuote(state.Version, user.Group, policy, quote.Model.ID, quote.OutputLimit, quote.Channels, time.Now().Unix())
+		fresh, err := book.MakeQuote(state.Version, user.Group, policy, quote.Model.ID, quote.OutputLimit, quote.Channels, time.Now().Unix(), quote.ReservedInputTokens)
 		if err != nil {
 			return err
 		}

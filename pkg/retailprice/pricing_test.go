@@ -71,6 +71,38 @@ func TestQuoteFailsClosed(t *testing.T) {
 	})
 }
 
+// TestQuoteReservesMeasuredInput verifies a short request does not reserve the
+// model's entire context while previews retain a model-wide theoretical bound.
+func TestQuoteReservesMeasuredInput(t *testing.T) {
+	book, key := fixture(t)
+	book.Models[0].MaxOutput = 32768
+	book.Models[0].Tiers = []retailprice.Tier{{
+		UpTo:   1050000,
+		Prices: retailprice.Prices{Input: "16", Output: "60", CacheRead: "0.8", CacheWrite: "20", CacheWrite1h: "40"},
+	}}
+	key.MaxRequestCNY = "999"
+
+	full, err := book.MakeQuote(1, "default", key, "gpt-4o", 32768, []int{101}, 2)
+	require.NoError(t, err)
+	require.Equal(t, 1050000, full.ReservedInputTokens)
+	require.Equal(t, "50.989824", full.ReservedCNY)
+
+	measured, err := book.MakeQuote(1, "default", key, "gpt-4o", 32768, []int{101}, 2, 4445)
+	require.NoError(t, err)
+	require.Equal(t, 4445, measured.ReservedInputTokens)
+	require.Equal(t, "0.803184", measured.ReservedCNY)
+	require.Less(t, measured.ReservedCNY, full.ReservedCNY)
+
+	charge, err := measured.Charge(4445, [5]int{4445, 762, 0, 0, 0})
+	require.NoError(t, err)
+	reserve, err := retailprice.Amount(measured.ReservedCNY)
+	require.NoError(t, err)
+	require.LessOrEqual(t, charge.Cmp(reserve), 0)
+
+	_, err = book.MakeQuote(1, "default", key, "gpt-4o", 32768, []int{101}, 2, 1050001)
+	require.ErrorIs(t, err, retailprice.ErrBudget)
+}
+
 // TestContextTiersAndRouteFloor ensures a more expensive fallback is never bought under a cheap quote.
 func TestContextTiersAndRouteFloor(t *testing.T) {
 	book, key := fixture(t)

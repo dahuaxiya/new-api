@@ -107,6 +107,16 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if err != nil || tokens < 0 || tokens > quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo || (quote.InputLimit > 0 && tokens > quote.InputLimit) {
 		return true, retailPriceError(retailprice.ErrBudget)
 	}
+	quote, err = model.RetailQuoteWithInput(info.UserId, info.TokenId, info.OriginModelName, int(output), tokens, ids, c.GetString("retail_studio_product"))
+	if err != nil || quote == nil {
+		if err == nil {
+			err = retailprice.ErrConfig
+		}
+		return true, retailPriceError(err)
+	}
+	if imageRequest != (quote.Model.Kind == "image") || (quote.InputLimit > 0 && tokens > quote.InputLimit) {
+		return true, retailPriceError(retailprice.ErrBudget)
+	}
 	info.SetEstimatePromptTokens(tokens)
 	quota, err := model.ReservePricedRetailCharge(info.RequestId, info.UserId, info.TokenId, quote)
 	if err != nil {
@@ -166,7 +176,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	if err != nil || !slices.Contains(ids, info.ChannelId) {
 		return retailprice.ErrAccess
 	}
-	fresh, err := model.RetailQuote(info.UserId, info.TokenId, info.OriginModelName, quote.OutputLimit, []int{info.ChannelId}, c.GetString("retail_studio_product"))
+	fresh, err := model.RetailQuoteWithInput(info.UserId, info.TokenId, info.OriginModelName, quote.OutputLimit, quote.ReservedInputTokens, []int{info.ChannelId}, c.GetString("retail_studio_product"))
 	// A publication between these reads invalidates dispatch, even if it lowers
 	// prices. This keeps model mapping and tariff from different versions apart.
 	if err != nil || fresh == nil || fresh.Version != version || fresh.ProductID != quote.ProductID || fresh.WalletCNYPerUnit != quote.WalletCNYPerUnit || len(fresh.Sale) != len(quote.Sale) {
