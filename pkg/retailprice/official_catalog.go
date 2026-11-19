@@ -72,7 +72,7 @@ func OfficialModels() []Model {
 
 // GenerateOfficialDraft adds exact official models and one public call group per saved supply binding group.
 // An explicit generate-and-publish action upgrades legacy generated groups; custom access rules remain intact.
-// Wallet units, economics and enabled state are preserved.
+// Saved tariffs take precedence over the bundled snapshot. Only exact supported models may gain a new route.
 // Bindings and supplies must be server-owned snapshots; this function performs no network or database writes.
 func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) OfficialDraft {
 	book.Models, book.Products = slices.Clone(book.Models), slices.Clone(book.Products)
@@ -83,6 +83,9 @@ func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) Offic
 	}
 	existing := map[string]bool{}
 	for _, model := range book.Models {
+		// Use the same authoritative tariff as quotation and model discovery. Falling back
+		// to a bundled price here could route a model whose saved tariff already expired.
+		known[model.ID] = model
 		existing[model.ID] = true
 	}
 	products := map[string]Product{}
@@ -100,7 +103,7 @@ func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) Offic
 				continue
 			}
 			official, ok := known[name]
-			if !ok || official.VerifiedAt > now || official.ValidUntil <= now {
+			if !ok || official.OfficialModel != name || (official.Kind != "text" && official.Kind != "image") || official.VerifiedAt > now || official.ValidUntil <= now {
 				result.Excluded = append(result.Excluded, CatalogExclusion{binding.ChannelID, name, "official_price_missing_or_expired"})
 				continue
 			}

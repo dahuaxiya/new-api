@@ -144,6 +144,32 @@ func TestOfficialDraftUsesSavedBindings(t *testing.T) {
 	require.Empty(t, retailprice.GenerateOfficialDraft(book, supplies, now).Book.Products, "disabled supply is not offered")
 }
 
+// TestDraftAddsSavedOfficialTariffToNewGroup reproduces a new supply group whose models
+// were priced after the built-in snapshot. Only an exact, current tariff can gain a route.
+func TestDraftAddsSavedOfficialTariffToNewGroup(t *testing.T) {
+	now := int64(1794916800)
+	price := retailprice.OfficialModels()[0]
+	price.ID, price.OfficialModel = "gpt-6.2-sol", "gpt-6.2-sol"
+	book := retailprice.Book{Models: []retailprice.Model{price}, GroupBindings: []retailprice.GroupBinding{
+		{LocalGroup: "gpt-normal", ChannelID: 1}, {LocalGroup: "gpt-ultrafast", ChannelID: 3},
+	}}
+	supplies := []retailprice.CatalogSupply{{ID: 1, Models: price.ID, Available: true}, {ID: 3, Models: price.ID, Available: true}}
+	draft := retailprice.GenerateOfficialDraft(book, supplies, now)
+	require.Empty(t, draft.Excluded)
+	require.Equal(t, book.Models, draft.Book.Models)
+	require.Len(t, draft.Book.Products, 2)
+	for _, p := range draft.Book.Products {
+		require.Equal(t, price.ID, p.Routes[0].Models[price.ID])
+	}
+	book.Models[0].OfficialModel = "other-upstream"
+	require.Empty(t, retailprice.GenerateOfficialDraft(book, supplies, now).Book.Products)
+	// An expired saved override also wins over a still-valid bundled tariff.
+	price = retailprice.OfficialModels()[0]
+	price.ValidUntil = now
+	book.Models[0], supplies[0].Models = price, price.ID
+	require.Empty(t, retailprice.GenerateOfficialDraft(book, supplies, now).Book.Products)
+}
+
 // TestPublicCallGroupsPinProcurement prevents account membership from changing a public group's cost.
 func TestPublicCallGroupsPinProcurement(t *testing.T) {
 	now := int64(1794916800)
