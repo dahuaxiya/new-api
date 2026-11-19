@@ -72,8 +72,26 @@ func RetailStudioToken(userID int, create bool, productIDs ...string) (*Token, e
 		}
 		var row RetailKeyPricePolicy
 		err = tx.First(&row, "token_id = ?", token.Id).Error
-		// Only a never-configured identity receives defaults. Existing manual caps,
-		// budgets and concurrent edits survive every send and group switch.
+		// Older Studio identities saved the model list as manual ceilings. On the first
+		// authorized send or settings visit, adopt live prices under the same lock as
+		// budget edits. Keep the token and ledger so today's spending still counts.
+		if err == nil {
+			var saved retailprice.KeyPolicy
+			if common.UnmarshalJsonStr(row.Payload, &saved) != nil || saved.Validate() != nil || saved.GroupCurrent {
+				return retailprice.ErrConfig
+			}
+			if saved.StudioCurrent {
+				return nil
+			}
+			saved.StudioCurrent = true
+			saved.Caps = map[string]retailprice.Prices{}
+			payload, err := common.Marshal(saved)
+			if err != nil {
+				return err
+			}
+			row.Payload, row.Revision = string(payload), row.Revision+1
+			return tx.Save(&row).Error
+		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}

@@ -339,7 +339,9 @@ it('sends a newly selected group without reusing its previous model or saving a 
   })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(1))
-  expect(streamSend.mock.calls[0][4]).toEqual({ 'X-Retail-Product': 'premium' })
+  expect(streamSend.mock.calls[0][4]).toEqual({
+    'X-Retail-Product': 'premium',
+  })
   expect(put).not.toHaveBeenCalled()
 })
 
@@ -367,27 +369,22 @@ it('updates the visible group only after saving and leaves browsing selection un
   fireEvent.change(await within(dialog).findByLabelText('Call group'), {
     target: { value: 'standard' },
   })
-  fireEvent.click(within(dialog).getByText('Advanced model price limits'))
-  fireEvent.click(
-    within(dialog).getByRole('button', {
-      name: 'Use current prices as ceilings',
-    })
-  )
-  fireEvent.click(
-    within(dialog).getByRole('switch', {
-      name: 'Accept automatic price changes within these limits',
-    })
-  )
-  fireEvent.click(
-    within(dialog).getByRole('button', { name: 'Save price limits' })
-  )
+  expect(within(dialog).queryByText('Advanced model price limits')).toBeNull()
+  expect(within(dialog).queryByRole('switch')).toBeNull()
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   expect(screen.getByLabelText('Call group')).toHaveValue('standard')
   expect(screen.getByLabelText('Model')).toHaveValue('')
   expect(put).toHaveBeenCalledWith(
     '/api/retail/keys/9/pricing',
     expect.objectContaining({
-      policy: expect.objectContaining({ product_id: 'standard' }),
+      policy: expect.objectContaining({
+        product_id: 'standard',
+        studio_current: true,
+        caps: {},
+        max_request_cny: '1',
+        daily_budget_cny: '5',
+      }),
     })
   )
 })

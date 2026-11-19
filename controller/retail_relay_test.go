@@ -1110,13 +1110,20 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	require.True(t, policy.StudioCurrent)
 	require.Equal(t, "5", policy.MaxRequestCNY)
 	require.Equal(t, "50", policy.DailyBudgetCNY)
+	// Simulate a returning user whose only saved model predates the image route.
+	// The next send must succeed without opening settings or resetting spent budget.
+	legacy := policy
+	legacy.StudioCurrent = false
+	legacy.Caps = map[string]retailprice.Prices{"gpt-4o": {Input: "1", Output: "1", CacheRead: "0", CacheWrite: "0", CacheWrite1h: "0"}}
+	require.NoError(t, model.PutRetailKeyPolicy(user.Id, token.Id, revision, legacy))
 	w = send("/images/generations", "premium", "https://example.com", `{"model":"test-image","prompt":"a tree","n":1,"output_format":"png"}`)
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.EqualValues(t, 2, hits.Load())
 	after, afterRevision, err := model.GetRetailKeyPolicy(user.Id, token.Id)
 	require.NoError(t, err)
 	require.Equal(t, policy, after)
-	require.Equal(t, revision, afterRevision, "group switches must not overwrite shared budgets")
+	require.Equal(t, revision+2, afterRevision, "saving the legacy policy and upgrading it each increment the revision once")
+	revision = afterRevision
 	var charges []model.RetailCharge
 	require.NoError(t, model.DB.Find(&charges, "token_id = ?", token.Id).Error)
 	require.Len(t, charges, 2)

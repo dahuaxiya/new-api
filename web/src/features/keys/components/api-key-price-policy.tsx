@@ -30,7 +30,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
-import { Switch } from '@/components/ui/switch'
 import {
   getRetailCatalog,
   getRetailKeyPolicy,
@@ -39,7 +38,6 @@ import {
   retailKeyPolicySchema,
   type RetailCatalog,
   type RetailKeyPolicy,
-  type RetailPrices,
 } from '@/features/channels/retail-pricing-api'
 import { handleServerError } from '@/lib/handle-server-error'
 import { useAuthStore } from '@/stores/auth-store'
@@ -94,9 +92,8 @@ export function ApiKeyPricePolicy(props: {
       {query.data &&
         !query.isError &&
         (props.studio ? (
-          <PricePolicyEditor
+          <StudioBudgetEditor
             key={`${identity}:${props.tokenId}:${query.data.saved.revision}:${props.initialProductId ?? ''}`}
-            studio={props.studio}
             tokenId={props.tokenId}
             initialProductId={props.initialProductId}
             catalog={query.data.catalog}
@@ -128,9 +125,11 @@ export function ApiKeyPricePolicy(props: {
   )
 }
 
-/** Edit bounded spending rules without resetting an existing policy or ordinary API key consent. */
-export function PricePolicyEditor(props: {
-  studio?: boolean
+/** Edit the Studio budget using the selected group’s published prices.
+ * @param props Verified catalog, saved spending limits and the group selected in Studio.
+ * @return A budget form that preserves the saved revision for concurrent edits.
+ */
+function StudioBudgetEditor(props: {
   tokenId: number
   initialProductId?: string
   catalog: RetailCatalog
@@ -141,26 +140,17 @@ export function PricePolicyEditor(props: {
   const form = useForm<RetailKeyPolicy>({
     resolver: zodResolver(retailKeyPolicySchema),
     defaultValues: {
-      ...props.saved.policy,
-      caps: props.saved.policy.caps ?? {},
-      max_request_cny: props.saved.policy.max_request_cny || '',
-      daily_budget_cny: props.saved.policy.daily_budget_cny || '',
-      // Selecting another call group is only a draft. Reuse budget values, but
-      // require fresh ceilings and consent before it can replace the saved policy.
-      ...(props.initialProductId &&
-      props.initialProductId !== props.saved.policy.product_id
-        ? {
-            product_id: props.initialProductId,
-            caps: {},
-            accept_floating: Boolean(
-              props.studio && props.saved.policy.studio_current
-            ),
-          }
-        : {}),
+      product_id: props.initialProductId || props.saved.policy.product_id,
+      // Unit prices come from the server on each request, including newly published models.
+      studio_current: true,
+      accept_floating: true,
+      caps: {},
+      max_request_cny: props.saved.policy.max_request_cny,
+      daily_budget_cny: props.saved.policy.daily_budget_cny,
     },
   })
   const policy = form.watch()
-  /** Preserve one complete policy draft when changing product or a model's nested ceilings. */
+  /** Preserve one complete policy draft when changing groups or spending limits. */
   const setPolicy = (next: RetailKeyPolicy) => form.reset(next)
   const product = props.catalog.products.find(
     (item) => item.id === policy.product_id
@@ -174,40 +164,31 @@ export function PricePolicyEditor(props: {
     },
     onError: (error) => handleServerError(error),
   })
-  const fields = [
-    { key: 'input', label: t('Input') },
-    { key: 'output', label: t('Output') },
-    { key: 'cache_read', label: t('Cache read') },
-    { key: 'cache_write', label: t('Cache write') },
-    { key: 'cache_write_1h', label: t('Cache write (1h)') },
-  ] as const
   return (
     <form
-      className='space-y-5 p-1'
+      className="space-y-5 p-1"
       inert={mutation.isPending ? true : undefined}
       aria-busy={mutation.isPending}
       onSubmit={form.handleSubmit((submitted) => mutation.mutate(submitted))}
     >
       {!props.catalog.enabled && (
-        <p className='text-muted-foreground text-sm'>
+        <p className="text-muted-foreground text-sm">
           {t('New priced requests are currently paused')}
         </p>
       )}
-      <div className='space-y-2'>
-        <Label htmlFor='key-price-product'>{t('Call group')}</Label>
+      <div className="space-y-2">
+        <Label htmlFor="key-price-product">{t('Call group')}</Label>
         <NativeSelect
-          id='key-price-product'
+          id="key-price-product"
           value={policy.product_id || ''}
           onChange={(e) => {
             setPolicy({
               ...policy,
               product_id: e.target.value,
-              caps: {},
-              accept_floating: Boolean(policy.studio_current),
             })
           }}
         >
-          <NativeSelectOption value=''>
+          <NativeSelectOption value="">
             {t('Select a call group')}
           </NativeSelectOption>
           {props.catalog.products.map((item) => (
@@ -217,114 +198,27 @@ export function PricePolicyEditor(props: {
           ))}
         </NativeSelect>
       </div>
-      {props.studio && (
-        <div className='space-y-2'>
-          <div className='flex items-center gap-3'>
-            <Switch
-              id='studio-current-prices'
-              checked={Boolean(policy.studio_current)}
-              onCheckedChange={(studio_current) =>
-                setPolicy({ ...policy, studio_current, accept_floating: true })
-              }
-            />
-            <Label htmlFor='studio-current-prices'>
-              {t('Use current prices within my budget')}
-            </Label>
-          </div>
-        </div>
-      )}
-      {product && !policy.studio_current && (
-        <div className='space-y-4'>
-          <Button
-            type='button'
-            variant='outline'
-            onClick={() => {
-              const caps: Record<string, RetailPrices> = {}
-              for (const model of product.models) {
-                const values = {} as RetailPrices
-                // Keep the server's decimal string: String(1e-8) is not an accepted money value.
-                for (const field of fields) {
-                  values[field.key] = model.tiers.reduce(
-                    (largest, tier) =>
-                      Number(tier.prices[field.key]) > Number(largest)
-                        ? tier.prices[field.key]
-                        : largest,
-                    '0'
-                  )
-                }
-                caps[model.id] = values
-              }
-              setPolicy({ ...policy, caps })
-            }}
-          >
-            {t('Use current prices as ceilings')}
-          </Button>
-          {product.models.length === 0 && (
-            <p className='text-muted-foreground text-sm'>
-              {t('No models have a current verified price')}
-            </p>
-          )}
-          <details open={!props.studio} className='space-y-4'>
-            <summary className='cursor-pointer text-sm font-medium'>
-              {t('Advanced model price limits')}
-            </summary>
-            {product.models.map((model, modelIndex) => (
-              <div key={model.id} className='space-y-3 border-b pb-4'>
-                <p className='text-sm font-medium'>
-                  {model.id} · {t('CNY per million tokens')}
-                </p>
-                <div className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
-                  {fields.map((field) => (
-                    <div key={field.key} className='space-y-2'>
-                      <Label htmlFor={`price-cap-${modelIndex}-${field.key}`}>
-                        {field.label}
-                      </Label>
-                      <Input
-                        id={`price-cap-${modelIndex}-${field.key}`}
-                        inputMode='decimal'
-                        value={policy.caps[model.id]?.[field.key] ?? ''}
-                        onChange={(e) =>
-                          setPolicy({
-                            ...policy,
-                            caps: {
-                              ...policy.caps,
-                              [model.id]: {
-                                ...policy.caps[model.id],
-                                [field.key]: e.target.value,
-                              },
-                            },
-                          })
-                        }
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </details>
-        </div>
-      )}
-      <div className='grid gap-4 sm:grid-cols-2'>
-        <div className='space-y-2'>
-          <Label htmlFor='key-max-request'>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="key-max-request">
             {t('Maximum request charge (CNY)')}
           </Label>
           <Input
-            id='key-max-request'
-            inputMode='decimal'
+            id="key-max-request"
+            inputMode="decimal"
             value={policy.max_request_cny}
             onChange={(e) =>
               setPolicy({ ...policy, max_request_cny: e.target.value })
             }
           />
         </div>
-        <div className='space-y-2'>
-          <Label htmlFor='key-daily-budget'>
+        <div className="space-y-2">
+          <Label htmlFor="key-daily-budget">
             {t('Daily budget (CNY, UTC)')}
           </Label>
           <Input
-            id='key-daily-budget'
-            inputMode='decimal'
+            id="key-daily-budget"
+            inputMode="decimal"
             value={policy.daily_budget_cny}
             onChange={(e) =>
               setPolicy({ ...policy, daily_budget_cny: e.target.value })
@@ -332,44 +226,28 @@ export function PricePolicyEditor(props: {
           />
         </div>
       </div>
-      <p className='text-muted-foreground text-sm'>
+      <p className="text-muted-foreground text-sm">
         {t(
           'The wallet reserves the maximum context and output cost, then returns the unused amount after settlement.'
         )}
       </p>
-      {!policy.studio_current && (
-        <div className='flex items-start gap-3'>
-          <Switch
-            id='key-accept-floating'
-            checked={policy.accept_floating || false}
-            onCheckedChange={(accept_floating) =>
-              setPolicy({ ...policy, accept_floating })
-            }
-          />
-          <Label htmlFor='key-accept-floating'>
-            {t('Accept automatic price changes within these limits')}
-          </Label>
-        </div>
-      )}
       {Object.keys(form.formState.errors).length > 0 && (
-        <p role='alert' className='text-destructive text-sm'>
+        <p role="alert" className="text-destructive text-sm">
           {t(
             'Enter nonnegative prices with up to eight decimals and positive budgets'
           )}
         </p>
       )}
       <Button
-        type='submit'
+        type="submit"
         disabled={
           mutation.isPending ||
-          !policy.accept_floating ||
           !product ||
-          (!policy.studio_current && Object.keys(policy.caps).length === 0) ||
           !policy.max_request_cny ||
           !policy.daily_budget_cny
         }
       >
-        {t('Save price limits')}
+        {t('Save changes')}
       </Button>
     </form>
   )
@@ -400,7 +278,7 @@ function CallGroupEditor(props: {
   })
   return (
     <form
-      className='space-y-5 p-1'
+      className="space-y-5 p-1"
       onSubmit={(event) => {
         event.preventDefault()
         if (
@@ -411,15 +289,15 @@ function CallGroupEditor(props: {
         }
       }}
     >
-      <div className='space-y-2'>
-        <Label htmlFor='key-call-group'>{t('Call group')}</Label>
+      <div className="space-y-2">
+        <Label htmlFor="key-call-group">{t('Call group')}</Label>
         <NativeSelect
-          id='key-call-group'
+          id="key-call-group"
           value={productId}
           disabled={mutation.isPending}
           onChange={(event) => setProductId(event.target.value)}
         >
-          <NativeSelectOption value=''>
+          <NativeSelectOption value="">
             {t('Select a call group')}
           </NativeSelectOption>
           {props.catalog.products.map((product) => (
@@ -430,12 +308,12 @@ function CallGroupEditor(props: {
         </NativeSelect>
       </div>
       {props.catalog.products.length === 0 && (
-        <p role='status'>
+        <p role="status">
           {t('No call groups are available. Contact the administrator.')}
         </p>
       )}
       <Button
-        type='submit'
+        type="submit"
         disabled={
           mutation.isPending ||
           !props.catalog.products.some((product) => product.id === productId)
