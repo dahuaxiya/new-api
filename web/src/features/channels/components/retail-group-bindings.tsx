@@ -46,7 +46,6 @@ import {
   type RetailSalePolicy,
   type RetailSupplyEdit,
 } from '../retail-pricing-api'
-
 import { RetailSupplyModelPicker } from './retail-supply-model-picker'
 
 /** Root-only configuration, isolated by session and refreshed after explicit writes. */
@@ -95,7 +94,7 @@ function BindingEditor(props: {
 }) {
   const { t, i18n } = useTranslation()
   const [bindings, setBindings] = useState<
-    Array<RetailGroupBinding & { rowID: string }>
+    Array<RetailGroupBinding & { rowID: string; newRow?: boolean }>
   >(() =>
     (props.state.bindings ?? []).map((binding) => ({
       ...binding,
@@ -171,6 +170,7 @@ function BindingEditor(props: {
         local_group: '',
         channel_id: nextDraftID,
         upstream_group: '',
+        newRow: true,
         rowID: crypto.randomUUID(),
       },
     ])
@@ -290,14 +290,11 @@ function BindingEditor(props: {
   return (
     <section
       className='shrink-0 space-y-4 rounded-lg border p-4'
-      aria-label={t('Group multiplier bindings')}
+      aria-label={t('Supply routes')}
     >
       <div className='flex flex-wrap items-start justify-between gap-3'>
         <div className='space-y-1'>
           <h3 className='font-medium'>{t('Group multiplier bindings')}</h3>
-          <p className='text-muted-foreground text-xs'>
-            {t('Supply groups, models and multiplier following')}
-          </p>
         </div>
         <Badge variant={healthy ? 'secondary' : 'outline'}>
           {props.state.sync.enabled
@@ -305,11 +302,6 @@ function BindingEditor(props: {
             : t('Not following')}
         </Badge>
       </div>
-      <p className='text-muted-foreground text-sm'>
-        {t(
-          'Select an upstream group and its Key. Choose whether this call group follows its models.'
-        )}
-      </p>
       <div className='bg-muted/50 space-y-3 rounded-md p-3'>
         <Field>
           <FieldLabel htmlFor='following-margin'>
@@ -335,17 +327,6 @@ function BindingEditor(props: {
             }
           />
         </Field>
-        <p className='text-muted-foreground text-xs'>
-          {t(
-            'Following updates your purchase cost and keeps this margin. No multiplier file is needed.'
-          )}{' '}
-          {t('This margin applies to all retail products.')}
-        </p>
-        <p className='text-muted-foreground text-xs'>
-          {t(
-            'Selling multiplier = upstream multiplier ÷ (1 − margin). A 0.12 upstream multiplier at 20% margin sells at 0.15.'
-          )}
-        </p>
         <details className='space-y-3'>
           <summary className='cursor-pointer text-xs'>
             {t('Fees, buffer and credit discount')}
@@ -475,7 +456,7 @@ function BindingEditor(props: {
           const rate = source?.groups.find(
             (group) => group.group === row.upstream_group
           )
-          const saved = props.state.bindings?.some(
+          const saved = props.state.bindings?.find(
             (binding) =>
               binding.local_group === row.local_group &&
               binding.channel_id === row.channel_id &&
@@ -489,15 +470,59 @@ function BindingEditor(props: {
             saved
           let status = t('Paused: multiplier unavailable or expired')
           if (active) status = t('Following saved multiplier')
+          // The sync record can outlive its binding. A draft toggle must not revive an old result.
           const modelState =
-            props.state.model_sync?.[`${row.channel_id}:${row.local_group}`]
+            row.follow_models && saved?.follow_models
+              ? props.state.model_sync?.[`${row.channel_id}:${row.local_group}`]
+              : undefined
           if (changed) status = t('Unsaved changes')
           return (
-            <div key={row.rowID} className='space-y-3 rounded-md border p-3'>
+            <details
+              key={row.rowID}
+              open={row.newRow}
+              className='space-y-3 rounded-md border p-3'
+            >
+              <summary className='cursor-pointer text-sm font-medium'>
+                {row.local_group || t('Select group')} ←{' '}
+                {row.upstream_group || t('Select upstream group')}
+                {rate && (
+                  <span className='text-muted-foreground ml-2'>
+                    {t('Purchase multiplier')} {rate.multiplier}×
+                  </span>
+                )}
+                {/* Display is approximate; server decimal arithmetic determines quotes and charges. */}
+                {rate && policyValid && (
+                  <output
+                    className='ml-2 font-mono tabular-nums'
+                    aria-label={`${t('Estimated selling multiplier')} ${index + 1}`}
+                  >
+                    {t('Estimated selling multiplier')}: ≈
+                    {(
+                      (Number(rate.multiplier) *
+                        (1 + salePolicy.buffer_bps / 10000)) /
+                      Number(salePolicy.receipt_ratio) /
+                      (1 - salePolicy.fee_bps / 10000) /
+                      (1 - salePolicy.margin_bps / 10000)
+                    )
+                      .toFixed(8)
+                      .replace(/0+$/, '')
+                      .replace(/\.$/, '')}
+                    ×
+                  </output>
+                )}
+                {(!active || changed) && (
+                  <span className='text-muted-foreground ml-2'>{status}</span>
+                )}
+                {!!modelState?.pending?.length && (
+                  <span className='text-muted-foreground ml-2'>
+                    {t('Skipped on last sync')} ({modelState.pending.length})
+                  </span>
+                )}
+              </summary>
               <FieldGroup className='grid gap-3 sm:grid-cols-3'>
                 <Field>
                   <FieldLabel htmlFor={`binding-local-${row.rowID}`}>
-                    {t('Call group')} {index + 1}
+                    {t('Customer group')} {index + 1}
                   </FieldLabel>
                   <NativeSelect
                     id={`binding-local-${row.rowID}`}
@@ -531,7 +556,7 @@ function BindingEditor(props: {
                 </Field>
                 <Field>
                   <FieldLabel htmlFor={`binding-channel-${row.rowID}`}>
-                    {t('Supply channel')} {index + 1}
+                    {t('Supply credential')} {index + 1}
                   </FieldLabel>
                   <NativeSelect
                     id={`binding-channel-${row.rowID}`}
@@ -619,7 +644,7 @@ function BindingEditor(props: {
                 <FieldGroup className='grid gap-3 sm:grid-cols-2'>
                   <Field>
                     <FieldLabel htmlFor={`supply-name-${row.rowID}`}>
-                      {t('Supply group name')} {index + 1}
+                      {t('Credential label')} {index + 1}
                     </FieldLabel>
                     <Input
                       id={`supply-name-${row.rowID}`}
@@ -630,11 +655,6 @@ function BindingEditor(props: {
                         editSupply(channel.id, { name: event.target.value })
                       }
                     />
-                    <p className='text-muted-foreground text-xs'>
-                      {t(
-                        'A label on this site; it does not rename the upstream group.'
-                      )}
-                    </p>
                   </Field>
                   <Field>
                     <FieldLabel htmlFor={`supply-key-${row.rowID}`}>
@@ -672,11 +692,6 @@ function BindingEditor(props: {
                       disabled={mutation.isPending}
                       onChange={(models) => editSupply(channel.id, { models })}
                     />
-                    <p className='text-muted-foreground text-xs'>
-                      {t(
-                        'A new group without a Key or models is saved as a disabled draft. Existing disabled groups stay disabled.'
-                      )}
-                    </p>
                   </Field>
                 </FieldGroup>
               )}
@@ -705,15 +720,27 @@ function BindingEditor(props: {
                     )}
                   </p>
                 )}
-                {row.follow_models && modelState?.failed && (
+                {modelState?.failed && (
                   <p role='status'>
                     {t('Model list unavailable. Previous routes retained.')}
                   </p>
                 )}
                 {!!modelState?.pending?.length && (
-                  <p>
-                    {t('Models to review')}: {modelState.pending.join(', ')}
-                  </p>
+                  <details>
+                    <summary className='cursor-pointer text-sm'>
+                      {t('Skipped on last sync')} ({modelState.pending.length})
+                    </summary>
+                    <p className='text-muted-foreground mt-2 text-xs'>
+                      {t(
+                        'Check the official price, model ID and call type before publishing these models.'
+                      )}
+                    </p>
+                    <ul className='mt-2 list-inside list-disc text-xs'>
+                      {modelState.pending.map((name) => (
+                        <li key={name}>{name}</li>
+                      ))}
+                    </ul>
+                  </details>
                 )}
                 {!!modelState?.paused?.length && (
                   <p>
@@ -722,27 +749,6 @@ function BindingEditor(props: {
                 )}
               </div>
               <div className='flex flex-wrap items-center justify-between gap-2 text-xs'>
-                <span className='text-muted-foreground'>{status}</span>
-                {/* Display is approximate; server decimal arithmetic determines quotes and charges. */}
-                {rate && policyValid && (
-                  <output
-                    className='font-mono tabular-nums'
-                    aria-label={`${t('Estimated selling multiplier')} ${index + 1}`}
-                  >
-                    {t('Estimated selling multiplier')}: ≈
-                    {(
-                      (Number(rate.multiplier) *
-                        (1 + salePolicy.buffer_bps / 10000)) /
-                      Number(salePolicy.receipt_ratio) /
-                      (1 - salePolicy.fee_bps / 10000) /
-                      (1 - salePolicy.margin_bps / 10000)
-                    )
-                      .toFixed(8)
-                      .replace(/0+$/, '')
-                      .replace(/\.$/, '')}
-                    ×
-                  </output>
-                )}
                 <Button
                   variant='ghost'
                   size='sm'
@@ -767,7 +773,7 @@ function BindingEditor(props: {
                   {t('Remove binding')} {index + 1}
                 </Button>
               </div>
-            </div>
+            </details>
           )
         })}
         {bindings.length === 0 && (
@@ -789,6 +795,7 @@ function BindingEditor(props: {
               local_group: '',
               channel_id: 0,
               upstream_group: '',
+              newRow: true,
               rowID: crypto.randomUUID(),
             },
           ])
@@ -814,19 +821,6 @@ function BindingEditor(props: {
           {t('Automatically follow upstream multipliers')}
         </Label>
       </div>
-      <p className='text-muted-foreground text-xs leading-relaxed'>
-        {t(
-          'Sync every minute. Bound routes pause on failure, missing groups or data older than five minutes. Selling prices keep your margin and user price limits. Changes between polls cannot be detected immediately.'
-        )}
-      </p>
-      {committed && (
-        <p className='text-muted-foreground text-xs'>
-          {t('Last successful read')}:{' '}
-          {dateFormat.format(new Date(committed.fetched_at * 1000))} ·{' '}
-          {t('Upstream update time')}:{' '}
-          {dateFormat.format(new Date(committed.updated_at * 1000))}
-        </p>
-      )}
       {props.state.sync.last_error && (
         <p role='alert' className='text-destructive text-sm'>
           {t(props.state.sync.last_error)}
@@ -857,6 +851,19 @@ function BindingEditor(props: {
           <summary className='text-muted-foreground cursor-pointer text-xs'>
             {t('Available upstream multipliers')}
           </summary>
+          <p className='text-muted-foreground text-xs leading-relaxed'>
+            {t(
+              'Sync every minute. Bound routes pause on failure, missing groups or data older than five minutes. Selling prices keep your margin and user price limits. Changes between polls cannot be detected immediately.'
+            )}
+          </p>
+          {committed && (
+            <p className='text-muted-foreground text-xs'>
+              {t('Last successful read')}:{' '}
+              {dateFormat.format(new Date(committed.fetched_at * 1000))} ·{' '}
+              {t('Upstream update time')}:{' '}
+              {dateFormat.format(new Date(committed.updated_at * 1000))}
+            </p>
+          )}
           <StaticDataTable
             data={source.groups}
             getRowKey={(row) => row.group}

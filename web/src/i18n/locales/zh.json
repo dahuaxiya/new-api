@@ -8299,6 +8299,17 @@
     "Select an upstream group and its Key. Choose whether this call group follows its models.": "选择上游分组和对应的 Key，再决定本站调用分组是否跟随上游模型。",
     "Enter the supply group Key to fetch models.": "填入该供货分组的 Key 后即可读取模型。",
     "To select models manually, turn off model following for all bindings using this supply channel.": "要手动勾选，请先关闭使用此供货渠道的各行「跟随该供货分组的模型」。",
-    "Drag across models to select or deselect them.": "按住鼠标拖过多项即可连续勾选，从已勾选项开始拖动可连续取消。"
+    "Drag across models to select or deselect them.": "按住鼠标拖过多项即可连续勾选，从已勾选项开始拖动可连续取消。",
+    "Users select a group on this site. Its supply route determines the upstream Key and purchase price.": "用户选择本站分组；每条线路指定供货用的 Key 和采购倍率。",
+    "Supply routes": "供货线路",
+    "Price book": "价表发布",
+    "Purchase multiplier": "采购倍率",
+    "Skipped on last sync": "上次未自动上架",
+    "Check the official price, model ID and call type before publishing these models.": "请核对官方价格、型号映射和调用方式，再决定是否上架。",
+    "Advanced settings": "高级设置",
+    "Select upstream group": "选择上游分组",
+    "Customer group": "本站用户可选分组",
+    "Credential label": "凭据备注",
+    "Supply credential": "上游供货凭据"
   }
 }
