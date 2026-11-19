@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Add Key and bind group": "Добавить ключ и привязать группу",
+    "Reuse an existing Key": "Использовать существующий ключ",
     "The replacement Key belongs to this upstream group": "Новый ключ принадлежит этой группе поставщика",
     "Spending protection": "Spending protection",
     "Enter to send · Shift+Enter for a new line": "Enter to send · Shift+Enter for a new line",

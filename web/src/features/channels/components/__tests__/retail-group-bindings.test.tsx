@@ -101,7 +101,7 @@ it('creates supply and bindings in one save without repeating the site address',
   })
   mount()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add supply group' })
+    await screen.findByRole('button', { name: 'Add Key and bind group' })
   )
   expect(screen.getAllByText('https://aixingxing.pro')).toHaveLength(1)
   fireEvent.change(screen.getByLabelText('Customer group 1'), {
@@ -178,7 +178,7 @@ it('clears failed Key submissions while retaining mappings and excluding secrets
   })
   mount()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add supply group' })
+    await screen.findByRole('button', { name: 'Add Key and bind group' })
   )
   fireEvent.change(screen.getByLabelText('Customer group 1'), {
     target: { value: 'pro' },
@@ -212,10 +212,10 @@ it('saves explicit group and credential choices without accepting browser-suppli
     .spyOn(api, 'put')
     .mockResolvedValue({ data: { success: true } })
   mount()
-  await screen.findByRole('button', { name: 'Add group binding' })
+  await screen.findByRole('button', { name: 'Reuse an existing Key' })
   fireEvent.click(screen.getByRole('button', { name: 'Load upstream groups' }))
   await screen.findByText('0.24×')
-  fireEvent.click(screen.getByRole('button', { name: 'Add group binding' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Reuse an existing Key' }))
   fireEvent.change(screen.getByLabelText('Customer group 1'), {
     target: { value: 'default' },
   })
@@ -296,7 +296,7 @@ it('rejects incomplete selections and keeps the draft when a version conflict oc
   })
   mount()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add group binding' })
+    await screen.findByRole('button', { name: 'Reuse an existing Key' })
   )
   expect(
     screen.getByRole('button', { name: 'Save bindings and margin' })
@@ -620,7 +620,7 @@ it('reuses the registered group and clears the quote for an unregistered credent
   })
   mount()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add group binding' })
+    await screen.findByRole('button', { name: 'Reuse an existing Key' })
   )
   const select = screen.getByLabelText('Supply credential 1')
   const group = screen.getByLabelText('Upstream group 1')
@@ -640,11 +640,78 @@ it('reuses the registered group and clears the quote for an unregistered credent
   expect(group).toBeEnabled()
   expect(screen.queryByLabelText('Estimated selling multiplier 1')).toBeNull()
   fireEvent.change(group, { target: { value: first } })
-  fireEvent.click(screen.getByRole('button', { name: 'Add group binding' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Reuse an existing Key' }))
   fireEvent.change(screen.getByLabelText('Supply credential 2'), {
     target: { value: '6' },
   })
   expect(screen.getByLabelText('Upstream group 2')).toHaveValue(first)
   fireEvent.change(group, { target: { value: 'regular' } })
   expect(screen.getByLabelText('Upstream group 2')).toHaveValue('regular')
+})
+
+/** Two new Keys under one site must never share a draft ID or modify each other's rate. */
+it('saves two distinct Keys and upstream groups under one site', async () => {
+  const groups = [
+    { group: 'normal', multiplier: '0.12' },
+    { group: 'fast', multiplier: '0.15' },
+  ]
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        ...state,
+        sync: { enabled: false, snapshot: { ...source, groups } },
+      },
+    },
+  })
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  mount()
+  const add = await screen.findByRole('button', {
+    name: 'Add Key and bind group',
+  })
+  const routes = [
+    { local: 'default', upstream: 'normal', key: 'sample-normal' },
+    { local: 'pro', upstream: 'fast', key: 'sample-fast' },
+  ]
+  for (const [index, route] of routes.entries()) {
+    fireEvent.click(add)
+    const n = index + 1
+    expect(screen.queryByLabelText(`Supply credential ${n}`)).toBeNull()
+    fireEvent.change(screen.getByLabelText(`Customer group ${n}`), {
+      target: { value: route.local },
+    })
+    fireEvent.change(screen.getByLabelText(`Upstream group ${n}`), {
+      target: { value: route.upstream },
+    })
+    fireEvent.change(screen.getByLabelText(`Upstream API Key ${n}`), {
+      target: { value: route.key },
+    })
+  }
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
+  await waitFor(() => expect(put).toHaveBeenCalledOnce())
+  const payload = put.mock.calls[0][1] as {
+    bindings: {
+      local_group: string
+      upstream_group: string
+      channel_id: number
+    }[]
+    supplies: { id: number; site_id: number; key: string }[]
+  }
+  expect(payload.bindings).toEqual(
+    routes.map((r, i) => ({
+      local_group: r.local,
+      channel_id: -1 - i,
+      upstream_group: r.upstream,
+    }))
+  )
+  expect(payload.supplies).toHaveLength(2)
+  for (const [i, r] of routes.entries())
+    expect(payload.supplies).toContainEqual(
+      expect.objectContaining({ id: -1 - i, site_id: 4, key: r.key })
+    )
 })

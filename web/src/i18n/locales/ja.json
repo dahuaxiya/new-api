@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Add Key and bind group": "キーを追加してグループに紐付ける",
+    "Reuse an existing Key": "既存のキーを使う",
     "The replacement Key belongs to this upstream group": "新しいキーはこの上流グループに属します",
     "Spending protection": "Spending protection",
     "Enter to send · Shift+Enter for a new line": "Enter to send · Shift+Enter for a new line",

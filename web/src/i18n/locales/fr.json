@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Add Key and bind group": "Ajouter une clé et associer un groupe",
+    "Reuse an existing Key": "Réutiliser une clé existante",
     "The replacement Key belongs to this upstream group": "La nouvelle clé appartient à ce groupe amont",
     "Spending protection": "Spending protection",
     "Enter to send · Shift+Enter for a new line": "Enter to send · Shift+Enter for a new line",

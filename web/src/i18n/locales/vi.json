@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Add Key and bind group": "Thêm khóa và liên kết nhóm",
+    "Reuse an existing Key": "Dùng lại khóa hiện có",
     "The replacement Key belongs to this upstream group": "Khóa mới thuộc nhóm thượng nguồn này",
     "Spending protection": "Spending protection",
     "Enter to send · Shift+Enter for a new line": "Enter to send · Shift+Enter for a new line",

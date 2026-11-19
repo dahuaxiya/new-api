@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Add Key and bind group": "新增 Key 並綁定分組",
+    "Reuse an existing Key": "使用已有的 Key",
     "The replacement Key belongs to this upstream group": "新 Key 屬於這個上游分組",
     "Spending protection": "消費保護",
     "Enter to send · Shift+Enter for a new line": "Enter 傳送 · Shift+Enter 換行",

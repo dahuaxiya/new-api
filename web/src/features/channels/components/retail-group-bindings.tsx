@@ -94,7 +94,13 @@ function BindingEditor(props: {
 }) {
   const { t, i18n } = useTranslation()
   const [bindings, setBindings] = useState<
-    Array<RetailGroupBinding & { rowID: string; newRow?: boolean }>
+    Array<
+      RetailGroupBinding & {
+        rowID: string
+        newRow?: boolean
+        newCredential?: boolean
+      }
+    >
   >(() =>
     (props.state.bindings ?? []).map((binding) => ({
       ...binding,
@@ -176,6 +182,7 @@ function BindingEditor(props: {
       {
         local_group: '',
         channel_id: nextDraftID,
+        newCredential: true,
         upstream_group: '',
         newRow: true,
         rowID: crypto.randomUUID(),
@@ -459,10 +466,14 @@ function BindingEditor(props: {
             <Button
               variant='outline'
               size='sm'
-              disabled={mutation.isPending || bindings.length >= 100}
+              disabled={
+                mutation.isPending ||
+                bindings.length >= 200 ||
+                channels.length >= 100
+              }
               onClick={() => addSupply(site.id)}
             >
-              {t('Add supply group')}
+              {t('Add Key and bind group')}
             </Button>
           </div>
         ))}
@@ -537,7 +548,13 @@ function BindingEditor(props: {
                   </span>
                 )}
               </summary>
-              <FieldGroup className='grid gap-3 sm:grid-cols-3'>
+              <FieldGroup
+                className={
+                  row.newCredential
+                    ? 'grid gap-3 sm:grid-cols-2'
+                    : 'grid gap-3 sm:grid-cols-3'
+                }
+              >
                 <Field>
                   <FieldLabel htmlFor={`binding-local-${row.rowID}`}>
                     {t('Customer group')} {index + 1}
@@ -572,54 +589,57 @@ function BindingEditor(props: {
                     ))}
                   </NativeSelect>
                 </Field>
-                <Field>
-                  <FieldLabel htmlFor={`binding-channel-${row.rowID}`}>
-                    {t('Supply credential')} {index + 1}
-                  </FieldLabel>
-                  <NativeSelect
-                    id={`binding-channel-${row.rowID}`}
-                    className='w-full'
-                    value={row.channel_id || ''}
-                    disabled={mutation.isPending}
-                    onChange={(event) =>
-                      setBindings(
-                        bindings.map((item, i) =>
-                          i === index
-                            ? {
-                                ...item,
-                                channel_id: Number(event.target.value),
-                                // Resolve both fields together so a quote cannot use the previous credential's rate.
-                                upstream_group:
-                                  registered[Number(event.target.value)] ??
-                                  draftGroups[Number(event.target.value)] ??
-                                  '',
-                              }
-                            : item
+                {/* A new Key already belongs to the selected site. Offering #1 here would turn creation into a shared credential edit. */}
+                {!row.newCredential && (
+                  <Field>
+                    <FieldLabel htmlFor={`binding-channel-${row.rowID}`}>
+                      {t('Supply credential')} {index + 1}
+                    </FieldLabel>
+                    <NativeSelect
+                      id={`binding-channel-${row.rowID}`}
+                      className='w-full'
+                      value={row.channel_id || ''}
+                      disabled={mutation.isPending}
+                      onChange={(event) =>
+                        setBindings(
+                          bindings.map((item, i) =>
+                            i === index
+                              ? {
+                                  ...item,
+                                  channel_id: Number(event.target.value),
+                                  // Resolve both fields together so a quote cannot use the previous credential's rate.
+                                  upstream_group:
+                                    registered[Number(event.target.value)] ??
+                                    draftGroups[Number(event.target.value)] ??
+                                    '',
+                                }
+                              : item
+                          )
                         )
-                      )
-                    }
-                  >
-                    <NativeSelectOption value=''>
-                      {t('Select channel')}
-                    </NativeSelectOption>
-                    {row.channel_id !== 0 &&
-                      !channels.some(
-                        (channel) => channel.id === row.channel_id
-                      ) && (
-                        <NativeSelectOption value={row.channel_id}>
-                          #{row.channel_id} · {t('Unavailable')}
-                        </NativeSelectOption>
-                      )}
-                    {channels.map((channel) => (
-                      <NativeSelectOption key={channel.id} value={channel.id}>
-                        {supplies[channel.id]?.name ||
-                          channel.name ||
-                          t('New supply group')}{' '}
-                        {channel.id > 0 ? `· #${channel.id}` : ''}
+                      }
+                    >
+                      <NativeSelectOption value=''>
+                        {t('Select channel')}
                       </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </Field>
+                      {row.channel_id !== 0 &&
+                        !channels.some(
+                          (channel) => channel.id === row.channel_id
+                        ) && (
+                          <NativeSelectOption value={row.channel_id}>
+                            #{row.channel_id} · {t('Unavailable')}
+                          </NativeSelectOption>
+                        )}
+                      {channels.map((channel) => (
+                        <NativeSelectOption key={channel.id} value={channel.id}>
+                          {supplies[channel.id]?.name ||
+                            channel.name ||
+                            t('New supply group')}{' '}
+                          {channel.id > 0 ? `· #${channel.id}` : ''}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+                )}
                 <Field>
                   <FieldLabel htmlFor={`binding-upstream-${row.rowID}`}>
                     {t('Upstream group')} {index + 1}
@@ -687,32 +707,34 @@ function BindingEditor(props: {
                       }
                     />
                   </Field>
-                  <Field>
-                    <FieldLabel htmlFor={`supply-key-${row.rowID}`}>
-                      {t('Upstream API Key')} {index + 1}
-                    </FieldLabel>
-                    <Input
-                      id={`supply-key-${row.rowID}`}
-                      type='password'
-                      autoComplete='new-password'
-                      spellCheck={false}
-                      maxLength={4096}
-                      value={draft?.key ?? ''}
-                      placeholder={t(
-                        channel.has_key
-                          ? 'Configured; leave blank to keep'
-                          : 'Key for the selected upstream group'
-                      )}
-                      disabled={mutation.isPending}
-                      onChange={(event) =>
-                        editSupply(channel.id, {
-                          key: event.target.value,
-                          confirm_key_group: undefined,
-                        })
-                      }
-                    />
-                  </Field>
-                  {channel.has_key && draft?.key && (
+                  {(!row.newRow || row.newCredential || !channel.has_key) && (
+                    <Field>
+                      <FieldLabel htmlFor={`supply-key-${row.rowID}`}>
+                        {t('Upstream API Key')} {index + 1}
+                      </FieldLabel>
+                      <Input
+                        id={`supply-key-${row.rowID}`}
+                        type='password'
+                        autoComplete='new-password'
+                        spellCheck={false}
+                        maxLength={4096}
+                        value={draft?.key ?? ''}
+                        placeholder={t(
+                          channel.has_key
+                            ? 'Configured; leave blank to keep'
+                            : 'Key for the selected upstream group'
+                        )}
+                        disabled={mutation.isPending}
+                        onChange={(event) =>
+                          editSupply(channel.id, {
+                            key: event.target.value,
+                            confirm_key_group: undefined,
+                          })
+                        }
+                      />
+                    </Field>
+                  )}
+                  {!row.newRow && channel.has_key && draft?.key && (
                     <label className='text-sm sm:col-span-2'>
                       <input
                         type='checkbox'
@@ -817,6 +839,12 @@ function BindingEditor(props: {
                       )
                     ) {
                       // Removing the last reference also removes its unsaved credential from memory.
+                      if (row.channel_id < 0) {
+                        // An abandoned credential has no server ID and must not remain available for reuse.
+                        setChannels(
+                          channels.filter((item) => item.id !== row.channel_id)
+                        )
+                      }
                       setSupplies((previous) => {
                         const remaining = { ...previous }
                         delete remaining[row.channel_id]
@@ -856,7 +884,7 @@ function BindingEditor(props: {
           ])
         }
       >
-        {t('Add group binding')}
+        {t('Reuse an existing Key')}
       </Button>
       {duplicates && (
         <p role='alert' className='text-destructive text-sm'>

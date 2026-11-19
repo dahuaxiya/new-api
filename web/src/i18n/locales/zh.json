@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Add Key and bind group": "添加 Key 并绑定分组",
+    "Reuse an existing Key": "复用已有 Key",
     "The replacement Key belongs to this upstream group": "新 Key 属于这个上游分组",
     "Spending protection": "消费保护",
     "Enter to send · Shift+Enter for a new line": "Enter 发送 · Shift+Enter 换行",
