@@ -80,7 +80,12 @@ it('separates the admin workspace and filters super-admin-only functions', async
   expect(screen.getByText('Users')).toBeInTheDocument()
   expect(screen.queryByText('API Keys')).toBeNull()
   expect(screen.queryByText('System Settings')).toBeNull()
+  expect(screen.queryByText('Group Management')).toBeNull()
   expect(screen.queryByText('Open account')).toBeNull()
+})
+it('offers group management in administration for super administrators', async () => {
+  await mount('/user-usage', 100)
+  expect(screen.getByText('Group Management')).toBeInTheDocument()
 })
 it('still applies backend navigation switches inside administration', async () => {
   await mount('/user-usage', 100, { admin: { enabled: true, channel: false } })

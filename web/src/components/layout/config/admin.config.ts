@@ -21,6 +21,7 @@ import {
   ClipboardList,
   CreditCard,
   FileText,
+  Layers3,
   LayoutDashboard,
   PlugZap,
   Radio,
@@ -65,6 +66,13 @@ export const ADMIN_VIEW: SidebarView = {
           title: t('Models'),
           url: '/models/metadata',
           icon: Box,
+        },
+        {
+          title: t('Group Management'),
+          url: '/system-settings/billing/group-pricing',
+          configUrls: ['/system-settings'],
+          icon: Layers3,
+          requiredRole: ROLE.SUPER_ADMIN,
         },
         {
           title: t('Users'),
