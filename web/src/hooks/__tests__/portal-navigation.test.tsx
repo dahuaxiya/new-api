@@ -8,6 +8,7 @@ import {
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
 
+import { BILLING_SECTION_IDS } from '@/features/system-settings/billing/section-registry'
 import { isRetiredPortalPage } from '@/lib/portal-navigation'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -86,6 +87,9 @@ it('separates the admin workspace and filters super-admin-only functions', async
 it('offers group management in administration for super administrators', async () => {
   await mount('/user-usage', 100)
   expect(screen.getByText('Group Management')).toBeInTheDocument()
+})
+it('does not duplicate group pricing in system settings after migration', () => {
+  expect(BILLING_SECTION_IDS).not.toContain('group-pricing')
 })
 it('still applies backend navigation switches inside administration', async () => {
   await mount('/user-usage', 100, { admin: { enabled: true, channel: false } })

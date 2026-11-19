@@ -39,7 +39,7 @@ import type { SidebarView } from '../types'
 export const ADMIN_VIEW: SidebarView = {
   id: 'administration',
   pathPattern:
-    /^\/(?:user-usage|users|channels|models|redemption-codes|subscriptions|system-info|task-plugins|usage-logs|dashboard\/(?:models|flow|users))(?:\/|$)/,
+    /^\/(?:user-usage|users|channels|models|groups|redemption-codes|subscriptions|system-info|task-plugins|usage-logs|dashboard\/(?:models|flow|users))(?:\/|$)/,
   parent: { to: '/dashboard/overview', label: 'Back to user center' },
   getNavGroups: (t) => [
     {
@@ -69,8 +69,8 @@ export const ADMIN_VIEW: SidebarView = {
         },
         {
           title: t('Group Management'),
-          url: '/system-settings/billing/group-pricing',
-          configUrls: ['/system-settings'],
+          url: '/groups',
+          configUrls: ['/groups'],
           icon: Layers3,
           requiredRole: ROLE.SUPER_ADMIN,
         },

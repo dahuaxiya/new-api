@@ -65,9 +65,14 @@ async function mountSidebar(
     ),
   })
   const routeTree = root.addChildren(
-    ['/users', '/channels', '/dashboard/overview', '/profile', '/security'].map(
-      (path) => createRoute({ getParentRoute: () => root, path })
-    )
+    [
+      '/users',
+      '/channels',
+      '/groups',
+      '/dashboard/overview',
+      '/profile',
+      '/security',
+    ].map((path) => createRoute({ getParentRoute: () => root, path }))
   )
   const router = createRouter({
     routeTree,
@@ -111,6 +116,18 @@ it('桌面点击其他菜单后选中态跟随路由，返回入口仍回到用�
   )
   expect(
     await screen.findByRole('link', { name: 'Hosted accounts' })
+  ).toBeVisible()
+})
+
+it('分组管理在管理后台内打开，切换后仍保留管理侧栏', async () => {
+  const { user, router } = await mountSidebar()
+  await user.click(screen.getByRole('link', { name: 'Group Management' }))
+  await waitFor(() => expect(router.state.location.pathname).toBe('/groups'))
+  expect(
+    screen.getByRole('link', { name: 'Group Management' })
+  ).toHaveAttribute('data-active')
+  expect(
+    screen.getByRole('link', { name: 'Back to user center' })
   ).toBeVisible()
 })
 
