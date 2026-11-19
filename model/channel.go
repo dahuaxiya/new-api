@@ -400,6 +400,13 @@ func GetChannelsByTag(tag string, idSort bool, selectAll bool, sortOptions ...Ch
 	return channels, err
 }
 
+// ChannelSiteList limits the admin catalog to standalone channels and supply sites.
+// Child credentials keep their channel IDs for routing. Older sites may have a NULL parent.
+func ChannelSiteList(query *gorm.DB) *gorm.DB {
+	return query.Where("(retail_site_id IS NULL OR retail_site_id = 0)")
+}
+
+// SearchChannels searches the admin catalog; supply Keys are managed under their site.
 func SearchChannels(keyword string, group string, model string, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
 	var channels []*Channel
 	modelsCol := "`models`"
@@ -418,7 +425,7 @@ func SearchChannels(keyword string, group string, model string, idSort bool, sor
 	order := resolveChannelSortOptions(idSort, sortOptions)
 
 	// 构造基础查询
-	baseQuery := DB.Model(&Channel{}).Omit("key")
+	baseQuery := ChannelSiteList(DB.Model(&Channel{})).Omit("key")
 
 	// 构造WHERE子句
 	whereClause := "(id = ? OR name LIKE ? OR " + commonKeyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
@@ -957,6 +964,7 @@ func GetPaginatedChannelTags(query *gorm.DB, offset int, limit int) ([]*string, 
 	return tags, err
 }
 
+// SearchTags finds tags in the same site catalog used by the admin channel list.
 func SearchTags(keyword string, group string, model string, idSort bool) ([]*string, error) {
 	var tags []*string
 	modelsCol := "`models`"
@@ -978,7 +986,7 @@ func SearchTags(keyword string, group string, model string, idSort bool) ([]*str
 	}
 
 	// 构造基础查询
-	baseQuery := DB.Model(&Channel{}).Omit("key")
+	baseQuery := ChannelSiteList(DB.Model(&Channel{})).Omit("key")
 
 	// 构造WHERE子句
 	whereClause := "(id = ? OR name LIKE ? OR " + commonKeyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"

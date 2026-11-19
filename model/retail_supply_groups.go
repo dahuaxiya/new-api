@@ -18,6 +18,7 @@ import (
 
 var ErrRetailSupplyGroupName = common.NewMessage("Supply group name already exists at this site")
 var ErrRetailSupplyGroupKey = common.NewMessage("This Key is already used by another group at this site")
+var ErrRetailSupplyGroupIncomplete = common.NewMessage("Add a Key and at least one model before enabling it")
 var ErrRetailSupplyGroupAddress = common.NewMessage("Edit the site channel to change the shared address or protocol")
 
 // RetailReservedSupplyIDs isolates every site group from legacy wallet/token routing, including
@@ -226,6 +227,7 @@ type RetailSupplyEdit struct {
 	Name            string `json:"name"`
 	Key             string `json:"key"`
 	Models          string `json:"models"`
+	Enabled         *bool  `json:"enabled,omitempty"`
 }
 
 // SaveRetailSupplyConfiguration commits group credentials, model abilities, bindings and margin together.
@@ -250,10 +252,16 @@ func SaveRetailSupplyConfiguration(ctx context.Context, expected int64, bindings
 		}
 		ids := map[int]int{}
 		for _, edit := range edits {
-			if edit.ID == 0 || ids[edit.ID] != 0 || !slices.ContainsFunc(bindings, func(b retailprice.GroupBinding) bool { return b.ChannelID == edit.ID }) {
+			// Only explicit switches may edit a saved credential without an attached route.
+			if edit.ID == 0 || ids[edit.ID] != 0 || (edit.Enabled == nil && !slices.ContainsFunc(bindings, func(b retailprice.GroupBinding) bool { return b.ChannelID == edit.ID })) {
 				return retailprice.ErrConfig
 			}
 			if edit.ID < 0 {
+				// A draft has no durable credential until a binding references it. Keep the
+				// creation policy separate from explicit status changes on saved credentials.
+				if edit.Enabled != nil {
+					return retailprice.ErrConfig
+				}
 				id, err := createRetailSupplyGroupIn(tx, ctx, edit.SiteID, edit.Name, edit.Key, edit.Models)
 				if err != nil {
 					return err
@@ -326,7 +334,14 @@ func SaveRetailSupplyConfiguration(ctx context.Context, expected int64, bindings
 			if key != "" {
 				ch.Key = key
 			}
-			if ch.Key == "" || ch.Models == "" {
+			// Keep manual or automatic suspension unless the operator explicitly changes it.
+			// Validate the final Key and model list before restoring channel abilities.
+			if edit.Enabled != nil && *edit.Enabled {
+				if ch.Key == "" || ch.Models == "" {
+					return ErrRetailSupplyGroupIncomplete
+				}
+				ch.Status = common.ChannelStatusEnabled
+			} else if edit.Enabled != nil || ch.Key == "" || ch.Models == "" {
 				ch.Status = common.ChannelStatusManuallyDisabled
 			}
 			updates := map[string]any{"name": ch.Name, "models": ch.Models, "status": ch.Status}

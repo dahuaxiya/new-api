@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Add a Key and at least one model before enabling it": "填寫 Key 並新增至少一個模型後才能啟用",
     "Add Key and bind group": "新增 Key 並綁定分組",
     "Reuse an existing Key": "使用已有的 Key",
     "The replacement Key belongs to this upstream group": "新 Key 屬於這個上游分組",

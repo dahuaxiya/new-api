@@ -40,6 +40,7 @@ func GetRetailGroupBindings(c *gin.Context) {
 
 // PutRetailGroupBindings re-fetches source values rather than trusting browser-supplied multipliers.
 // Disabling sync can be saved during an outage using the last verified group names.
+// Credential switches and model abilities are committed with the same version guard.
 func PutRetailGroupBindings(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
 	var input struct {
@@ -77,7 +78,7 @@ func PutRetailGroupBindings(c *gin.Context) {
 	// omit supplies and retain their previous bindings-only semantics.
 	version, err = model.SaveRetailSupplyConfiguration(c.Request.Context(), input.ExpectedVersion, input.Bindings, input.Enabled, snapshot, c.GetInt("id"), input.SalePolicy, input.Supplies)
 	if err != nil {
-		if err == model.ErrRetailSupplyGroupName || err == model.ErrRetailSupplyGroupKey {
+		if err == model.ErrRetailSupplyGroupName || err == model.ErrRetailSupplyGroupKey || err == model.ErrRetailSupplyGroupIncomplete {
 			common.ApiError(c, err)
 		} else {
 			retailPricingManagementError(c, err)

@@ -45,6 +45,20 @@ func TestRetailSupplyGroupsDatabases(t *testing.T) {
 			require.Equal(t, "group-secret", child.Key)
 			require.Equal(t, "model-a,model-b", child.Models)
 			require.Equal(t, endpoint, child.GetBaseURL())
+			// The legacy NULL-parent site is visible, but its child cannot consume a page or tag.
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", parent.Id).Update("tag", "site-tag").Error)
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", id).Update("tag", "child-tag").Error)
+			var listed int64
+			require.NoError(t, ChannelSiteList(db.Model(&Channel{})).Count(&listed).Error)
+			require.EqualValues(t, 1, listed)
+			matching, err := SearchChannels(endpoint, "retail", "model-a", true)
+			require.NoError(t, err)
+			require.Len(t, matching, 1)
+			require.Equal(t, parent.Id, matching[0].Id)
+			tags, err := SearchTags(endpoint, "retail", "model-a", true)
+			require.NoError(t, err)
+			require.Len(t, tags, 1)
+			require.Equal(t, "site-tag", *tags[0])
 			ids, err := RetailSupplyIDs("retail")
 			require.NoError(t, err)
 			require.ElementsMatch(t, []int{parent.Id, id}, ids)
@@ -208,8 +222,27 @@ func TestRetailSupplyConfigurationDatabases(t *testing.T) {
 			require.Error(t, err)
 			require.NoError(t, db.First(&ch, id).Error)
 			require.Equal(t, "Pro renamed", ch.Name)
-			_, err = SaveRetailGroupBindings(ctx, version4, bindings, true, feed, 1)
+			// An unbound saved Key can be paused. Its sibling and abilities stay independent.
+			off, on := false, true
+			edit := RetailSupplyEdit{ID: id, SiteID: parent.Id, Name: ch.Name, Models: ch.Models, Enabled: &off}
+			version5, err := SaveRetailSupplyConfiguration(ctx, version4, nil, false, feed, 1, nil, []RetailSupplyEdit{edit})
 			require.NoError(t, err)
+			require.NoError(t, db.First(&ch, id).Error)
+			require.Equal(t, common.ChannelStatusManuallyDisabled, ch.Status)
+			var sibling Channel
+			require.NoError(t, db.First(&sibling, parent.Id).Error)
+			require.Equal(t, common.ChannelStatusEnabled, sibling.Status)
+			var available int64
+			require.NoError(t, db.Model(&Ability{}).Where("channel_id = ? AND enabled = ?", id, true).Count(&available).Error)
+			require.Zero(t, available)
+			edit.Enabled, edit.Models = &on, ""
+			_, err = SaveRetailSupplyConfiguration(ctx, version5, bindings, true, feed, 1, nil, []RetailSupplyEdit{edit})
+			require.ErrorIs(t, err, ErrRetailSupplyGroupIncomplete)
+			edit.Models = ch.Models
+			_, err = SaveRetailSupplyConfiguration(ctx, version5, bindings, true, feed, 1, nil, []RetailSupplyEdit{edit})
+			require.NoError(t, err)
+			require.NoError(t, db.Model(&Ability{}).Where("channel_id = ? AND enabled = ?", id, true).Count(&available).Error)
+			require.Positive(t, available)
 		})
 	}
 }

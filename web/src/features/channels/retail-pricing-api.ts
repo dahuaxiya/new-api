@@ -132,6 +132,7 @@ export type RetailBindingChannel = {
   status: number
 }
 export type RetailSupplyEdit = {
+  enabled?: boolean
   confirm_key_group?: string
   id: number
   site_id: number

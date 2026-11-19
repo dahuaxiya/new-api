@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Add a Key and at least one model before enabling it": "Ajoutez une clé et au moins un modèle avant de l’activer",
     "Add Key and bind group": "Ajouter une clé et associer un groupe",
     "Reuse an existing Key": "Réutiliser une clé existante",
     "The replacement Key belongs to this upstream group": "La nouvelle clé appartient à ce groupe amont",

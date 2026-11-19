@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Add a Key and at least one model before enabling it": "有効にするには、キーと少なくとも 1 つのモデルを追加してください",
     "Add Key and bind group": "キーを追加してグループに紐付ける",
     "Reuse an existing Key": "既存のキーを使う",
     "The replacement Key belongs to this upstream group": "新しいキーはこの上流グループに属します",

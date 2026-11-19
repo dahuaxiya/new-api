@@ -126,8 +126,11 @@ function BindingEditor(props: {
     )
   const [draftGroups, setDraftGroups] = useState<Record<number, string>>({})
   const [nextDraftID, setNextDraftID] = useState(-1)
-  const supplyEdits = Object.values(supplies).filter((edit) =>
-    bindings.some((row) => row.channel_id === edit.id)
+  // Saved Keys can be paused even when no route uses them. Never submit an abandoned draft.
+  const supplyEdits = Object.values(supplies).filter(
+    (edit) =>
+      edit.enabled !== undefined ||
+      bindings.some((row) => row.channel_id === edit.id)
   )
   const sites = props.state.channels.filter(
     (channel) => channel.site_id === channel.id
@@ -455,26 +458,82 @@ function BindingEditor(props: {
         {sites.map((site) => (
           <div
             key={site.id}
-            className='bg-muted/40 flex flex-wrap items-center justify-between gap-3 rounded-md border p-3'
+            className='bg-muted/40 space-y-3 rounded-md border p-3'
           >
-            <div className='min-w-0 space-y-1'>
-              <p className='text-sm font-medium'>{site.name}</p>
-              <p className='text-muted-foreground font-mono text-xs break-all'>
-                {site.base_url}
-              </p>
+            <div className='flex flex-wrap items-center justify-between gap-3'>
+              <div className='min-w-0 space-y-1'>
+                <p className='text-sm font-medium'>{site.name}</p>
+                <p className='text-muted-foreground font-mono text-xs break-all'>
+                  {site.base_url}
+                </p>
+              </div>
+              <Button
+                variant='outline'
+                size='sm'
+                disabled={
+                  mutation.isPending ||
+                  bindings.length >= 200 ||
+                  channels.length >= 100
+                }
+                onClick={() => addSupply(site.id)}
+              >
+                {t('Add Key and bind group')}
+              </Button>
             </div>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={
-                mutation.isPending ||
-                bindings.length >= 200 ||
-                channels.length >= 100
-              }
-              onClick={() => addSupply(site.id)}
-            >
-              {t('Add Key and bind group')}
-            </Button>
+            <ul className='divide-y border-t'>
+              {props.state.channels
+                .filter((ch) => ch.site_id === site.id)
+                .map((ch) => {
+                  const draft = supplies[ch.id]
+                  const savedEnabled = ch.status === 1
+                  const keyEnabled = draft?.enabled ?? savedEnabled
+                  const missingKeyOrModels =
+                    (!ch.has_key && !draft?.key.trim()) ||
+                    !(draft?.models ?? ch.models).trim()
+                  return (
+                    <li
+                      key={ch.id}
+                      className='flex flex-wrap items-center justify-between gap-2 pt-2 pb-1'
+                    >
+                      <div className='min-w-0 text-sm break-words'>
+                        <span>
+                          {ch.name} · #{ch.id}
+                        </span>
+                        {registered[ch.id] && (
+                          <span className='text-muted-foreground'>
+                            {' '}
+                            · {registered[ch.id]}
+                          </span>
+                        )}
+                      </div>
+                      <Label className='flex items-center gap-2'>
+                        {keyEnabled ? t('Enabled') : t('Disabled')}
+                        <Switch
+                          aria-label={`${t('Upstream API Key')}: ${ch.name} #${ch.id}`}
+                          checked={keyEnabled}
+                          disabled={
+                            mutation.isPending ||
+                            (!keyEnabled && missingKeyOrModels)
+                          }
+                          onCheckedChange={(value) =>
+                            editSupply(ch.id, {
+                              enabled:
+                                value === savedEnabled ? undefined : value,
+                            })
+                          }
+                        />
+                      </Label>
+                      {missingKeyOrModels && (
+                        <p className='text-muted-foreground w-full text-xs'>
+                          {t(
+                            'Add a Key and at least one model before enabling it'
+                          )}
+                        </p>
+                      )}
+                    </li>
+                  )
+                })}
+            </ul>
           </div>
         ))}
       </div>

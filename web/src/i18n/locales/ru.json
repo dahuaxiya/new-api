@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Add a Key and at least one model before enabling it": "Добавьте ключ и хотя бы одну модель перед включением",
     "Add Key and bind group": "Добавить ключ и привязать группу",
     "Reuse an existing Key": "Использовать существующий ключ",
     "The replacement Key belongs to this upstream group": "Новый ключ принадлежит этой группе поставщика",

@@ -145,8 +145,9 @@ func applyChannelStatusFilter(query *gorm.DB, statusFilter int) *gorm.DB {
 	return query
 }
 
+// buildChannelListQuery uses the same site scope for rows, tags and counts.
 func buildChannelListQuery(group string, statusFilter int, typeFilter int) *gorm.DB {
-	query := model.DB.Model(&model.Channel{})
+	query := model.ChannelSiteList(model.DB.Model(&model.Channel{}))
 	query = model.ApplyChannelGroupFilter(query, group)
 	query = applyChannelStatusFilter(query, statusFilter)
 	if typeFilter >= 0 {
