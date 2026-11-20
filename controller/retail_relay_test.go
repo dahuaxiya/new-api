@@ -3,8 +3,10 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,6 +29,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1075,6 +1078,10 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"gpt-normal":1}`))
 	require.NoError(t, model.DB.AutoMigrate(&model.Token{}, &model.Channel{}, &model.Ability{}, &model.GPTHostingBinding{}, &model.RetailCharge{}, &model.RetailAttempt{}, &model.RetailPriceState{}, &model.RetailPriceVersion{}, &model.RetailKeyPricePolicy{}, &model.RetailPriceBudget{}))
 	require.NoError(t, model.DB.Model(user).Update("quota", 10000000).Error)
+	t.Setenv("STUDIO_HISTORY_DIR", t.TempDir())
+	referencePNG, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=")
+	require.NoError(t, err)
+	original := append(referencePNG, bytes.Repeat([]byte{0x3a}, 9<<20)...)
 	var hits atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
@@ -1083,14 +1090,36 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/v1/images/edits" {
-			var body struct {
-				Images []struct {
-					URL string `json:"image_url"`
-				} `json:"images"`
+			if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data;") {
+				require.NoError(t, r.ParseMultipartForm(1<<20))
+				defer r.MultipartForm.RemoveAll()
+				require.Equal(t, "gpt-image-2", r.FormValue("model"))
+				require.Equal(t, "high", r.FormValue("quality"))
+				require.Equal(t, "1920x1088", r.FormValue("size"))
+				file, _, err := r.FormFile("image[]")
+				require.NoError(t, err)
+				defer file.Close()
+				data, err := io.ReadAll(file)
+				require.NoError(t, err)
+				require.True(t, bytes.Equal(original, data), "supplier must receive the original file")
+			} else {
+				var body struct {
+					Size              string `json:"size"`
+					Quality           string `json:"quality"`
+					OutputFormat      string `json:"output_format"`
+					OutputCompression int    `json:"output_compression"`
+					Images            []struct {
+						URL string `json:"image_url"`
+					} `json:"images"`
+				}
+				require.NoError(t, common.DecodeJson(r.Body, &body))
+				require.Len(t, body.Images, 1)
+				require.Contains(t, body.Images[0].URL, "data:image/png;base64,")
+				require.Equal(t, "1920x1088", body.Size)
+				require.Equal(t, "auto", body.Quality)
+				require.Equal(t, "webp", body.OutputFormat)
+				require.Equal(t, 82, body.OutputCompression)
 			}
-			require.NoError(t, common.DecodeJson(r.Body, &body))
-			require.Len(t, body.Images, 1)
-			require.Contains(t, body.Images[0].URL, "data:image/png;base64,")
 			_, _ = w.Write([]byte(`{"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":4,"image_tokens":6,"cached_tokens":2,"cached_tokens_details":{"text_tokens":1,"image_tokens":1}}}}`))
 			return
 		}
@@ -1146,6 +1175,10 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	} {
 		studio.POST(route.path, middleware.RetailStudioRelay(route.relay), middleware.Distribute(), func(c *gin.Context) { c.Set(common.RequestIdKey, common.NewRequestId()); Relay(c, route.format) })
 	}
+	engine.POST("/api/retail/studio/runs/:id", middleware.UserAuth(), middleware.SessionCookieOriginGuard(), StartStudioRun(engine))
+	engine.GET("/api/retail/studio/runs/:id", middleware.UserAuth(), GetStudioRun)
+	engine.GET("/api/retail/studio/media/:id/:role", middleware.UserAuth(), ReadStudioMedia)
+	engine.DELETE("/api/retail/studio/history/:id", middleware.UserAuth(), DeleteStudioHistory)
 	// Sessions and Origin are real; only procurement uses the synthetic local server.
 	send := func(path, product, origin, body string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -1185,7 +1218,7 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.EqualValues(t, 2, hits.Load())
 	// Edits must reach the mapped supplier with the uploaded bytes and settle mixed image/text usage.
-	edit := `{"model":"gpt-image-2","prompt":"paint the tree","images":[{"image_url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="}]}`
+	edit := `{"model":"gpt-image-2","prompt":"paint the tree","size":"1920x1088","quality":"auto","output_format":"webp","output_compression":82,"images":[{"image_url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="}]}`
 	w = send("/images/edits", "premium", "https://example.com", edit)
 	require.Equal(t, 200, w.Code, w.Body.String())
 	w = send("/images/edits", "premium", "https://example.com", strings.Replace(edit, "data:image/png;base64,", "https://example.com/", 1))
@@ -1214,6 +1247,60 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	after, _, err = model.GetRetailKeyPolicy(user.Id, token.Id)
 	require.NoError(t, err)
 	require.Equal(t, policy, after)
+	// Reopen the budget for a real detached upload routed to the mock supplier.
+	policy.DailyBudgetCNY = "50"
+	_, revision, err = model.GetRetailKeyPolicy(user.Id, token.Id)
+	require.NoError(t, err)
+	require.NoError(t, model.PutRetailKeyPolicy(user.Id, token.Id, revision, policy))
+	id := uuid.NewString()
+	var upload bytes.Buffer
+	form := multipart.NewWriter(&upload)
+	require.NoError(t, form.WriteField("intent", fmt.Sprintf(`{"record":{"id":"%s","mode":"image","product":"premium","entries":[{"id":1,"prompt":"Edit original","model":"gpt-image-2"}]},"size":"1920x1088","quality":"high"}`, id)))
+	part, err := form.CreateFormFile("image", "reference.png")
+	require.NoError(t, err)
+	_, err = part.Write(original)
+	require.NoError(t, err)
+	require.NoError(t, form.Close())
+	runPath := "/api/retail/studio/runs/" + id
+	call := func(method, path, contentType string, body io.Reader) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, body)
+		req.Header.Set("Authorization", "Bearer "+access)
+		req.Header.Set("Origin", "http://example.com")
+		req.Header.Set("Content-Type", contentType)
+		rec := httptest.NewRecorder()
+		engine.ServeHTTP(rec, req)
+		return rec
+	}
+	owner := fmt.Sprintf("?owner=%d", user.Id)
+	w = call("POST", runPath+owner, form.FormDataContentType(), bytes.NewReader(upload.Bytes()))
+	require.Equal(t, 202, w.Code, w.Body.String())
+	var result struct {
+		Record studioHistoryRecord
+	}
+	require.Eventually(t, func() bool {
+		rec := call("GET", runPath, "", nil)
+		return common.Unmarshal(rec.Body.Bytes(), &result) == nil && len(result.Record.Entries) > 0
+	}, 3*time.Second, 10*time.Millisecond)
+	entry := result.Record.Entries[0]
+	require.Empty(t, entry.Error)
+	require.Equal(t, studioMediaPrefix+id+"/reference", entry.Reference)
+	require.Equal(t, studioMediaPrefix+id+"/result", entry.Image)
+	require.EqualValues(t, 4, hits.Load())
+	w = call("POST", runPath+owner, form.FormDataContentType(), bytes.NewReader(upload.Bytes()))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.EqualValues(t, 4, hits.Load(), "a repeated upload never reissues the paid request")
+	w = call("GET", entry.Reference, "", nil)
+	require.Equal(t, 200, w.Code)
+	require.True(t, bytes.Equal(original, w.Body.Bytes()))
+	w = call("GET", entry.Image, "", nil)
+	require.Equal(t, 200, w.Code)
+	require.Equal(t, []byte("\x89PNG\r\n\x1a\n"), w.Body.Bytes())
+	w = call("DELETE", "/api/retail/studio/history/"+id+owner, "", nil)
+	require.Equal(t, 200, w.Code)
+	require.Equal(t, 404, call("GET", entry.Reference, "", nil).Code)
+	_, err = os.Stat(filepath.Join(os.Getenv("STUDIO_HISTORY_DIR"), fmt.Sprint(user.Id), id+".result"))
+	require.ErrorIs(t, err, os.ErrNotExist)
 	ordinary := model.Token{UserId: user.Id, ServiceMode: model.TokenServiceRetail, Key: "test-ordinary", Status: 1, ExpiredTime: -1}
 	require.NoError(t, model.DB.Create(&ordinary).Error)
 	require.Error(t, model.PutRetailKeyPolicy(user.Id, ordinary.Id, 0, policy), "API keys cannot opt into studio-only pricing")

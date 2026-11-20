@@ -55,7 +55,13 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getStudio, openStudio, studioFormSchema, type StudioForm } from './api'
+import {
+  getStudio,
+  openStudio,
+  studioFormSchema,
+  validImageDimensions,
+  type StudioForm,
+} from './api'
 import { StudioHistory } from './studio-history'
 import { StudioReference } from './studio-reference'
 import { StudioResults } from './studio-results'
@@ -94,7 +100,7 @@ function StudioWorkspace(props: { identity: string }) {
   )
   const mobile = useIsMobile()
   const [optionsOpen, setOptionsOpen] = useState(false)
-  const [reference, setReference] = useState<string>()
+  const [reference, setReference] = useState<File | string>()
   const [referenceBlocked, setReferenceBlocked] = useState(false)
   const [policyOpen, setPolicyOpen] = useState(false)
   const [openedId, setOpenedId] = useState(0)
@@ -123,6 +129,9 @@ function StudioWorkspace(props: { identity: string }) {
       maxTokens: defaultOutputLimit,
       size: '1024x1024',
       quality: 'medium',
+      customSize: '',
+      outputFormat: 'png',
+      outputCompression: '',
     },
   })
   const query = useQuery({
@@ -162,8 +171,26 @@ function StudioWorkspace(props: { identity: string }) {
     product?.models.filter(
       (item) => (item.kind === 'image') === (mode === 'image')
     ) ?? []
+  const imageSize = useWatch({ control: form.control, name: 'size' })
+  const outputFormat = useWatch({ control: form.control, name: 'outputFormat' })
   const model = useWatch({ control: form.control, name: 'model' })
   const selected = models.find((item) => item.id === model)
+  const extendedImage = selected?.reference_image === true
+  const selectedModelId = selected?.id
+  useEffect(() => {
+    if (mode !== 'image' || !selectedModelId || extendedImage) return
+    // Synchronize the form after its current options become unavailable.
+    if (
+      !['1024x1024', '1024x1536', '1536x1024'].includes(form.getValues('size'))
+    ) {
+      form.setValue('size', '1024x1024')
+    }
+    if (form.getValues('quality') === 'auto') {
+      form.setValue('quality', 'medium')
+    }
+    form.setValue('outputFormat', 'png')
+    form.clearErrors(['size', 'outputCompression'])
+  }, [mode, selectedModelId, extendedImage, form])
   const [storageFailed, setStorageFailed] = useState(false)
   const maxOutput = selected?.max_output
   const preferredLimit = useRef(defaultOutputLimit)
@@ -266,6 +293,43 @@ function StudioWorkspace(props: { identity: string }) {
       })
       return
     }
+    if (mode === 'image') {
+      // A model change can hide advanced settings that the new model does not support.
+      if (!selected.reference_image) {
+        input = {
+          ...input,
+          size: ['1024x1024', '1024x1536', '1536x1024'].includes(input.size)
+            ? input.size
+            : '1024x1024',
+          quality: input.quality === 'auto' ? 'medium' : input.quality,
+          outputFormat: 'png',
+        }
+      }
+      const size =
+        input.size === 'custom'
+          ? input.customSize.trim().toLowerCase()
+          : input.size
+      if (!validImageDimensions(size)) {
+        form.setError('size', {
+          message: t('Enter a supported resolution, for example 1920x1088.'),
+        })
+        setOptionsOpen(true)
+        return
+      }
+      const compression = Number(input.outputCompression)
+      if (
+        input.outputFormat !== 'png' &&
+        input.outputCompression !== '' &&
+        (!Number.isInteger(compression) || compression < 0 || compression > 100)
+      ) {
+        form.setError('outputCompression', {
+          message: t('Enter an integer from 0 to 100.'),
+        })
+        setOptionsOpen(true)
+        return
+      }
+      input = { ...input, size }
+    }
     const parent = mode === 'text' ? activeId.current : undefined
     const entry = {
       id: (run.entries.at(-1)?.id ?? 0) + 1,
@@ -275,7 +339,12 @@ function StudioWorkspace(props: { identity: string }) {
       reasoning: '',
       complete: false,
       reference:
-        mode === 'image' && selected.reference_image ? reference : undefined,
+        mode === 'image' &&
+        selected.reference_image &&
+        typeof reference === 'string' &&
+        reference.startsWith('data:')
+          ? reference
+          : undefined,
     }
     const record = {
       id: crypto.randomUUID(),
@@ -287,7 +356,12 @@ function StudioWorkspace(props: { identity: string }) {
     }
     form.setValue('prompt', '')
     activeId.current = record.id
-    run.send(record, input, parent)
+    run.send(
+      record,
+      input,
+      parent,
+      mode === 'image' && selected.reference_image ? reference : undefined
+    )
   }
 
   if (query.isPending) return <LoadingState message={t('Loading...')} />
@@ -581,27 +655,66 @@ function StudioWorkspace(props: { identity: string }) {
               }
             >
               {mode === 'image' ? (
-                <div className='flex gap-2'>
+                <div className='flex flex-wrap items-center gap-2'>
                   <NativeSelect
                     aria-label={t('Image size')}
                     disabled={run.busy}
                     {...form.register('size')}
                   >
+                    {selected?.reference_image && (
+                      <NativeSelectOption value='auto'>
+                        {t('Auto')}
+                      </NativeSelectOption>
+                    )}
                     <NativeSelectOption value='1024x1024'>
-                      1:1
+                      1:1 · 1024 × 1024
                     </NativeSelectOption>
                     <NativeSelectOption value='1024x1536'>
-                      2:3
+                      2:3 · 1024 × 1536
                     </NativeSelectOption>
                     <NativeSelectOption value='1536x1024'>
-                      3:2
+                      3:2 · 1536 × 1024
                     </NativeSelectOption>
+                    {selected?.reference_image && (
+                      <>
+                        <NativeSelectOption value='1536x1152'>
+                          4:3 · 1536 × 1152
+                        </NativeSelectOption>
+                        <NativeSelectOption value='1152x1536'>
+                          3:4 · 1152 × 1536
+                        </NativeSelectOption>
+                        <NativeSelectOption value='1536x864'>
+                          16:9 · 1536 × 864
+                        </NativeSelectOption>
+                        <NativeSelectOption value='864x1536'>
+                          9:16 · 864 × 1536
+                        </NativeSelectOption>
+                        <NativeSelectOption value='custom'>
+                          {t('Custom')}
+                        </NativeSelectOption>
+                      </>
+                    )}
                   </NativeSelect>
+                  {extendedImage && imageSize === 'custom' && (
+                    <Input
+                      aria-label={t('Custom resolution')}
+                      placeholder='1920x1088'
+                      className='w-32'
+                      disabled={run.busy}
+                      {...form.register('customSize')}
+                    />
+                  )}
+
                   <NativeSelect
                     aria-label={t('Quality')}
                     disabled={run.busy}
                     {...form.register('quality')}
                   >
+                    {selected?.reference_image && (
+                      <NativeSelectOption value='auto'>
+                        {t('Auto')}
+                      </NativeSelectOption>
+                    )}
                     <NativeSelectOption value='low'>
                       {t('Low')}
                     </NativeSelectOption>
@@ -612,6 +725,43 @@ function StudioWorkspace(props: { identity: string }) {
                       {t('High')}
                     </NativeSelectOption>
                   </NativeSelect>
+                  {selected?.reference_image && (
+                    <>
+                      <NativeSelect
+                        aria-label={t('Output format')}
+                        disabled={run.busy}
+                        {...form.register('outputFormat')}
+                      >
+                        <NativeSelectOption value='png'>PNG</NativeSelectOption>
+                        <NativeSelectOption value='jpeg'>
+                          JPEG
+                        </NativeSelectOption>
+                        <NativeSelectOption value='webp'>
+                          WebP
+                        </NativeSelectOption>
+                      </NativeSelect>
+                      {outputFormat !== 'png' && (
+                        <Input
+                          type='number'
+                          min={0}
+                          max={100}
+                          step={1}
+                          placeholder='0–100'
+                          className='w-24'
+                          disabled={run.busy}
+                          aria-label={t('Output compression (%)')}
+                          {...form.register('outputCompression')}
+                        />
+                      )}
+                    </>
+                  )}
+                  {(form.formState.errors.size ||
+                    form.formState.errors.outputCompression) && (
+                    <p role='alert' className='text-destructive w-full text-sm'>
+                      {form.formState.errors.size?.message ||
+                        form.formState.errors.outputCompression?.message}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className='flex items-center gap-2'>

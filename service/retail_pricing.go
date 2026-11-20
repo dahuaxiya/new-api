@@ -98,7 +98,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if imageRequest != (quote.Model.Kind == "image") {
 		return true, retailPriceError(retailprice.ErrConfig)
 	}
-	if err := validateRetailBody(raw, quote.Model.Kind, c.GetBool("retail_studio_image_edit")); err != nil {
+	if err := validateRetailBody(raw, quote.Model.Kind, c.GetBool("retail_studio_image_edit"), studioReferencePath(c.Request, c.GetBool("retail_studio_image_edit")) != ""); err != nil {
 		return true, retailPriceError(err)
 	}
 	// Counting is mandatory for a guarded request, even when the legacy global estimate switch is off.
@@ -221,7 +221,8 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	if err != nil || len(raw) > 8<<20 || !gjson.ValidBytes(raw) {
 		return retailprice.ErrConfig
 	}
-	if err := validateRetailBody(raw, quote.Model.Kind, c.GetBool("retail_studio_image_edit")); err != nil {
+	reference := studioReferencePath(c.Request, c.GetBool("retail_studio_image_edit"))
+	if err := validateRetailBody(raw, quote.Model.Kind, c.GetBool("retail_studio_image_edit"), reference != ""); err != nil {
 		return err
 	}
 	if gjson.GetBytes(raw, "model").String() != upstreamModel || upstreamModel == "" {
@@ -294,6 +295,9 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	// the durable record needed to reconcile the exact price accepted for this call.
 	if result.RowsAffected != 1 {
 		return retailprice.ErrUsage
+	}
+	if reference != "" {
+		return attachStudioReference(req, raw, reference, info.ChannelSetting.StudioImageEditJSON)
 	}
 	return nil
 }

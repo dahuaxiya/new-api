@@ -12,6 +12,8 @@ import (
 )
 
 type ChannelSettings struct {
+	// StudioImageEditJSON selects JSON only for a supplier that cannot accept multipart image edits.
+	StudioImageEditJSON       bool   `json:"studio_image_edit_json,omitempty"`
 	TaskPluginKey             string `json:"task_plugin_key,omitempty"`
 	ForceFormat               bool   `json:"force_format,omitempty"`
 	ThinkingToContent         bool   `json:"thinking_to_content,omitempty"`

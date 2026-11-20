@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/shirou/gopsutil/disk"
 )
@@ -27,15 +28,19 @@ import (
 // Only active tasks live in memory on the retail instance; a lost worker is never redispatched.
 var studioRuns sync.Map
 var studioSlots = make(chan struct{}, 12)
+var studioUploadSlots = make(chan struct{}, 8)
 
 const interruptedRun = "Stopped. Check usage before trying again."
 
 type studioIntent struct {
-	Record    studioHistoryRecord `json:"record"`
-	Parent    string              `json:"parent"`
-	MaxTokens int                 `json:"maxTokens"`
-	Size      string              `json:"size"`
-	Quality   string              `json:"quality"`
+	Record            studioHistoryRecord `json:"record"`
+	Parent            string              `json:"parent"`
+	MaxTokens         int                 `json:"maxTokens"`
+	Size              string              `json:"size"`
+	Quality           string              `json:"quality"`
+	OutputFormat      string              `json:"outputFormat,omitempty"`
+	OutputCompression *int                `json:"outputCompression,omitempty"`
+	uploadedReference bool
 }
 type studioWorker struct {
 	cancel             context.CancelFunc
@@ -98,18 +103,31 @@ func studioRunRequest(in *studioIntent) (string, []byte, error) {
 		body["max_tokens"] = in.MaxTokens
 		path += "chat/completions"
 	case "image":
-		if len(row.Entries) != 1 || !safeStudioRaster(last.Reference) {
+		if len(row.Entries) != 1 || !safeStudioRaster(last.Reference) || (in.uploadedReference && (last.Reference != "" || !service.RetailReferenceModel(last.Model))) {
 			return "", nil, errors.New("invalid reference")
 		}
 		body["prompt"] = last.Prompt
 		body["n"] = 1
 		body["size"] = in.Size
 		body["quality"] = in.Quality
-		body["output_format"] = "png"
+		format := in.OutputFormat
+		if format == "" {
+			format = "png" // Older reconnect intents did not carry an output format.
+		}
+		if !service.ValidRetailImageSize(last.Model, in.Size) || in.Quality == "" ||
+			!service.ValidRetailImageOptions(last.Model, in.Quality, format, in.OutputCompression) {
+			return "", nil, errors.New("invalid image options")
+		}
+		body["output_format"] = format
+		if in.OutputCompression != nil {
+			body["output_compression"] = *in.OutputCompression
+		}
 		body["stream"] = false
 		if last.Reference != "" {
 			path += "images/edits"
 			body["images"] = []gin.H{{"image_url": last.Reference}}
+		} else if in.uploadedReference {
+			path += "images/edits"
 		} else {
 			path += "images/generations"
 		}
@@ -129,17 +147,42 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 			historyError(c, 403)
 			return
 		}
+		dir := studioOwnerDir(c)
+		if c.ContentType() == "multipart/form-data" {
+			select {
+			case studioUploadSlots <- struct{}{}:
+				defer func() { <-studioUploadSlots }()
+			default:
+				historyError(c, 429)
+				return
+			}
+		}
 		var in studioIntent
-		if common.DecodeJson(http.MaxBytesReader(c.Writer, c.Request.Body, 8<<20), &in) != nil || in.Record.ID != id || (in.Parent != "" && (!historyID(in.Parent) || in.Parent == id)) {
+		file, uploadErr := readStudioIntent(c, dir, &in)
+		if file != nil {
+			defer file.Close()
+			defer os.Remove(file.Name())
+		}
+		var sizeError *http.MaxBytesError
+		if errors.As(uploadErr, &sizeError) {
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"success": false, "message": "Reference image must be 50 MiB or smaller."})
+			return
+		}
+		if errors.Is(uploadErr, errStudioDisk) {
+			historyError(c, 507)
+			return
+		}
+		if uploadErr != nil || in.Record.ID != id || (in.Parent != "" && (!historyID(in.Parent) || in.Parent == id)) ||
+			(file != nil && (in.Record.Mode != "image" || in.Parent != "")) {
 			historyError(c, 400)
 			return
 		}
+		in.uploadedReference = file != nil
 		path, body, err := studioRunRequest(&in)
 		if err != nil {
 			historyError(c, 400)
 			return
 		}
-		dir := studioOwnerDir(c)
 		key := filepath.Join(dir, id)
 		lock := &historyLocks[owner%len(historyLocks)]
 		lock.Lock()
@@ -155,6 +198,20 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 			return
 		}
 		fingerprint := sha256.Sum256(intentBytes)
+		if file != nil {
+			// Hash actual file bytes so an acknowledgement retry cannot substitute another image.
+			hash := sha256.New()
+			hash.Write(fingerprint[:])
+			if _, err := file.Seek(0, io.SeekStart); err != nil {
+				historyError(c, 500)
+				return
+			}
+			if _, err := io.Copy(hash, file); err != nil {
+				historyError(c, 500)
+				return
+			}
+			copy(fingerprint[:], hash.Sum(nil))
+		}
 		if existing, readErr := os.ReadFile(key + ".run"); readErr == nil {
 			if !bytes.Equal(existing, fingerprint[:]) {
 				historyError(c, 409)
@@ -223,6 +280,30 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 		claim.Close()
 		in.Record.Running = true
 		in.Record.UpdatedAt = time.Now().UnixMilli()
+		last := &in.Record.Entries[len(in.Record.Entries)-1]
+		if err == nil && file != nil {
+			err = file.Sync()
+			if err == nil {
+				err = os.Rename(file.Name(), key+".reference")
+			}
+			if err == nil {
+				last.Reference = studioMediaPrefix + id + "/reference"
+			}
+		} else if err == nil && last.Reference != "" {
+			// JSON reconnects built by older clients retain their fingerprint and relay shape.
+			_, encoded, _ := strings.Cut(last.Reference, ",")
+			var decoded []byte
+			decoded, err = base64.StdEncoding.DecodeString(encoded)
+			if err == nil && len(decoded) <= 5<<20 {
+				switch http.DetectContentType(decoded) {
+				case "image/png", "image/jpeg", "image/webp":
+					err = storeStudioImage(key+".reference", decoded)
+					if err == nil {
+						last.Reference = studioMediaPrefix + id + "/reference"
+					}
+				}
+			}
+		}
 		if err == nil {
 			err = storeStudioRecord(dir, &in.Record)
 		}
@@ -236,16 +317,19 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 			}
 		}
 		if err != nil {
-			os.Remove(key + ".record")
+			_ = deleteStudioRecord(key)
 			os.Remove(key + ".run")
 			<-studioSlots
 			historyError(c, 500)
 			return
 		}
 		if in.Parent != "" {
-			_ = os.Remove(filepath.Join(dir, in.Parent+".record"))
+			_ = deleteStudioRecord(filepath.Join(dir, in.Parent))
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		if file != nil {
+			ctx = service.WithStudioReference(ctx, key+".reference")
+		}
 		worker := &studioWorker{cancel: cancel}
 		studioRuns.Store(key, worker)
 		// Never retain gin.Context or forward arbitrary request headers to the nested relay.
@@ -305,6 +389,9 @@ func (w *studioWorker) execute(relay http.Handler, req *http.Request, dir, key s
 		row.UpdatedAt = time.Now().UnixMilli()
 		lock.Lock()
 		if storeStudioRecord(dir, row) != nil {
+			if last.Image != "" {
+				_ = removeStudioMedia(key + ".result")
+			}
 			common.SysError("Unable to finalize studio run")
 		}
 		studioRuns.Delete(key)
@@ -328,7 +415,15 @@ func (w *studioWorker) execute(relay http.Handler, req *http.Request, dir, key s
 		var data []byte
 		data, err = io.ReadAll(io.LimitReader(reader, studioRecordLimit+1))
 		if err == nil && len(data) <= studioRecordLimit {
-			last.Image, err = studioResultImage(req.Context(), data)
+			var image []byte
+			image, err = studioResultImage(req.Context(), data)
+			if err == nil {
+				if storeStudioImage(key+".result", image) != nil {
+					err = errors.New("Unable to save the generated image. Check usage before trying again.")
+				} else {
+					last.Image = studioMediaPrefix + row.ID + "/result"
+				}
+			}
 		} else if err == nil {
 			err = errors.New("Image response too large")
 		}
@@ -412,7 +507,7 @@ func studioRelayMessage(message string) string {
 }
 
 // studioResultImage saves portable raster bytes, including the existing supplier's expiring image URLs.
-func studioResultImage(ctx context.Context, data []byte) (string, error) {
+func studioResultImage(ctx context.Context, data []byte) ([]byte, error) {
 	var result struct {
 		Success *bool
 		Message string
@@ -420,13 +515,13 @@ func studioResultImage(ctx context.Context, data []byte) (string, error) {
 		Error   *struct{ Message string }
 	}
 	if common.Unmarshal(data, &result) != nil {
-		return "", errors.New("Invalid image response")
+		return nil, errors.New("Invalid image response")
 	}
 	if result.Success != nil && !*result.Success {
-		return "", errors.New(studioRelayMessage(result.Message))
+		return nil, errors.New(studioRelayMessage(result.Message))
 	}
 	if result.Error != nil {
-		return "", errors.New(studioRelayMessage(result.Error.Message))
+		return nil, errors.New(studioRelayMessage(result.Error.Message))
 	}
 	type image struct {
 		B64 string `json:"b64_json"`
@@ -464,7 +559,11 @@ func studioResultImage(ctx context.Context, data []byte) (string, error) {
 			if resp.StatusCode != 200 || e != nil || len(b) > 48<<20 {
 				continue
 			}
-			raw = base64.StdEncoding.EncodeToString(b)
+			switch http.DetectContentType(b) {
+			case "image/png", "image/jpeg", "image/webp":
+				return b, nil
+			}
+			continue
 		}
 		if strings.HasPrefix(raw, "data:") {
 			_, raw, _ = strings.Cut(raw, ",")
@@ -480,10 +579,10 @@ func studioResultImage(ctx context.Context, data []byte) (string, error) {
 		mime := http.DetectContentType(decoded)
 		switch mime {
 		case "image/png", "image/jpeg", "image/webp":
-			return "data:" + mime + ";base64," + raw, nil
+			return decoded, nil
 		}
 	}
-	return "", errors.New("The image response is incomplete. Check usage before trying again.")
+	return nil, errors.New("The image response is incomplete. Check usage before trying again.")
 }
 
 // GetStudioRun returns only bytes after the caller's cursors. Terminal snapshots are read from disk.

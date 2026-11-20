@@ -3,9 +3,12 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -102,7 +105,10 @@ func TestStudioRunDetached(t *testing.T) {
 				require.True(t, last.Complete)
 			}
 			if mode == "image" {
-				require.Equal(t, "data:image/png;base64,"+image, last.Image)
+				require.Equal(t, studioMediaPrefix+id+"/result", last.Image)
+				stored, err := os.ReadFile(filepath.Join(os.Getenv("STUDIO_HISTORY_DIR"), "1", id+".result"))
+				require.NoError(t, err)
+				require.Equal(t, image, base64.StdEncoding.EncodeToString(stored))
 				require.True(t, last.Complete)
 			}
 			if mode == "stop" {
@@ -118,6 +124,51 @@ func TestStudioRunDetached(t *testing.T) {
 				require.Equal(t, "mock policy rejection", last.Error)
 			}
 			require.EqualValues(t, 1, paid.Load())
+		})
+	}
+}
+
+// TestStudioRunImageOptions verifies legacy defaults and rejects invalid options before a run is claimed.
+func TestStudioRunImageOptions(t *testing.T) {
+	for _, scenario := range []struct {
+		name, model, size, quality, format string
+		compression                        *int
+		wantFormat                         string
+	}{
+		{name: "legacy", model: "test", size: "1024x1024", quality: "medium", wantFormat: "png"},
+		{name: "extended", model: "gpt-image-2", size: "1920x1088", quality: "auto", format: "webp", compression: new(0), wantFormat: "webp"},
+		{name: "unaligned dimension", model: "gpt-image-2", size: "1920x1080", quality: "high"},
+		{name: "outside pixel budget", model: "gpt-image-2", size: "3840x3840", quality: "high"},
+		{name: "compression out of range", model: "gpt-image-2", size: "auto", quality: "low", format: "jpeg", compression: new(101)},
+		{name: "compression with PNG", model: "gpt-image-2", size: "auto", quality: "low", compression: new(70)},
+		{name: "unsupported model", model: "test", size: "1920x1088", quality: "high"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			in := studioIntent{
+				Record: studioHistoryRecord{
+					Mode: "image", Product: "standard",
+					Entries: []studioHistoryEntry{{ID: 1, Prompt: "A tree", Model: scenario.model}},
+				},
+				Size: scenario.size, Quality: scenario.quality,
+				OutputFormat: scenario.format, OutputCompression: scenario.compression,
+			}
+			path, raw, err := studioRunRequest(&in)
+			if scenario.wantFormat == "" {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "/api/retail/studio/images/generations", path)
+			var body map[string]any
+			require.NoError(t, common.Unmarshal(raw, &body))
+			require.Equal(t, scenario.size, body["size"])
+			require.Equal(t, scenario.quality, body["quality"])
+			require.Equal(t, scenario.wantFormat, body["output_format"])
+			if scenario.compression != nil {
+				require.EqualValues(t, *scenario.compression, body["output_compression"])
+			} else {
+				require.NotContains(t, body, "output_compression")
+			}
 		})
 	}
 }

@@ -22,65 +22,62 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 
+import { useStudioImage } from './studio-image'
+
+const sourceBytes = 50 * 1024 * 1024
+
+/** Mobile file pickers can omit the MIME label, so inspect the original bytes. */
+async function isSupportedReference(file: File): Promise<boolean> {
+  if (!file.size || file.size > sourceBytes) return false
+  const header = new Uint8Array(await file.slice(0, 12).arrayBuffer())
+  const signature = String.fromCharCode(...header)
+  return (
+    signature.startsWith('\x89PNG\r\n\x1a\n') ||
+    signature.startsWith('\xff\xd8\xff') ||
+    (signature.startsWith('RIFF') && signature.slice(8) === 'WEBP')
+  )
+}
+
 /** Read one local reference for the current image request. Changing model or leaving the form cancels an unfinished read. */
 export function StudioReference(props: {
-  value?: string
-  onChange: (value?: string) => void
+  value?: File | string
+  onChange: (value?: File | string) => void
   onBlocked: (busy: boolean) => void
   disabled: boolean
 }) {
   const { t } = useTranslation()
+  const { url } = useStudioImage(props.value)
   const fileInput = useRef<HTMLInputElement>(null)
-  const reader = useRef<FileReader | null>(null)
+  const selection = useRef(0)
   const [invalid, setInvalid] = useState(false)
+  const [processing, setProcessing] = useState(false)
   useEffect(
     () => () => {
-      reader.current?.abort()
+      selection.current += 1
     },
     []
   )
-  /** Normalize the browser MIME label from the file signature; mobile pickers may omit it. */
-  const choose = (file?: File) => {
+
+  /** Ignore late decoding results when the user picks a different image or leaves the form. */
+  const choose = async (file?: File) => {
     if (!file) return
-    reader.current?.abort()
+    const current = ++selection.current
     setInvalid(false)
     props.onChange(undefined)
-    if (!file.size || file.size > 5 * 1024 * 1024) {
-      props.onBlocked(true)
-      setInvalid(true)
-      return
-    }
-    const next = new FileReader()
-    reader.current = next
     props.onBlocked(true)
-    next.addEventListener(
-      'load',
-      () => {
-        const data = String(next.result).split(',')[1] ?? ''
-        let mime = ''
-        if (data.startsWith('iVBORw0KGgo')) mime = 'image/png'
-        else if (data.startsWith('/9j/')) mime = 'image/jpeg'
-        else if (
-          data.startsWith('UklGR') &&
-          atob(data.slice(0, 16)).slice(8, 12) === 'WEBP'
-        ) {
-          mime = 'image/webp'
-        }
-        if (mime) props.onChange(`data:${mime};base64,${data}`)
-        else setInvalid(true)
-        props.onBlocked(!mime)
-      },
-      { once: true }
-    )
-    next.addEventListener(
-      'error',
-      () => {
-        setInvalid(true)
-        props.onBlocked(true)
-      },
-      { once: true }
-    )
-    next.readAsDataURL(file)
+    setProcessing(true)
+    try {
+      if (!(await isSupportedReference(file))) {
+        throw new Error('Unsupported reference image')
+      }
+      if (selection.current !== current) return
+      props.onChange(file)
+      props.onBlocked(false)
+    } catch {
+      if (selection.current === current) setInvalid(true)
+    } finally {
+      if (selection.current === current) setProcessing(false)
+    }
   }
   return (
     <div className='flex flex-wrap items-center gap-2'>
@@ -92,14 +89,14 @@ export function StudioReference(props: {
         accept='image/png,image/jpeg,image/webp'
         disabled={props.disabled}
         onChange={(event) => {
-          choose(event.target.files?.[0])
+          void choose(event.target.files?.[0])
           event.target.value = ''
         }}
       />
-      {props.value && (
+      {url && (
         <img
           className='size-12 rounded-md border object-cover'
-          src={props.value}
+          src={url}
           alt={t('Reference image')}
         />
       )}
@@ -114,7 +111,7 @@ export function StudioReference(props: {
         <ImagePlus aria-hidden='true' />
         {t('Reference image')}
       </Button>
-      {(props.value || invalid) && (
+      {(props.value || invalid || processing) && (
         <Button
           variant='ghost'
           size='icon'
@@ -122,17 +119,31 @@ export function StudioReference(props: {
           disabled={props.disabled}
           aria-label={t('Remove reference image')}
           onClick={() => {
+            selection.current += 1
             props.onChange(undefined)
             setInvalid(false)
+            setProcessing(false)
             props.onBlocked(false)
           }}
         >
           <X aria-hidden='true' />
         </Button>
       )}
+      {processing && (
+        <p role='status' className='text-muted-foreground text-xs'>
+          {t('Preparing reference image…')}
+        </p>
+      )}
+      {!invalid && !processing && (
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Reference images are uploaded at original quality, up to 50 MiB.'
+          )}
+        </p>
+      )}
       {invalid && (
         <p role='alert' className='text-destructive text-sm'>
-          {t('Choose a PNG, JPEG or WebP image up to 5 MiB.')}
+          {t('Choose a readable PNG, JPEG or WebP up to 50 MiB.')}
         </p>
       )}
     </div>

@@ -21,12 +21,32 @@ import { z } from 'zod'
 import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
+/** GPT Image accepts dimensions divisible by 16 within its aspect-ratio and pixel limits. */
+export function validImageDimensions(size: string): boolean {
+  if (size === 'auto') return true
+  const match = /^([1-9]\d{0,3})x([1-9]\d{0,3})$/.exec(size)
+  if (!match) return false
+  const width = Number(match[1])
+  const height = Number(match[2])
+  return (
+    Math.max(width, height) <= 3840 &&
+    width % 16 === 0 &&
+    height % 16 === 0 &&
+    Math.max(width, height) <= 3 * Math.min(width, height) &&
+    width * height >= 655360 &&
+    width * height <= 8294400
+  )
+}
+
 export const studioFormSchema = z.object({
   prompt: z.string().trim().min(1).max(32000),
   model: z.string().min(1),
   maxTokens: z.number().int().min(1).max(32768),
-  size: z.enum(['1024x1024', '1024x1536', '1536x1024']),
-  quality: z.enum(['low', 'medium', 'high']),
+  size: z.string(),
+  customSize: z.string(),
+  outputFormat: z.enum(['png', 'jpeg', 'webp']),
+  outputCompression: z.string(),
+  quality: z.enum(['auto', 'low', 'medium', 'high']),
 })
 export type StudioForm = z.infer<typeof studioFormSchema>
 
@@ -171,7 +191,7 @@ export async function imageDataURL(
   throw new Error(incompleteImage)
 }
 
-/** Submit exactly one PNG generation. No automatic replay is safe after an uncertain paid request. */
+/** Submit exactly one image generation. No automatic replay is safe after an uncertain paid request. */
 export async function generateStudioImage(
   input: StudioForm,
   signal: AbortSignal,
@@ -189,7 +209,10 @@ export async function generateStudioImage(
       quality: input.quality,
       n: 1,
       ...(reference ? { images: [{ image_url: reference }] } : {}),
-      output_format: 'png',
+      output_format: input.outputFormat,
+      ...(input.outputFormat !== 'png' && input.outputCompression !== ''
+        ? { output_compression: Number(input.outputCompression) }
+        : {}),
       stream: false,
     },
     {

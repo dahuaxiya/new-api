@@ -28,6 +28,7 @@ import { Response } from '@/components/ai-elements/response'
 import { CopyButton } from '@/components/copy-button'
 import { Button } from '@/components/ui/button'
 
+import { useStudioImage } from './studio-image'
 import type { StudioEntry } from './use-studio-run'
 
 /** Reuse conversation scroll behavior so streaming never pulls a reader away from older messages. */
@@ -87,30 +88,7 @@ export function StudioResults(props: {
                   {item.content}
                 </Response>
               )}
-              {item.image && (
-                <div className='space-y-3'>
-                  <img
-                    src={item.image}
-                    alt={item.prompt}
-                    className='bg-muted/45 max-h-[58dvh] max-w-full rounded-xl object-contain'
-                    loading='lazy'
-                    decoding='async'
-                  />
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    render={
-                      <a
-                        href={item.image}
-                        download={`luobocode-${item.id}.${item.image.slice('data:image/'.length, item.image.indexOf(';'))}`}
-                      />
-                    }
-                  >
-                    <Download aria-hidden='true' />
-                    {t('Download')}
-                  </Button>
-                </div>
-              )}
+              {item.image && <StudioResultImage item={item} />}
               {props.busy &&
                 index === props.entries.length - 1 &&
                 !item.content &&
@@ -151,5 +129,33 @@ export function StudioResults(props: {
         aria-label={t('Scroll to bottom')}
       />
     </Conversation>
+  )
+}
+
+/** Render either a private file-backed result or an older inline result with its original format. */
+function StudioResultImage(props: { item: StudioEntry }) {
+  const { t } = useTranslation()
+  const { url, format } = useStudioImage(props.item.image)
+  if (!url) return null
+  return (
+    <div className='space-y-3'>
+      <img
+        src={url}
+        alt={props.item.prompt}
+        className='bg-muted/45 max-h-[58dvh] max-w-full rounded-xl object-contain'
+        loading='lazy'
+        decoding='async'
+      />
+      <Button
+        variant='outline'
+        size='sm'
+        render={
+          <a href={url} download={`luobocode-${props.item.id}.${format}`} />
+        }
+      >
+        <Download aria-hidden='true' />
+        {t('Download')}
+      </Button>
+    </div>
   )
 }

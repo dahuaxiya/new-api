@@ -48,6 +48,7 @@ func SetApiRouter(router *gin.Engine) {
 		retailUser.POST("/studio/runs/:id", middleware.SessionCookieOriginGuard(), controller.StartStudioRun(router))
 		retailUser.GET("/studio/runs/:id", controller.GetStudioRun)
 		retailUser.DELETE("/studio/runs/:id", middleware.SessionCookieOriginGuard(), controller.StopStudioRun)
+		retailUser.GET("/studio/media/:id/:role", controller.ReadStudioMedia)
 		retailUser.GET("/studio/history", controller.ListStudioHistory)
 		retailUser.GET("/studio/history/:id", controller.ReadStudioHistory)
 		retailUser.PUT("/studio/history/:id", middleware.SessionCookieOriginGuard(), controller.PutStudioHistory)

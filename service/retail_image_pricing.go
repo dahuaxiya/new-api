@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -53,8 +54,45 @@ func validRetailReference(images gjson.Result) bool {
 	return err == nil && len(file) <= 5<<20 && http.DetectContentType(file) == mime
 }
 
+// ValidRetailImageSize preserves the common presets and permits flexible dimensions for GPT Image models.
+func ValidRetailImageSize(model, size string) bool {
+	if slices.Contains([]string{"1024x1024", "1024x1536", "1536x1024"}, size) {
+		return true
+	}
+	if !RetailReferenceModel(model) {
+		return false
+	}
+	if size == "auto" {
+		return true
+	}
+	left, right, ok := strings.Cut(size, "x")
+	if !ok || len(left) > 4 || len(right) > 4 {
+		return false
+	}
+	width, werr := strconv.Atoi(left)
+	height, herr := strconv.Atoi(right)
+	// Bound each axis before multiplication and enforce the provider's pixel budget.
+	return werr == nil && herr == nil && strconv.Itoa(width) == left && strconv.Itoa(height) == right &&
+		min(width, height) > 0 && max(width, height) <= 3840 &&
+		width%16 == 0 && height%16 == 0 && max(width, height) <= 3*min(width, height) &&
+		width*height >= 655360 && width*height <= 8294400
+}
+
+// ValidRetailImageOptions checks the prior three quality levels plus the GPT Image output controls.
+// Compression is an optional integer percentage and applies only to lossy output formats.
+func ValidRetailImageOptions(model, quality, format string, compression *int) bool {
+	extended := RetailReferenceModel(model)
+	if quality != "" && !slices.Contains([]string{"low", "medium", "high"}, quality) && !(extended && quality == "auto") {
+		return false
+	}
+	if format != "" && format != "png" && !(extended && (format == "jpeg" || format == "webp")) {
+		return false
+	}
+	return compression == nil || ((format == "jpeg" || format == "webp") && *compression >= 0 && *compression <= 100)
+}
+
 // validateRetailBody admits only modalities covered by the selected tariff and fixed relay endpoint.
-func validateRetailBody(raw []byte, kind string, edit bool) error {
+func validateRetailBody(raw []byte, kind string, edit, fileReference bool) error {
 	if kind != "image" {
 		return validateRetailTextBody(raw)
 	}
@@ -62,6 +100,8 @@ func validateRetailBody(raw []byte, kind string, edit bool) error {
 	if !gjson.ValidBytes(raw) || !root.IsObject() {
 		return retailprice.ErrConfig
 	}
+	modelID := root.Get("model").String()
+	format := root.Get("output_format").String()
 	valid := true
 	seen := map[string]bool{}
 	root.ForEach(func(key, value gjson.Result) bool {
@@ -73,19 +113,23 @@ func validateRetailBody(raw []byte, kind string, edit bool) error {
 		seen[name] = true
 		switch name {
 		case "images":
-			valid = edit && validRetailReference(value)
+			valid = edit && !fileReference && validRetailReference(value)
 		case "model", "prompt":
 			valid = value.Type == gjson.String && strings.TrimSpace(value.String()) != ""
 		case "size":
-			valid = slices.Contains([]string{"1024x1024", "1024x1536", "1536x1024"}, value.String())
+			valid = value.Type == gjson.String && ValidRetailImageSize(modelID, value.String())
 		case "quality":
-			valid = slices.Contains([]string{"low", "medium", "high"}, value.String())
+			valid = value.Type == gjson.String && value.String() != "" && ValidRetailImageOptions(modelID, value.String(), "", nil)
 		case "n":
 			valid = value.Type == gjson.Number && value.Float() == 1
 		case "stream":
 			valid = value.Type == gjson.False
 		case "output_format":
-			valid = value.String() == "png"
+			valid = value.Type == gjson.String && value.String() != "" && ValidRetailImageOptions(modelID, "", value.String(), nil)
+		case "output_compression":
+			compression := int(value.Int())
+			valid = value.Type == gjson.Number && value.Float() == float64(compression) &&
+				ValidRetailImageOptions(modelID, "", format, &compression)
 		case "response_format":
 			valid = value.String() == "b64_json"
 		default:
@@ -93,7 +137,7 @@ func validateRetailBody(raw []byte, kind string, edit bool) error {
 		}
 		return valid
 	})
-	if (edit && (!seen["images"] || !RetailReferenceModel(root.Get("model").String()))) || !valid || !seen["model"] || !seen["prompt"] || len(root.Get("prompt").String()) > 32000 {
+	if (edit && ((!seen["images"] && !fileReference) || !RetailReferenceModel(root.Get("model").String()))) || !valid || !seen["model"] || !seen["prompt"] || len(root.Get("prompt").String()) > 32000 {
 		return retailprice.ErrConfig
 	}
 	return nil

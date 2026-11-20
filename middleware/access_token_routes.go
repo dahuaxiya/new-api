@@ -86,6 +86,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/retail/studio/runs/:id":                   accessTokenSessionRule,
 	"GET /api/retail/studio/runs/:id":                    accessTokenSessionRule,
 	"DELETE /api/retail/studio/runs/:id":                 accessTokenSessionRule,
+	"GET /api/retail/studio/media/:id/:role":             accessTokenSessionRule,
 	"GET /api/retail/studio/history":                     accessTokenSessionRule,
 	"GET /api/retail/studio/history/:id":                 accessTokenSessionRule,
 	"PUT /api/retail/studio/history/:id":                 accessTokenSessionRule,

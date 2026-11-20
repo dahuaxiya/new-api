@@ -115,6 +115,10 @@ func purgeStudioOwner(dir string, owner int, now time.Time) error {
 			var info os.FileInfo
 			info, err = item.Info()
 			expired = err == nil && now.Sub(info.ModTime()) >= studioHistoryRetention
+		} else if item.Type().IsRegular() && (strings.HasSuffix(item.Name(), ".reference") || strings.HasSuffix(item.Name(), ".result")) {
+			key := strings.TrimSuffix(path, filepath.Ext(path))
+			_, statErr := os.Stat(key + ".record")
+			expired = errors.Is(statErr, os.ErrNotExist)
 		} else if item.Type().IsRegular() && strings.HasSuffix(item.Name(), ".part") {
 			var info os.FileInfo
 			info, err = item.Info()
@@ -122,7 +126,11 @@ func purgeStudioOwner(dir string, owner int, now time.Time) error {
 		}
 		// A failed read is retried on the next sweep; do not destroy an unreadable record.
 		if expired {
-			err = os.Remove(path)
+			if strings.HasSuffix(path, ".record") {
+				err = deleteStudioRecord(strings.TrimSuffix(path, ".record"))
+			} else {
+				err = removeStudioMedia(path)
+			}
 		}
 		if firstErr == nil && err != nil {
 			firstErr = err
@@ -251,7 +259,7 @@ func DeleteStudioHistory(c *gin.Context) {
 		historyError(c, 409)
 		return
 	}
-	err := os.Remove(filepath.Join(studioOwnerDir(c), id+".record"))
+	err := deleteStudioRecord(filepath.Join(studioOwnerDir(c), id))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		historyError(c, 500)
 		return
@@ -393,7 +401,7 @@ func PutStudioHistory(c *gin.Context) {
 		return
 	}
 	if parent != "" {
-		err = os.Remove(filepath.Join(dir, parent+".record"))
+		err = deleteStudioRecord(filepath.Join(dir, parent))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			historyError(c, 500)
 			return

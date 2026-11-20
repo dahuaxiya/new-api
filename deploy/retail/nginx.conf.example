@@ -12,22 +12,16 @@ server {
     root /var/www/new-api-retail/current;
     gzip_static on;
 
-    # Install nginx-static.conf from the same release before enabling this include.
+    # Install nginx-static.conf and nginx-proxy.conf from this release as the snippets below.
     include /etc/nginx/snippets/luobocode-retail-static.conf;
 
+    # The first regex also matches run reads/stops, whose application limits stay unchanged.
+    location ~ ^/api/retail/studio/runs/[0-9a-f-]+$ {
+        client_max_body_size 51m;
+        include /etc/nginx/snippets/luobocode-retail-proxy.conf;
+    }
     location ~ ^/(api|v1|health)(/|$) {
-        proxy_pass http://127.0.0.1:3002;
-        proxy_http_version 1.1;
-        proxy_set_header Host $http_host;
-        proxy_set_header X-Real-IP $remote_addr;
-        # 只信任入口看到的真实客户端地址，不接受客户端伪造的转发链绕过限流。
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header Connection '';
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 180s;
-        proxy_send_timeout 180s;
+        include /etc/nginx/snippets/luobocode-retail-proxy.conf;
     }
     location / {
         try_files $uri $uri/ /index.html;

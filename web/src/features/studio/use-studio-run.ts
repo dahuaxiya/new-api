@@ -22,12 +22,15 @@ import { api } from '@/lib/api'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
 import type { StudioForm } from './api'
+import { isStudioMedia, readStudioMedia } from './studio-image'
 import { type Conversation, writeSession } from './studio-session'
 
 export type StudioEntry = Conversation['entries'][number]
 type Intent = Pick<StudioForm, 'maxTokens' | 'size' | 'quality'> & {
   record: Conversation
   parent?: string
+  outputFormat?: StudioForm['outputFormat']
+  outputCompression?: number
 }
 type Cursor = { content: number; reasoning: number }
 const emptyCursor = (): Cursor => ({ content: 0, reasoning: 0 })
@@ -51,7 +54,11 @@ export function useStudioRun(
   }, [onFinish])
 
   /** One UUID survives lost acknowledgements. GET cursors advance only after consuming a response. */
-  async function follow(record: Conversation, intent?: Intent) {
+  async function follow(
+    record: Conversation,
+    intent?: Intent,
+    reference?: File | string
+  ) {
     current.current?.abort()
     const controller = new AbortController()
     const { signal } = controller
@@ -73,13 +80,27 @@ export function useStudioRun(
     setBusy(true)
     setEntries(record.entries)
     let backoff = 0
+    let request: Intent | FormData | undefined
     while (!signal.aborted) {
       try {
         if (!accepted) {
-          await api.post(endpoint, intent, {
+          if (!request && intent) {
+            const file = isStudioMedia(reference)
+              ? await readStudioMedia(reference, signal)
+              : reference
+            if (file instanceof Blob) {
+              const form = new FormData()
+              form.append('intent', JSON.stringify(intent))
+              form.append('image', file, 'reference')
+              request = form
+            } else {
+              request = intent
+            }
+          }
+          await api.post(endpoint, request, {
             params: { owner },
             signal,
-            timeout: 15000,
+            timeout: request instanceof FormData ? 300000 : 15000,
             skipErrorHandler: true,
           })
           accepted = true
@@ -179,7 +200,12 @@ export function useStudioRun(
     return () => current.current?.abort()
   }, [initial, key])
   /** Persist a small recovery pointer before sending, plus the original intent where device storage permits it. */
-  function send(record: Conversation, input: StudioForm, parent?: string) {
+  function send(
+    record: Conversation,
+    input: StudioForm,
+    parent?: string,
+    reference?: File | string
+  ) {
     if (active.current) return
     const intent = {
       record,
@@ -187,6 +213,14 @@ export function useStudioRun(
       maxTokens: input.maxTokens,
       size: input.size,
       quality: input.quality,
+      ...(record.mode === 'image'
+        ? {
+            outputFormat: input.outputFormat,
+            ...(input.outputFormat !== 'png' && input.outputCompression !== ''
+              ? { outputCompression: Number(input.outputCompression) }
+              : {}),
+          }
+        : {}),
     }
     if (key) {
       const entry = record.entries.at(-1)
@@ -197,9 +231,13 @@ export function useStudioRun(
             ? record.entries
             : [{ ...entry, reference: undefined }],
       })
-      writeSession(`${key}:intent`, intent)
+      // A file remains in memory for same-page retries. After navigation, only resume a claimed job.
+      writeSession(
+        `${key}:intent`,
+        reference instanceof File || isStudioMedia(reference) ? null : intent
+      )
     }
-    void follow(record, intent)
+    void follow(record, intent, reference)
   }
   /** Archive lookup can attach from a different device; never submit when opening history. */
   function reset(next: StudioEntry[], item?: Conversation) {

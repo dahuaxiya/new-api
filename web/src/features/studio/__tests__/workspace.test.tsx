@@ -76,6 +76,7 @@ function mount(
     root?: boolean
     secondGroup?: boolean
     automatic?: boolean
+    basicImage?: boolean
   } = {}
 ) {
   useAuthStore.getState().auth.setUser({
@@ -89,7 +90,9 @@ function mount(
     if (!url.includes('/runs/')) {
       return oldPost ? oldPost(url, body, config) : { data: { success: true } }
     }
-    const { record, parent, maxTokens } = body as {
+    const payload =
+      body instanceof FormData ? JSON.parse(String(body.get('intent'))) : body
+    const { record, parent, maxTokens } = payload as {
       record: Conversation
       parent?: string
       maxTokens: number
@@ -101,6 +104,9 @@ function mount(
     const entry = copy.entries.at(-1)
     if (!entry) throw new Error('Expected a submitted turn')
     if (copy.mode === 'image') {
+      if (body instanceof FormData) {
+        entry.reference = `/api/retail/studio/media/${copy.id}/reference`
+      }
       void imageSend(entry).then((image) => {
         entry.image = image
         entry.complete = true
@@ -170,6 +176,13 @@ function mount(
           : { running: false, record: row },
       }
     }
+    if (url.includes('/studio/media/')) {
+      return {
+        data: new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], {
+          type: 'image/png',
+        }),
+      }
+    }
     if (url.endsWith('/history')) {
       return {
         data: {
@@ -213,6 +226,16 @@ function mount(
                         tiers: [{ up_to: 1000, prices: price }],
                         max_output: 4096,
                       },
+                      ...(options.basicImage
+                        ? [
+                            {
+                              id: 'basic-image',
+                              kind: 'image',
+                              tiers: [{ up_to: 1000, prices: price }],
+                              max_output: 4096,
+                            },
+                          ]
+                        : []),
                     ],
               },
               ...(options.secondGroup
@@ -267,6 +290,7 @@ afterEach(() => {
   window.localStorage.clear()
   clients.splice(0).forEach((client) => client.clear())
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   streamSend.mockClear()
   imageSend.mockClear()
   useAuthStore.getState().auth.reset()
@@ -759,6 +783,7 @@ it('archives legacy tab transcripts without replaying them', async () => {
 
 /** 选图和移除只改变草稿；按下生成才发送一次图片编辑。 */
 it('previews and removes a reference before sending a single edit', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:studio-preview')
   const first = mount(true)
   fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
   fireEvent.change(screen.getByLabelText('Model'), {
@@ -785,7 +810,9 @@ it('previews and removes a reference before sending a single edit', async () => 
   fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
   await screen.findByRole('img', { name: 'Draw in blue' })
   expect(imageSend).toHaveBeenCalledExactlyOnceWith(
-    expect.objectContaining({ reference: `data:image/png;base64,${png}` })
+    expect.objectContaining({
+      reference: expect.stringMatching(/\/studio\/media\/.+\/reference$/),
+    })
   )
   await waitFor(() =>
     expect([...server.values()].some((row) => row.entries[0].image)).toBe(true)
@@ -799,9 +826,123 @@ it('previews and removes a reference before sending a single edit', async () => 
   expect(
     await screen.findByRole('img', { name: 'Draw in blue' })
   ).toHaveAttribute('src', `data:image/png;base64,${png}`)
-  expect(screen.getByRole('img', { name: 'Reference image' })).toHaveAttribute(
-    'src',
-    `data:image/png;base64,${png}`
-  )
+  expect(
+    await screen.findByRole('img', { name: 'Reference image' })
+  ).toHaveAttribute('src', 'blob:studio-preview')
   expect(imageSend).toHaveBeenCalledTimes(1)
+})
+
+/** 上游收到校验后的实际像素尺寸和输出设置。 */
+it('submits custom image dimensions, quality, format and compression', async () => {
+  mount(true)
+  fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'image-model' },
+  })
+  fireEvent.change(screen.getByLabelText('Image size'), {
+    target: { value: 'custom' },
+  })
+  fireEvent.change(screen.getByLabelText('Custom resolution'), {
+    target: { value: '1920x1088' },
+  })
+  fireEvent.change(screen.getByLabelText('Quality'), {
+    target: { value: 'auto' },
+  })
+  fireEvent.change(screen.getByLabelText('Output format'), {
+    target: { value: 'webp' },
+  })
+  fireEvent.change(screen.getByLabelText('Output compression (%)'), {
+    target: { value: '82' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'A wide garden' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
+
+  await screen.findByRole('img', { name: 'A wide garden' })
+  expect(api.post).toHaveBeenCalledWith(
+    expect.stringContaining('/runs/'),
+    expect.objectContaining({
+      size: '1920x1088',
+      quality: 'auto',
+      outputFormat: 'webp',
+      outputCompression: 82,
+    }),
+    expect.anything()
+  )
+})
+
+/** 切换模型后，界面和实际请求都使用新模型支持的选项。 */
+it('resets unsupported options when switching to a basic image model', async () => {
+  mount(true, { basicImage: true })
+  fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
+  const model = screen.getByLabelText('Model')
+  fireEvent.change(model, { target: { value: 'image-model' } })
+  const size = screen.getByLabelText('Image size')
+  const quality = screen.getByLabelText('Quality')
+  fireEvent.change(size, { target: { value: 'custom' } })
+  fireEvent.change(quality, { target: { value: 'auto' } })
+  fireEvent.change(screen.getByLabelText('Output format'), {
+    target: { value: 'jpeg' },
+  })
+
+  fireEvent.change(model, { target: { value: 'basic-image' } })
+  expect(size).toHaveValue('1024x1024')
+  expect(quality).toHaveValue('medium')
+  expect(screen.queryByLabelText('Custom resolution')).toBeNull()
+  expect(screen.queryByLabelText('Output format')).toBeNull()
+
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Basic image' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
+  await screen.findByRole('img', { name: 'Basic image' })
+  expect(api.post).toHaveBeenCalledWith(
+    expect.stringContaining('/runs/'),
+    expect.objectContaining({
+      size: '1024x1024',
+      quality: 'medium',
+      outputFormat: 'png',
+    }),
+    expect.anything()
+  )
+})
+
+/** 50 MiB 边界内直接发送文件字节，且超过上限时不提交。 */
+it('uploads original file bytes as multipart and blocks files over 50 MiB', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:original-reference')
+  mount(true)
+  fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'image-model' },
+  })
+  const signature = Uint8Array.from(atob(png), (c) => c.charCodeAt(0))
+  const upload = screen.getByLabelText('Reference image')
+  const tooLarge = new File([new Uint8Array(50 * 1024 * 1024 + 1)], 'large.png')
+  fireEvent.change(upload, { target: { files: [tooLarge] } })
+  await screen.findByRole('alert')
+  expect(screen.getByRole('button', { name: 'Generate image' })).toBeDisabled()
+
+  const file = new File(
+    [signature, new Uint8Array(6 * 1024 * 1024)],
+    'reference.png',
+    { type: 'image/png' }
+  )
+  fireEvent.change(upload, { target: { files: [file] } })
+  expect(
+    await screen.findByRole('img', { name: 'Reference image' })
+  ).toHaveAttribute('src', 'blob:original-reference')
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Edit original' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
+  await screen.findByRole('img', { name: 'Edit original' })
+
+  const sent = vi
+    .mocked(api.post)
+    .mock.calls.find(([url]) => url.includes('/runs/'))?.[1]
+  expect(sent).toBeInstanceOf(FormData)
+  const outgoing = (sent as FormData).get('image') as File
+  expect(outgoing.size).toBe(file.size)
+  expect(await outgoing.arrayBuffer()).toEqual(await file.arrayBuffer())
 })
