@@ -32,6 +32,8 @@ const turns = z.array(
     reasoning: z.string(),
     complete: z.boolean(),
     error: z.string().optional(),
+    image: z.string().optional(),
+    reference: z.string().optional(),
   })
 )
 
@@ -51,7 +53,8 @@ export function readSelection(key: string | null) {
   return read(key, selection)
 }
 
-const conversation = z.object({
+export const conversation = z.object({
+  mode: z.enum(['text', 'image']).optional(),
   id: z.string(),
   product: z.string(),
   updatedAt: z.number(),
@@ -160,4 +163,20 @@ export async function migrateHistory(key: string) {
       throw error
     }
   }
+}
+
+/** 清理已同步或已删除的旧版归档。与旧版写入使用同一把锁，避免漏掉其他标签页的聊天。 */
+export async function removeLocalHistory(key: string, id: string) {
+  const archiveKey = `${key}:history`
+  const remove = () => {
+    const rows = readHistory(key)
+    if (rows.some((row) => row.id === id)) {
+      localStorage.setItem(
+        archiveKey,
+        JSON.stringify(rows.filter((row) => row.id !== id))
+      )
+    }
+  }
+  if (navigator.locks) await navigator.locks.request(archiveKey, remove)
+  else remove()
 }

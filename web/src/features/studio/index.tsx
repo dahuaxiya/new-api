@@ -48,6 +48,7 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getStudio, openStudio, studioFormSchema, type StudioForm } from './api'
+import { writeCloud } from './studio-cloud'
 import { StudioHistory } from './studio-history'
 import { StudioReference } from './studio-reference'
 import { StudioResults } from './studio-results'
@@ -56,7 +57,7 @@ import {
   readActive,
   readLegacy,
   readSelection,
-  saveHistory,
+  removeLocalHistory,
   writeSession,
   type Conversation,
 } from './studio-session'
@@ -97,7 +98,7 @@ function StudioWorkspace(props: { identity: string }) {
   )
   const run = useStudioRun(initialTurns)
   const activeId = useRef(initial?.id)
-  const pending = useRef<Conversation | null>(null)
+  const pending = useRef<(Conversation & { parent?: string }) | null>(null)
   const form = useForm<StudioForm>({
     resolver: zodResolver(studioFormSchema),
     defaultValues: {
@@ -147,6 +148,9 @@ function StudioWorkspace(props: { identity: string }) {
     ) ?? []
   const model = useWatch({ control: form.control, name: 'model' })
   const selected = models.find((item) => item.id === model)
+  const [cloudFailed, setCloudFailed] = useState<
+    (Conversation & { parent?: string })[]
+  >([])
   const [storageFailed, setStorageFailed] = useState(false)
   useEffect(() => {
     if (
@@ -165,17 +169,40 @@ function StudioWorkspace(props: { identity: string }) {
   useEffect(() => {
     // 流式输出期间只存一次中断占位。收到最终状态才替换它，浏览历史不会续期。
     const started = pending.current
-    if (!storageKey || !started || run.busy || !run.entries.length) return
+    const last = run.entries.at(-1)
+    if (!storageKey || !started || run.busy || !last) return
     pending.current = null
-    const settled = { ...started, entries: run.entries, updatedAt: Date.now() }
-    const tabSaved = writeSession(
-      `${storageKey}:chat:${started.product}`,
-      settled
-    )
-    void saveHistory(storageKey, settled).then(
-      () => setStorageFailed(tabSaved === false),
-      () => setStorageFailed(true)
-    )
+    const entries =
+      started.mode === 'image'
+        ? [
+            {
+              ...last,
+              reference: started.entries[0].reference,
+            },
+          ]
+        : run.entries
+    const settled = { ...started, entries, updatedAt: Date.now() }
+    if (started.mode !== 'image') {
+      const tabSaved = writeSession(
+        `${storageKey}:chat:${started.product}`,
+        settled
+      )
+      if (tabSaved === false) setStorageFailed(true)
+    }
+    void writeCloud(storageKey, settled, started.parent)
+      .then(() => {
+        if (started.parent) {
+          void removeLocalHistory(storageKey, started.parent).catch(() =>
+            setStorageFailed(true)
+          )
+        }
+      })
+      .catch(() =>
+        setCloudFailed((rows) => [
+          ...rows.filter((r) => r.id !== settled.id),
+          settled,
+        ])
+      )
   }, [storageKey, run.busy, run.entries])
   const available = Boolean(query.data?.catalog.enabled && selected)
   const catalog = query.data?.catalog
@@ -249,29 +276,36 @@ function StudioWorkspace(props: { identity: string }) {
       (turn) => {
         form.setValue('prompt', '')
         // Navigation cancels the transport. Save the submitted prompt once without replaying a paid request.
-        if (storageKey && mode === 'text') {
+        if (storageKey) {
           const interrupted = {
             ...turn,
             error: 'Stopped. Check usage before trying again.',
           }
           const parent =
-            activeId.current ?? readActive(storageKey, selectedProductId)?.id
+            mode === 'text'
+              ? (activeId.current ??
+                readActive(storageKey, selectedProductId)?.id)
+              : undefined
           const snapshot = {
+            mode,
             id: crypto.randomUUID(),
             product: selectedProductId,
             updatedAt: Date.now(),
-            entries: [...run.entries, interrupted],
+            entries:
+              mode === 'image'
+                ? [{ ...interrupted, reference }]
+                : [...run.entries, interrupted],
           }
-          pending.current = snapshot
+          pending.current = { ...snapshot, parent }
+          setCloudFailed((rows) => rows.filter((row) => row.id !== parent))
+          void writeCloud(storageKey, snapshot, parent).catch(() => {})
           activeId.current = snapshot.id
+          if (mode === 'image') return
           const tabSaved = writeSession(
             `${storageKey}:chat:${selectedProductId}`,
             snapshot
           )
           if (!tabSaved) setStorageFailed(true)
-          void saveHistory(storageKey, snapshot, parent).catch(() =>
-            setStorageFailed(true)
-          )
         }
       },
       () => {
@@ -301,12 +335,24 @@ function StudioWorkspace(props: { identity: string }) {
           <StudioHistory
             storageKey={storageKey}
             disabled={run.busy}
+            onDelete={(item) => {
+              if (readActive(storageKey, item.product)?.id === item.id) {
+                writeSession(
+                  storageKey && `${storageKey}:chat:${item.product}`,
+                  null
+                )
+              }
+              if (activeId.current === item.id) restore()
+              setCloudFailed((rows) => rows.filter((row) => row.id !== item.id))
+            }}
             onSelect={(item) => {
-              setMode('text')
+              setMode(item.mode ?? 'text')
               setChosenProductId(item.product)
               restore(item)
+              if (item.mode === 'image') setReference(item.entries[0].reference)
               form.setValue('model', item.entries.at(-1)?.model ?? '')
               if (
+                item.mode !== 'image' &&
                 writeSession(
                   storageKey && `${storageKey}:chat:${item.product}`,
                   item
@@ -616,6 +662,33 @@ function StudioWorkspace(props: { identity: string }) {
             </p>
           )}
         </div>
+        {cloudFailed.length > 0 && storageKey && (
+          <div role='alert' className='text-sm'>
+            {t('Could not save history to the server.')}{' '}
+            <Button
+              type='button'
+              size='sm'
+              variant='ghost'
+              onClick={async () => {
+                for (const item of cloudFailed) {
+                  try {
+                    await writeCloud(storageKey, item, item.parent)
+                    if (item.parent) {
+                      await removeLocalHistory(storageKey, item.parent)
+                    }
+                    setCloudFailed((rows) =>
+                      rows.filter((row) => row.id !== item.id)
+                    )
+                  } catch {
+                    break
+                  }
+                }
+              }}
+            >
+              {t('Retry')}
+            </Button>
+          </div>
+        )}
         {storageFailed && (
           <p
             role='status'

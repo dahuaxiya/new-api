@@ -32,7 +32,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { ModelStudio } from '..'
 import { imageDataURL } from '../api'
-import { readHistory, saveHistory } from '../studio-session'
+import { readHistory, saveHistory, type Conversation } from '../studio-session'
 
 const streamSend = vi.hoisted(() =>
   vi.fn(
@@ -54,6 +54,7 @@ vi.mock('@/features/playground/hooks/use-stream-request', () => ({
     stopStream: vi.fn(),
   }),
 }))
+const server = new Map<string, Conversation>()
 const clients: QueryClient[] = []
 const price = {
   input: '1',
@@ -83,7 +84,35 @@ function mount(
     username: 'studio-user',
     role: options.root ? 100 : 1,
   })
+  const prefix = `${options.userId ?? 1}/`
+  vi.spyOn(api, 'put').mockImplementation(async (url, body, config) => {
+    if (url.endsWith('/pricing')) return { data: { success: true } }
+    if (!url.includes('/history/')) throw new Error('Unexpected PUT')
+    const row: Conversation = JSON.parse(
+      new TextDecoder().decode(body as ArrayBuffer)
+    )
+    if (config?.params.parent) server.delete(prefix + config.params.parent)
+    server.set(prefix + row.id, row)
+    return { data: { success: true } }
+  })
+  vi.spyOn(api, 'delete').mockImplementation(async (url) => {
+    server.delete(prefix + url.split('/').at(-1))
+    return { data: { success: true } }
+  })
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    if (url.endsWith('/history')) {
+      return {
+        data: {
+          success: true,
+          data: [...server.entries()]
+            .filter(([key]) => key.startsWith(prefix))
+            .map(([, row]) => ({ ...row, title: row.entries[0].prompt })),
+        },
+      }
+    }
+    if (url.includes('/history/')) {
+      return { data: server.get(prefix + url.split('/').at(-1)) }
+    }
     let data: unknown = {
       token_id: ready ? 9 : 0,
       defaults: { max_request_cny: '5', daily_budget_cny: '50' },
@@ -163,6 +192,7 @@ function mount(
 
 afterEach(() => {
   cleanup()
+  server.clear()
   window.sessionStorage.clear()
   window.localStorage.clear()
   clients.splice(0).forEach((client) => client.clear())
@@ -370,7 +400,7 @@ it('sends a newly selected group without reusing its previous model or saving a 
   expect(streamSend.mock.calls[0][4]).toEqual({
     'X-Retail-Product': 'premium',
   })
-  expect(put).not.toHaveBeenCalled()
+  expect(put.mock.calls.some(([url]) => url.endsWith('/pricing'))).toBe(false)
 })
 
 /** The workspace follows the committed group, including changes made inside the policy dialog. */
@@ -522,15 +552,18 @@ it('reopens an archived conversation in its original group after closing the tab
   }
   tab.unmount()
   sessionStorage.clear()
+  localStorage.clear()
   const other = mount(true, { userId: 2 })
-  fireEvent.click(await screen.findByRole('button', { name: 'Chat history' }))
-  expect(await screen.findByText('No saved conversations yet.')).toBeVisible()
+  fireEvent.click(await screen.findByRole('button', { name: 'Studio history' }))
+  expect(await screen.findByText('No history yet.')).toBeVisible()
   other.unmount()
   mount(true, options)
-  fireEvent.click(await screen.findByRole('button', { name: 'Chat history' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Studio history' }))
   const list = within(await screen.findByRole('dialog'))
-  expect(list.getByRole('button', { name: /Second topic/ })).toBeVisible()
-  fireEvent.click(list.getByRole('button', { name: /First topic/ }))
+  expect(
+    await list.findByRole('button', { name: /^Second topic/ })
+  ).toBeVisible()
+  fireEvent.click(list.getByRole('button', { name: /^First topic/ }))
   expect(
     await screen.findByText('First topic', { selector: 'p' })
   ).toBeVisible()
@@ -549,7 +582,7 @@ it('reopens an archived conversation in its original group after closing the tab
       { role: 'user', content: 'Continue' },
     ],
   })
-  expect(readHistory('studio.v1:1')).toHaveLength(2)
+  expect(server.size).toBe(2)
 })
 
 /** 清理最久未更新的会话；单条超额不能删除已有历史，同源分支也不能相互覆盖。 */
@@ -621,8 +654,10 @@ it('archives legacy tab transcripts without replaying them', async () => {
   first.unmount()
   sessionStorage.clear()
   mount(true)
-  fireEvent.click(await screen.findByRole('button', { name: 'Chat history' }))
-  fireEvent.click(await screen.findByRole('button', { name: /Before upgrade/ }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Studio history' }))
+  fireEvent.click(
+    await screen.findByRole('button', { name: /^Before upgrade/ })
+  )
   expect(await screen.findByText('Original reply')).toBeVisible()
   expect(streamSend).not.toHaveBeenCalled()
 })
@@ -632,7 +667,7 @@ it('previews and removes a reference before sending a single edit', async () => 
   const post = vi
     .spyOn(api, 'post')
     .mockResolvedValue({ data: { data: [{ b64_json: png }] } })
-  mount(true)
+  const first = mount(true)
   fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
   fireEvent.change(screen.getByLabelText('Model'), {
     target: { value: 'image-model' },
@@ -664,4 +699,21 @@ it('previews and removes a reference before sending a single edit', async () => 
     }),
     expect.objectContaining({ singleUseAuthorization: true })
   )
+  await waitFor(() =>
+    expect([...server.values()].some((row) => row.entries[0].image)).toBe(true)
+  )
+  first.unmount()
+  sessionStorage.clear()
+  localStorage.clear()
+  mount(true)
+  fireEvent.click(await screen.findByRole('button', { name: 'Studio history' }))
+  fireEvent.click(await screen.findByRole('button', { name: /^Draw in blue/ }))
+  expect(
+    await screen.findByRole('img', { name: 'Draw in blue' })
+  ).toHaveAttribute('src', `data:image/png;base64,${png}`)
+  expect(screen.getByRole('img', { name: 'Reference image' })).toHaveAttribute(
+    'src',
+    `data:image/png;base64,${png}`
+  )
+  expect(post).toHaveBeenCalledTimes(1)
 })
