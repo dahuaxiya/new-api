@@ -98,7 +98,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if imageRequest != (quote.Model.Kind == "image") {
 		return true, retailPriceError(retailprice.ErrConfig)
 	}
-	if err := validateRetailBody(raw, quote.Model.Kind); err != nil {
+	if err := validateRetailBody(raw, quote.Model.Kind, c.GetBool("retail_studio_image_edit")); err != nil {
 		return true, retailPriceError(err)
 	}
 	// Counting is mandatory for a guarded request, even when the legacy global estimate switch is off.
@@ -106,6 +106,14 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	tokens, err := CountRequestToken(c, meta, info)
 	if err != nil || tokens < 0 || tokens > quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo || (quote.InputLimit > 0 && tokens > quote.InputLimit) {
 		return true, retailPriceError(retailprice.ErrBudget)
+	}
+	// The image DTO estimates only the text prompt. For an edit reserve the admissible
+	// context so a short prompt cannot dispatch an unreserved image input.
+	if c.GetBool("retail_studio_image_edit") {
+		tokens = quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo
+		if quote.InputLimit > 0 {
+			tokens = min(tokens, quote.InputLimit)
+		}
 	}
 	quote, err = model.RetailQuoteWithInput(info.UserId, info.TokenId, info.OriginModelName, int(output), tokens, ids, c.GetString("retail_studio_product"))
 	if err != nil || quote == nil {
@@ -213,7 +221,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	if err != nil || len(raw) > 8<<20 || !gjson.ValidBytes(raw) {
 		return retailprice.ErrConfig
 	}
-	if err := validateRetailBody(raw, quote.Model.Kind); err != nil {
+	if err := validateRetailBody(raw, quote.Model.Kind, c.GetBool("retail_studio_image_edit")); err != nil {
 		return err
 	}
 	if gjson.GetBytes(raw, "model").String() != upstreamModel || upstreamModel == "" {
@@ -255,7 +263,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	// the original request's estimate does not bound an injected system prompt.
 	var finalRequest dto.Request
 	switch {
-	case strings.HasSuffix(req.URL.Path, "/images/generations") && quote.Model.Kind == "image":
+	case quote.Model.Kind == "image" && ((strings.HasSuffix(req.URL.Path, "/images/edits") && c.GetBool("retail_studio_image_edit")) || (strings.HasSuffix(req.URL.Path, "/images/generations") && !c.GetBool("retail_studio_image_edit"))):
 		finalRequest = &dto.ImageRequest{}
 	case strings.HasSuffix(req.URL.Path, "/responses") && quote.Model.Kind != "image":
 		finalRequest = &dto.OpenAIResponsesRequest{}

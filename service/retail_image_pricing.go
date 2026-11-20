@@ -1,6 +1,8 @@
 package service
 
 import (
+	"encoding/base64"
+	"net/http"
 	"slices"
 	"strings"
 
@@ -15,9 +17,44 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// validateRetailBody admits only modalities covered by the selected official tariff.
-// Image v1 is text-to-image, one completed PNG, with no edits, URLs, tools or streaming.
-func validateRetailBody(raw []byte, kind string) error {
+// RetailReferenceModel limits reference billing to models with verified $8 image input and $2 cached image input.
+func RetailReferenceModel(id string) bool {
+	switch id {
+	case "gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.6-sunburst", "gpt-image-2.6-flare":
+		return true
+	}
+	return false
+}
+
+// validRetailReference accepts one uploaded raster only. Remote URLs and extra object fields never reach procurement.
+func validRetailReference(images gjson.Result) bool {
+	if !images.IsArray() || len(images.Array()) != 1 {
+		return false
+	}
+	item := images.Array()[0]
+	if !item.IsObject() {
+		return false
+	}
+	fields := 0
+	item.ForEach(func(k, v gjson.Result) bool { fields++; return true })
+	url := item.Get("image_url")
+	if fields != 1 || url.Type != gjson.String {
+		return false
+	}
+	header, data, found := strings.Cut(url.String(), ",")
+	if !found || len(data) > base64.StdEncoding.EncodedLen(5<<20) {
+		return false
+	}
+	mime := strings.TrimSuffix(strings.TrimPrefix(header, "data:"), ";base64")
+	if header != "data:"+mime+";base64" || !slices.Contains([]string{"image/png", "image/jpeg", "image/webp"}, mime) {
+		return false
+	}
+	file, err := base64.StdEncoding.DecodeString(data)
+	return err == nil && len(file) <= 5<<20 && http.DetectContentType(file) == mime
+}
+
+// validateRetailBody admits only modalities covered by the selected tariff and fixed relay endpoint.
+func validateRetailBody(raw []byte, kind string, edit bool) error {
 	if kind != "image" {
 		return validateRetailTextBody(raw)
 	}
@@ -35,6 +72,8 @@ func validateRetailBody(raw []byte, kind string) error {
 		}
 		seen[name] = true
 		switch name {
+		case "images":
+			valid = edit && validRetailReference(value)
 		case "model", "prompt":
 			valid = value.Type == gjson.String && strings.TrimSpace(value.String()) != ""
 		case "size":
@@ -54,7 +93,7 @@ func validateRetailBody(raw []byte, kind string) error {
 		}
 		return valid
 	})
-	if !valid || !seen["model"] || !seen["prompt"] || len(root.Get("prompt").String()) > 32000 {
+	if (edit && (!seen["images"] || !RetailReferenceModel(root.Get("model").String()))) || !valid || !seen["model"] || !seen["prompt"] || len(root.Get("prompt").String()) > 32000 {
 		return retailprice.ErrConfig
 	}
 	return nil
@@ -72,13 +111,35 @@ func settleRetailImagePrice(c *gin.Context, info *relaycommon.RelayInfo, usage *
 		return 0, retailprice.ErrUsage
 	}
 	details := usage.InputTokensDetails
-	if details.ImageTokens != 0 || details.AudioTokens != 0 || details.TextTokens != usage.InputTokens || details.CachedTokens < 0 || details.CachedTokens > usage.InputTokens || details.CacheWriteTokens != 0 || details.CachedCreationTokens != 0 {
+	edit := c.GetBool("retail_studio_image_edit")
+	if details.ImageTokens < 0 || details.ImageTokens > usage.InputTokens || details.TextTokens != usage.InputTokens-details.ImageTokens || details.AudioTokens != 0 || details.CachedTokens < 0 || details.CachedTokens > usage.InputTokens || details.CacheWriteTokens != 0 || details.CachedCreationTokens != 0 || (edit != (details.ImageTokens > 0)) {
 		return 0, retailprice.ErrUsage
 	}
-	if cached := details.CachedTokensDetails; cached != nil {
-		if cached.ImageTokens != nil && *cached.ImageTokens != 0 || cached.AudioTokens != nil && *cached.AudioTokens != 0 || cached.TextTokens != nil && *cached.TextTokens != details.CachedTokens {
+	cachedImage := 0
+	// Cache hits have different prices per modality. Recover one missing component by subtraction only when unambiguous.
+	cached := details.CachedTokensDetails
+	if cached != nil && cached.AudioTokens != nil && *cached.AudioTokens != 0 {
+		return 0, retailprice.ErrUsage
+	}
+	switch {
+	case cached != nil && cached.ImageTokens != nil:
+		cachedImage = *cached.ImageTokens
+	case cached != nil && cached.TextTokens != nil:
+		if *cached.TextTokens < 0 || *cached.TextTokens > details.CachedTokens {
 			return 0, retailprice.ErrUsage
 		}
+		cachedImage = details.CachedTokens - *cached.TextTokens
+	case details.CachedTokens == usage.InputTokens:
+		cachedImage = details.ImageTokens
+	case edit && details.CachedTokens != 0:
+		return 0, retailprice.ErrUsage
+	}
+	if cachedImage < 0 || cachedImage > details.ImageTokens || cachedImage > details.CachedTokens {
+		return 0, retailprice.ErrUsage
+	}
+	cachedText := details.CachedTokens - cachedImage
+	if cachedText > details.TextTokens || (cached != nil && cached.TextTokens != nil && *cached.TextTokens != cachedText) {
+		return 0, retailprice.ErrUsage
 	}
 	if out := usage.OutputTokensDetails; out != nil && (out.AudioTokens != 0 || out.TextTokens != 0 || out.ReasoningTokens != 0 || out.ImageTokens != usage.OutputTokens) {
 		return 0, retailprice.ErrUsage
@@ -86,7 +147,7 @@ func settleRetailImagePrice(c *gin.Context, info *relaycommon.RelayInfo, usage *
 	if usage.PromptTokens != usage.InputTokens || usage.CompletionTokens != usage.OutputTokens || usage.TotalTokens != usage.InputTokens+usage.OutputTokens {
 		return 0, retailprice.ErrUsage
 	}
-	amount, err := info.RetailQuote.Charge(usage.InputTokens, [5]int{usage.InputTokens - details.CachedTokens, usage.OutputTokens, details.CachedTokens, 0, 0})
+	amount, err := info.RetailQuote.ChargeImage(usage.InputTokens, [5]int{details.TextTokens - cachedText, usage.OutputTokens, cachedText, 0, 0}, details.ImageTokens-cachedImage, cachedImage)
 	if err != nil {
 		return 0, err
 	}

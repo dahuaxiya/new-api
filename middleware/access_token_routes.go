@@ -84,6 +84,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/retail/studio/session":                    accessTokenSessionRule,
 	"POST /api/retail/studio/chat/completions":           accessTokenSessionRule,
 	"POST /api/retail/studio/images/generations":         accessTokenSessionRule,
+	"POST /api/retail/studio/images/edits":               accessTokenSessionRule,
 	"GET /api/retail/keys/:id/pricing":                   accessTokenSessionRule,
 	"PUT /api/retail/keys/:id/pricing":                   accessTokenSessionRule,
 	"POST /api/retail/admin/charges/:id/refund":          accessTokenSessionRule,

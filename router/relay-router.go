@@ -25,6 +25,9 @@ func SetRelayRouter(router *gin.Engine) {
 	studio.POST("/images/generations", middleware.SystemPerformanceCheck(), middleware.RetailStudioRelay("/v1/images/generations"), middleware.ModelRequestRateLimit(), middleware.Distribute(), func(c *gin.Context) {
 		controller.Relay(c, types.RelayFormatOpenAIImage)
 	})
+	studio.POST("/images/edits", middleware.SystemPerformanceCheck(), middleware.RetailStudioRelay("/v1/images/edits"), middleware.ModelRequestRateLimit(), middleware.Distribute(), func(c *gin.Context) {
+		controller.Relay(c, types.RelayFormatOpenAIImage)
+	})
 	// https://platform.openai.com/docs/api-reference/introduction
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))

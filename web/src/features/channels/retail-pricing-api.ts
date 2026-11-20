@@ -225,6 +225,7 @@ export type RetailCatalog = {
       currency: 'CNY'
       tiers: RetailTier[]
       valid_until: number
+      reference_image?: boolean
       max_output: number
     }>
   }>

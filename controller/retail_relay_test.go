@@ -1082,6 +1082,18 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 			t.Error("internal group header leaked upstream")
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/images/edits" {
+			var body struct {
+				Images []struct {
+					URL string `json:"image_url"`
+				} `json:"images"`
+			}
+			require.NoError(t, common.DecodeJson(r.Body, &body))
+			require.Len(t, body.Images, 1)
+			require.Contains(t, body.Images[0].URL, "data:image/png;base64,")
+			_, _ = w.Write([]byte(`{"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":4,"image_tokens":6,"cached_tokens":2,"cached_tokens_details":{"text_tokens":1,"image_tokens":1}}}}`))
+			return
+		}
 		if r.URL.Path == "/v1/images/generations" {
 			_, _ = w.Write([]byte(`{"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":10,"image_tokens":0}}}`))
 			return
@@ -1089,9 +1101,9 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"studio-test","choices":[{"index":0,"message":{"role":"assistant","content":"synthetic OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`))
 	}))
 	t.Cleanup(upstream.Close)
-	channel := model.Channel{Id: 101, Name: "local-test", Type: 1, Status: 1, Group: "retail", Models: "gpt-4o,test-image", Key: "test-only", BaseURL: &upstream.URL}
+	channel := model.Channel{Id: 101, Name: "local-test", Type: 1, Status: 1, Group: "retail", Models: "gpt-4o,gpt-image-2", Key: "test-only", BaseURL: &upstream.URL}
 	require.NoError(t, model.DB.Create(&channel).Error)
-	for _, name := range []string{"gpt-4o", "test-image"} {
+	for _, name := range []string{"gpt-4o", "gpt-image-2"} {
 		require.NoError(t, model.DB.Create(&model.Ability{ChannelId: 101, Model: name, Group: "retail", Enabled: true}).Error)
 	}
 	config := filepath.Join(t.TempDir(), "retail.json")
@@ -1105,7 +1117,7 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	book.Models[0].VerifiedAt, book.Models[0].ValidUntil = now, now+86400
 	book.Rates[0].VerifiedAt, book.Rates[0].ValidUntil = now, now+3600
 	image := book.Models[0]
-	image.ID, image.Kind = "test-image", "image"
+	image.ID, image.Kind = "gpt-image-2", "image"
 	book.Models = append(book.Models, image)
 	book.Products[0].Public = true
 	book.Products[0].BindingGroup = "gpt-normal"
@@ -1130,6 +1142,7 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	}{
 		{"/chat/completions", "/v1/chat/completions", types.RelayFormatOpenAI},
 		{"/images/generations", "/v1/images/generations", types.RelayFormatOpenAIImage},
+		{"/images/edits", "/v1/images/edits", types.RelayFormatOpenAIImage},
 	} {
 		studio.POST(route.path, middleware.RetailStudioRelay(route.relay), middleware.Distribute(), func(c *gin.Context) { c.Set(common.RequestIdKey, common.NewRequestId()); Relay(c, route.format) })
 	}
@@ -1168,9 +1181,15 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	legacy.StudioCurrent = false
 	legacy.Caps = map[string]retailprice.Prices{"gpt-4o": {Input: "1", Output: "1", CacheRead: "0", CacheWrite: "0", CacheWrite1h: "0"}}
 	require.NoError(t, model.PutRetailKeyPolicy(user.Id, token.Id, revision, legacy))
-	w = send("/images/generations", "premium", "https://example.com", `{"model":"test-image","prompt":"a tree","n":1,"output_format":"png"}`)
+	w = send("/images/generations", "premium", "https://example.com", `{"model":"gpt-image-2","prompt":"a tree","n":1,"output_format":"png"}`)
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.EqualValues(t, 2, hits.Load())
+	// Edits must reach the mapped supplier with the uploaded bytes and settle mixed image/text usage.
+	edit := `{"model":"gpt-image-2","prompt":"paint the tree","images":[{"image_url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="}]}`
+	w = send("/images/edits", "premium", "https://example.com", edit)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	w = send("/images/edits", "premium", "https://example.com", strings.Replace(edit, "data:image/png;base64,", "https://example.com/", 1))
+	require.Equal(t, 403, w.Code, w.Body.String())
 	after, afterRevision, err := model.GetRetailKeyPolicy(user.Id, token.Id)
 	require.NoError(t, err)
 	require.Equal(t, policy, after)
@@ -1178,20 +1197,20 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	revision = afterRevision
 	var charges []model.RetailCharge
 	require.NoError(t, model.DB.Find(&charges, "token_id = ?", token.Id).Error)
-	require.Len(t, charges, 2)
+	require.Len(t, charges, 3)
 	for _, charge := range charges {
 		require.Equal(t, "settled", charge.Status)
 		require.Positive(t, charge.Actual)
 	}
 	w = send("/chat/completions", "private", "https://example.com", chat)
 	require.Equal(t, 403, w.Code)
-	require.EqualValues(t, 2, hits.Load())
+	require.EqualValues(t, 3, hits.Load())
 	// Existing customized limits survive subsequent sends and cannot be bypassed by group selection.
 	policy.DailyBudgetCNY = "0.000001"
 	require.NoError(t, model.PutRetailKeyPolicy(user.Id, token.Id, revision, policy))
 	w = send("/chat/completions", "premium", "https://example.com", chat)
 	require.Equal(t, 403, w.Code, w.Body.String())
-	require.EqualValues(t, 2, hits.Load())
+	require.EqualValues(t, 3, hits.Load())
 	after, _, err = model.GetRetailKeyPolicy(user.Id, token.Id)
 	require.NoError(t, err)
 	require.Equal(t, policy, after)

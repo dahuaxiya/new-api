@@ -18,7 +18,12 @@ func RetailStudioSession() gin.HandlerFunc {
 			abortWithOpenAiMessage(c, http.StatusForbidden, "Studio requires a same-origin session")
 			return
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 256<<10)
+		limit := int64(256 << 10)
+		// Only the reference-image endpoint needs room for a 5 MiB file encoded in JSON.
+		if c.FullPath() == "/api/retail/studio/images/edits" {
+			limit = 8 << 20
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		c.Next()
 	}
 }
@@ -54,6 +59,7 @@ func RetailStudioRelay(path string) gin.HandlerFunc {
 			return
 		}
 		c.Set("retail_request", true)
+		c.Set("retail_studio_image_edit", path == "/v1/images/edits")
 		c.Set("retail_studio_product", productID)
 		c.Request.Header.Del("X-Retail-Product")
 		common.SetContextKey(c, constant.ContextKeyUserGroup, group)

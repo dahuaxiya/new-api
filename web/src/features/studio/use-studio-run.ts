@@ -68,7 +68,8 @@ export function useStudioRun(initialTurns: StudioEntry[]) {
     mode: 'text' | 'image',
     productId: string,
     onAccepted: (turn: StudioEntry) => void,
-    onFailure: () => void
+    onFailure: () => void,
+    reference?: string
   ): Promise<void> => {
     if (locked.current) return
     locked.current = true
@@ -91,7 +92,8 @@ export function useStudioRun(initialTurns: StudioEntry[]) {
         const image = await generateStudioImage(
           input,
           controller.signal,
-          productId
+          productId,
+          reference
         )
         finish(id, { image, complete: true })
       } catch (error) {

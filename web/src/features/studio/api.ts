@@ -175,16 +175,20 @@ export async function imageDataURL(
 export async function generateStudioImage(
   input: StudioForm,
   signal: AbortSignal,
-  productId: string
+  productId: string,
+  reference?: string
 ): Promise<string> {
   const response = await api.post(
-    '/api/retail/studio/images/generations',
+    reference
+      ? '/api/retail/studio/images/edits'
+      : '/api/retail/studio/images/generations',
     {
       model: input.model,
       prompt: input.prompt,
       size: input.size,
       quality: input.quality,
       n: 1,
+      ...(reference ? { images: [{ image_url: reference }] } : {}),
       output_format: 'png',
       stream: false,
     },

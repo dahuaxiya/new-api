@@ -349,3 +349,14 @@ func TestRetailModelSync(t *testing.T) {
 	require.Equal(t, "provider-alias", book.Products[0].Routes[0].Models[text])
 	require.Contains(t, book.ModelSync[a.SyncID()].Pending, text)
 }
+
+// TestReferenceImageCharge checks mixed text/image cache hits at the frozen sale rates.
+func TestReferenceImageCharge(t *testing.T) {
+	q := retailprice.Quote{Model: retailprice.Model{Kind: "image"}, OutputLimit: 1000, Sale: []retailprice.Tier{{UpTo: 1000, Prices: retailprice.Prices{Input: "5", Output: "30", CacheRead: "1.25", CacheWrite: "0", CacheWrite1h: "0"}}}}
+	got, err := q.ChargeImage(100, [5]int{10, 1, 20, 0, 0}, 40, 30)
+	require.NoError(t, err)
+	require.Equal(t, "0.000485", got.String())
+	if _, err = q.ChargeImage(99, [5]int{10, 1, 20, 0, 0}, 40, 30); err == nil {
+		t.Fatal("inconsistent input breakdown accepted")
+	}
+}

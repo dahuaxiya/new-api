@@ -49,6 +49,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { getStudio, openStudio, studioFormSchema, type StudioForm } from './api'
 import { StudioHistory } from './studio-history'
+import { StudioReference } from './studio-reference'
 import { StudioResults } from './studio-results'
 import {
   migrateHistory,
@@ -79,6 +80,8 @@ function StudioWorkspace(props: { identity: string }) {
   const [mode, setMode] = useState<'text' | 'image'>(saved?.mode ?? 'text')
   const mobile = useIsMobile()
   const [optionsOpen, setOptionsOpen] = useState(false)
+  const [reference, setReference] = useState<string>()
+  const [referenceBlocked, setReferenceBlocked] = useState(false)
   const [policyOpen, setPolicyOpen] = useState(false)
   const [openedId, setOpenedId] = useState(0)
   const [chosenProductId, setChosenProductId] = useState<string | null>(
@@ -207,6 +210,8 @@ function StudioWorkspace(props: { identity: string }) {
   }
   /** 只恢复用户选中的文本记录。图像工作区和新对话都以空上下文开始。 */
   const restore = (item?: Conversation) => {
+    setReference(undefined)
+    setReferenceBlocked(false)
     activeId.current = item?.id
     run.reset(item?.entries ?? [])
     form.setValue('prompt', '')
@@ -230,7 +235,7 @@ function StudioWorkspace(props: { identity: string }) {
   }
   /** Validate both the form and current catalog before sending; the server independently rechecks all limits. */
   const submit = async (input: StudioForm) => {
-    if (!available || !selected || run.busy) return
+    if (!available || !selected || run.busy || referenceBlocked) return
     if (mode === 'text' && input.maxTokens > selected.max_output) {
       form.setError('maxTokens', {
         message: t('Output limit exceeds this model limit'),
@@ -271,7 +276,8 @@ function StudioWorkspace(props: { identity: string }) {
       },
       () => {
         if (!form.getValues('prompt')) form.setValue('prompt', input.prompt)
-      }
+      },
+      mode === 'image' && selected.reference_image ? reference : undefined
     )
     void query.refetch()
   }
@@ -395,7 +401,12 @@ function StudioWorkspace(props: { identity: string }) {
             className='max-md:w-full max-md:[&_select]:h-10'
             aria-label={t('Model')}
             disabled={run.busy || !models.length}
-            {...form.register('model')}
+            {...form.register('model', {
+              onChange: () => {
+                setReference(undefined)
+                setReferenceBlocked(false)
+              },
+            })}
             value={selected?.id ?? ''}
           >
             <NativeSelectOption value=''>
@@ -411,6 +422,15 @@ function StudioWorkspace(props: { identity: string }) {
         {selected && (
           <p className='text-muted-foreground col-span-2 text-xs tabular-nums'>
             {t('Input')} ¥{selected.tiers[0].prices.input} ·{' '}
+            {reference && selected.reference_image && (
+              <>
+                {t('Image input')} ¥
+                {Number(
+                  (Number(selected.tiers[0].prices.input) * 1.6).toFixed(9)
+                )}{' '}
+                ·{' '}
+              </>
+            )}
             {t(mode === 'image' ? 'Image output' : 'Output')} ¥
             {selected.tiers[0].prices.output} / 1M Tokens
           </p>
@@ -450,6 +470,15 @@ function StudioWorkspace(props: { identity: string }) {
           <Label className='sr-only' htmlFor='studio-prompt'>
             {t('Prompt')}
           </Label>
+          {mode === 'image' && selected?.reference_image && (
+            <StudioReference
+              key={`${selectedProductId}:${model}`}
+              value={reference}
+              onChange={setReference}
+              onBlocked={setReferenceBlocked}
+              disabled={run.busy}
+            />
+          )}
           <Textarea
             id='studio-prompt'
             onKeyDown={(event) => {
@@ -574,7 +603,7 @@ function StudioWorkspace(props: { identity: string }) {
               <Button
                 type='submit'
                 className='max-md:min-h-10'
-                disabled={!available}
+                disabled={!available || referenceBlocked}
               >
                 <ArrowUp aria-hidden='true' />
                 {t(mode === 'image' ? 'Generate image' : 'Send')}

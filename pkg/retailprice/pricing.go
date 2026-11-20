@@ -473,6 +473,20 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 // Charge evaluates normalized text/cache counts using the accepted CNY schedule.
 // Caller must not feed provider estimates or non-text modalities into this contract.
 func (q Quote) Charge(context int, counts [5]int) (decimal.Decimal, error) {
+	return q.charge(context, counts, 0, 0)
+}
+
+// ChargeImage prices image input separately from text using the published GPT Image ratio
+// ($8/$5 uncached and $2/$1.25 cached). Apply it to the frozen sale price before rounding the total.
+func (q Quote) ChargeImage(context int, counts [5]int, image, cachedImage int) (decimal.Decimal, error) {
+	if q.Model.Kind != "image" || image < 0 || cachedImage < 0 || image > context || cachedImage > context-image || counts[0] != context-image-cachedImage-counts[2] || counts[3] != 0 || counts[4] != 0 {
+		return decimal.Zero, ErrUsage
+	}
+	return q.charge(context, counts, image, cachedImage)
+}
+
+// charge uses the full input context for tier selection and rounds once after summing all modalities.
+func (q Quote) charge(context int, counts [5]int, image, cachedImage int) (decimal.Decimal, error) {
 	if context < 0 || (q.InputLimit > 0 && context > q.InputLimit) || len(q.Sale) == 0 || context > q.Sale[len(q.Sale)-1].UpTo || counts[1] > q.OutputLimit {
 		return decimal.Zero, ErrUsage
 	}
@@ -492,6 +506,13 @@ func (q Quote) Charge(context int, counts [5]int) (decimal.Decimal, error) {
 				return decimal.Zero, err
 			}
 			total = total.Add(price.Mul(decimal.NewFromInt(int64(counts[i]))))
+			if i == 0 || i == 2 {
+				n := image
+				if i == 2 {
+					n = cachedImage
+				}
+				total = total.Add(price.Mul(decimal.New(16, -1)).Mul(decimal.NewFromInt(int64(n))))
+			}
 		}
 		return total.Div(decimal.NewFromInt(1000000)).RoundCeil(8), nil
 	}

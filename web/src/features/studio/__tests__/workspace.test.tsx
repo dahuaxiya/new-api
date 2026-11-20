@@ -109,6 +109,7 @@ function mount(
                       },
                       {
                         id: 'image-model',
+                        reference_image: true,
                         kind: 'image',
                         tiers: [{ up_to: 1000, prices: price }],
                         max_output: 4096,
@@ -624,4 +625,43 @@ it('archives legacy tab transcripts without replaying them', async () => {
   fireEvent.click(await screen.findByRole('button', { name: /Before upgrade/ }))
   expect(await screen.findByText('Original reply')).toBeVisible()
   expect(streamSend).not.toHaveBeenCalled()
+})
+
+/** 选图和移除只改变草稿；按下生成才发送一次图片编辑。 */
+it('previews and removes a reference before sending a single edit', async () => {
+  const post = vi
+    .spyOn(api, 'post')
+    .mockResolvedValue({ data: { data: [{ b64_json: png }] } })
+  mount(true)
+  fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'image-model' },
+  })
+  const upload = screen.getByLabelText('Reference image')
+  const file = new File(
+    [Uint8Array.from(atob(png), (c) => c.charCodeAt(0))],
+    'ref.png',
+    { type: 'image/png' }
+  )
+  fireEvent.change(upload, { target: { files: [file] } })
+  await screen.findByRole('img', { name: 'Reference image' })
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Remove reference image' })
+  )
+  expect(screen.queryByRole('img', { name: 'Reference image' })).toBeNull()
+  fireEvent.change(upload, { target: { files: [file] } })
+  await screen.findByRole('img', { name: 'Reference image' })
+  expect(post).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Draw in blue' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
+  await screen.findByRole('img', { name: 'Draw in blue' })
+  expect(post).toHaveBeenCalledExactlyOnceWith(
+    '/api/retail/studio/images/edits',
+    expect.objectContaining({
+      images: [{ image_url: `data:image/png;base64,${png}` }],
+    }),
+    expect.objectContaining({ singleUseAuthorization: true })
+  )
 })
