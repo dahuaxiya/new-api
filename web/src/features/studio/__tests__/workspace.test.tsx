@@ -781,9 +781,18 @@ it('archives legacy tab transcripts without replaying them', async () => {
   expect(streamSend).not.toHaveBeenCalled()
 })
 
-/** 选图和移除只改变草稿；按下生成才发送一次图片编辑。 */
+/** 参考图随提示词进入已发送消息，完成生成和重新打开历史都不会把它放回草稿。 */
 it('previews and removes a reference before sending a single edit', async () => {
-  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:studio-preview')
+  vi.spyOn(URL, 'createObjectURL').mockImplementation((file) =>
+    file instanceof File ? 'blob:studio-preview' : 'blob:studio-saved-reference'
+  )
+  let finishImage: ((value: string) => void) | undefined
+  imageSend.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishImage = resolve
+      })
+  )
   const first = mount(true)
   fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
   fireEvent.change(screen.getByLabelText('Model'), {
@@ -808,15 +817,31 @@ it('previews and removes a reference before sending a single edit', async () => 
     target: { value: 'Draw in blue' },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
-  await screen.findByRole('img', { name: 'Draw in blue' })
+  const results = within(screen.getByRole('log', { name: 'Results' }))
+  const preview = await results.findByRole('img', { name: 'Reference image' })
+  expect(results.getByText('Draw in blue').parentElement).toContainElement(
+    preview
+  )
+  expect(preview).toHaveAttribute('src', 'blob:studio-preview')
+  expect(screen.getByLabelText('Prompt')).toHaveValue('')
+  expect(
+    screen.queryByRole('button', { name: 'Remove reference image' })
+  ).toBeNull()
   expect(imageSend).toHaveBeenCalledExactlyOnceWith(
     expect.objectContaining({
       reference: expect.stringMatching(/\/studio\/media\/.+\/reference$/),
     })
   )
+  finishImage?.(`data:image/png;base64,${png}`)
+  await results.findByRole('img', { name: 'Draw in blue' })
   await waitFor(() =>
-    expect([...server.values()].some((row) => row.entries[0].image)).toBe(true)
+    expect(
+      results.getByRole('img', { name: 'Reference image' })
+    ).toHaveAttribute('src', 'blob:studio-saved-reference')
   )
+  expect(
+    screen.queryByRole('button', { name: 'Remove reference image' })
+  ).toBeNull()
   first.unmount()
   sessionStorage.clear()
   localStorage.clear()
@@ -827,8 +852,16 @@ it('previews and removes a reference before sending a single edit', async () => 
     await screen.findByRole('img', { name: 'Draw in blue' })
   ).toHaveAttribute('src', `data:image/png;base64,${png}`)
   expect(
-    await screen.findByRole('img', { name: 'Reference image' })
-  ).toHaveAttribute('src', 'blob:studio-preview')
+    await within(screen.getByRole('log', { name: 'Results' })).findByRole(
+      'img',
+      {
+        name: 'Reference image',
+      }
+    )
+  ).toHaveAttribute('src', 'blob:studio-saved-reference')
+  expect(
+    screen.queryByRole('button', { name: 'Remove reference image' })
+  ).toBeNull()
   expect(imageSend).toHaveBeenCalledTimes(1)
 })
 
@@ -868,6 +901,35 @@ it('submits custom image dimensions, quality, format and compression', async () 
       outputFormat: 'webp',
       outputCompression: 82,
     }),
+    expect.anything()
+  )
+})
+
+/** 手机上在底部弹层改参数，关闭后同一份表单仍按新设置发送。 */
+it('keeps mobile image settings outside the composer and uses them after closing', async () => {
+  vi.stubGlobal('innerWidth', 360)
+  mount(true)
+  fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'image-model' },
+  })
+  const prompt = screen.getByLabelText('Prompt')
+  const trigger = screen.getByRole('button', { name: 'Advanced Settings' })
+  fireEvent.click(trigger)
+  const sheet = await screen.findByRole('dialog', { name: 'Advanced Settings' })
+  expect(prompt.closest('form')).not.toContainElement(sheet)
+  fireEvent.change(within(sheet).getByLabelText('Image size'), {
+    target: { value: '864x1536' },
+  })
+  fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+  fireEvent.change(prompt, { target: { value: 'Tall garden' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
+  await screen.findByRole('img', { name: 'Tall garden' })
+  expect(api.post).toHaveBeenCalledWith(
+    expect.stringContaining('/runs/'),
+    expect.objectContaining({ size: '864x1536' }),
     expect.anything()
   )
 })
@@ -1041,4 +1103,42 @@ it('uses a saved result as the next image reference', async () => {
   expect(new Uint8Array(await photo.arrayBuffer())).toEqual(
     Uint8Array.from(atob(png), (char) => char.charCodeAt(0))
   )
+})
+
+/** 粘贴文件同时带有链接或错误 MIME 时，保留文字草稿并按实际 WebP 格式上传原图。 */
+it('pastes a reference image without replacing the prompt or intercepting text', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:clipboard-reference')
+  mount(true)
+  const prompt = await screen.findByLabelText('Prompt')
+  const bytes = Uint8Array.from(
+    atob('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEAAUAmJaQAA3AA/vuUAAA='),
+    (char) => char.charCodeAt(0)
+  )
+  const image = new File([bytes], 'clipboard.png', { type: 'image/png' })
+  const clipboardData = {
+    files: [image],
+    getData: () => 'https://example.com/image.png',
+  }
+
+  expect(fireEvent.paste(prompt, { clipboardData })).toBe(true)
+  fireEvent.click(screen.getByRole('tab', { name: 'Image generation' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'image-model' },
+  })
+  expect(fireEvent.paste(prompt, { clipboardData: { files: [] } })).toBe(true)
+  fireEvent.change(prompt, { target: { value: 'Make the background blue' } })
+  expect(fireEvent.paste(prompt, { clipboardData })).toBe(false)
+  await screen.findByRole('img', { name: 'Reference image' })
+  expect(prompt).toHaveValue('Make the background blue')
+  expect(imageSend).not.toHaveBeenCalled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
+  await screen.findByRole('img', { name: 'Make the background blue' })
+  const payload = vi
+    .mocked(api.post)
+    .mock.calls.find(([url]) => url.includes('/runs/'))?.[1]
+  expect(payload).toBeInstanceOf(FormData)
+  const reference = (payload as FormData).get('image') as File
+  expect(reference.type).toBe('image/webp')
+  expect(new Uint8Array(await reference.arrayBuffer())).toEqual(bytes)
 })

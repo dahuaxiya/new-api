@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ImagePlus, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import {
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -26,16 +32,17 @@ import { useStudioImage } from './studio-image'
 
 const sourceBytes = 50 * 1024 * 1024
 
-/** Mobile file pickers can omit the MIME label, so inspect the original bytes. */
-async function isSupportedReference(file: File): Promise<boolean> {
-  if (!file.size || file.size > sourceBytes) return false
+/** Read the raster signature so Android and clipboard MIME labels cannot override the file format. */
+async function referenceType(file: File) {
+  if (!file.size || file.size > sourceBytes) return undefined
   const header = new Uint8Array(await file.slice(0, 12).arrayBuffer())
   const signature = String.fromCharCode(...header)
-  return (
-    signature.startsWith('\x89PNG\r\n\x1a\n') ||
-    signature.startsWith('\xff\xd8\xff') ||
-    (signature.startsWith('RIFF') && signature.slice(8) === 'WEBP')
-  )
+  if (signature.startsWith('\x89PNG\r\n\x1a\n')) return 'image/png'
+  if (signature.startsWith('\xff\xd8\xff')) return 'image/jpeg'
+  if (signature.startsWith('RIFF') && signature.slice(8) === 'WEBP') {
+    return 'image/webp'
+  }
+  return undefined
 }
 
 /** Read one local reference for the current image request. Changing model or leaving the form cancels an unfinished read. */
@@ -44,6 +51,7 @@ export function StudioReference(props: {
   onChange: (value?: File | string) => void
   onBlocked: (busy: boolean) => void
   disabled: boolean
+  ref?: Ref<(source: File | string) => void>
 }) {
   const { t } = useTranslation()
   const { url } = useStudioImage(props.value)
@@ -58,20 +66,36 @@ export function StudioReference(props: {
     []
   )
 
-  /** Ignore late decoding results when the user picks a different image or leaves the form. */
-  const choose = async (file?: File) => {
-    if (!file) return
+  /** Give the latest clipboard, upload or history selection precedence over a pending file check. */
+  const choose = async (source?: File | string) => {
+    if (!source) return
     const current = ++selection.current
     setInvalid(false)
+    if (typeof source === 'string') {
+      // The history picker already validated the stored media reference.
+      props.onChange(source)
+      props.onBlocked(false)
+      setProcessing(false)
+      return
+    }
     props.onChange(undefined)
     props.onBlocked(true)
     setProcessing(true)
     try {
-      if (!(await isSupportedReference(file))) {
+      const type = await referenceType(source)
+      if (!type) {
         throw new Error('Unsupported reference image')
       }
       if (selection.current !== current) return
-      props.onChange(file)
+      // Some pickers label downloaded WebP as PNG. Fix only the MIME metadata and keep the file bytes.
+      props.onChange(
+        source.type === type
+          ? source
+          : new File([source], source.name, {
+              type,
+              lastModified: source.lastModified,
+            })
+      )
       props.onBlocked(false)
     } catch {
       if (selection.current === current) setInvalid(true)
@@ -79,14 +103,15 @@ export function StudioReference(props: {
       if (selection.current === current) setProcessing(false)
     }
   }
+  useImperativeHandle(props.ref, () => (source) => void choose(source))
   return (
-    <div className='flex flex-wrap items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-x-1 gap-y-0.5'>
       <input
         ref={fileInput}
         className='hidden'
         type='file'
         aria-label={t('Reference image')}
-        accept='image/png,image/jpeg,image/webp'
+        accept='image/*'
         disabled={props.disabled}
         onChange={(event) => {
           void choose(event.target.files?.[0])
@@ -95,7 +120,7 @@ export function StudioReference(props: {
       />
       {url && (
         <img
-          className='size-12 rounded-md border object-cover'
+          className='size-8 rounded-md border object-contain md:size-10'
           src={url}
           alt={t('Reference image')}
         />
@@ -105,6 +130,9 @@ export function StudioReference(props: {
         size='sm'
         className='min-h-10'
         type='button'
+        title={t(
+          'Upload or paste a reference image, up to 50 MiB at original quality.'
+        )}
         disabled={props.disabled}
         onClick={() => fileInput.current?.click()}
       >
@@ -135,9 +163,9 @@ export function StudioReference(props: {
         </p>
       )}
       {!invalid && !processing && (
-        <p className='text-muted-foreground text-xs'>
+        <p className='text-muted-foreground hidden text-xs lg:block'>
           {t(
-            'Reference images are uploaded at original quality, up to 50 MiB.'
+            'Upload or paste a reference image, up to 50 MiB at original quality.'
           )}
         </p>
       )}

@@ -44,6 +44,13 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -101,6 +108,7 @@ function StudioWorkspace(props: { identity: string }) {
   const mobile = useIsMobile()
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [reference, setReference] = useState<File | string>()
+  const selectReference = useRef<(source: File | string) => void>(null)
   const [referenceBlocked, setReferenceBlocked] = useState(false)
   const [policyOpen, setPolicyOpen] = useState(false)
   const [openedId, setOpenedId] = useState(0)
@@ -211,7 +219,6 @@ function StudioWorkspace(props: { identity: string }) {
     if (last?.error && !form.getValues('prompt')) {
       form.setValue('prompt', last.prompt)
     }
-    if (last?.reference) setReference(last.reference)
     void query.refetch()
   })
   useEffect(() => {
@@ -288,6 +295,7 @@ function StudioWorkspace(props: { identity: string }) {
   const submit = async (input: StudioForm) => {
     if (!available || !selected || run.busy || referenceBlocked) return
     if (mode === 'text' && input.maxTokens > selected.max_output) {
+      setOptionsOpen(true)
       form.setError('maxTokens', {
         message: t('Output limit exceeds this model limit'),
       })
@@ -331,6 +339,8 @@ function StudioWorkspace(props: { identity: string }) {
       input = { ...input, size }
     }
     const parent = mode === 'text' ? activeId.current : undefined
+    const sentReference =
+      mode === 'image' && selected.reference_image ? reference : undefined
     const entry = {
       id: (run.entries.at(-1)?.id ?? 0) + 1,
       prompt: input.prompt,
@@ -339,11 +349,8 @@ function StudioWorkspace(props: { identity: string }) {
       reasoning: '',
       complete: false,
       reference:
-        mode === 'image' &&
-        selected.reference_image &&
-        typeof reference === 'string' &&
-        reference.startsWith('data:')
-          ? reference
+        typeof sentReference === 'string' && sentReference.startsWith('data:')
+          ? sentReference
           : undefined,
     }
     const record = {
@@ -355,13 +362,10 @@ function StudioWorkspace(props: { identity: string }) {
       entries: mode === 'image' ? [entry] : [...run.entries, entry],
     }
     form.setValue('prompt', '')
+    setReference(undefined)
+    if (mobile) setOptionsOpen(false)
     activeId.current = record.id
-    run.send(
-      record,
-      input,
-      parent,
-      mode === 'image' && selected.reference_image ? reference : undefined
-    )
+    run.send(record, input, parent, sentReference)
   }
 
   if (query.isPending) return <LoadingState message={t('Loading...')} />
@@ -373,6 +377,145 @@ function StudioWorkspace(props: { identity: string }) {
       />
     )
   }
+  const settingsButton = (
+    <Button
+      type='button'
+      variant='ghost'
+      size='sm'
+      className='text-muted-foreground min-h-10 px-2.5 md:min-h-9'
+      aria-expanded={
+        optionsOpen || (!mobile && !!form.formState.errors.maxTokens)
+      }
+      aria-controls='studio-generation-options'
+      onClick={mobile ? undefined : () => setOptionsOpen(!optionsOpen)}
+    >
+      <SlidersHorizontal aria-hidden='true' />
+      {t('Advanced Settings')}
+    </Button>
+  )
+  // 手机端将参数放到浮层中，展开时也能给对话结果保留原有高度。
+  const generationOptions =
+    mode === 'image' ? (
+      <div className='flex flex-wrap items-center gap-2'>
+        <NativeSelect
+          aria-label={t('Image size')}
+          disabled={run.busy}
+          {...form.register('size')}
+        >
+          {selected?.reference_image && (
+            <NativeSelectOption value='auto'>{t('Auto')}</NativeSelectOption>
+          )}
+          <NativeSelectOption value='1024x1024'>
+            1:1 · 1024 × 1024
+          </NativeSelectOption>
+          <NativeSelectOption value='1024x1536'>
+            2:3 · 1024 × 1536
+          </NativeSelectOption>
+          <NativeSelectOption value='1536x1024'>
+            3:2 · 1536 × 1024
+          </NativeSelectOption>
+          {selected?.reference_image && (
+            <>
+              <NativeSelectOption value='1536x1152'>
+                4:3 · 1536 × 1152
+              </NativeSelectOption>
+              <NativeSelectOption value='1152x1536'>
+                3:4 · 1152 × 1536
+              </NativeSelectOption>
+              <NativeSelectOption value='1536x864'>
+                16:9 · 1536 × 864
+              </NativeSelectOption>
+              <NativeSelectOption value='864x1536'>
+                9:16 · 864 × 1536
+              </NativeSelectOption>
+              <NativeSelectOption value='custom'>
+                {t('Custom')}
+              </NativeSelectOption>
+            </>
+          )}
+        </NativeSelect>
+        {extendedImage && imageSize === 'custom' && (
+          <Input
+            aria-label={t('Custom resolution')}
+            placeholder='1920x1088'
+            className='w-32'
+            disabled={run.busy}
+            {...form.register('customSize')}
+          />
+        )}
+
+        <NativeSelect
+          aria-label={t('Quality')}
+          disabled={run.busy}
+          {...form.register('quality')}
+        >
+          {selected?.reference_image && (
+            <NativeSelectOption value='auto'>{t('Auto')}</NativeSelectOption>
+          )}
+          <NativeSelectOption value='low'>{t('Low')}</NativeSelectOption>
+          <NativeSelectOption value='medium'>{t('Medium')}</NativeSelectOption>
+          <NativeSelectOption value='high'>{t('High')}</NativeSelectOption>
+        </NativeSelect>
+        {selected?.reference_image && (
+          <>
+            <NativeSelect
+              aria-label={t('Output format')}
+              disabled={run.busy}
+              {...form.register('outputFormat')}
+            >
+              <NativeSelectOption value='png'>PNG</NativeSelectOption>
+              <NativeSelectOption value='jpeg'>JPEG</NativeSelectOption>
+              <NativeSelectOption value='webp'>WebP</NativeSelectOption>
+            </NativeSelect>
+            {outputFormat !== 'png' && (
+              <Input
+                type='number'
+                min={0}
+                max={100}
+                step={1}
+                placeholder='0–100'
+                className='w-24'
+                disabled={run.busy}
+                aria-label={t('Output compression (%)')}
+                {...form.register('outputCompression')}
+              />
+            )}
+          </>
+        )}
+        {(form.formState.errors.size ||
+          form.formState.errors.outputCompression) && (
+          <p role='alert' className='text-destructive w-full text-sm'>
+            {form.formState.errors.size?.message ||
+              form.formState.errors.outputCompression?.message}
+          </p>
+        )}
+      </div>
+    ) : (
+      <div className='flex items-center gap-2'>
+        <Label
+          htmlFor='studio-output'
+          className='text-muted-foreground text-xs'
+        >
+          {t('Max output tokens')}
+        </Label>
+        <Input
+          id='studio-output'
+          className='w-24'
+          type='number'
+          min={1}
+          max={selected?.max_output ?? 32768}
+          disabled={run.busy}
+          aria-invalid={Boolean(form.formState.errors.maxTokens)}
+          {...form.register('maxTokens', { valueAsNumber: true })}
+          onInput={(event) => {
+            const value = event.currentTarget.valueAsNumber
+            if (value >= 1 && value <= 32768) {
+              preferredLimit.current = value
+            }
+          }}
+        />
+      </div>
+    )
   return (
     <section className='bg-muted/25 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'>
       <header className='bg-background flex shrink-0 items-center justify-between gap-1 px-3 pt-1.5 pb-0.5 md:px-6 md:pt-3'>
@@ -396,7 +539,6 @@ function StudioWorkspace(props: { identity: string }) {
               setMode(item.mode ?? 'text')
               setChosenProductId(item.product)
               restore(item)
-              if (item.mode === 'image') setReference(item.entries[0].reference)
               form.setValue('model', item.entries.at(-1)?.model ?? '')
               if (
                 item.mode !== 'image' &&
@@ -580,7 +722,12 @@ function StudioWorkspace(props: { identity: string }) {
           )}
         </div>
       )}
-      <StudioResults entries={run.entries} busy={run.busy} mode={mode} />
+      <StudioResults
+        entries={run.entries}
+        sentReference={run.sentReference}
+        busy={run.busy}
+        mode={mode}
+      />
       <form
         onSubmit={(event) => void form.handleSubmit(submit)(event)}
         className='mx-auto w-full max-w-[52rem] shrink-0 px-2.5 pt-1 pb-2 md:px-6 md:pb-4'
@@ -589,38 +736,53 @@ function StudioWorkspace(props: { identity: string }) {
           <Label className='sr-only' htmlFor='studio-prompt'>
             {t('Prompt')}
           </Label>
-          <StudioHistory
-            storageKey={storageKey}
-            disabled={run.busy}
-            quote={{
-              entries: run.entries,
-              canUseImages: mode === 'image' && extendedImage,
-              onPick: (item) => {
-                if (item.type === 'image') {
-                  setReference(item.value)
-                  setReferenceBlocked(false)
-                  return
-                }
-                // Keep the user's draft intact and show exactly what will be sent as context.
-                const quoted = item.value.trim().replaceAll(/^/gm, '> ')
-                const draft = form.getValues('prompt')
-                form.setValue('prompt', `${quoted}\n\n${draft}`, {
-                  shouldValidate: true,
-                })
-              },
-            }}
-          />
-          {mode === 'image' && selected?.reference_image && (
-            <StudioReference
-              key={`${selectedProductId}:${model}`}
-              value={reference}
-              onChange={setReference}
-              onBlocked={setReferenceBlocked}
+          <div className='flex flex-wrap items-center gap-x-1'>
+            <StudioHistory
+              storageKey={storageKey}
               disabled={run.busy}
+              quote={{
+                entries: run.entries,
+                canUseImages: mode === 'image' && extendedImage,
+                onPick: (item) => {
+                  if (item.type === 'image') {
+                    selectReference.current?.(item.value)
+                    return
+                  }
+                  // Keep the user's draft intact and show exactly what will be sent as context.
+                  const quoted = item.value.trim().replaceAll(/^/gm, '> ')
+                  const draft = form.getValues('prompt')
+                  form.setValue('prompt', `${quoted}\n\n${draft}`, {
+                    shouldValidate: true,
+                  })
+                },
+              }}
             />
-          )}
+            {mode === 'image' && selected?.reference_image && (
+              <StudioReference
+                ref={selectReference}
+                key={`${selectedProductId}:${model}`}
+                value={reference}
+                onChange={setReference}
+                onBlocked={setReferenceBlocked}
+                disabled={run.busy}
+              />
+            )}
+          </div>
           <Textarea
             id='studio-prompt'
+            onPaste={(event) => {
+              if (!selectReference.current || run.busy) return
+              const image = [...event.clipboardData.files].find(
+                (file) =>
+                  file.type.startsWith('image/') ||
+                  !file.type ||
+                  file.type === 'application/octet-stream'
+              )
+              if (!image) return
+              // Copy Image can include its source URL as text. Consume only a real image file.
+              event.preventDefault()
+              selectReference.current(image)
+            }}
             onKeyDown={(event) => {
               // IME confirmation (including Safari's 229 event) must not send paid requests.
               if (
@@ -647,7 +809,7 @@ function StudioWorkspace(props: { identity: string }) {
             aria-invalid={Boolean(form.formState.errors.prompt)}
             {...form.register('prompt')}
             disabled={run.busy}
-            className='max-h-[23dvh] min-h-12 resize-none border-0 bg-transparent px-2.5 py-2.5 shadow-none focus-visible:ring-0 md:max-h-[32dvh] md:min-h-14 dark:bg-transparent'
+            className='max-h-[18dvh] min-h-11 resize-none border-0 bg-transparent px-2.5 py-2.5 shadow-none focus-visible:ring-0 md:max-h-[32dvh] md:min-h-14 dark:bg-transparent'
           />
           {form.formState.errors.prompt && (
             <p role='alert' className='text-destructive text-sm'>
@@ -655,162 +817,35 @@ function StudioWorkspace(props: { identity: string }) {
             </p>
           )}
           <div className='flex flex-wrap items-center justify-between gap-1.5'>
-            <Button
-              type='button'
-              variant='ghost'
-              size='sm'
-              className='text-muted-foreground min-h-11 px-2.5 md:min-h-9'
-              aria-expanded={optionsOpen || !!form.formState.errors.maxTokens}
-              aria-controls='studio-generation-options'
-              onClick={() => setOptionsOpen(!optionsOpen)}
-            >
-              <SlidersHorizontal aria-hidden='true' />
-              {t('Advanced Settings')}
-            </Button>
-            <div
-              id='studio-generation-options'
-              className={
-                optionsOpen || form.formState.errors.maxTokens
-                  ? 'order-last w-full border-t px-2.5 pt-2 pb-1'
-                  : 'hidden'
-              }
-            >
-              {mode === 'image' ? (
-                <div className='flex flex-wrap items-center gap-2'>
-                  <NativeSelect
-                    aria-label={t('Image size')}
-                    disabled={run.busy}
-                    {...form.register('size')}
-                  >
-                    {selected?.reference_image && (
-                      <NativeSelectOption value='auto'>
-                        {t('Auto')}
-                      </NativeSelectOption>
-                    )}
-                    <NativeSelectOption value='1024x1024'>
-                      1:1 · 1024 × 1024
-                    </NativeSelectOption>
-                    <NativeSelectOption value='1024x1536'>
-                      2:3 · 1024 × 1536
-                    </NativeSelectOption>
-                    <NativeSelectOption value='1536x1024'>
-                      3:2 · 1536 × 1024
-                    </NativeSelectOption>
-                    {selected?.reference_image && (
-                      <>
-                        <NativeSelectOption value='1536x1152'>
-                          4:3 · 1536 × 1152
-                        </NativeSelectOption>
-                        <NativeSelectOption value='1152x1536'>
-                          3:4 · 1152 × 1536
-                        </NativeSelectOption>
-                        <NativeSelectOption value='1536x864'>
-                          16:9 · 1536 × 864
-                        </NativeSelectOption>
-                        <NativeSelectOption value='864x1536'>
-                          9:16 · 864 × 1536
-                        </NativeSelectOption>
-                        <NativeSelectOption value='custom'>
-                          {t('Custom')}
-                        </NativeSelectOption>
-                      </>
-                    )}
-                  </NativeSelect>
-                  {extendedImage && imageSize === 'custom' && (
-                    <Input
-                      aria-label={t('Custom resolution')}
-                      placeholder='1920x1088'
-                      className='w-32'
-                      disabled={run.busy}
-                      {...form.register('customSize')}
-                    />
-                  )}
-
-                  <NativeSelect
-                    aria-label={t('Quality')}
-                    disabled={run.busy}
-                    {...form.register('quality')}
-                  >
-                    {selected?.reference_image && (
-                      <NativeSelectOption value='auto'>
-                        {t('Auto')}
-                      </NativeSelectOption>
-                    )}
-                    <NativeSelectOption value='low'>
-                      {t('Low')}
-                    </NativeSelectOption>
-                    <NativeSelectOption value='medium'>
-                      {t('Medium')}
-                    </NativeSelectOption>
-                    <NativeSelectOption value='high'>
-                      {t('High')}
-                    </NativeSelectOption>
-                  </NativeSelect>
-                  {selected?.reference_image && (
-                    <>
-                      <NativeSelect
-                        aria-label={t('Output format')}
-                        disabled={run.busy}
-                        {...form.register('outputFormat')}
-                      >
-                        <NativeSelectOption value='png'>PNG</NativeSelectOption>
-                        <NativeSelectOption value='jpeg'>
-                          JPEG
-                        </NativeSelectOption>
-                        <NativeSelectOption value='webp'>
-                          WebP
-                        </NativeSelectOption>
-                      </NativeSelect>
-                      {outputFormat !== 'png' && (
-                        <Input
-                          type='number'
-                          min={0}
-                          max={100}
-                          step={1}
-                          placeholder='0–100'
-                          className='w-24'
-                          disabled={run.busy}
-                          aria-label={t('Output compression (%)')}
-                          {...form.register('outputCompression')}
-                        />
-                      )}
-                    </>
-                  )}
-                  {(form.formState.errors.size ||
-                    form.formState.errors.outputCompression) && (
-                    <p role='alert' className='text-destructive w-full text-sm'>
-                      {form.formState.errors.size?.message ||
-                        form.formState.errors.outputCompression?.message}
-                    </p>
-                  )}
+            {mobile ? (
+              <Sheet open={optionsOpen} onOpenChange={setOptionsOpen}>
+                <SheetTrigger render={settingsButton} />
+                <SheetContent
+                  id='studio-generation-options'
+                  side='bottom'
+                  className='max-h-[75dvh] gap-2 overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]'
+                >
+                  <SheetHeader>
+                    <SheetTitle>{t('Advanced Settings')}</SheetTitle>
+                  </SheetHeader>
+                  <div className='px-4'>{generationOptions}</div>
+                </SheetContent>
+              </Sheet>
+            ) : (
+              <>
+                {settingsButton}
+                <div
+                  id='studio-generation-options'
+                  className={
+                    optionsOpen || form.formState.errors.maxTokens
+                      ? 'order-last w-full border-t px-2.5 pt-2 pb-1'
+                      : 'hidden'
+                  }
+                >
+                  {generationOptions}
                 </div>
-              ) : (
-                <div className='flex items-center gap-2'>
-                  <Label
-                    htmlFor='studio-output'
-                    className='text-muted-foreground text-xs'
-                  >
-                    {t('Max output tokens')}
-                  </Label>
-                  <Input
-                    id='studio-output'
-                    className='w-24'
-                    type='number'
-                    min={1}
-                    max={selected?.max_output ?? 32768}
-                    disabled={run.busy}
-                    aria-invalid={Boolean(form.formState.errors.maxTokens)}
-                    {...form.register('maxTokens', { valueAsNumber: true })}
-                    onInput={(event) => {
-                      const value = event.currentTarget.valueAsNumber
-                      if (value >= 1 && value <= 32768) {
-                        preferredLimit.current = value
-                      }
-                    }}
-                  />
-                </div>
-              )}
-            </div>
+              </>
+            )}
             {run.busy ? (
               <Button
                 type='button'

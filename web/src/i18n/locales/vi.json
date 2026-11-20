@@ -8155,7 +8155,7 @@
     "Output compression (%)": "Chất lượng nén đầu ra (%)",
     "Enter a supported resolution, for example 1920x1088.": "Nhập độ phân giải được hỗ trợ, ví dụ 1920x1088.",
     "Enter an integer from 0 to 100.": "Nhập số nguyên từ 0 đến 100.",
-    "Reference images are uploaded at original quality, up to 50 MiB.": "Ảnh tham chiếu được tải lên với chất lượng gốc, tối đa 50 MiB.",
+    "Upload or paste a reference image, up to 50 MiB at original quality.": "Tải lên hoặc dán ảnh tham chiếu ở chất lượng gốc, tối đa 50 MiB.",
     "Choose a readable PNG, JPEG or WebP up to 50 MiB.": "Chọn ảnh PNG, JPEG hoặc WebP có thể mở được, tối đa 50 MiB.",
     "Preparing reference image…": "Đang xử lý ảnh tham chiếu…",
     "Quote from history": "Trích dẫn từ lịch sử",

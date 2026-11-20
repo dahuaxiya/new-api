@@ -8155,7 +8155,7 @@
     "Output compression (%)": "出力圧縮品質（%）",
     "Enter a supported resolution, for example 1920x1088.": "対応する解像度を入力してください（例：1920x1088）。",
     "Enter an integer from 0 to 100.": "0 から 100 までの整数を入力してください。",
-    "Reference images are uploaded at original quality, up to 50 MiB.": "参照画像は元の画質でアップロードされます（最大 50 MiB）。",
+    "Upload or paste a reference image, up to 50 MiB at original quality.": "参照画像をアップロードまたは貼り付けできます。元の画質で最大 50 MiB です。",
     "Choose a readable PNG, JPEG or WebP up to 50 MiB.": "読み込める 50 MiB 以下の PNG、JPEG、WebP 画像を選択してください。",
     "Preparing reference image…": "参照画像を処理しています…",
     "Quote from history": "履歴から引用",

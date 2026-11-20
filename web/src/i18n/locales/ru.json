@@ -8155,7 +8155,7 @@
     "Output compression (%)": "Качество сжатия результата (%)",
     "Enter a supported resolution, for example 1920x1088.": "Введите поддерживаемое разрешение, например 1920x1088.",
     "Enter an integer from 0 to 100.": "Введите целое число от 0 до 100.",
-    "Reference images are uploaded at original quality, up to 50 MiB.": "Изображения-образцы загружаются в исходном качестве, до 50 МиБ.",
+    "Upload or paste a reference image, up to 50 MiB at original quality.": "Загрузите или вставьте изображение-образец в исходном качестве, до 50 МиБ.",
     "Choose a readable PNG, JPEG or WebP up to 50 MiB.": "Выберите читаемое изображение PNG, JPEG или WebP размером до 50 МиБ.",
     "Preparing reference image…": "Подготовка изображения-образца…",
     "Quote from history": "Цитировать из истории",

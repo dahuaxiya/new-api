@@ -43,6 +43,7 @@ export function useStudioRun(
   onFinish: (item: Conversation) => void
 ) {
   const [entries, setEntries] = useState(initialTurns)
+  const [sentReference, setSentReference] = useState<File | string>()
   const [busy, setBusy] = useState(Boolean(initial?.running))
   const [reconnecting, setReconnecting] = useState(false)
   const current = useRef<AbortController | null>(null)
@@ -79,6 +80,8 @@ export function useStudioRun(
     let previous = record.entries.slice(0, -1)
     setBusy(true)
     setEntries(record.entries)
+    // 本地附件只用于当前消息的即时预览，历史记录只保存服务端提供的图片引用。
+    setSentReference(reference)
     let backoff = 0
     let request: Intent | FormData | undefined
     while (!signal.aborted) {
@@ -171,6 +174,8 @@ export function useStudioRun(
       updatedAt: Date.now(),
     }
     setEntries(result.entries)
+    // 服务端保存后改用持久引用。上传失败时仍可在当前失败消息里看到原图。
+    if (last.reference) setSentReference(undefined)
     setBusy(false)
     setReconnecting(false)
     active.current = ''
@@ -243,6 +248,7 @@ export function useStudioRun(
   function reset(next: StudioEntry[], item?: Conversation) {
     if (active.current) return
     setEntries(next)
+    setSentReference(undefined)
     if (item?.running) {
       if (key) {
         writeSession(`${key}:running`, {
@@ -261,5 +267,5 @@ export function useStudioRun(
   function stop() {
     stopRequested.current = true
   }
-  return { entries, busy, reconnecting, send, reset, stop }
+  return { entries, sentReference, busy, reconnecting, send, reset, stop }
 }

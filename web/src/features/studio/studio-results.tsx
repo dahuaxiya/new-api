@@ -34,6 +34,7 @@ import type { StudioEntry } from './use-studio-run'
 /** Reuse conversation scroll behavior so streaming never pulls a reader away from older messages. */
 export function StudioResults(props: {
   entries: StudioEntry[]
+  sentReference?: File | string
   busy: boolean
   mode: 'text' | 'image'
 }) {
@@ -67,9 +68,15 @@ export function StudioResults(props: {
             key={item.id}
             className='min-w-0 space-y-3 wrap-anywhere md:space-y-4'
           >
-            <p className='bg-primary/8 ms-auto w-fit max-w-[92%] rounded-2xl rounded-ee-md px-3.5 py-2.5 text-[0.9375rem] leading-relaxed whitespace-pre-wrap md:max-w-[80%] md:px-4'>
-              {item.prompt}
-            </p>
+            <StudioUserMessage
+              prompt={item.prompt}
+              reference={
+                item.reference ??
+                (index === props.entries.length - 1
+                  ? props.sentReference
+                  : undefined)
+              }
+            />
             <div className='bg-background min-w-0 space-y-3 rounded-2xl rounded-es-md border px-3.5 py-3 shadow-xs md:px-5 md:py-4'>
               <p className='text-muted-foreground text-xs font-medium wrap-anywhere'>
                 {item.model}
@@ -129,6 +136,28 @@ export function StudioResults(props: {
         aria-label={t('Scroll to bottom')}
       />
     </Conversation>
+  )
+}
+
+/** 同一条用户消息显示提示词和参考图，兼容本地预览与已保存的私有图片。 */
+function StudioUserMessage(props: {
+  prompt: string
+  reference?: File | string
+}) {
+  const { t } = useTranslation()
+  const { url } = useStudioImage(props.reference)
+  return (
+    <div className='bg-primary/8 ms-auto w-fit max-w-[92%] space-y-2 rounded-2xl rounded-ee-md px-3.5 py-2.5 text-[0.9375rem] leading-relaxed md:max-w-[80%] md:px-4'>
+      {url && (
+        <img
+          src={url}
+          alt={t('Reference image')}
+          className='max-h-56 max-w-full rounded-lg object-contain'
+          decoding='async'
+        />
+      )}
+      <p className='whitespace-pre-wrap'>{props.prompt}</p>
+    </div>
   )
 }
 

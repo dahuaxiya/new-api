@@ -8155,7 +8155,7 @@
     "Output compression (%)": "Output compression (%)",
     "Enter a supported resolution, for example 1920x1088.": "Enter a supported resolution, for example 1920x1088.",
     "Enter an integer from 0 to 100.": "Enter an integer from 0 to 100.",
-    "Reference images are uploaded at original quality, up to 50 MiB.": "Reference images are uploaded at original quality, up to 50 MiB.",
+    "Upload or paste a reference image, up to 50 MiB at original quality.": "Upload or paste a reference image, up to 50 MiB at original quality.",
     "Choose a readable PNG, JPEG or WebP up to 50 MiB.": "Choose a readable PNG, JPEG or WebP up to 50 MiB.",
     "Preparing reference image…": "Preparing reference image…",
     "Quote from history": "Quote from history",

@@ -8185,7 +8185,7 @@
     "Output compression (%)": "输出压缩质量（%）",
     "Enter a supported resolution, for example 1920x1088.": "请输入支持的分辨率，例如 1920x1088。",
     "Enter an integer from 0 to 100.": "请输入 0 到 100 的整数。",
-    "Reference images are uploaded at original quality, up to 50 MiB.": "参考图按原文件上传，最大 50 MiB。",
+    "Upload or paste a reference image, up to 50 MiB at original quality.": "支持上传或粘贴参考图，按原文件上传，最大 50 MiB。",
     "Choose a readable PNG, JPEG or WebP up to 50 MiB.": "请选择 50 MiB 以内且能正常打开的 PNG、JPEG 或 WebP 图片。",
     "Preparing reference image…": "正在处理参考图…",
     "Quote from history": "引用历史",
