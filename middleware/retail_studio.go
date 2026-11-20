@@ -6,6 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,8 +20,8 @@ func RetailStudioSession() gin.HandlerFunc {
 			return
 		}
 		limit := int64(256 << 10)
-		// Only the reference-image endpoint needs room for a 5 MiB file encoded in JSON.
-		if c.FullPath() == "/api/retail/studio/images/edits" {
+		// Both legacy edits and server-built vision requests carry bounded inline images.
+		if c.FullPath() == "/api/retail/studio/images/edits" || service.HasStudioVision(c.Request) {
 			limit = 8 << 20
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)

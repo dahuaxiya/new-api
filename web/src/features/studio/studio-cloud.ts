@@ -30,24 +30,61 @@ const endpoint = '/api/retail/studio/history'
 const queues = new Map<string, Promise<void>>()
 
 /** Wait for accepted writes from this tab before listing. Other devices read the server directly. */
-export async function listCloud(key: string): Promise<HistoryRow[]> {
+export async function listCloud(
+  key: string,
+  signal?: AbortSignal
+): Promise<HistoryRow[]> {
   await queues.get(key)
   const result = requireServerSuccess(
-    (await api.get(endpoint, { skipErrorHandler: true })).data
+    (await api.get(endpoint, { skipErrorHandler: true, signal })).data
   )
   if (!Array.isArray(result.data)) throw new Error('Invalid history list')
   return result.data
 }
 
 /** Download just the selected transcript or image, without invoking the model. */
-export async function readCloud(id: string): Promise<Conversation> {
+export async function readCloud(
+  id: string,
+  signal?: AbortSignal
+): Promise<Conversation> {
   return conversation.parse(
     (
       await api.get(`${endpoint}/${encodeURIComponent(id)}`, {
         skipErrorHandler: true,
+        signal,
       })
     ).data
   )
+}
+
+/** 恢复最近的记录摘要并读取正文，不会发起模型请求。 */
+export async function recoverCloud(
+  key: string,
+  scope: Pick<Conversation, 'product' | 'mode'> | undefined,
+  id: string | undefined,
+  signal: AbortSignal
+): Promise<Conversation | undefined> {
+  if (id) {
+    try {
+      return await readCloud(id, signal)
+    } catch (error) {
+      // 旧版本可能已被续聊取代。仅在确认不存在时从同一工作区找下一条。
+      if (
+        (error as { response?: { status?: number } }).response?.status !== 404
+      ) {
+        throw error
+      }
+    }
+  }
+  const rows = await listCloud(key, signal)
+  const latest = rows
+    .filter(
+      (row) =>
+        !scope ||
+        (row.product === scope.product && (row.mode ?? 'text') === scope.mode)
+    )
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  return latest ? readCloud(latest.id, signal) : undefined
 }
 
 /** Serialize a tab's changes to keep a slow first upload from overwriting its completed turn.

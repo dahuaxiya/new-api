@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"slices"
@@ -98,7 +99,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if imageRequest != (quote.Model.Kind == "image") {
 		return true, retailPriceError(retailprice.ErrConfig)
 	}
-	if err := validateRetailBody(raw, quote.Model.Kind, c.GetBool("retail_studio_image_edit"), studioReferencePath(c.Request, c.GetBool("retail_studio_image_edit")) != ""); err != nil {
+	if err := validateRetailRequest(c, raw, quote.Model.Kind); err != nil {
 		return true, retailPriceError(err)
 	}
 	// Counting is mandatory for a guarded request, even when the legacy global estimate switch is off.
@@ -222,7 +223,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		return retailprice.ErrConfig
 	}
 	reference := studioReferencePath(c.Request, c.GetBool("retail_studio_image_edit"))
-	if err := validateRetailBody(raw, quote.Model.Kind, c.GetBool("retail_studio_image_edit"), reference != ""); err != nil {
+	if err := validateRetailRequest(c, raw, quote.Model.Kind); err != nil {
 		return err
 	}
 	if gjson.GetBytes(raw, "model").String() != upstreamModel || upstreamModel == "" {
@@ -302,9 +303,25 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	return nil
 }
 
+// validateRetailRequest applies the verified image set only to an internally dispatched chat.
+// Both the incoming request and the final provider-specific body must contain those exact images.
+func validateRetailRequest(c *gin.Context, raw []byte, kind string) error {
+	if HasStudioVision(c.Request) && kind != "image" {
+		return validateRetailChat(raw, c.Request.Context().Value(studioVisionKey{}).(map[string]int))
+	}
+	edit := c.GetBool("retail_studio_image_edit")
+	return validateRetailBody(raw, kind, edit, studioReferencePath(c.Request, edit) != "")
+}
+
 // validateRetailTextBody excludes metered tools, alternate tiers and media not priced by the text contract.
 // JSON schemas inside function tools are not recursively treated as message content.
 func validateRetailTextBody(raw []byte) error {
+	return validateRetailChat(raw, nil)
+}
+
+// validateRetailChat preserves the text contract and admits only the exact uploaded raster
+// payloads, including when OpenAI Chat is converted to Responses or Anthropic Messages.
+func validateRetailChat(raw []byte, vision map[string]int) error {
 	root := gjson.ParseBytes(raw)
 	if !gjson.ValidBytes(raw) || !root.IsObject() {
 		return retailprice.ErrConfig
@@ -361,6 +378,7 @@ func validateRetailTextBody(raw []byte) error {
 	if !valid {
 		return retailprice.ErrConfig
 	}
+	remaining := maps.Clone(vision)
 	queue := []gjson.Result{root.Get("messages"), root.Get("input"), root.Get("system")}
 	for len(queue) > 0 {
 		item := queue[len(queue)-1]
@@ -373,6 +391,28 @@ func validateRetailTextBody(raw []byte) error {
 			continue
 		}
 		typ := item.Get("type").String()
+		if typ == "image_url" || typ == "input_image" || typ == "image" {
+			// Protocol conversion may change the wrapper, but cannot add URLs or substitute bytes.
+			var uri string
+			switch typ {
+			case "image_url":
+				uri = item.Get("image_url.url").String()
+			case "input_image":
+				uri = item.Get("image_url").String()
+			case "image":
+				if item.Get("source.type").String() == "base64" {
+					uri = "data:" + item.Get("source.media_type").String() + ";base64," + item.Get("source.data").String()
+				}
+			}
+			if remaining[uri] == 0 {
+				return retailprice.ErrConfig
+			}
+			remaining[uri]--
+			if remaining[uri] == 0 {
+				delete(remaining, uri)
+			}
+			continue
+		}
 		if !slices.Contains([]string{"", "message", "text", "input_text", "output_text", "function_call", "function_call_output", "tool_use", "tool_result", "thinking", "reasoning"}, typ) {
 			return retailprice.ErrConfig
 		}
@@ -382,6 +422,9 @@ func validateRetailTextBody(raw []byte) error {
 		// Responses function results use output, while messages/tool results use
 		// content. Both can contain media and therefore need the same text-only gate.
 		queue = append(queue, item.Get("content"), item.Get("output"))
+	}
+	if len(remaining) > 0 {
+		return retailprice.ErrConfig
 	}
 	return nil
 }
@@ -430,7 +473,9 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 			if input == nil {
 				continue
 			}
-			if input.ImageTokens != 0 || input.AudioTokens != 0 {
+			// Vision tokens are included in provider input totals. A breakdown must fit that
+			// total and is billable only for requests whose attachment set we verified.
+			if input.AudioTokens != 0 || input.ImageTokens < 0 || input.ImageTokens > max(source.PromptTokens, source.InputTokens) || (input.ImageTokens > 0 && !HasStudioVision(c.Request)) {
 				return 0, retailprice.ErrUsage
 			}
 			for _, count := range []int{input.CachedTokens, input.CacheWriteTokens, input.CachedCreationTokens} {

@@ -21,7 +21,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 
 const mediaPath =
-  /^\/api\/retail\/studio\/media\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/(?:reference|result)$/
+  /^\/api\/retail\/studio\/media\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/(?:reference|result|chat-(?:0|[1-9]\d*))$/
 
 /** Only request same-origin media links with the server's fixed UUID and role shape. */
 export function isStudioMedia(value?: File | string): value is string {

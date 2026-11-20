@@ -136,3 +136,24 @@ func writeStudioJSONReference(writer *io.PipeWriter, file *os.File, size int64, 
 	}
 	writer.CloseWithError(err)
 }
+
+type studioVisionKey struct{}
+
+// WithStudioVision binds validated inline images to the internal chat request. A counted
+// multiset supports repeated copies of the same image and survives provider conversion.
+func WithStudioVision(ctx context.Context, pictures map[int]string) context.Context {
+	allowed := make(map[string]int, len(pictures))
+	for _, uri := range pictures {
+		allowed[uri]++
+	}
+	return context.WithValue(ctx, studioVisionKey{}, allowed)
+}
+
+// HasStudioVision reports whether this server-generated request contains verified chat images.
+func HasStudioVision(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	images, _ := req.Context().Value(studioVisionKey{}).(map[string]int)
+	return len(images) > 0
+}

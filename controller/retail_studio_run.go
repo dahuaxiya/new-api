@@ -41,6 +41,7 @@ type studioIntent struct {
 	OutputFormat      string              `json:"outputFormat,omitempty"`
 	OutputCompression *int                `json:"outputCompression,omitempty"`
 	uploadedReference bool
+	chatImages        map[int]string
 }
 type studioWorker struct {
 	cancel             context.CancelFunc
@@ -87,11 +88,15 @@ func studioRunRequest(in *studioIntent) (string, []byte, error) {
 		}
 		messages := []gin.H{}
 		for i, e := range row.Entries {
-			if e.Reference != "" || e.Image != "" {
+			if e.Image != "" || (e.Reference != "" && (i == len(row.Entries)-1 || in.Parent == "" || e.Reference != studioMediaPrefix+in.Parent+"/"+studioChatRole(i))) {
 				return "", nil, errors.New("unexpected chat image")
 			}
 			if i == len(row.Entries)-1 || e.Complete && e.Error == "" {
-				messages = append(messages, gin.H{"role": "user", "content": e.Prompt})
+				var content any = e.Prompt
+				if uri := in.chatImages[i]; uri != "" {
+					content = []gin.H{{"type": "text", "text": e.Prompt}, {"type": "image_url", "image_url": gin.H{"url": uri}}}
+				}
+				messages = append(messages, gin.H{"role": "user", "content": content})
 				if i < len(row.Entries)-1 {
 					messages = append(messages, gin.H{"role": "assistant", "content": e.Content})
 				}
@@ -173,7 +178,7 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 			return
 		}
 		if uploadErr != nil || in.Record.ID != id || (in.Parent != "" && (!historyID(in.Parent) || in.Parent == id)) ||
-			(file != nil && (in.Record.Mode != "image" || in.Parent != "")) {
+			(file != nil && in.Record.Mode == "image" && in.Parent != "") {
 			historyError(c, 400)
 			return
 		}
@@ -267,6 +272,19 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 			historyError(c, 429)
 			return
 		}
+		// Historical file names are resolved only after duplicate detection: the parent may already
+		// have been removed by the first successful attempt.
+		if in.Record.Mode == "text" {
+			in.chatImages, err = studioChatImages(dir, &in, file)
+			if err == nil && len(in.chatImages) > 0 {
+				path, body, err = studioRunRequest(&in)
+			}
+			if err != nil {
+				<-studioSlots
+				c.AbortWithStatusJSON(400, gin.H{"success": false, "message": err.Error()})
+				return
+			}
+		}
 		// The claim precedes all paid work. Only pre-dispatch failures can safely release it.
 		claim, err := os.OpenFile(key+".run", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if err != nil {
@@ -281,7 +299,10 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 		in.Record.Running = true
 		in.Record.UpdatedAt = time.Now().UnixMilli()
 		last := &in.Record.Entries[len(in.Record.Entries)-1]
-		if err == nil && file != nil {
+		if err == nil && in.Record.Mode == "text" {
+			// The new snapshot must own every attachment before the parent is removed.
+			err = commitStudioChatImages(dir, &in, file)
+		} else if err == nil && file != nil {
 			err = file.Sync()
 			if err == nil {
 				err = os.Rename(file.Name(), key+".reference")
@@ -327,7 +348,9 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 			_ = deleteStudioRecord(filepath.Join(dir, in.Parent))
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		if file != nil {
+		if len(in.chatImages) > 0 {
+			ctx = service.WithStudioVision(ctx, in.chatImages)
+		} else if file != nil {
 			ctx = service.WithStudioReference(ctx, key+".reference")
 		}
 		worker := &studioWorker{cancel: cancel}

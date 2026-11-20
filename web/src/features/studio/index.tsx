@@ -69,17 +69,22 @@ import {
   validImageDimensions,
   type StudioForm,
 } from './api'
+import { recoverCloud } from './studio-cloud'
 import { StudioHistory } from './studio-history'
 import { StudioReference } from './studio-reference'
 import { StudioResults } from './studio-results'
 import {
   migrateHistory,
   readActive,
+  readCurrent,
   readRunning,
   readLegacy,
   readSelection,
-  writeSession,
+  writeActive,
+  writeCurrent,
+  writeSelection,
   type Conversation,
+  type StudioSelection,
 } from './studio-session'
 import { useStudioRun } from './use-studio-run'
 
@@ -91,19 +96,86 @@ export function ModelStudio() {
   const identity = useAuthStore(
     (s) => `${s.auth.user?.id}:${s.auth.session?.sid}`
   )
-  return <StudioWorkspace key={identity} identity={identity} />
+  return <StudioSession key={identity} identity={identity} />
+}
+
+/** 恢复前只读现有会话，避免用户在旧上下文尚未加载时向模型发送新消息。 */
+function StudioSession(props: { identity: string }) {
+  const { t } = useTranslation()
+  const userId = useAuthStore((s) => s.auth.user?.id)
+  const storageKey = userId ? `studio.v1:${userId}` : null
+  const [start] = useState(() => {
+    const saved = readSelection(storageKey)
+    const current = saved && readCurrent(storageKey, saved)
+    const initial =
+      readRunning(storageKey) ??
+      (saved && readActive(storageKey, saved.product, saved.mode))
+    const legacy =
+      saved?.mode === 'text' && current === undefined
+        ? readLegacy(storageKey, saved.product)
+        : []
+    return { saved, current, initial, legacy }
+  })
+  const needsRecovery =
+    Boolean(storageKey) &&
+    !start.initial &&
+    !start.legacy.length &&
+    start.current?.id !== null
+  const recovery = useQuery({
+    queryKey: ['studio-current', props.identity, start.saved, start.current],
+    queryFn: async ({ signal }) =>
+      storageKey
+        ? ((await recoverCloud(
+            storageKey,
+            start.saved,
+            start.current?.id ?? undefined,
+            signal
+          )) ?? null)
+        : null,
+    enabled: needsRecovery,
+    retry: false,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+  if (needsRecovery && recovery.isPending) {
+    return <LoadingState message={t('Loading...')} />
+  }
+  if (needsRecovery && recovery.isError) {
+    return (
+      <ErrorState
+        title={t('Could not load chat history.')}
+        onRetry={() => void recovery.refetch()}
+      />
+    )
+  }
+  return (
+    <StudioWorkspace
+      identity={props.identity}
+      storageKey={storageKey}
+      saved={start.saved}
+      initial={
+        start.initial ??
+        (needsRecovery ? (recovery.data ?? undefined) : undefined)
+      }
+      legacy={start.legacy}
+    />
+  )
 }
 
 /** Wallet workspace sends directly using server-enforced budgets and the selected call group. */
-function StudioWorkspace(props: { identity: string }) {
+function StudioWorkspace(props: {
+  identity: string
+  storageKey: string | null
+  saved?: StudioSelection
+  initial?: Conversation
+  legacy: Conversation['entries']
+}) {
   const { t } = useTranslation()
   const isRoot = useAuthStore((s) => s.auth.user?.role === ROLE.SUPER_ADMIN)
-  const userId = useAuthStore((s) => s.auth.user?.id)
-  const storageKey = userId ? `studio.v1:${userId}` : null
-  const [resuming] = useState(() => readRunning(storageKey))
-  const [saved] = useState(() => readSelection(storageKey))
+  const { storageKey, saved, initial } = props
   const [mode, setMode] = useState<'text' | 'image'>(
-    resuming?.mode ?? saved?.mode ?? 'text'
+    initial?.mode ?? saved?.mode ?? 'text'
   )
   const mobile = useIsMobile()
   const [optionsOpen, setOptionsOpen] = useState(false)
@@ -113,19 +185,7 @@ function StudioWorkspace(props: { identity: string }) {
   const [policyOpen, setPolicyOpen] = useState(false)
   const [openedId, setOpenedId] = useState(0)
   const [chosenProductId, setChosenProductId] = useState<string | null>(
-    resuming?.product ?? saved?.product ?? null
-  )
-  const [initial] = useState(
-    () =>
-      resuming ??
-      (saved?.mode === 'text'
-        ? readActive(storageKey, saved.product)
-        : undefined)
-  )
-  const [initialTurns] = useState(
-    () =>
-      initial?.entries ??
-      (saved?.mode === 'text' ? readLegacy(storageKey, saved.product) : [])
+    initial?.product ?? saved?.product ?? null
   )
   const activeId = useRef(initial?.id)
 
@@ -133,7 +193,10 @@ function StudioWorkspace(props: { identity: string }) {
     resolver: zodResolver(studioFormSchema),
     defaultValues: {
       prompt: '',
-      model: resuming?.entries.at(-1)?.model ?? saved?.model ?? '',
+      model:
+        (!initial?.running && saved?.model) ||
+        initial?.entries.at(-1)?.model ||
+        '',
       maxTokens: defaultOutputLimit,
       size: '1024x1024',
       quality: 'medium',
@@ -207,25 +270,38 @@ function StudioWorkspace(props: { identity: string }) {
       form.setValue('maxTokens', Math.min(preferredLimit.current, maxOutput))
     }
   }, [mode, model, maxOutput, form])
-  const run = useStudioRun(initialTurns, storageKey, initial, (item) => {
+  /** 缓存当前标签的正文，跨标签重开用账号和工作区内的会话 ID。 */
+  const remember = (item: Conversation) => {
+    const mode = item.mode ?? 'text'
     if (
-      item.mode !== 'image' &&
-      writeSession(storageKey && `${storageKey}:chat:${item.product}`, item) ===
-        false
+      writeCurrent(storageKey, { mode, product: item.product }, item.id) ===
+      false
     ) {
       setStorageFailed(true)
     }
-    const last = item.entries.at(-1)
-    if (last?.error && !form.getValues('prompt')) {
-      form.setValue('prompt', last.prompt)
+    writeActive(storageKey, item)
+  }
+  const run = useStudioRun(
+    initial?.entries ?? props.legacy,
+    storageKey,
+    initial,
+    (item) => {
+      remember(item)
+      const last = item.entries.at(-1)
+      if (last?.error && !form.getValues('prompt')) {
+        form.setValue('prompt', last.prompt)
+      }
+      void query.refetch()
     }
-    void query.refetch()
-  })
+  )
   useEffect(() => {
     if (
       selectedProductId &&
-      writeSession(storageKey, { product: selectedProductId, mode, model }) ===
-        false
+      writeSelection(storageKey, {
+        product: selectedProductId,
+        mode,
+        model,
+      }) === false
     ) {
       queueMicrotask(() => setStorageFailed(true))
     }
@@ -234,6 +310,15 @@ function StudioWorkspace(props: { identity: string }) {
     if (!storageKey) return
     void migrateHistory(storageKey).catch(() => setStorageFailed(true))
   }, [storageKey])
+  useEffect(() => {
+    if (!initial || initial.running) return
+    writeActive(storageKey, initial)
+    writeCurrent(
+      storageKey,
+      { mode: initial.mode ?? 'text', product: initial.product },
+      initial.id
+    )
+  }, [storageKey, initial])
 
   const available = Boolean(query.data?.catalog.enabled && selected)
   const catalog = query.data?.catalog
@@ -266,7 +351,7 @@ function StudioWorkspace(props: { identity: string }) {
     setPolicyOpen(open)
     if (!open) void query.refetch()
   }
-  /** 只恢复用户选中的文本记录。图像工作区和新对话都以空上下文开始。 */
+  /** 恢复原会话或打开空白编辑区，清除前一会话未发送的附件。 */
   const restore = (item?: Conversation) => {
     setReference(undefined)
     setReferenceBlocked(false)
@@ -278,18 +363,18 @@ function StudioWorkspace(props: { identity: string }) {
   const changeProduct = (id: string) => {
     if (run.busy) return
     setChosenProductId(id)
-    form.setValue('model', '')
     // Conversation context is local to the chosen group; do not forward old prompts to a different supplier.
-    restore(mode === 'text' ? readActive(storageKey, id) : undefined)
+    const item = readActive(storageKey, id, mode)
+    restore(item)
+    form.setValue('model', item?.entries.at(-1)?.model ?? '')
   }
-  /** Keep generated images and conversations separate; mode switches start a fresh local workspace. */
+  /** 聊天与生图分别保留当前打开的记录。 */
   const changeMode = (value: unknown) => {
     if (run.busy || (value !== 'text' && value !== 'image')) return
     setMode(value)
-    restore(
-      value === 'text' ? readActive(storageKey, selectedProductId) : undefined
-    )
-    form.setValue('model', '')
+    const item = readActive(storageKey, selectedProductId, value)
+    restore(item)
+    form.setValue('model', item?.entries.at(-1)?.model ?? '')
   }
   /** Validate both the form and current catalog before sending; the server independently rechecks all limits. */
   const submit = async (input: StudioForm) => {
@@ -340,7 +425,7 @@ function StudioWorkspace(props: { identity: string }) {
     }
     const parent = mode === 'text' ? activeId.current : undefined
     const sentReference =
-      mode === 'image' && selected.reference_image ? reference : undefined
+      mode === 'text' || selected.reference_image ? reference : undefined
     const entry = {
       id: (run.entries.at(-1)?.id ?? 0) + 1,
       prompt: input.prompt,
@@ -365,6 +450,8 @@ function StudioWorkspace(props: { identity: string }) {
     setReference(undefined)
     if (mobile) setOptionsOpen(false)
     activeId.current = record.id
+    // 标签页在服务器接收后被回收时，仍可用同一个 ID 恢复生成。
+    writeCurrent(storageKey, record, record.id)
     run.send(record, input, parent, sentReference)
   }
 
@@ -527,11 +614,12 @@ function StudioWorkspace(props: { identity: string }) {
             storageKey={storageKey}
             disabled={run.busy}
             onDelete={(item) => {
-              if (readActive(storageKey, item.product)?.id === item.id) {
-                writeSession(
-                  storageKey && `${storageKey}:chat:${item.product}`,
-                  null
-                )
+              const scope = { mode: item.mode ?? 'text', product: item.product }
+              if (
+                readCurrent(storageKey, scope)?.id === item.id ||
+                activeId.current === item.id
+              ) {
+                writeCurrent(storageKey, scope, null)
               }
               if (activeId.current === item.id) restore()
             }}
@@ -540,15 +628,7 @@ function StudioWorkspace(props: { identity: string }) {
               setChosenProductId(item.product)
               restore(item)
               form.setValue('model', item.entries.at(-1)?.model ?? '')
-              if (
-                item.mode !== 'image' &&
-                writeSession(
-                  storageKey && `${storageKey}:chat:${item.product}`,
-                  item
-                ) === false
-              ) {
-                setStorageFailed(true)
-              }
+              remember(item)
             }}
           />
           <Button
@@ -573,9 +653,9 @@ function StudioWorkspace(props: { identity: string }) {
             onClick={() => {
               restore()
               if (
-                mode === 'text' &&
-                writeSession(
-                  storageKey && `${storageKey}:chat:${selectedProductId}`,
+                writeCurrent(
+                  storageKey,
+                  { mode, product: selectedProductId },
                   null
                 ) === false
               ) {
@@ -757,7 +837,7 @@ function StudioWorkspace(props: { identity: string }) {
                 },
               }}
             />
-            {mode === 'image' && selected?.reference_image && (
+            {selected && (mode === 'text' || selected.reference_image) && (
               <StudioReference
                 ref={selectReference}
                 key={`${selectedProductId}:${model}`}

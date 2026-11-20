@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -116,7 +117,13 @@ func deleteStudioRecord(key string) error {
 	if err := os.Remove(key + ".record"); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	return errors.Join(removeStudioMedia(key+".reference"), removeStudioMedia(key+".result"))
+	err := errors.Join(removeStudioMedia(key+".reference"), removeStudioMedia(key+".result"))
+	// Enumerate this UUID's attachment names even after a partially committed run.
+	matches, globErr := filepath.Glob(filepath.Join(filepath.Dir(key), filepath.Base(key)+".chat-*"))
+	for _, path := range matches {
+		err = errors.Join(err, removeStudioMedia(path))
+	}
+	return errors.Join(err, globErr)
 }
 
 // removeStudioMedia makes repeated cleanup safe after deletion or an interrupted write.
@@ -131,7 +138,9 @@ func removeStudioMedia(path string) error {
 // ReadStudioMedia serves a fixed role under the logged-in owner's unexpired record.
 func ReadStudioMedia(c *gin.Context) {
 	id, role := c.Param("id"), c.Param("role")
-	if !historyID(id) || (role != "reference" && role != "result") {
+	index, parseErr := strconv.Atoi(strings.TrimPrefix(role, "chat-"))
+	chat := parseErr == nil && index >= 0 && role == studioChatRole(index)
+	if !historyID(id) || (!chat && role != "reference" && role != "result") {
 		historyError(c, 404)
 		return
 	}
@@ -143,7 +152,7 @@ func ReadStudioMedia(c *gin.Context) {
 	}
 	head, err := readStudioHistoryHead(bufio.NewReader(record))
 	record.Close()
-	if err != nil || head.expired(time.Now()) || head.Mode != "image" {
+	if err != nil || head.expired(time.Now()) || (chat && head.Mode != "text") || (!chat && head.Mode != "image") {
 		historyError(c, 404)
 		return
 	}

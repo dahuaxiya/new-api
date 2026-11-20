@@ -20,6 +20,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// getImageToken estimates image input using the selected model's sizing rules.
+// Verified Studio uploads are local and can be measured even when URL downloads are disabled.
 func getImageToken(c *gin.Context, fileMeta *types.FileMeta, model string, stream bool) (int, error) {
 	if fileMeta == nil || fileMeta.Source == nil {
 		return 0, fmt.Errorf("image_url_is_nil")
@@ -29,6 +31,9 @@ func getImageToken(c *gin.Context, fileMeta *types.FileMeta, model string, strea
 	// Reading the size may download a URL image; operators can turn that off,
 	// and the estimate then assumes a typical image size.
 	measure := constant.GetMediaToken && (stream || constant.GetMediaTokenNotStream)
+	if !fileMeta.Source.IsURL() && HasStudioVision(c.Request) {
+		measure = true
+	}
 	if !measure || !tokenkit.ImageNeedsSize(model, img.Detail) {
 		return tokenkit.ImageTokens(model, img), nil
 	}

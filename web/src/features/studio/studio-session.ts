@@ -23,6 +23,8 @@ const selection = z.object({
   product: z.string(),
   model: z.string(),
 })
+export type StudioSelection = z.infer<typeof selection>
+const current = z.object({ id: z.string().nullable() })
 const turns = z.array(
   z.object({
     id: z.number().int(),
@@ -38,10 +40,14 @@ const turns = z.array(
 )
 
 /** Session storage keeps tabs independent. Invalid or unavailable storage starts a fresh workspace. */
-function read<T>(key: string | null, schema: z.ZodType<T>): T | undefined {
+function read<T>(
+  key: string | null,
+  schema: z.ZodType<T>,
+  persistent = false
+): T | undefined {
   if (!key) return
   try {
-    const raw = sessionStorage.getItem(key)
+    const raw = (persistent ? localStorage : sessionStorage).getItem(key)
     if (raw) return schema.parse(JSON.parse(raw))
   } catch {
     // The user can keep chatting when storage is blocked or older data is unreadable.
@@ -50,7 +56,45 @@ function read<T>(key: string | null, schema: z.ZodType<T>): T | undefined {
 
 /** Recover only the model choices for this signed-in account. */
 export function readSelection(key: string | null) {
-  return read(key, selection)
+  return read(key, selection) ?? read(key, selection, true)
+}
+
+/** 当前标签优先使用自己的选择，重新开页时读取同一账号在本机的最近选择。 */
+export function writeSelection(key: string | null, value: StudioSelection) {
+  return writePreference(key, value)
+}
+
+/** null ID 表示用户明确打开空白会话，缺失指针时才可以从服务器历史找回。 */
+export function readCurrent(
+  key: string | null,
+  scope: Pick<StudioSelection, 'mode' | 'product'>
+) {
+  const name = key && `${key}:current:${scope.mode}:${scope.product}`
+  return read(name, current) ?? read(name, current, true)
+}
+
+/** 只跨刷新保存指针，完整记录仍从账号自己的服务器历史获取。 */
+export function writeCurrent(
+  key: string | null,
+  scope: Pick<StudioSelection, 'mode' | 'product'>,
+  id: string | null
+) {
+  return writePreference(
+    key && `${key}:current:${scope.mode}:${scope.product}`,
+    { id }
+  )
+}
+
+/** 标签页和持久存储分别尝试，任一可用时都能恢复选择。 */
+function writePreference(key: string | null, value: unknown) {
+  if (!key) return
+  const written = writeSession(key, value)
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+    return true
+  } catch {
+    return written
+  }
 }
 
 export const conversation = z.object({
@@ -73,14 +117,32 @@ export function readLegacy(key: string | null, product: string) {
 }
 
 /** 当前标签按分组记住打开的对话。旧版数组由首次挂载时的迁移处理。 */
-export function readActive(key: string | null, product: string) {
-  const current = read(key && `${key}:chat:${product}`, conversation)
+export function readActive(
+  key: string | null,
+  product: string,
+  mode: StudioSelection['mode'] = 'text'
+) {
+  const current = read(
+    key && `${key}:${mode === 'text' ? 'chat' : 'image'}:${product}`,
+    conversation
+  )
+  const pointer = readCurrent(key, { mode, product })
   if (
     current?.product === product &&
+    (current.mode ?? 'text') === mode &&
+    (pointer === undefined || pointer.id === current.id) &&
     current.updatedAt > Date.now() - retention
   ) {
     return current
   }
+}
+
+/** 在当前标签缓存正文，收回标签后可用持久化 ID 从服务器恢复。 */
+export function writeActive(key: string | null, item: Conversation) {
+  return writeSession(
+    key && `${key}:${item.mode === 'image' ? 'image' : 'chat'}:${item.product}`,
+    item
+  )
 }
 
 /** 读取当前账号的文字历史。解析失败时保留原件，由界面报告存储错误。 */

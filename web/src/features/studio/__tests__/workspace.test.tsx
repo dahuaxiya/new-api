@@ -566,8 +566,8 @@ it('updates the visible group only after saving and leaves browsing selection un
   )
 })
 
-/** A fresh mount reads the last selection and completed turns; New conversation clears only its history. */
-it('resumes a premium conversation after remount and starts a new one with the same model', async () => {
+/** 标签存储被清除时从服务器恢复当前对话；主动新建后的空白状态也能在重开时恢复。 */
+it('recovers the same conversation after tab storage loss until the user starts a new one', async () => {
   const options = { secondGroup: true }
   const first = mount(true, options)
   fireEvent.change(await screen.findByLabelText('Call group'), {
@@ -580,12 +580,14 @@ it('resumes a premium conversation after remount and starts a new one with the s
     target: { value: 'Remember Ada' },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-  await screen.findByText('Remember Ada', { selector: 'p' })
+  await screen.findByText('Received')
   first.unmount()
+  sessionStorage.clear()
   const second = mount(true, options)
   expect(await screen.findByLabelText('Call group')).toHaveValue('premium')
   expect(screen.getByLabelText('Model')).toHaveValue('premium-text')
   expect(screen.getByText('Remember Ada')).toBeInTheDocument()
+  expect(streamSend).toHaveBeenCalledTimes(1)
   fireEvent.change(screen.getByLabelText('Prompt'), {
     target: { value: 'Who?' },
   })
@@ -598,11 +600,17 @@ it('resumes a premium conversation after remount and starts a new one with the s
       { role: 'user', content: 'Who?' },
     ],
   })
-  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  const newConversation = screen.getByRole('button', {
+    name: 'New conversation',
+  })
+  await waitFor(() => expect(newConversation).toBeEnabled())
+  fireEvent.click(newConversation)
   second.unmount()
+  sessionStorage.clear()
   mount(true, options)
   expect(await screen.findByLabelText('Model')).toHaveValue('premium-text')
   expect(screen.queryByText('Remember Ada')).toBeNull()
+  expect(streamSend).toHaveBeenCalledTimes(2)
 })
 
 /** Failed submissions stay editable while failed turns are excluded from later requests. */
@@ -1029,9 +1037,9 @@ it('quotes an archived chat reply into the current prompt', async () => {
     ],
   })
   mount(true)
-  fireEvent.change(await screen.findByLabelText('Model'), {
-    target: { value: 'text-model' },
-  })
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'New conversation' })
+  )
   fireEvent.change(screen.getByLabelText('Prompt'), {
     target: { value: 'Summarize that' },
   })
@@ -1121,6 +1129,23 @@ it('pastes a reference image without replacing the prompt or intercepting text',
   }
 
   expect(fireEvent.paste(prompt, { clipboardData })).toBe(true)
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'text-model' },
+  })
+  expect(fireEvent.paste(prompt, { clipboardData })).toBe(false)
+  await screen.findByRole('img', { name: 'Reference image' })
+  fireEvent.change(prompt, { target: { value: 'Describe this picture' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(streamSend).toHaveBeenCalledOnce())
+  const chatUpload = vi
+    .mocked(api.post)
+    .mock.calls.filter(([url]) => url.includes('/runs/'))
+    .at(-1)?.[1]
+  expect(chatUpload).toBeInstanceOf(FormData)
+  expect((chatUpload as FormData).get('image')).toBeInstanceOf(Blob)
+  expect(
+    screen.queryByRole('button', { name: 'Remove reference image' })
+  ).toBeNull()
   fireEvent.click(screen.getByRole('tab', { name: 'Image generation' }))
   fireEvent.change(screen.getByLabelText('Model'), {
     target: { value: 'image-model' },
@@ -1136,7 +1161,8 @@ it('pastes a reference image without replacing the prompt or intercepting text',
   await screen.findByRole('img', { name: 'Make the background blue' })
   const payload = vi
     .mocked(api.post)
-    .mock.calls.find(([url]) => url.includes('/runs/'))?.[1]
+    .mock.calls.filter(([url]) => url.includes('/runs/'))
+    .at(-1)?.[1]
   expect(payload).toBeInstanceOf(FormData)
   const reference = (payload as FormData).get('image') as File
   expect(reference.type).toBe('image/webp')

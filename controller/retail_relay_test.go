@@ -1127,6 +1127,14 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":10,"image_tokens":0}}}`))
 			return
 		}
+		raw, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		if strings.Contains(string(raw), "Inspect upload") {
+			require.Contains(t, string(raw), "data:image/png;base64,"+base64.StdEncoding.EncodeToString(referencePNG))
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: "+`{"id":"vision","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Saw image"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"prompt_tokens_details":{"image_tokens":8}}}`+"\n\ndata: [DONE]\n\n")
+			return
+		}
 		_, _ = w.Write([]byte(`{"id":"studio-test","choices":[{"index":0,"message":{"role":"assistant","content":"synthetic OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`))
 	}))
 	t.Cleanup(upstream.Close)
@@ -1163,6 +1171,10 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	access, _, err := service.IssueAccessToken(identity)
 	require.NoError(t, err)
 	engine := gin.New()
+	// The integration fixture bypasses startup, which normally sets the SSE read timeout.
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
 	engine.Use(middleware.BodyStorageCleanup())
 	studio := engine.Group("/api/retail/studio", middleware.UserAuth(), middleware.RetailStudioSession())
 	for _, route := range []struct {
@@ -1301,6 +1313,53 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	require.Equal(t, 404, call("GET", entry.Reference, "", nil).Code)
 	_, err = os.Stat(filepath.Join(os.Getenv("STUDIO_HISTORY_DIR"), fmt.Sprint(user.Id), id+".result"))
 	require.ErrorIs(t, err, os.ErrNotExist)
+	// Drive the browser's multipart entry point, then continue without uploading again.
+	// Both paid calls must carry the same image bytes and settle against the mock supplier.
+	first := uuid.NewString()
+	upload.Reset()
+	form = multipart.NewWriter(&upload)
+	require.NoError(t, form.WriteField("intent", fmt.Sprintf(`{"record":{"id":"%s","mode":"text","product":"standard","entries":[{"id":1,"prompt":"Inspect upload","model":"gpt-4o"}]},"maxTokens":20}`, first)))
+	part, err = form.CreateFormFile("image", "clipboard.png")
+	require.NoError(t, err)
+	_, err = part.Write(referencePNG)
+	require.NoError(t, err)
+	require.NoError(t, form.Close())
+	w = call("POST", "/api/retail/studio/runs/"+first+owner, form.FormDataContentType(), bytes.NewReader(upload.Bytes()))
+	require.Equal(t, 202, w.Code, w.Body.String())
+	readVision := func(id string) studioHistoryRecord {
+		t.Helper()
+		var out struct{ Record studioHistoryRecord }
+		require.Eventually(t, func() bool {
+			rec := call("GET", "/api/retail/studio/runs/"+id, "", nil)
+			return common.Unmarshal(rec.Body.Bytes(), &out) == nil && len(out.Record.Entries) > 0
+		}, 3*time.Second, 10*time.Millisecond)
+		tail := out.Record.Entries[len(out.Record.Entries)-1]
+		require.Empty(t, tail.Error)
+		require.Contains(t, tail.Content, "Saw image")
+		return out.Record
+	}
+	conversation := readVision(first)
+	require.Equal(t, referencePNG, call("GET", conversation.Entries[0].Reference, "", nil).Body.Bytes())
+	next := uuid.NewString()
+	conversation.ID = next
+	conversation.Entries = append(conversation.Entries, studioHistoryEntry{ID: 2, Prompt: "What color?", Model: "gpt-4o"})
+	follow, err := common.Marshal(studioIntent{Record: conversation, Parent: first, MaxTokens: 20})
+	require.NoError(t, err)
+	w = call("POST", "/api/retail/studio/runs/"+next+owner, "application/json", bytes.NewReader(follow))
+	require.Equal(t, 202, w.Code, w.Body.String())
+	continued := readVision(next)
+	require.Equal(t, referencePNG, call("GET", continued.Entries[0].Reference, "", nil).Body.Bytes())
+	require.Equal(t, 404, call("GET", conversation.Entries[0].Reference, "", nil).Code)
+	w = call("POST", "/api/retail/studio/runs/"+next+owner, "application/json", bytes.NewReader(follow))
+	require.Equal(t, 200, w.Code)
+	require.EqualValues(t, 6, hits.Load())
+	require.NoError(t, model.DB.Find(&charges, "token_id = ?", token.Id).Error)
+	require.Len(t, charges, 6)
+	for _, charge := range charges {
+		require.Equal(t, "settled", charge.Status)
+	}
+	require.Equal(t, 200, call("DELETE", "/api/retail/studio/history/"+next+owner, "", nil).Code)
+	require.Equal(t, 404, call("GET", continued.Entries[0].Reference, "", nil).Code)
 	ordinary := model.Token{UserId: user.Id, ServiceMode: model.TokenServiceRetail, Key: "test-ordinary", Status: 1, ExpiredTime: -1}
 	require.NoError(t, model.DB.Create(&ordinary).Error)
 	require.Error(t, model.PutRetailKeyPolicy(user.Id, ordinary.Id, 0, policy), "API keys cannot opt into studio-only pricing")
