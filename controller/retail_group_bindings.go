@@ -134,13 +134,7 @@ func syncRetailGroupBindings(ctx context.Context, expected int64) error {
 	if err != nil {
 		return err
 	}
-	if readErr != nil {
-		return readErr
-	}
-	if min(snapshot.UpdatedAt, snapshot.FetchedAt)+retailprice.PublicRateMaxAge <= time.Now().Unix() {
-		return retailprice.ErrExpired
-	}
-	return nil
+	return readErr
 }
 
 // retailRatesHandler uses the existing DB lease so multiple gateway processes do not race to publish feeds.
@@ -158,7 +152,7 @@ func (retailRatesHandler) Enabled() bool {
 	return err == nil && book.PublicRateSync.Enabled && len(book.GroupBindings) > 0
 }
 
-// Interval bounds polling; the independent five-minute quote expiry also covers worker downtime.
+// Interval schedules the next check for changes to the published multipliers.
 func (retailRatesHandler) Interval() time.Duration { return time.Minute }
 
 // NewPayload deliberately accepts no URLs, credentials or operator-supplied rates.

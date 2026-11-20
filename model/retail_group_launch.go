@@ -100,7 +100,7 @@ func LaunchRetailGroup(ctx context.Context, in RetailGroupLaunch, actor int) (Re
 			groups[id] = in.Upstream
 			book.CredentialGroups = groups
 			now := time.Now().Unix()
-			if _, err := book.BoundRate(binding, now); err != nil {
+			if _, err := book.BoundRate(binding); err != nil {
 				return err
 			}
 			cfg, err := retail_setting.Load()

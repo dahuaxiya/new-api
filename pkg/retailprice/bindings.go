@@ -9,9 +9,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// PublicRateMaxAge bounds snapshot validity. Polling cannot detect changes between snapshots.
-const PublicRateMaxAge int64 = 300
-
 // SalePolicy contains resale economics without granting access or converting wallet units.
 type SalePolicy struct {
 	ReceiptRatio string `json:"receipt_ratio"`
@@ -45,7 +42,7 @@ type PublicRate struct {
 	Multiplier string `json:"multiplier"`
 }
 
-// PublicRateSnapshot records both source publication and retrieval times for freshness checks.
+// PublicRateSnapshot records both source publication and retrieval times for auditing.
 type PublicRateSnapshot struct {
 	Source    string       `json:"source"`
 	UpdatedAt int64        `json:"updated_at"`
@@ -117,21 +114,17 @@ func (b Book) Binding(group string, channelID int) *GroupBinding {
 	return nil
 }
 
-// BoundRate refuses missing, failed or expired snapshots instead of reverting to a manual cost.
-func (b Book) BoundRate(binding GroupBinding, now int64) (Rate, error) {
+// BoundRate returns the bound multiplier from the latest successful sync. Publication and
+// retrieval times are audit fields; an unchanged upstream rate remains quotable.
+func (b Book) BoundRate(binding GroupBinding) (PublicRate, error) {
 	sync := b.PublicRateSync
 	if !sync.Enabled || sync.LastError != "" || sync.Snapshot == nil {
-		return Rate{}, ErrExpired
+		return PublicRate{}, ErrExpired
 	}
 	snapshot := sync.Snapshot
-	expires := min(snapshot.UpdatedAt, snapshot.FetchedAt) + PublicRateMaxAge
-	if expires <= now {
-		return Rate{}, ErrExpired
-	}
 	index := slices.IndexFunc(snapshot.Groups, func(rate PublicRate) bool { return rate.Group == binding.UpstreamGroup })
 	if index < 0 {
-		return Rate{}, ErrExpired
+		return PublicRate{}, ErrExpired
 	}
-	rate := snapshot.Groups[index]
-	return Rate{ID: rate.Group, Multiplier: rate.Multiplier, VerifiedAt: snapshot.UpdatedAt, ValidUntil: expires}, nil
+	return snapshot.Groups[index], nil
 }

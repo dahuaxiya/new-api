@@ -226,7 +226,7 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 		book.PublicRateSync = retailprice.PublicRateSync{Enabled: enabled, Snapshot: snapshot}
 		if enabled {
 			for _, binding := range bindings {
-				if _, err := book.BoundRate(binding, time.Now().Unix()); err != nil {
+				if _, err := book.BoundRate(binding); err != nil {
 					return err
 				}
 			}

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -309,25 +309,9 @@ function BindingEditor(props: {
     toIntlLocale(i18n.resolvedLanguage || i18n.language),
     { dateStyle: 'short', timeStyle: 'medium' }
   )
-  const [now, setNow] = useState(() =>
-    Math.max(props.state.server_time, Math.floor(Date.now() / 1000))
-  )
-  useEffect(() => {
-    if (!committed) return
-    // Show expiration even when the operator leaves the form idle during a feed outage.
-    const expires = Math.min(committed.updated_at, committed.fetched_at) + 300
-    const delay = Math.max(
-      0,
-      expires - Math.max(props.state.server_time, Date.now() / 1000)
-    )
-    const timer = window.setTimeout(() => setNow(expires), delay * 1000)
-    return () => window.clearTimeout(timer)
-  }, [committed, props.state.server_time])
+  // Upstream timestamps describe publication. Only sync failures or missing groups pause a binding.
   const healthy =
-    props.state.sync.enabled &&
-    !props.state.sync.last_error &&
-    committed &&
-    Math.min(committed.updated_at, committed.fetched_at) + 300 > now
+    props.state.sync.enabled && !props.state.sync.last_error && committed
   return (
     <section
       className='shrink-0 space-y-4 rounded-lg border p-4'
@@ -569,7 +553,7 @@ function BindingEditor(props: {
               (group) => group.group === row.upstream_group
             ) &&
             saved
-          let status = t('Paused: multiplier unavailable or expired')
+          let status = t('Paused: multiplier unavailable')
           if (active) status = t('Following saved multiplier')
           // The sync record can outlive its binding. A draft toggle must not revive an old result.
           const modelState =
@@ -1015,7 +999,7 @@ function BindingEditor(props: {
           </summary>
           <p className='text-muted-foreground text-xs leading-relaxed'>
             {t(
-              'Sync every minute. Bound routes pause on failure, missing groups or data older than five minutes. Selling prices keep your margin and user price limits. Changes between polls cannot be detected immediately.'
+              'Multipliers sync every minute and have no expiry. A failed sync or missing group pauses the affected routes.'
             )}
           </p>
           {committed && (

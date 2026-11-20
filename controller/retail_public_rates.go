@@ -74,7 +74,7 @@ func fetchRetailPublicRates(ctx context.Context) (*retailprice.PublicRateSnapsho
 
 // parseRetailPublicRates validates the entire snapshot before displaying any group.
 // Preview accepts historical snapshots for inspection. Billing separately requires an explicit binding
-// and both timestamps within its five-minute validity window; no partial or zero-price fallback is allowed.
+// and a successful sync containing that group.
 func parseRetailPublicRates(body []byte, fetchedAt time.Time) ([]retailPublicRate, int64, bool) {
 	var source struct {
 		Success   bool   `json:"success"`

@@ -236,8 +236,9 @@ func TestPublicCallGroupsPinProcurement(t *testing.T) {
 		failed.PublicRateSync.LastError = "failed"
 		_, err := failed.MakeQuote(1, "default", policy, "gpt-6.1-sol", 1024, []int{101, 102}, now)
 		require.Error(t, err, "failed synchronization must not fall back to account pricing")
-		_, err = draft.Book.MakeQuote(1, "default", policy, "gpt-6.1-sol", 1024, []int{101, 102}, now+301)
-		require.Error(t, err, "stale feed cannot admit requests")
+		q, err := draft.Book.MakeQuote(1, "default", policy, "gpt-6.1-sol", 1024, []int{101, 102}, now+86400)
+		require.NoError(t, err)
+		require.Equal(t, q.Model.ValidUntil, q.ValidUntil)
 	}
 	invalid := draft.Book
 	invalid.Products = slices.Clone(draft.Book.Products)

@@ -471,7 +471,7 @@ func TestRetailGroupBindingsDatabases(t *testing.T) {
 			book, _, err = GetRetailPriceBook()
 			require.NoError(t, err)
 			_, err = book.MakeQuote(version, "default", key, "gpt-4o", 100, []int{101}, now+301)
-			require.ErrorIs(t, err, retailprice.ErrExpired)
+			require.NoError(t, err, "unchanged public multiplier remains usable")
 			missing := recovered
 			missing.FetchedAt = now + 4
 			missing.Groups = []retailprice.PublicRate{{Group: "another", Name: "Another", Multiplier: "0.01"}}

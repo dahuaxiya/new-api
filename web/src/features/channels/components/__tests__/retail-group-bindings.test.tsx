@@ -248,7 +248,7 @@ it('saves explicit group and credential choices without accepting browser-suppli
   )
 })
 
-it('reloads saved assignments and shows expired prices as paused without a zero fallback', async () => {
+it('reloads saved assignments and keeps following an unchanged published rate after five minutes', async () => {
   vi.spyOn(api, 'get').mockResolvedValue({
     data: {
       success: true,
@@ -274,8 +274,8 @@ it('reloads saved assignments and shows expired prices as paused without a zero 
     'ChatGPT-pro稳定'
   )
   expect(
-    screen.getByText('Paused: multiplier unavailable or expired')
-  ).toBeInTheDocument()
+    screen.queryByText('Paused: multiplier unavailable')
+  ).not.toBeInTheDocument()
   expect(
     screen.getByRole('button', { name: 'Save bindings and margin' })
   ).toBeDisabled()

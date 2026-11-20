@@ -380,11 +380,14 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 				continue
 			}
 			// A failed refresh cannot reactivate an older manually entered multiplier.
-			rate, err := b.BoundRate(*binding, now)
+			rate, err := b.BoundRate(*binding)
 			if err != nil {
 				continue
 			}
-			routeRates, rateID = []Rate{rate}, rate.ID
+			// A public multiplier has no independent deadline. The official model price
+			// still bounds the resulting quote, just as it does for manual rates.
+			routeRates = []Rate{{ID: rate.Group, Multiplier: rate.Multiplier, ValidUntil: official.ValidUntil}}
+			rateID = rate.Group
 		}
 		for _, r := range routeRates {
 			if r.ID != rateID || r.ValidUntil <= now {
