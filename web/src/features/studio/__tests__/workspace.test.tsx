@@ -168,6 +168,25 @@ afterEach(() => {
   useAuthStore.getState().auth.reset()
 })
 
+/** 窄屏回车保留换行，只有显式点击发送才能启动付费对话。 */
+it('keeps Enter for new lines on a phone and sends with the button', async () => {
+  vi.stubGlobal('innerWidth', 375)
+  try {
+    mount(false)
+    fireEvent.change(await screen.findByLabelText('Model'), {
+      target: { value: 'text-model' },
+    })
+    const prompt = screen.getByLabelText('Prompt')
+    fireEvent.change(prompt, { target: { value: 'Mobile draft' } })
+    expect(fireEvent.keyDown(prompt, { key: 'Enter' })).toBe(true)
+    expect(streamSend).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(1))
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
 /** First send needs no policy modal; only the real model request initializes defaults. */
 it('sends the first chat directly with its selected group and no setup request', async () => {
   const post = vi.spyOn(api, 'post')

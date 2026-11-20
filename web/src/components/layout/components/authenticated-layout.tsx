@@ -62,7 +62,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
               className={cn(
                 '@container/content',
                 'h-[calc(100svh-var(--app-header-height,0px))]',
-                'min-h-0 overflow-hidden',
+                'min-h-0 min-w-0 overflow-hidden max-md:h-[calc(100dvh-var(--app-header-height,0px))]',
                 'peer-data-[variant=inset]:h-[calc(100svh-var(--app-header-height,0px)-(var(--spacing)*4))]'
               )}
             >
@@ -71,7 +71,10 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
               ) : (
                 (props.children ?? <AnimatedOutlet />)
               )}
-              <Footer compact />
+              <Footer
+                compact
+                className='max-md:pb-[max(0.5rem,env(safe-area-inset-bottom))]'
+              />
             </SidebarInset>
           </div>
         </SidebarProvider>

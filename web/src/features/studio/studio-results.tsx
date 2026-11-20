@@ -39,10 +39,16 @@ export function StudioResults(props: {
 }) {
   const { t } = useTranslation()
   return (
-    <Conversation initial='instant' resize='instant' aria-label={t('Results')}>
-      <ConversationContent className='mx-auto w-full max-w-3xl space-y-10 px-5 py-8 sm:px-8'>
+    <Conversation
+      className='min-w-0 max-md:min-h-32'
+      initial='instant'
+      resize='instant'
+      aria-label={t('Results')}
+    >
+      <ConversationContent className='mx-auto w-full max-w-3xl min-w-0 space-y-5 px-3 py-3 md:space-y-10 md:px-8 md:py-8'>
         {props.entries.length === 0 && (
           <EmptyState
+            className='max-md:min-h-0 max-md:gap-2 max-md:p-3'
             icon={props.mode === 'image' ? ImageIcon : MessageSquare}
             title={t(
               props.mode === 'image'
@@ -55,7 +61,10 @@ export function StudioResults(props: {
           />
         )}
         {props.entries.map((item, index) => (
-          <article key={item.id} className='space-y-5'>
+          <article
+            key={item.id}
+            className='min-w-0 space-y-3 [overflow-wrap:anywhere] md:space-y-5'
+          >
             <p className='bg-muted/60 ms-auto w-fit max-w-[90%] rounded-2xl px-4 py-3 whitespace-pre-wrap'>
               {item.prompt}
             </p>
@@ -70,7 +79,10 @@ export function StudioResults(props: {
                 </details>
               )}
               {item.content && (
-                <Response final={item.complete || Boolean(item.error)}>
+                <Response
+                  className='max-w-full min-w-0 overflow-x-auto'
+                  final={item.complete || Boolean(item.error)}
+                >
                   {item.content}
                 </Response>
               )}

@@ -43,6 +43,7 @@ import {
   getRetailKeyPolicy,
 } from '@/features/channels/retail-pricing-api'
 import { ApiKeyPricePolicy } from '@/features/keys/components/api-key-price-policy'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -67,6 +68,8 @@ function StudioWorkspace(props: { identity: string }) {
   const storageKey = userId ? `studio.v1:${userId}` : null
   const [saved] = useState(() => readSelection(storageKey))
   const [mode, setMode] = useState<'text' | 'image'>(saved?.mode ?? 'text')
+  const mobile = useIsMobile()
+  const [optionsOpen, setOptionsOpen] = useState(false)
   const [policyOpen, setPolicyOpen] = useState(false)
   const [openedId, setOpenedId] = useState(0)
   const [chosenProductId, setChosenProductId] = useState<string | null>(
@@ -239,13 +242,13 @@ function StudioWorkspace(props: { identity: string }) {
     )
   }
   return (
-    <section className='flex min-h-0 flex-1 flex-col'>
-      <header className='flex flex-wrap items-center justify-between gap-4 border-b px-5 py-5 sm:px-8'>
+    <section className='flex min-h-0 min-w-0 flex-1 flex-col max-md:overflow-y-auto'>
+      <header className='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-1.5 md:gap-4 md:px-8 md:py-5'>
         <div>
           <h1 className='text-xl font-semibold tracking-tight'>
             {t('Model studio')}
           </h1>
-          <p className='text-muted-foreground mt-1 text-sm'>
+          <p className='text-muted-foreground mt-1 hidden text-sm md:block'>
             {t('Chat and create, in one place.')}
           </p>
         </div>
@@ -253,17 +256,21 @@ function StudioWorkspace(props: { identity: string }) {
           <Button
             variant='ghost'
             size='sm'
+            title={t('Spending protection')}
+            className='max-md:size-11'
             disabled={run.busy || setup.isPending || !product}
             onClick={() => {
               setup.mutate(selectedProductId)
             }}
           >
             <SlidersHorizontal aria-hidden='true' />
-            {t('Spending protection')}
+            <span className='max-md:sr-only'>{t('Spending protection')}</span>
           </Button>
           <Button
             variant='outline'
             size='sm'
+            title={t('New conversation')}
+            className='max-md:size-11'
             disabled={run.busy || run.entries.length === 0}
             onClick={() => {
               run.reset([])
@@ -271,25 +278,38 @@ function StudioWorkspace(props: { identity: string }) {
             }}
           >
             <Plus aria-hidden='true' />
-            {t('New conversation')}
+            <span className='max-md:sr-only'>{t('New conversation')}</span>
           </Button>
         </div>
       </header>
-      <div className='flex flex-wrap items-center gap-4 border-b px-5 py-3 sm:px-8'>
-        <Tabs value={mode} onValueChange={changeMode}>
-          <TabsList aria-label={t('Mode')}>
-            <TabsTrigger value='text' disabled={run.busy}>
+      <div className='grid shrink-0 grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center gap-2 border-b px-3 py-2 md:flex md:flex-wrap md:gap-4 md:px-8 md:py-3'>
+        <Tabs
+          className='max-md:col-span-2'
+          value={mode}
+          onValueChange={changeMode}
+        >
+          <TabsList className='max-md:w-full' aria-label={t('Mode')}>
+            <TabsTrigger
+              className='max-md:min-h-9'
+              value='text'
+              disabled={run.busy}
+            >
               <MessageSquare aria-hidden='true' />
               {t('Chat')}
             </TabsTrigger>
-            <TabsTrigger value='image' disabled={run.busy}>
+            <TabsTrigger
+              className='max-md:min-h-9'
+              value='image'
+              disabled={run.busy}
+            >
               <ImageIcon aria-hidden='true' />
               {t('Image generation')}
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className='min-w-40 sm:max-w-56'>
+        <div className='min-w-0 md:max-w-56 md:min-w-40'>
           <NativeSelect
+            className='max-md:w-full max-md:[&_select]:h-10'
             aria-label={t('Call group')}
             value={selectedProductId}
             disabled={run.busy || !catalog?.products.length}
@@ -305,8 +325,9 @@ function StudioWorkspace(props: { identity: string }) {
             ))}
           </NativeSelect>
         </div>
-        <div className='min-w-48 flex-1 sm:max-w-xs'>
+        <div className='min-w-0 md:max-w-xs md:min-w-48 md:flex-1'>
           <NativeSelect
+            className='max-md:w-full max-md:[&_select]:h-10'
             aria-label={t('Model')}
             disabled={run.busy || !models.length}
             {...form.register('model')}
@@ -322,7 +343,7 @@ function StudioWorkspace(props: { identity: string }) {
           </NativeSelect>
         </div>
         {selected && (
-          <p className='text-muted-foreground text-xs tabular-nums'>
+          <p className='text-muted-foreground col-span-2 text-xs tabular-nums'>
             {t('Input')} ¥{selected.tiers[0].prices.input} ·{' '}
             {t(mode === 'image' ? 'Image output' : 'Output')} ¥
             {selected.tiers[0].prices.output} / 1M Tokens
@@ -357,9 +378,9 @@ function StudioWorkspace(props: { identity: string }) {
       <StudioResults entries={run.entries} busy={run.busy} mode={mode} />
       <form
         onSubmit={form.handleSubmit(submit)}
-        className='mx-auto w-full max-w-3xl space-y-3 px-5 pb-5 sm:px-8'
+        className='mx-auto w-full max-w-3xl shrink-0 space-y-1.5 px-3 py-2 md:space-y-3 md:px-8 md:pb-5'
       >
-        <div className='bg-background space-y-3 rounded-2xl border p-3 shadow-sm'>
+        <div className='bg-background space-y-1 rounded-2xl border p-2 shadow-sm md:space-y-3 md:p-3'>
           <Label className='sr-only' htmlFor='studio-prompt'>
             {t('Prompt')}
           </Label>
@@ -369,6 +390,8 @@ function StudioWorkspace(props: { identity: string }) {
               // IME confirmation (including Safari's 229 event) must not send paid requests.
               if (
                 event.key !== 'Enter' ||
+                // 手机键盘的回车保留换行，付费发送由明确的发送按钮触发。
+                mobile ||
                 event.shiftKey ||
                 event.ctrlKey ||
                 event.metaKey ||
@@ -389,68 +412,103 @@ function StudioWorkspace(props: { identity: string }) {
             aria-invalid={Boolean(form.formState.errors.prompt)}
             {...form.register('prompt')}
             disabled={run.busy}
-            className='min-h-24 border-0 shadow-none focus-visible:ring-0'
+            className='max-h-[18dvh] min-h-11 border-0 shadow-none focus-visible:ring-0 md:max-h-96 md:min-h-24'
           />
           {form.formState.errors.prompt && (
             <p role='alert' className='text-destructive text-sm'>
               {t('Enter a prompt of up to 32,000 characters.')}
             </p>
           )}
-          <div className='flex flex-wrap items-end justify-between gap-3'>
-            {mode === 'image' ? (
-              <div className='flex gap-2'>
-                <NativeSelect
-                  aria-label={t('Image size')}
-                  disabled={run.busy}
-                  {...form.register('size')}
-                >
-                  <NativeSelectOption value='1024x1024'>1:1</NativeSelectOption>
-                  <NativeSelectOption value='1024x1536'>2:3</NativeSelectOption>
-                  <NativeSelectOption value='1536x1024'>3:2</NativeSelectOption>
-                </NativeSelect>
-                <NativeSelect
-                  aria-label={t('Quality')}
-                  disabled={run.busy}
-                  {...form.register('quality')}
-                >
-                  <NativeSelectOption value='low'>
-                    {t('Low')}
-                  </NativeSelectOption>
-                  <NativeSelectOption value='medium'>
-                    {t('Medium')}
-                  </NativeSelectOption>
-                  <NativeSelectOption value='high'>
-                    {t('High')}
-                  </NativeSelectOption>
-                </NativeSelect>
-              </div>
-            ) : (
-              <div className='flex items-center gap-2'>
-                <Label
-                  htmlFor='studio-output'
-                  className='text-muted-foreground text-xs'
-                >
-                  {t('Max output tokens')}
-                </Label>
-                <Input
-                  id='studio-output'
-                  className='w-24'
-                  type='number'
-                  min={1}
-                  max={selected?.max_output ?? 32768}
-                  disabled={run.busy}
-                  aria-invalid={Boolean(form.formState.errors.maxTokens)}
-                  {...form.register('maxTokens', { valueAsNumber: true })}
-                />
-              </div>
-            )}
+          <div className='flex flex-wrap items-center justify-between gap-2 md:items-end md:gap-3'>
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              className='min-h-10 md:hidden'
+              aria-expanded={optionsOpen || !!form.formState.errors.maxTokens}
+              aria-controls='studio-generation-options'
+              onClick={() => setOptionsOpen(!optionsOpen)}
+            >
+              <SlidersHorizontal aria-hidden='true' />
+              {t('Advanced Settings')}
+            </Button>
+            <div
+              id='studio-generation-options'
+              className={
+                optionsOpen || form.formState.errors.maxTokens
+                  ? 'order-last w-full md:order-none md:w-auto'
+                  : 'hidden md:block'
+              }
+            >
+              {mode === 'image' ? (
+                <div className='flex gap-2'>
+                  <NativeSelect
+                    aria-label={t('Image size')}
+                    disabled={run.busy}
+                    {...form.register('size')}
+                  >
+                    <NativeSelectOption value='1024x1024'>
+                      1:1
+                    </NativeSelectOption>
+                    <NativeSelectOption value='1024x1536'>
+                      2:3
+                    </NativeSelectOption>
+                    <NativeSelectOption value='1536x1024'>
+                      3:2
+                    </NativeSelectOption>
+                  </NativeSelect>
+                  <NativeSelect
+                    aria-label={t('Quality')}
+                    disabled={run.busy}
+                    {...form.register('quality')}
+                  >
+                    <NativeSelectOption value='low'>
+                      {t('Low')}
+                    </NativeSelectOption>
+                    <NativeSelectOption value='medium'>
+                      {t('Medium')}
+                    </NativeSelectOption>
+                    <NativeSelectOption value='high'>
+                      {t('High')}
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </div>
+              ) : (
+                <div className='flex items-center gap-2'>
+                  <Label
+                    htmlFor='studio-output'
+                    className='text-muted-foreground text-xs'
+                  >
+                    {t('Max output tokens')}
+                  </Label>
+                  <Input
+                    id='studio-output'
+                    className='w-24'
+                    type='number'
+                    min={1}
+                    max={selected?.max_output ?? 32768}
+                    disabled={run.busy}
+                    aria-invalid={Boolean(form.formState.errors.maxTokens)}
+                    {...form.register('maxTokens', { valueAsNumber: true })}
+                  />
+                </div>
+              )}
+            </div>
             {run.busy ? (
-              <Button type='button' onClick={run.stop}>
+              <Button
+                type='button'
+                className='max-md:min-h-10'
+                onClick={run.stop}
+              >
                 <Square aria-hidden='true' />
                 {t('Stop')}
               </Button>
             ) : (
-              <Button type='submit' disabled={!available}>
+              <Button
+                type='submit'
+                className='max-md:min-h-10'
+                disabled={!available}
+              >
                 <ArrowUp aria-hidden='true' />
                 {t(mode === 'image' ? 'Generate image' : 'Send')}
               </Button>
@@ -462,7 +520,7 @@ function StudioWorkspace(props: { identity: string }) {
             </p>
           )}
         </div>
-        <p className='text-muted-foreground text-center text-xs'>
+        <p className='text-muted-foreground hidden text-center text-xs md:block'>
           {t('Enter to send · Shift+Enter for a new line')}
         </p>
         <p className='text-muted-foreground text-center text-xs'>
