@@ -38,6 +38,7 @@ import { fetchModels } from '@/features/channels/api'
 import { SellingPricePreview } from '@/features/channels/components/retail-pricing'
 import {
   getRetailGroupBindings,
+  getRetailPricing,
   launchRetailGroup,
   type RetailLaunchInput,
   type RetailLaunchReview,
@@ -61,6 +62,7 @@ export function RetailGroupLaunch() {
       <Button className='self-start' onClick={() => setOpen(true)}>
         {t('Publish a call group')}
       </Button>
+      <PublishedGroups identity={`${user.id}:${session?.sid}`} />
       <SheetContent className={sideDrawerContentClassName('sm:max-w-2xl')}>
         <SheetHeader className={sideDrawerHeaderClassName()}>
           <SheetTitle>{t('Publish a call group')}</SheetTitle>
@@ -74,6 +76,58 @@ export function RetailGroupLaunch() {
         )}
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** 读取正式价表，供管理员核对实际发布的调用分组和线路。账号倍率表可能没有同名项。 */
+function PublishedGroups({ identity }: { identity: string }) {
+  const { t } = useTranslation()
+  // 和价表共用按登录会话隔离的缓存，保存成功后由上架表单触发重新读取。
+  const query = useQuery({
+    queryKey: ['retail-pricing', identity],
+    queryFn: ({ signal }) => getRetailPricing(signal),
+    retry: false,
+  })
+  const book = query.data?.book
+  return (
+    <section aria-label={t('Published call groups')} className='space-y-2'>
+      <h3 className='font-medium'>{t('Published call groups')}</h3>
+      {query.isError ? (
+        <Button variant='outline' onClick={() => void query.refetch()}>
+          {t('Retry')}
+        </Button>
+      ) : !book ? (
+        <p>{t('Loading...')}</p>
+      ) : !book.products?.length ? (
+        <p>{t('None')}</p>
+      ) : (
+        <dl className='grid gap-2 text-sm'>
+          {book.products.map((product) => (
+            <div
+              key={product.id}
+              className='flex flex-wrap items-baseline gap-x-3'
+            >
+              <dt className='font-medium'>{product.name}</dt>
+              <dd className='text-muted-foreground'>
+                {product.routes
+                  .map((route) => {
+                    // 历史手工方案可能只有线路 ID；只显示这条线路已保存的上游分组。
+                    const binding = book.group_bindings?.find(
+                      (b) =>
+                        b.channel_id === route.channel_id &&
+                        b.local_group === product.binding_group
+                    )
+                    return [`#${route.channel_id}`, binding?.upstream_group]
+                      .filter(Boolean)
+                      .join(' · ')
+                  })
+                  .join(' / ')}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </section>
   )
 }
 

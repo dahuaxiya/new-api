@@ -8294,6 +8294,7 @@
     "Channel model mapping differs from the price route": "渠道实际发送的型号与价表不符，请检查模型映射",
     "Existing product access differs from this binding": "现有方案权限与此绑定不一致",
     "Call group": "调用分组",
+    "Published call groups": "已上架调用分组",
     "Call groups": "调用分组",
     "Select a call group": "选择调用分组",
     "No call groups are available yet. Contact the site administrator.": "暂时没有可用的调用分组，请联系管理员。",

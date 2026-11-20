@@ -8264,6 +8264,7 @@
     "Channel model mapping differs from the price route": "Mô hình kênh gửi khác với mô hình trong bảng giá",
     "Existing product access differs from this binding": "Existing product access differs from this binding",
     "Call group": "Nhóm gọi",
+    "Published call groups": "Nhóm gọi đã xuất bản",
     "Call groups": "Nhóm gọi",
     "Select a call group": "Chọn nhóm gọi",
     "No call groups are available yet. Contact the site administrator.": "Chưa có nhóm gọi khả dụng. Hãy liên hệ quản trị viên.",

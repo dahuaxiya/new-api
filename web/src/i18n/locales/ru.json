@@ -8264,6 +8264,7 @@
     "Channel model mapping differs from the price route": "Модель канала не совпадает с моделью в тарифе",
     "Existing product access differs from this binding": "Existing product access differs from this binding",
     "Call group": "Группа вызовов",
+    "Published call groups": "Опубликованные группы вызовов",
     "Call groups": "Группы вызовов",
     "Select a call group": "Выберите группу вызовов",
     "No call groups are available yet. Contact the site administrator.": "Нет доступных групп вызовов. Обратитесь к администратору.",

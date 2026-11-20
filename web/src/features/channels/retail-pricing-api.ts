@@ -54,6 +54,7 @@ export async function getRetailPublicRates(
   ).data
 }
 export type RetailPriceBook = {
+  group_bindings?: RetailGroupBinding[]
   enabled: boolean
   wallet_cny_per_unit: string
   receipt_ratio: string

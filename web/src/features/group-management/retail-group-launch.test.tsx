@@ -47,9 +47,32 @@ it('previews a new Claude credential and retains the draft after a conflicting p
       },
     },
   }
-  vi.spyOn(api, 'get').mockResolvedValue({
-    data: { success: true, data: state },
-  })
+  vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+    data: {
+      success: true,
+      data: url.endsWith('/pricing')
+        ? {
+            book: {
+              products: [
+                {
+                  id: 'saved',
+                  name: 'claude',
+                  binding_group: 'claude',
+                  routes: [{ channel_id: 5 }],
+                },
+              ],
+              group_bindings: [
+                {
+                  local_group: 'claude',
+                  channel_id: 5,
+                  upstream_group: 'actual-upstream',
+                },
+              ],
+            },
+          }
+        : state,
+    },
+  }))
   const post = vi.spyOn(api, 'post').mockImplementation(async (url, body) => {
     if (url.endsWith('fetch_models')) {
       return { data: { success: true, data: ['known', 'unknown'] } }
@@ -81,6 +104,9 @@ it('previews a new Claude credential and retains the draft after a conflicting p
       <RetailGroupLaunch />
     </QueryClientProvider>
   )
+  // 即使账号定价表没有同名分组，已保存的调用分组和真实供货线路也必须可见。
+  expect(await screen.findByText('claude', { selector: 'dt' })).toBeVisible()
+  expect(screen.getByText('#5 · actual-upstream')).toBeVisible()
   fireEvent.click(screen.getByRole('button', { name: 'Publish a call group' }))
   fireEvent.change(await screen.findByLabelText('Upstream API Key'), {
     target: { value: 'test-only' },
