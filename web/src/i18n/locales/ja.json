@@ -2,6 +2,9 @@
   "translation": {
     "Publish a call group": "呼び出しグループを公開",
     "Supply site": "上流サイト",
+    "Select a Key": "キーを選択",
+    "Unbound Key": "未割り当てのキー",
+    "Models to publish": "公開するモデル数",
     "New upstream Key": "新しい上流キー",
     "Call group name": "呼び出しグループ名",
     "Site default ({{value}}%)": "サイトの既定値（{{value}}%）",

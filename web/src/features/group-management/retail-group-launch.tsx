@@ -40,10 +40,12 @@ import {
   getRetailGroupBindings,
   getRetailPricing,
   launchRetailGroup,
+  type RetailPriceBook,
   type RetailLaunchInput,
   type RetailLaunchReview,
 } from '@/features/channels/retail-pricing-api'
 import { useStatus } from '@/hooks/use-status'
+import { formatNumber } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
@@ -79,28 +81,51 @@ export function RetailGroupLaunch() {
   )
 }
 
-/** 读取正式价表，供管理员核对实际发布的调用分组和线路。账号倍率表可能没有同名项。 */
-function PublishedGroups({ identity }: { identity: string }) {
-  const { t } = useTranslation()
-  // 和价表共用按登录会话隔离的缓存，保存成功后由上架表单触发重新读取。
-  const query = useQuery({
+/** 页面列表和重名检查使用同一份服务端价表，避免把账号分组当作已上架的线路。 */
+function usePublishedPricing(identity: string) {
+  return useQuery({
     queryKey: ['retail-pricing', identity],
     queryFn: ({ signal }) => getRetailPricing(signal),
     retry: false,
   })
+}
+
+/** 历史手工价表可能没有绑定记录，仍显示实际保存的线路 ID。 */
+function productRouteLabel(
+  book: RetailPriceBook,
+  product: RetailPriceBook['products'][number]
+) {
+  return product.routes
+    .map((route) => {
+      const binding = book.group_bindings?.find(
+        (b) =>
+          b.channel_id === route.channel_id &&
+          b.local_group === product.binding_group
+      )
+      return [`#${route.channel_id}`, binding?.upstream_group]
+        .filter(Boolean)
+        .join(' · ')
+    })
+    .join(' / ')
+}
+
+/** 读取正式价表，供管理员核对实际发布的调用分组和线路。账号倍率表可能没有同名项。 */
+function PublishedGroups({ identity }: { identity: string }) {
+  const { t } = useTranslation()
+  // 和价表共用按登录会话隔离的缓存，保存成功后由上架表单触发重新读取。
+  const query = usePublishedPricing(identity)
   const book = query.data?.book
   return (
     <section aria-label={t('Published call groups')} className='space-y-2'>
       <h3 className='font-medium'>{t('Published call groups')}</h3>
-      {query.isError ? (
+      {query.isError && (
         <Button variant='outline' onClick={() => void query.refetch()}>
           {t('Retry')}
         </Button>
-      ) : !book ? (
-        <p>{t('Loading...')}</p>
-      ) : !book.products?.length ? (
-        <p>{t('None')}</p>
-      ) : (
+      )}
+      {!query.isError && !book && <p>{t('Loading...')}</p>}
+      {!query.isError && book && !book.products?.length && <p>{t('None')}</p>}
+      {!query.isError && book && !!book.products?.length && (
         <dl className='grid gap-2 text-sm'>
           {book.products.map((product) => (
             <div
@@ -109,19 +134,7 @@ function PublishedGroups({ identity }: { identity: string }) {
             >
               <dt className='font-medium'>{product.name}</dt>
               <dd className='text-muted-foreground'>
-                {product.routes
-                  .map((route) => {
-                    // 历史手工方案可能只有线路 ID；只显示这条线路已保存的上游分组。
-                    const binding = book.group_bindings?.find(
-                      (b) =>
-                        b.channel_id === route.channel_id &&
-                        b.local_group === product.binding_group
-                    )
-                    return [`#${route.channel_id}`, binding?.upstream_group]
-                      .filter(Boolean)
-                      .join(' · ')
-                  })
-                  .join(' / ')}
+                {productRouteLabel(book, product)}
               </dd>
             </div>
           ))}
@@ -148,7 +161,8 @@ function LaunchForm({
     refetchOnWindowFocus: false,
   })
   const [site, setSite] = useState(0)
-  const [channel, setChannel] = useState(0)
+  const [credentialChoice, setCredentialChoice] = useState<number | null>(null)
+  const pricing = usePublishedPricing(identity)
   const [upstream, setUpstream] = useState('')
   const [group, setGroup] = useState('')
   const [key, setKey] = useState('')
@@ -157,19 +171,42 @@ function LaunchForm({
   const [failure, setFailure] = useState('')
   const [preview, setPreview] = useState<{
     input: RetailLaunchInput
+    siteName: string
+    credentialName: string
     result: RetailLaunchReview
   } | null>(null)
   const data = state.data
   const sites = data?.channels.filter((c) => c.site_id === c.id) ?? []
   const selected = sites.find((c) => c.id === (site || sites[0]?.id))
-  const pinned = data?.credential_groups?.[channel]
-  const upstreamGroup = pinned || upstream
   const rates = data?.sync.snapshot?.groups ?? []
+  const credentials =
+    data?.channels.filter((c) => {
+      const pinned = data.credential_groups?.[c.id]
+      return (
+        c.site_id === selected?.id &&
+        c.has_key &&
+        c.status === 1 &&
+        (!pinned || pinned === upstream)
+      )
+    }) ?? []
+  const matching = credentials.filter(
+    (c) => data?.credential_groups?.[c.id] === upstream
+  )
+  // 只自动选唯一已绑定的 Key。未绑定的旧 Key 须由管理员选择，不能猜它在上游的用途。
+  let defaultChannel: number | null = matching[0]?.id ?? 0
+  if (matching.length > 1) defaultChannel = null
+  const channel = credentialChoice ?? defaultChannel
+  const credential = credentials.find((c) => c.id === channel)
+  const book = pricing.data?.book
+  const duplicate = book?.products?.find(
+    (p) => p.name === group.trim() || p.binding_group === group.trim()
+  )
   const canPreview = !!(
     selected &&
     group.trim() &&
-    upstreamGroup &&
-    (channel || key.trim()) &&
+    !duplicate &&
+    upstream &&
+    (credential || (channel === 0 && key.trim())) &&
     (margin === '' || (Number(margin) >= 0 && Number(margin) <= 95))
   )
   /** 读取新 Key 时只使用选中站点的协议和地址。后台验证并计算可售范围，浏览器不推算价格。 */
@@ -188,17 +225,20 @@ function LaunchForm({
         ]) {
           void client.invalidateQueries({ queryKey: [prefix] })
         }
-        toast.success(t('Call group published'))
+        toast.success(
+          `${t('Call group published')} · ${preview.input.local_group}`
+        )
         onPublished()
         return
       }
+      if (!canPreview || channel === null) return
       const latest = await getRetailGroupBindings()
       const input: RetailLaunchInput = {
         expected_version: latest.version,
         local_group: group.trim(),
         site_id: selected.id,
         channel_id: channel,
-        upstream_group: upstreamGroup,
+        upstream_group: upstream,
       }
       if (margin !== '') input.margin_bps = Math.round(Number(margin) * 100)
       if (!channel) {
@@ -213,7 +253,14 @@ function LaunchForm({
         input.models = [...new Set(response.data)].sort()
       }
       const result = await launchRetailGroup(input)
-      setPreview({ input, result })
+      setPreview({
+        input,
+        result,
+        siteName: selected.name,
+        credentialName: credential
+          ? `${credential.name} · #${credential.id}`
+          : t('New upstream Key'),
+      })
     } catch (error) {
       setPreview(null)
       setFailure(t(getServerErrorMessage(error)))
@@ -239,113 +286,134 @@ function LaunchForm({
         <p>{t('Loading group bindings...')}</p>
       ) : (
         <>
-          <fieldset
-            disabled={busy}
-            className='grid gap-4 sm:grid-cols-2'
-            onChange={() => {
-              setPreview(null)
-              setFailure('')
-            }}
-          >
-            <label>
-              {t('Supply site')}
-              <NativeSelect
-                value={selected?.id ?? 0}
-                onChange={(e) => {
-                  setSite(Number(e.target.value))
-                  setChannel(0)
-                  setUpstream('')
-                  setKey('')
-                }}
-              >
-                {sites.map((s) => (
-                  <NativeSelectOption key={s.id} value={s.id}>
-                    {s.name} · #{s.id}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </label>
-            <label>
-              {t('Supply credential')}
-              <NativeSelect
-                value={channel}
-                onChange={(e) => {
-                  setChannel(Number(e.target.value))
-                  setUpstream('')
-                  setKey('')
-                }}
-              >
-                <NativeSelectOption value={0}>
-                  {t('New upstream Key')}
-                </NativeSelectOption>
-                {data.channels
-                  .filter(
-                    (c) =>
-                      c.site_id === selected?.id && c.has_key && c.status === 1
-                  )
-                  .map((c) => (
-                    <NativeSelectOption key={c.id} value={c.id}>
-                      {c.name} · #{c.id}
+          {!preview && (
+            <fieldset
+              disabled={busy}
+              className='grid gap-4 sm:grid-cols-2'
+              onChange={() => {
+                setPreview(null)
+                setFailure('')
+              }}
+            >
+              <label>
+                {t('Supply site')}
+                <NativeSelect
+                  value={selected?.id ?? 0}
+                  onChange={(e) => {
+                    setSite(Number(e.target.value))
+                    setCredentialChoice(null)
+                    setUpstream('')
+                    setKey('')
+                  }}
+                >
+                  {sites.map((s) => (
+                    <NativeSelectOption key={s.id} value={s.id}>
+                      {s.name} · #{s.id}
                     </NativeSelectOption>
                   ))}
-              </NativeSelect>
-            </label>
-            {!channel && (
-              <label className='sm:col-span-2'>
-                {t('Upstream API Key')}
+                </NativeSelect>
+              </label>
+              <label>
+                {t('Upstream group')}
+                <NativeSelect
+                  value={upstream}
+                  onChange={(e) => {
+                    setSite(selected?.id ?? 0)
+                    setUpstream(e.target.value)
+                    setCredentialChoice(null)
+                    setKey('')
+                  }}
+                >
+                  <NativeSelectOption value=''>
+                    {t('Select group')}
+                  </NativeSelectOption>
+                  {rates.map((r) => (
+                    <NativeSelectOption key={r.group} value={r.group}>
+                      {r.name || r.group} · {r.multiplier}×
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </label>
+              {upstream && (
+                <label>
+                  {t('Supply credential')}
+                  <NativeSelect
+                    value={channel ?? ''}
+                    onChange={(e) => {
+                      setCredentialChoice(Number(e.target.value))
+                      setKey('')
+                    }}
+                  >
+                    {channel === null && (
+                      <NativeSelectOption value='' disabled>
+                        {t('Select a Key')}
+                      </NativeSelectOption>
+                    )}
+                    {credentials.map((c) => (
+                      <NativeSelectOption key={c.id} value={c.id}>
+                        {c.name} · #{c.id} ·{' '}
+                        {data.credential_groups?.[c.id] || t('Unbound Key')}
+                      </NativeSelectOption>
+                    ))}
+                    <NativeSelectOption value={0}>
+                      {t('New upstream Key')}
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </label>
+              )}
+              {upstream && channel === 0 && (
+                <label>
+                  {t('Upstream API Key')}
+                  <Input
+                    type='password'
+                    autoComplete='new-password'
+                    value={key}
+                    onChange={(e) => setKey(e.target.value)}
+                  />
+                </label>
+              )}
+              <label>
+                {t('Call group name')}
                 <Input
-                  type='password'
-                  autoComplete='new-password'
-                  value={key}
-                  onChange={(e) => setKey(e.target.value)}
+                  list='launch-local-groups'
+                  value={group}
+                  onChange={(e) => setGroup(e.target.value)}
+                />
+                <datalist id='launch-local-groups'>
+                  {data.local_groups
+                    .filter(
+                      (g) =>
+                        !book?.products?.some(
+                          (p) => p.name === g || p.binding_group === g
+                        )
+                    )
+                    .map((g) => (
+                      <option key={g} value={g} />
+                    ))}
+                </datalist>
+              </label>
+              <label>
+                {t('Target margin (%)')}
+                <Input
+                  type='number'
+                  min={0}
+                  max={95}
+                  step={0.01}
+                  value={margin}
+                  placeholder={t('Site default ({{value}}%)', {
+                    value: data.sale_policy.margin_bps / 100,
+                  })}
+                  onChange={(e) => setMargin(e.target.value)}
                 />
               </label>
-            )}
-            <label>
-              {t('Upstream group')}
-              <NativeSelect
-                disabled={!!pinned}
-                value={upstreamGroup}
-                onChange={(e) => setUpstream(e.target.value)}
-              >
-                <NativeSelectOption value=''>
-                  {t('Select group')}
-                </NativeSelectOption>
-                {rates.map((r) => (
-                  <NativeSelectOption key={r.group} value={r.group}>
-                    {r.name || r.group} · {r.multiplier}×
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </label>
-            <label>
-              {t('Call group name')}
-              <Input
-                list='launch-local-groups'
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-              />
-              <datalist id='launch-local-groups'>
-                {data.local_groups.map((g) => (
-                  <option key={g} value={g} />
-                ))}
-              </datalist>
-            </label>
-            <label>
-              {t('Target margin (%)')}
-              <Input
-                type='number'
-                min={0}
-                max={95}
-                step={0.01}
-                value={margin}
-                placeholder={t('Site default ({{value}}%)', {
-                  value: data.sale_policy.margin_bps / 100,
-                })}
-                onChange={(e) => setMargin(e.target.value)}
-              />
-            </label>
-          </fieldset>
+            </fieldset>
+          )}
+          {duplicate && book && !preview && (
+            <p role='alert'>
+              {group.trim()} · {t('This call group is already published')} ·{' '}
+              {productRouteLabel(book, duplicate)}
+            </p>
+          )}
           {failure && <p role='alert'>{failure}</p>}
           {(!data.pricing_enabled || !data.sync.enabled) && (
             <p>
@@ -356,6 +424,23 @@ function LaunchForm({
           )}
           {preview && (
             <div aria-live='polite' className='space-y-3'>
+              <h3 className='font-semibold'>{preview.input.local_group}</h3>
+              <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm'>
+                <dt>{t('Supply site')}</dt>
+                <dd>{preview.siteName}</dd>
+                <dt>{t('Upstream group')}</dt>
+                <dd>{preview.input.upstream_group}</dd>
+                <dt>{t('Supply credential')}</dt>
+                <dd>{preview.credentialName}</dd>
+                <dt>{t('Models to publish')}</dt>
+                <dd>
+                  {formatNumber(
+                    preview.result.rows.filter(
+                      (r) => r.tiers?.length && !r.reason
+                    ).length
+                  )}
+                </dd>
+              </dl>
               {preview.result.rows
                 .filter((r) => r.reason)
                 .map((r) => (
@@ -373,18 +458,29 @@ function LaunchForm({
               )}
             </div>
           )}
-          <Button
-            disabled={
-              busy ||
-              !canPreview ||
-              !data.pricing_enabled ||
-              !data.sync.enabled ||
-              (!!preview && !preview.result.review)
-            }
-            onClick={() => void submit()}
-          >
-            {t(busy ? 'Loading...' : actionLabel)}
-          </Button>
+          <div className='bg-background sticky bottom-0 flex flex-wrap gap-2 border-t py-3'>
+            {preview && (
+              <Button
+                variant='outline'
+                disabled={busy}
+                onClick={() => setPreview(null)}
+              >
+                {t('Back')}
+              </Button>
+            )}
+            <Button
+              disabled={
+                busy ||
+                (!preview && !canPreview) ||
+                !data.pricing_enabled ||
+                !data.sync.enabled ||
+                (!!preview && !preview.result.review)
+              }
+              onClick={() => void submit()}
+            >
+              {t(busy ? 'Loading...' : actionLabel)}
+            </Button>
+          </div>
         </>
       )}
     </div>

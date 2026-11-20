@@ -108,12 +108,19 @@ it('previews a new Claude credential and retains the draft after a conflicting p
   expect(await screen.findByText('claude', { selector: 'dt' })).toBeVisible()
   expect(screen.getByText('#5 · actual-upstream')).toBeVisible()
   fireEvent.click(screen.getByRole('button', { name: 'Publish a call group' }))
-  fireEvent.change(await screen.findByLabelText('Upstream API Key'), {
-    target: { value: 'test-only' },
-  })
-  fireEvent.change(screen.getByLabelText('Upstream group', { exact: false }), {
+  fireEvent.change(await screen.findByLabelText('Upstream group'), {
     target: { value: 'claude' },
   })
+  fireEvent.change(screen.getByLabelText('Upstream API Key'), {
+    target: { value: 'test-only' },
+  })
+  fireEvent.change(screen.getByLabelText('Call group name'), {
+    target: { value: 'claude' },
+  })
+  expect(screen.getByRole('alert')).toHaveTextContent('#5 · actual-upstream')
+  expect(
+    screen.getByRole('button', { name: 'Preview CNY selling prices' })
+  ).toBeDisabled()
   fireEvent.change(screen.getByLabelText('Call group name'), {
     target: { value: 'claude-normal' },
   })
@@ -137,6 +144,92 @@ it('previews a new Claude credential and retains the draft after a conflicting p
       screen.getByRole('button', { name: 'Preview CNY selling prices' })
     ).toBeEnabled()
   )
+  cleanup()
+  client.clear()
+})
+
+/** 跨分组的 Key 必须排除。相同分组只有一个已绑定 Key 时自动选用，多个时等待明确选择。 */
+it('matches credentials by upstream group and publishes only the reviewed route', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  client.setQueryData(['status'], { site_mode: 'retail' })
+  useAuthStore.getState().auth.setUser({ id: 1, username: 'root', role: 100 })
+  const channels = [2, 4, 5, 6].map((id) => ({
+    id,
+    site_id: 2,
+    name: `supply-${id}`,
+    has_key: true,
+    status: 1,
+  }))
+  const state = {
+    version: 12,
+    local_groups: [],
+    pricing_enabled: true,
+    channels,
+    sale_policy: { margin_bps: 2000 },
+    credential_groups: { 4: 'claude', 5: 'gpt', 6: 'gpt' },
+    sync: {
+      enabled: true,
+      snapshot: {
+        groups: ['claude', 'gpt'].map((group) => ({
+          group,
+          multiplier: '0.5',
+        })),
+      },
+    },
+  }
+  vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+    data: {
+      success: true,
+      data: url.endsWith('/pricing') ? { book: { products: [] } } : state,
+    },
+  }))
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        version: 12,
+        review: 'confirmed-price',
+        rows: [{ model: 'claude-model', tiers: [] }],
+      },
+    },
+  })
+  render(
+    <QueryClientProvider client={client}>
+      <RetailGroupLaunch />
+    </QueryClientProvider>
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Publish a call group' }))
+  const upstream = await screen.findByLabelText('Upstream group')
+  fireEvent.change(upstream, { target: { value: 'gpt' } })
+  expect(screen.getByLabelText(/Supply credential/)).toHaveValue('')
+  fireEvent.change(upstream, { target: { value: 'claude' } })
+  expect(screen.getByLabelText(/Supply credential/)).toHaveValue('4')
+  expect(screen.queryByRole('option', { name: /supply-5/ })).toBeNull()
+  fireEvent.change(screen.getByLabelText('Call group name'), {
+    target: { value: 'new-claude' },
+  })
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Preview CNY selling prices' })
+  )
+  expect(await screen.findByText('supply-4 · #4')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  expect(screen.getByLabelText('Call group name')).toHaveValue('new-claude')
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Preview CNY selling prices' })
+  )
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Save and publish group' })
+  )
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(post.mock.calls.at(-1)?.[1]).toMatchObject({
+    site_id: 2,
+    channel_id: 4,
+    upstream_group: 'claude',
+    local_group: 'new-claude',
+    review: 'confirmed-price',
+  })
   cleanup()
   client.clear()
 })

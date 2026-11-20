@@ -2,6 +2,9 @@
   "translation": {
     "Publish a call group": "Publier un groupe d’appel",
     "Supply site": "Site fournisseur",
+    "Select a Key": "Choisir une clé",
+    "Unbound Key": "Clé non associée",
+    "Models to publish": "Modèles à publier",
     "New upstream Key": "Nouvelle clé fournisseur",
     "Call group name": "Nom du groupe d’appel",
     "Site default ({{value}}%)": "Marge du site ({{value}} %)",

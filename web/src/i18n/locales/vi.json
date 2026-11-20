@@ -2,6 +2,9 @@
   "translation": {
     "Publish a call group": "Công bố nhóm gọi",
     "Supply site": "Trang nhà cung cấp",
+    "Select a Key": "Chọn Key",
+    "Unbound Key": "Key chưa liên kết",
+    "Models to publish": "Số mô hình sẽ xuất bản",
     "New upstream Key": "Khóa nhà cung cấp mới",
     "Call group name": "Tên nhóm gọi",
     "Site default ({{value}}%)": "Mặc định của trang ({{value}}%)",

@@ -2,6 +2,9 @@
   "translation": {
     "Publish a call group": "上架调用分组",
     "Supply site": "上游站点",
+    "Select a Key": "选择 Key",
+    "Unbound Key": "尚未绑定分组",
+    "Models to publish": "本次上架模型数",
     "New upstream Key": "使用新 Key",
     "Call group name": "本站调用分组名称",
     "Site default ({{value}}%)": "沿用站点毛利率（{{value}}%）",

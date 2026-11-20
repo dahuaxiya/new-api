@@ -2,6 +2,9 @@
   "translation": {
     "Publish a call group": "Опубликовать группу вызовов",
     "Supply site": "Сайт поставщика",
+    "Select a Key": "Выберите ключ",
+    "Unbound Key": "Ключ без привязки",
+    "Models to publish": "Модели к публикации",
     "New upstream Key": "Новый ключ поставщика",
     "Call group name": "Имя группы вызовов",
     "Site default ({{value}}%)": "Маржа сайта ({{value}} %)",
