@@ -946,3 +946,99 @@ it('uploads original file bytes as multipart and blocks files over 50 MiB', asyn
   expect(outgoing.size).toBe(file.size)
   expect(await outgoing.arrayBuffer()).toEqual(await file.arrayBuffer())
 })
+
+/** A prior chat reply can be inserted without opening its session or losing the current draft. */
+it('quotes an archived chat reply into the current prompt', async () => {
+  const id = 'aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb'
+  server.set(`1/${id}`, {
+    id,
+    product: 'standard',
+    mode: 'text',
+    updatedAt: Date.now(),
+    entries: [
+      {
+        id: 1,
+        prompt: 'Archived question',
+        model: 'text-model',
+        content: 'Archived answer',
+        reasoning: 'Internal notes',
+        complete: true,
+      },
+    ],
+  })
+  mount(true)
+  fireEvent.change(await screen.findByLabelText('Model'), {
+    target: { value: 'text-model' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Summarize that' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Quote from history' }))
+  fireEvent.click(
+    await screen.findByRole('button', { name: /Archived question/ })
+  )
+  fireEvent.click(
+    await screen.findByRole('button', { name: /Quote reply.*Archived answer/ })
+  )
+  expect(screen.getByLabelText('Prompt')).toHaveValue(
+    '> Archived answer\n\nSummarize that'
+  )
+  expect(streamSend).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(1))
+  expect(streamSend.mock.calls[0][0]).toMatchObject({
+    messages: [
+      { role: 'user', content: '> Archived answer\n\nSummarize that' },
+    ],
+  })
+})
+
+/** An archived result is read as authenticated media and submitted as an edit attachment. */
+it('uses a saved result as the next image reference', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:saved-result')
+  const id = 'aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb'
+  const media = `/api/retail/studio/media/${id}/result`
+  server.set(`1/${id}`, {
+    id,
+    product: 'standard',
+    mode: 'image',
+    updatedAt: Date.now(),
+    entries: [
+      {
+        id: 1,
+        prompt: 'A city at noon',
+        model: 'image-model',
+        content: '',
+        reasoning: '',
+        complete: true,
+        image: media,
+      },
+    ],
+  })
+  mount(true)
+  fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'image-model' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Change it to dusk' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Quote from history' }))
+  fireEvent.click(await screen.findByRole('button', { name: /A city at noon/ }))
+  const option = await screen.findByRole('button', { name: /Quote image/ })
+  await waitFor(() => expect(option).toBeEnabled())
+  fireEvent.click(option)
+  expect(screen.getByLabelText('Prompt')).toHaveValue('Change it to dusk')
+  await screen.findByRole('img', { name: 'Reference image' })
+  expect(imageSend).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
+  await screen.findByRole('img', { name: 'Change it to dusk' })
+  const payload = vi
+    .mocked(api.post)
+    .mock.calls.find(([url]) => url.includes('/runs/'))?.[1]
+  expect(payload).toBeInstanceOf(FormData)
+  const photo = (payload as FormData).get('image') as File
+  expect(new Uint8Array(await photo.arrayBuffer())).toEqual(
+    Uint8Array.from(atob(png), (char) => char.charCodeAt(0))
+  )
+})

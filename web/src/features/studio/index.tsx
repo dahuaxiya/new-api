@@ -589,6 +589,27 @@ function StudioWorkspace(props: { identity: string }) {
           <Label className='sr-only' htmlFor='studio-prompt'>
             {t('Prompt')}
           </Label>
+          <StudioHistory
+            storageKey={storageKey}
+            disabled={run.busy}
+            quote={{
+              entries: run.entries,
+              canUseImages: mode === 'image' && extendedImage,
+              onPick: (item) => {
+                if (item.type === 'image') {
+                  setReference(item.value)
+                  setReferenceBlocked(false)
+                  return
+                }
+                // Keep the user's draft intact and show exactly what will be sent as context.
+                const quoted = item.value.trim().replaceAll(/^/gm, '> ')
+                const draft = form.getValues('prompt')
+                form.setValue('prompt', `${quoted}\n\n${draft}`, {
+                  shouldValidate: true,
+                })
+              },
+            }}
+          />
           {mode === 'image' && selected?.reference_image && (
             <StudioReference
               key={`${selectedProductId}:${model}`}
