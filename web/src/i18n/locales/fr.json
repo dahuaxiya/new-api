@@ -8157,6 +8157,7 @@
     "Could not access history.": "Historique inaccessible.",
     "Delete history entry?": "Supprimer cette entrée ?",
     "Could not save history to the server.": "Échec de l’enregistrement sur le serveur.",
+    "Connection interrupted. Reconnecting…": "Connexion interrompue. Reconnexion…",
     "New conversation": "Nouvelle conversation",
     "Output limit exceeds this model limit": "Limite de sortie hors plage du modèle",
     "Quality": "Qualité",

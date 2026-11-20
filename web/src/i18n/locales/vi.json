@@ -8157,6 +8157,7 @@
     "Could not access history.": "Không thể truy cập lịch sử.",
     "Delete history entry?": "Xóa mục lịch sử này?",
     "Could not save history to the server.": "Không thể lưu lịch sử lên máy chủ.",
+    "Connection interrupted. Reconnecting…": "Mất kết nối. Đang kết nối lại…",
     "New conversation": "Cuộc trò chuyện mới",
     "Output limit exceeds this model limit": "Vượt giới hạn đầu ra của mô hình",
     "Quality": "Chất lượng",

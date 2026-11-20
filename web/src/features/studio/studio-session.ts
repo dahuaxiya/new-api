@@ -54,6 +54,7 @@ export function readSelection(key: string | null) {
 }
 
 export const conversation = z.object({
+  running: z.boolean().optional(),
   mode: z.enum(['text', 'image']).optional(),
   id: z.string(),
   product: z.string(),
@@ -179,4 +180,13 @@ export async function removeLocalHistory(key: string, id: string) {
   }
   if (navigator.locks) await navigator.locks.request(archiveKey, remove)
   else remove()
+}
+
+/** A reload reattaches by UUID. Prefer the full local intent until the server acknowledges it. */
+export function readRunning(key: string | null) {
+  if (!key) return
+  const pointer = read(`${key}:running`, conversation)
+  if (!pointer || pointer.updatedAt < Date.now() - retention) return
+  const intent = read(`${key}:intent`, z.object({ record: conversation }))
+  return intent?.record.id === pointer.id ? intent.record : pointer
 }

@@ -48,12 +48,9 @@ const streamSend = vi.hoisted(() =>
     }
   )
 )
-vi.mock('@/features/playground/hooks/use-stream-request', () => ({
-  useStreamRequest: () => ({
-    sendStreamRequest: streamSend,
-    stopStream: vi.fn(),
-  }),
-}))
+const imageSend = vi.fn(
+  async (_entry: unknown) => `data:image/png;base64,${png}`
+)
 const server = new Map<string, Conversation>()
 const clients: QueryClient[] = []
 const price = {
@@ -70,6 +67,8 @@ const png =
 function mount(
   ready: boolean,
   options: {
+    loseFirstAck?: boolean
+    maxOutput?: number
     paused?: boolean
     noPlan?: boolean
     noRoute?: boolean
@@ -85,6 +84,60 @@ function mount(
     role: options.root ? 100 : 1,
   })
   const prefix = `${options.userId ?? 1}/`
+  const oldPost = vi.mocked(api.post).getMockImplementation?.()
+  vi.spyOn(api, 'post').mockImplementation(async (url, body, config) => {
+    if (!url.includes('/runs/')) {
+      return oldPost ? oldPost(url, body, config) : { data: { success: true } }
+    }
+    const { record, parent, maxTokens } = body as {
+      record: Conversation
+      parent?: string
+      maxTokens: number
+    }
+    if (server.has(prefix + record.id)) return { data: { success: true } }
+    if (parent) server.delete(prefix + parent)
+    const copy = structuredClone(record)
+    server.set(prefix + copy.id, copy)
+    const entry = copy.entries.at(-1)
+    if (!entry) throw new Error('Expected a submitted turn')
+    if (copy.mode === 'image') {
+      void imageSend(entry).then((image) => {
+        entry.image = image
+        entry.complete = true
+        copy.running = false
+      })
+    } else {
+      const messages = copy.entries
+        .filter((e) => e === entry || (e.complete && !e.error))
+        .flatMap((e) =>
+          e === entry
+            ? [{ role: 'user', content: e.prompt }]
+            : [
+                { role: 'user', content: e.prompt },
+                { role: 'assistant', content: e.content },
+              ]
+        )
+      await streamSend(
+        { messages, model: entry.model, max_tokens: maxTokens },
+        (_, chunk) => {
+          entry.content += chunk
+        },
+        () => {
+          entry.complete = true
+          copy.running = false
+        },
+        (msg) => {
+          entry.error = msg
+          copy.running = false
+        },
+        { 'X-Retail-Product': copy.product }
+      )
+    }
+    if (options.loseFirstAck) {
+      throw new Error('Connection lost after acceptance')
+    }
+    return { data: { success: true } }
+  })
   vi.spyOn(api, 'put').mockImplementation(async (url, body, config) => {
     if (url.endsWith('/pricing')) return { data: { success: true } }
     if (!url.includes('/history/')) throw new Error('Unexpected PUT')
@@ -100,6 +153,23 @@ function mount(
     return { data: { success: true } }
   })
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    if (url.includes('/runs/')) {
+      const row = server.get(prefix + url.split('/').at(-1))
+      if (!row) {
+        throw Object.assign(new Error('missing'), { response: { status: 404 } })
+      }
+      return {
+        data: row.running
+          ? {
+              running: true,
+              content: '',
+              reasoning: '',
+              nextContent: 0,
+              nextReasoning: 0,
+            }
+          : { running: false, record: row },
+      }
+    }
     if (url.endsWith('/history')) {
       return {
         data: {
@@ -134,7 +204,7 @@ function mount(
                         id: 'text-model',
                         kind: 'text',
                         tiers: [{ up_to: 1000, prices: price }],
-                        max_output: 4096,
+                        max_output: options.maxOutput ?? 4096,
                       },
                       {
                         id: 'image-model',
@@ -198,6 +268,7 @@ afterEach(() => {
   clients.splice(0).forEach((client) => client.clear())
   vi.restoreAllMocks()
   streamSend.mockClear()
+  imageSend.mockClear()
   useAuthStore.getState().auth.reset()
 })
 
@@ -248,13 +319,35 @@ it('sends the first chat directly with its selected group and no setup request',
   expect(screen.getByLabelText('Prompt')).toHaveValue('')
   expect(streamSend.mock.calls[0][0]).toMatchObject({
     model: 'text-model',
+    max_tokens: 4096,
     messages: [{ role: 'user', content: 'Hello' }],
   })
   expect(streamSend.mock.calls[0][4]).toEqual({
     'X-Retail-Product': 'standard',
   })
   expect(screen.queryByRole('dialog')).toBeNull()
-  expect(post).not.toHaveBeenCalled()
+  expect(post.mock.calls.every(([url]) => url.includes('/runs/'))).toBe(true)
+})
+
+/** A lost acknowledgement reuses the same ID, even when the model can accept a larger default. */
+it('uses 10240 output tokens and recovers a lost acknowledgement without a second generation', async () => {
+  mount(false, { loseFirstAck: true, maxOutput: 16384 })
+  fireEvent.change(await screen.findByLabelText('Model'), {
+    target: { value: 'text-model' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Lost acknowledgement' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(
+    () =>
+      expect(
+        vi.mocked(api.post).mock.calls.filter(([url]) => url.includes('/runs/'))
+      ).toHaveLength(2),
+    { timeout: 4000 }
+  )
+  expect(streamSend).toHaveBeenCalledTimes(1)
+  expect(streamSend.mock.calls[0][0]).toMatchObject({ max_tokens: 10240 })
 })
 
 it.each([
@@ -297,8 +390,8 @@ it('shows the root operator where to configure models without enabling requests'
 })
 
 it('filters models by mode, locks a pending image request and displays its downloadable result', async () => {
-  let resolve: ((value: unknown) => void) | undefined
-  const post = vi.spyOn(api, 'post').mockImplementation(
+  let resolve: ((value: string) => void) | undefined
+  imageSend.mockImplementationOnce(
     () =>
       new Promise((done) => {
         resolve = done
@@ -322,16 +415,18 @@ it('filters models by mode, locks a pending image request and displays its downl
     'true'
   )
   expect(screen.getByLabelText('Model')).toBeDisabled()
-  expect(post).toHaveBeenCalledTimes(1)
-  expect(post.mock.calls[0][1]).toMatchObject({
+  expect(imageSend).toHaveBeenCalledTimes(1)
+  expect(imageSend.mock.calls[0][0]).toMatchObject({
     model: 'image-model',
     prompt: 'A quiet garden',
-    n: 1,
-    stream: false,
   })
-  resolve?.({ data: { data: [{ b64_json: png }] } })
+  resolve?.(`data:image/png;base64,${png}`)
   expect(
-    await screen.findByRole('img', { name: 'A quiet garden' })
+    await screen.findByRole(
+      'img',
+      { name: 'A quiet garden' },
+      { timeout: 3500 }
+    )
   ).toHaveAttribute('src', `data:image/png;base64,${png}`)
   expect(screen.getByRole('button', { name: 'Download' })).toHaveAttribute(
     'download'
@@ -528,7 +623,7 @@ it('restores an interrupted message for its owner only', async () => {
   other.unmount()
   mount(true)
   expect(await screen.findByText('Private message')).toBeVisible()
-  expect(screen.getByRole('alert')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Stop' })).toBeVisible()
   expect(streamSend).toHaveBeenCalledTimes(1)
 })
 
@@ -664,9 +759,6 @@ it('archives legacy tab transcripts without replaying them', async () => {
 
 /** 选图和移除只改变草稿；按下生成才发送一次图片编辑。 */
 it('previews and removes a reference before sending a single edit', async () => {
-  const post = vi
-    .spyOn(api, 'post')
-    .mockResolvedValue({ data: { data: [{ b64_json: png }] } })
   const first = mount(true)
   fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
   fireEvent.change(screen.getByLabelText('Model'), {
@@ -686,18 +778,14 @@ it('previews and removes a reference before sending a single edit', async () => 
   expect(screen.queryByRole('img', { name: 'Reference image' })).toBeNull()
   fireEvent.change(upload, { target: { files: [file] } })
   await screen.findByRole('img', { name: 'Reference image' })
-  expect(post).not.toHaveBeenCalled()
+  expect(imageSend).not.toHaveBeenCalled()
   fireEvent.change(screen.getByLabelText('Prompt'), {
     target: { value: 'Draw in blue' },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
   await screen.findByRole('img', { name: 'Draw in blue' })
-  expect(post).toHaveBeenCalledExactlyOnceWith(
-    '/api/retail/studio/images/edits',
-    expect.objectContaining({
-      images: [{ image_url: `data:image/png;base64,${png}` }],
-    }),
-    expect.objectContaining({ singleUseAuthorization: true })
+  expect(imageSend).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ reference: `data:image/png;base64,${png}` })
   )
   await waitFor(() =>
     expect([...server.values()].some((row) => row.entries[0].image)).toBe(true)
@@ -715,5 +803,5 @@ it('previews and removes a reference before sending a single edit', async () => 
     'src',
     `data:image/png;base64,${png}`
   )
-  expect(post).toHaveBeenCalledTimes(1)
+  expect(imageSend).toHaveBeenCalledTimes(1)
 })

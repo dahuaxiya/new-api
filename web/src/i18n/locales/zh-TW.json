@@ -8187,6 +8187,7 @@
     "Could not access history.": "無法讀取歷史紀錄",
     "Delete history entry?": "刪除這筆歷史紀錄？",
     "Could not save history to the server.": "無法將歷史紀錄儲存至伺服器。",
+    "Connection interrupted. Reconnecting…": "連線中斷，正在重新連線…",
     "New conversation": "新增對話",
     "Output limit exceeds this model limit": "輸出上限超出此模型允許範圍",
     "Quality": "品質",

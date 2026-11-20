@@ -1,0 +1,548 @@
+package controller
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/gin-gonic/gin"
+	"github.com/shirou/gopsutil/disk"
+)
+
+// A UUID names one paid intent for one account. The durable claim survives process restarts.
+// Only active tasks live in memory on the retail instance; a lost worker is never redispatched.
+var studioRuns sync.Map
+var studioSlots = make(chan struct{}, 12)
+
+const interruptedRun = "Stopped. Check usage before trying again."
+
+type studioIntent struct {
+	Record    studioHistoryRecord `json:"record"`
+	Parent    string              `json:"parent"`
+	MaxTokens int                 `json:"maxTokens"`
+	Size      string              `json:"size"`
+	Quality   string              `json:"quality"`
+}
+type studioWorker struct {
+	cancel             context.CancelFunc
+	mu                 sync.Mutex
+	content, reasoning strings.Builder
+}
+type studioFrame struct {
+	Success *bool  `json:"success"`
+	Message string `json:"message"`
+	Choices []struct {
+		Delta struct {
+			Content   string `json:"content"`
+			Reasoning string `json:"reasoning_content"`
+			Alternate string `json:"reasoning"`
+		} `json:"delta"`
+	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// studioRunRequest reconstructs only supported chat/image parameters. Routing and wallet checks
+// are still enforced by the original paid relay, including the owner's current group and budget.
+func studioRunRequest(in *studioIntent) (string, []byte, error) {
+	row := &in.Record
+	if row.Product == "" || len(row.Product) > 256 || len(row.Entries) == 0 {
+		return "", nil, errors.New("invalid history")
+	}
+	last := &row.Entries[len(row.Entries)-1]
+	if last.Prompt == "" || last.Model == "" {
+		return "", nil, errors.New("missing prompt or model")
+	}
+	last.Content = ""
+	last.Reasoning = ""
+	last.Error = ""
+	last.Image = ""
+	last.Complete = false
+	path := "/api/retail/studio/"
+	body := gin.H{"model": last.Model}
+	switch row.Mode {
+	case "text":
+		if in.MaxTokens < 1 || in.MaxTokens > 32768 {
+			return "", nil, errors.New("invalid output limit")
+		}
+		messages := []gin.H{}
+		for i, e := range row.Entries {
+			if e.Reference != "" || e.Image != "" {
+				return "", nil, errors.New("unexpected chat image")
+			}
+			if i == len(row.Entries)-1 || e.Complete && e.Error == "" {
+				messages = append(messages, gin.H{"role": "user", "content": e.Prompt})
+				if i < len(row.Entries)-1 {
+					messages = append(messages, gin.H{"role": "assistant", "content": e.Content})
+				}
+			}
+		}
+		body["messages"] = messages
+		body["stream"] = true
+		body["stream_options"] = gin.H{"include_usage": true}
+		body["max_tokens"] = in.MaxTokens
+		path += "chat/completions"
+	case "image":
+		if len(row.Entries) != 1 || !safeStudioRaster(last.Reference) {
+			return "", nil, errors.New("invalid reference")
+		}
+		body["prompt"] = last.Prompt
+		body["n"] = 1
+		body["size"] = in.Size
+		body["quality"] = in.Quality
+		body["output_format"] = "png"
+		body["stream"] = false
+		if last.Reference != "" {
+			path += "images/edits"
+			body["images"] = []gin.H{{"image_url": last.Reference}}
+		} else {
+			path += "images/generations"
+		}
+	default:
+		return "", nil, errors.New("unknown mode")
+	}
+	data, err := common.Marshal(body)
+	return path, data, err
+}
+
+// StartStudioRun durably claims a client ID before invoking the existing authenticated relay once.
+func StartStudioRun(relay http.Handler) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		owner := c.GetInt("id")
+		id := c.Param("id")
+		if owner <= 0 || !historyID(id) || c.Query("owner") != strconv.Itoa(owner) {
+			historyError(c, 403)
+			return
+		}
+		var in studioIntent
+		if common.DecodeJson(http.MaxBytesReader(c.Writer, c.Request.Body, 8<<20), &in) != nil || in.Record.ID != id || (in.Parent != "" && (!historyID(in.Parent) || in.Parent == id)) {
+			historyError(c, 400)
+			return
+		}
+		path, body, err := studioRunRequest(&in)
+		if err != nil {
+			historyError(c, 400)
+			return
+		}
+		dir := studioOwnerDir(c)
+		key := filepath.Join(dir, id)
+		lock := &historyLocks[owner%len(historyLocks)]
+		lock.Lock()
+		defer lock.Unlock()
+		if os.MkdirAll(dir, 0700) != nil {
+			historyError(c, 500)
+			return
+		}
+		// Bind the claim to the immutable request, so a retried ID cannot silently refer to another prompt.
+		intentBytes, err := common.Marshal(in)
+		if err != nil {
+			historyError(c, 400)
+			return
+		}
+		fingerprint := sha256.Sum256(intentBytes)
+		if existing, readErr := os.ReadFile(key + ".run"); readErr == nil {
+			if !bytes.Equal(existing, fingerprint[:]) {
+				historyError(c, 409)
+				return
+			}
+			if _, err = os.Stat(key + ".record"); err != nil {
+				historyError(c, 410)
+				return
+			}
+			c.JSON(200, gin.H{"success": true})
+			return
+		} else if !errors.Is(readErr, os.ErrNotExist) {
+			historyError(c, 500)
+			return
+		}
+		if _, err = os.Stat(key + ".record"); !errors.Is(err, os.ErrNotExist) {
+			historyError(c, 409)
+			return
+		}
+		if _, active := studioRuns.Load(filepath.Join(dir, in.Parent)); in.Parent != "" && active {
+			historyError(c, 409)
+			return
+		}
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			historyError(c, 500)
+			return
+		}
+		var used, reserved int64
+		for _, file := range files {
+			stat, e := file.Info()
+			if e != nil {
+				historyError(c, 500)
+				return
+			}
+			used += stat.Size()
+		}
+		// Reserve space for pending large images before accepting more paid work.
+		studioRuns.Range(func(k, v any) bool {
+			if filepath.Dir(k.(string)) == dir {
+				reserved += studioRecordLimit
+			}
+			return true
+		})
+		space, err := disk.Usage(dir)
+		if len(files) >= 3998 || used+reserved+studioRecordLimit > 512<<20 || err != nil || space.Free < uint64(512<<20+studioRecordLimit*(1+len(studioSlots))) {
+			historyError(c, 507)
+			return
+		}
+		select {
+		case studioSlots <- struct{}{}:
+		default:
+			historyError(c, 429)
+			return
+		}
+		// The claim precedes all paid work. Only pre-dispatch failures can safely release it.
+		claim, err := os.OpenFile(key+".run", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			<-studioSlots
+			historyError(c, 500)
+			return
+		}
+		if _, err = claim.Write(fingerprint[:]); err == nil {
+			err = claim.Sync()
+		}
+		claim.Close()
+		in.Record.Running = true
+		in.Record.UpdatedAt = time.Now().UnixMilli()
+		if err == nil {
+			err = storeStudioRecord(dir, &in.Record)
+		}
+		// A directory sync commits both names before work can be handed to the paid relay.
+		if err == nil {
+			var directory *os.File
+			directory, err = os.Open(dir)
+			if err == nil {
+				err = directory.Sync()
+				directory.Close()
+			}
+		}
+		if err != nil {
+			os.Remove(key + ".record")
+			os.Remove(key + ".run")
+			<-studioSlots
+			historyError(c, 500)
+			return
+		}
+		if in.Parent != "" {
+			_ = os.Remove(filepath.Join(dir, in.Parent+".record"))
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		worker := &studioWorker{cancel: cancel}
+		studioRuns.Store(key, worker)
+		// Never retain gin.Context or forward arbitrary request headers to the nested relay.
+		req := c.Request.Clone(ctx)
+		req.Method = http.MethodPost
+		req.URL = &url.URL{Path: path}
+		req.RequestURI = path
+		req.Body = io.NopCloser(bytes.NewReader(body))
+		req.ContentLength = int64(len(body))
+		req.Header = make(http.Header)
+		for _, name := range []string{"Authorization", "Cookie", "Origin", "Referer", "New-Api-User", "X-Real-IP", "X-Forwarded-For", "X-Forwarded-Proto"} {
+			if value := c.GetHeader(name); value != "" {
+				req.Header.Set(name, value)
+			}
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Retail-Product", in.Record.Product)
+		go worker.execute(relay, req, dir, key, lock, &in.Record)
+		c.JSON(202, gin.H{"success": true})
+	}
+}
+
+// studioPipe exposes a streaming response to the worker without binding it to the mobile connection.
+type studioPipe struct {
+	w       *io.PipeWriter
+	headers http.Header
+	status  int
+}
+
+func (p *studioPipe) Header() http.Header { return p.headers }
+func (p *studioPipe) WriteHeader(n int) {
+	if p.status == 0 {
+		p.status = n
+	}
+}
+func (p *studioPipe) Write(b []byte) (int, error) { return p.w.Write(b) }
+func (p *studioPipe) Flush()                      {}
+
+// execute archives the result even when no browser is connected. A worker failure is terminal
+// because upstream acceptance or billing may already have happened.
+func (w *studioWorker) execute(relay http.Handler, req *http.Request, dir, key string, lock *sync.Mutex, row *studioHistoryRecord) {
+	last := &row.Entries[len(row.Entries)-1]
+	var err error
+	defer func() {
+		if recover() != nil {
+			err = errors.New(interruptedRun)
+		}
+		w.cancel()
+		last.Content = w.content.String()
+		last.Reasoning = w.reasoning.String()
+		if err != nil {
+			last.Error = err.Error()
+		} else {
+			last.Complete = true
+		}
+		row.Running = false
+		row.UpdatedAt = time.Now().UnixMilli()
+		lock.Lock()
+		if storeStudioRecord(dir, row) != nil {
+			common.SysError("Unable to finalize studio run")
+		}
+		studioRuns.Delete(key)
+		lock.Unlock()
+		<-studioSlots
+	}()
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	sink := &studioPipe{w: writer, headers: http.Header{}}
+	go func() {
+		defer func() {
+			if recover() != nil {
+				writer.CloseWithError(errors.New(interruptedRun))
+			} else {
+				writer.Close()
+			}
+		}()
+		relay.ServeHTTP(sink, req)
+	}()
+	if row.Mode == "image" {
+		var data []byte
+		data, err = io.ReadAll(io.LimitReader(reader, studioRecordLimit+1))
+		if err == nil && len(data) <= studioRecordLimit {
+			last.Image, err = studioResultImage(req.Context(), data)
+		} else if err == nil {
+			err = errors.New("Image response too large")
+		}
+		return
+	}
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 8192), 2<<20)
+	done := false
+	checkpoint := time.Now()
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+		data, ok := strings.CutPrefix(line, "data:")
+		data = strings.TrimSpace(data)
+		if ok && data == "[DONE]" {
+			done = true
+			continue
+		}
+		if !ok {
+			if !strings.HasPrefix(line, "{") {
+				continue
+			}
+			data = line
+		}
+		var frame studioFrame
+		if common.UnmarshalJsonStr(data, &frame) != nil {
+			err = errors.New("Invalid response from model")
+			return
+		}
+		if frame.Success != nil && !*frame.Success {
+			err = errors.New(studioRelayMessage(frame.Message))
+			return
+		}
+		if frame.Error != nil {
+			err = errors.New(studioRelayMessage(frame.Error.Message))
+			return
+		}
+		if len(frame.Choices) == 0 {
+			continue
+		}
+		delta := frame.Choices[0].Delta
+		w.mu.Lock()
+		w.content.WriteString(delta.Content)
+		if delta.Reasoning != "" {
+			w.reasoning.WriteString(delta.Reasoning)
+		} else {
+			w.reasoning.WriteString(delta.Alternate)
+		}
+		size := w.content.Len() + w.reasoning.Len()
+		w.mu.Unlock()
+		if size > 4<<20 {
+			err = errors.New("Response too large")
+			return
+		}
+		if time.Since(checkpoint) >= 2*time.Second {
+			last.Content = w.content.String()
+			last.Reasoning = w.reasoning.String()
+			lock.Lock()
+			err = storeStudioRecord(dir, row)
+			lock.Unlock()
+			if err != nil {
+				return
+			}
+			checkpoint = time.Now()
+		}
+	}
+	err = scanner.Err()
+	if req.Context().Err() != nil || !done || w.content.Len()+w.reasoning.Len() == 0 {
+		err = errors.New(interruptedRun)
+	}
+}
+
+// studioRelayMessage preserves the relay's user-facing rejection even if no SSE tokens were emitted.
+func studioRelayMessage(message string) string {
+	if strings.TrimSpace(message) == "" {
+		return interruptedRun
+	}
+	return message
+}
+
+// studioResultImage saves portable raster bytes, including the existing supplier's expiring image URLs.
+func studioResultImage(ctx context.Context, data []byte) (string, error) {
+	var result struct {
+		Success *bool
+		Message string
+		Data    common.RawMessage
+		Error   *struct{ Message string }
+	}
+	if common.Unmarshal(data, &result) != nil {
+		return "", errors.New("Invalid image response")
+	}
+	if result.Success != nil && !*result.Success {
+		return "", errors.New(studioRelayMessage(result.Message))
+	}
+	if result.Error != nil {
+		return "", errors.New(studioRelayMessage(result.Error.Message))
+	}
+	type image struct {
+		B64 string `json:"b64_json"`
+		URL string `json:"url"`
+	}
+	var imgs []image
+	if common.Unmarshal(result.Data, &imgs) != nil {
+		var one image
+		if common.Unmarshal(result.Data, &one) == nil {
+			imgs = []image{one}
+		}
+	}
+	for _, img := range imgs {
+		raw := img.B64
+		if raw == "" {
+			raw = img.URL
+		}
+		if strings.HasPrefix(raw, "https://") {
+			u, e := url.Parse(raw)
+			if e != nil || u.Host != "pub-13fd1d3607a441b4a9d232b3a223f5f6.r2.dev" || u.User != nil || !strings.HasPrefix(u.Path, "/images/") {
+				continue
+			}
+			request, e := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+			if e != nil {
+				continue
+			}
+			// Never forward session credentials or follow provider-supplied redirects.
+			client := http.Client{Timeout: time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			resp, e := client.Do(request)
+			if e != nil {
+				continue
+			}
+			b, e := io.ReadAll(io.LimitReader(resp.Body, (48<<20)+1))
+			resp.Body.Close()
+			if resp.StatusCode != 200 || e != nil || len(b) > 48<<20 {
+				continue
+			}
+			raw = base64.StdEncoding.EncodeToString(b)
+		}
+		if strings.HasPrefix(raw, "data:") {
+			_, raw, _ = strings.Cut(raw, ",")
+		}
+		if len(raw) > 64<<20 {
+			continue
+		}
+		// Detect the decoded signature, including WEBP after RIFF, before archiving untrusted image data.
+		decoded, e := base64.StdEncoding.DecodeString(raw)
+		if e != nil || len(decoded) == 0 {
+			continue
+		}
+		mime := http.DetectContentType(decoded)
+		switch mime {
+		case "image/png", "image/jpeg", "image/webp":
+			return "data:" + mime + ";base64," + raw, nil
+		}
+	}
+	return "", errors.New("The image response is incomplete. Check usage before trying again.")
+}
+
+// GetStudioRun returns only bytes after the caller's cursors. Terminal snapshots are read from disk.
+func GetStudioRun(c *gin.Context) {
+	id := c.Param("id")
+	if !historyID(id) {
+		historyError(c, 404)
+		return
+	}
+	key := filepath.Join(studioOwnerDir(c), id)
+	if value, ok := studioRuns.Load(key); ok {
+		w := value.(*studioWorker)
+		w.mu.Lock()
+		content, reasoning := w.content.String(), w.reasoning.String()
+		x, _ := strconv.Atoi(c.Query("content"))
+		y, _ := strconv.Atoi(c.Query("reasoning"))
+		if x < 0 || y < 0 || x > len(content) || y > len(reasoning) {
+			w.mu.Unlock()
+			historyError(c, 400)
+			return
+		}
+		reply := gin.H{"running": true, "content": content[x:], "reasoning": reasoning[y:], "nextContent": len(content), "nextReasoning": len(reasoning)}
+		w.mu.Unlock()
+		c.JSON(200, reply)
+		return
+	}
+	f, err := os.Open(key + ".record")
+	if err != nil {
+		historyError(c, 404)
+		return
+	}
+	defer f.Close()
+	r := bufio.NewReader(f)
+	head, err := readStudioHistoryHead(r)
+	if err != nil || head.expired(time.Now()) {
+		historyError(c, 404)
+		return
+	}
+	var row studioHistoryRecord
+	if common.DecodeJson(r, &row) != nil || len(row.Entries) == 0 {
+		historyError(c, 500)
+		return
+	}
+	if row.Running {
+		row.Running = false
+		row.Entries[len(row.Entries)-1].Error = interruptedRun
+	}
+	c.JSON(200, gin.H{"running": false, "record": row})
+}
+
+// StopStudioRun cancels only the owner's running generation; an ordinary reader disconnect has no effect.
+func StopStudioRun(c *gin.Context) {
+	id := c.Param("id")
+	if !historyID(id) || c.Query("owner") != fmt.Sprint(c.GetInt("id")) {
+		historyError(c, 403)
+		return
+	}
+	if value, ok := studioRuns.Load(filepath.Join(studioOwnerDir(c), id)); ok {
+		value.(*studioWorker).cancel()
+	}
+	c.JSON(200, gin.H{"success": true})
+}

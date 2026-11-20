@@ -8157,6 +8157,7 @@
     "Could not access history.": "Could not access history.",
     "Delete history entry?": "Delete history entry?",
     "Could not save history to the server.": "Could not save history to the server.",
+    "Connection interrupted. Reconnecting…": "Connection interrupted. Reconnecting…",
     "New conversation": "New conversation",
     "Output limit exceeds this model limit": "Output limit exceeds this model limit",
     "Quality": "Quality",

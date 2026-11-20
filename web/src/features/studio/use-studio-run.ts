@@ -18,145 +18,210 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useRef, useState } from 'react'
 
-import { useStreamRequest } from '@/features/playground/hooks/use-stream-request'
-import { handleServerError } from '@/lib/handle-server-error'
+import { api } from '@/lib/api'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
-import { generateStudioImage, type StudioForm } from './api'
+import type { StudioForm } from './api'
+import { type Conversation, writeSession } from './studio-session'
 
-export type StudioEntry = {
-  id: number
-  prompt: string
-  model: string
-  content: string
-  reasoning: string
-  image?: string
-  complete: boolean
-  error?: string
+export type StudioEntry = Conversation['entries'][number]
+type Intent = Pick<StudioForm, 'maxTokens' | 'size' | 'quality'> & {
+  record: Conversation
+  parent?: string
 }
+type Cursor = { content: number; reasoning: number }
+const emptyCursor = (): Cursor => ({ content: 0, reasoning: 0 })
 
-/** Keep transcripts in memory and cancel transport on navigation/account changes.
- * A synchronous latch prevents two submissions before React renders the disabled button.
- */
-export function useStudioRun(initialTurns: StudioEntry[]) {
-  const [entries, setEntries] = useState<StudioEntry[]>(initialTurns)
-  const [busy, setBusy] = useState(false)
-  const locked = useRef(false)
-  const imageAbort = useRef<AbortController | null>(null)
-  const sequence = useRef(initialTurns.at(-1)?.id ?? 0)
-  const stream = useStreamRequest('/api/retail/studio/chat/completions')
-  useEffect(
-    () => () => {
-      imageAbort.current?.abort()
-    },
-    []
-  )
+/** Follow one durable generation. Unmount only detaches the observer; explicit Stop cancels the worker. */
+export function useStudioRun(
+  initialTurns: StudioEntry[],
+  key: string | null,
+  initial: Conversation | undefined,
+  onFinish: (item: Conversation) => void
+) {
+  const [entries, setEntries] = useState(initialTurns)
+  const [busy, setBusy] = useState(Boolean(initial?.running))
+  const [reconnecting, setReconnecting] = useState(false)
+  const current = useRef<AbortController | null>(null)
+  const active = useRef('')
+  const stopRequested = useRef(false)
+  const finish = useRef(onFinish)
+  useEffect(() => {
+    finish.current = onFinish
+  }, [onFinish])
 
-  /** Finish only the active generation; a stopped stream cannot append to the next conversation. */
-  const finish = (id: number, patch: Partial<StudioEntry> = {}) => {
-    if (id !== sequence.current) return
-    setEntries((current) =>
-      current.map((item) => (item.id === id ? { ...item, ...patch } : item))
-    )
-    locked.current = false
-    setBusy(false)
-  }
-
-  /** Submit a snapshot of the input; failed or interrupted turns never enter future model context. */
-  const send = async (
-    input: StudioForm,
-    mode: 'text' | 'image',
-    productId: string,
-    onAccepted: (turn: StudioEntry) => void,
-    onFailure: () => void,
-    reference?: string
-  ): Promise<void> => {
-    if (locked.current) return
-    locked.current = true
-    setBusy(true)
-    const id = ++sequence.current
-    const turn = {
-      id,
-      prompt: input.prompt,
-      model: input.model,
+  /** One UUID survives lost acknowledgements. GET cursors advance only after consuming a response. */
+  async function follow(record: Conversation, intent?: Intent) {
+    current.current?.abort()
+    const controller = new AbortController()
+    const { signal } = controller
+    current.current = controller
+    active.current = record.id
+    stopRequested.current = false
+    const endpoint = `/api/retail/studio/runs/${record.id}`
+    const owner = key?.slice('studio.v1:'.length)
+    let accepted = !intent
+    let cursor = emptyCursor()
+    const tail = record.entries.at(-1)
+    if (!tail) return
+    let last: StudioEntry = {
+      ...tail,
       content: '',
       reasoning: '',
-      complete: false,
     }
-    onAccepted(turn)
-    setEntries((current) => [...current, turn])
-    if (mode === 'image') {
-      const controller = new AbortController()
-      imageAbort.current = controller
+    let previous = record.entries.slice(0, -1)
+    setBusy(true)
+    setEntries(record.entries)
+    let backoff = 0
+    while (!signal.aborted) {
       try {
-        const image = await generateStudioImage(
-          input,
-          controller.signal,
-          productId,
-          reference
-        )
-        finish(id, { image, complete: true })
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          onFailure()
-          handleServerError(error)
-          finish(id, { error: getServerErrorMessage(error) })
+        if (!accepted) {
+          await api.post(endpoint, intent, {
+            params: { owner },
+            signal,
+            timeout: 15000,
+            skipErrorHandler: true,
+          })
+          accepted = true
+          // Once acknowledged, a tiny pointer suffices even when the image exceeds sessionStorage quota.
+          if (signal.aborted) return
+          if (key) writeSession(`${key}:intent`, null)
         }
+        if (stopRequested.current) {
+          await api.delete(endpoint, {
+            params: { owner },
+            signal,
+            skipErrorHandler: true,
+          })
+          stopRequested.current = false
+        }
+        const { data } = await api.get(endpoint, {
+          params: cursor,
+          signal,
+          timeout: 20000,
+          skipErrorHandler: true,
+          disableDuplicate: true,
+        })
+        if (signal.aborted) return
+        if (!data.running) {
+          previous = data.record.entries.slice(0, -1)
+          last = data.record.entries.at(-1)
+          break
+        }
+        last = {
+          ...last,
+          content: last.content + data.content,
+          reasoning: last.reasoning + data.reasoning,
+        }
+        cursor = { content: data.nextContent, reasoning: data.nextReasoning }
+        setEntries([...previous, last])
+        setReconnecting(false)
+        backoff = 0
+      } catch (error) {
+        if (signal.aborted) return
+        const status = (error as { response?: { status: number } }).response
+          ?.status
+        if (
+          (status &&
+            status < 500 &&
+            status !== 408 &&
+            (status !== 429 || !accepted)) ||
+          status === 507
+        ) {
+          last = {
+            ...last,
+            error: getServerErrorMessage(error),
+            complete: false,
+          }
+          break
+        }
+        setReconnecting(true)
+        backoff = Math.min(5000, backoff ? 2 * backoff : 800)
       }
-      return
-    }
-    const messages = entries
-      .filter((item) => item.complete && !item.image && !item.error)
-      .flatMap((item) => [
-        { role: 'user' as const, content: item.prompt },
-        { role: 'assistant' as const, content: item.content },
-      ])
-    try {
-      await stream.sendStreamRequest(
-        {
-          model: input.model,
-          messages: [...messages, { role: 'user', content: input.prompt }],
-          max_tokens: input.maxTokens,
-          stream: true,
-          stream_options: { include_usage: true },
-        },
-        (kind, chunk) => {
-          if (id !== sequence.current) return
-          const field = kind === 'reasoning' ? 'reasoning' : 'content'
-          setEntries((current) =>
-            current.map((item) =>
-              item.id === id ? { ...item, [field]: item[field] + chunk } : item
-            )
-          )
-        },
-        () => finish(id, { complete: true }),
-        (message) => {
-          onFailure()
-          finish(id, { error: message })
-        },
-        { 'X-Retail-Product': productId }
+      await new Promise((resolve) =>
+        setTimeout(resolve, backoff || (record.mode === 'image' ? 1600 : 650))
       )
-    } catch (error) {
-      onFailure()
-      finish(id, { error: getServerErrorMessage(error) })
+    }
+    if (signal.aborted) return
+    const result = {
+      ...record,
+      running: false,
+      entries: [...previous, last],
+      updatedAt: Date.now(),
+    }
+    setEntries(result.entries)
+    setBusy(false)
+    setReconnecting(false)
+    active.current = ''
+    if (key) {
+      writeSession(`${key}:intent`, null)
+      writeSession(`${key}:running`, null)
+    }
+    finish.current(result)
+  }
+  const resume = useRef(follow)
+  useEffect(() => {
+    resume.current = follow
+  })
+  useEffect(() => {
+    if (initial?.running) {
+      let intent: Intent | undefined
+      try {
+        const stored = JSON.parse(
+          sessionStorage.getItem(`${key}:intent`) ?? 'null'
+        )
+        if (stored?.record?.id === initial.id) intent = stored
+      } catch {
+        /* The server record can still be read after local storage loss. */
+      }
+      void resume.current(initial, intent)
+    }
+    return () => current.current?.abort()
+  }, [initial, key])
+  /** Persist a small recovery pointer before sending, plus the original intent where device storage permits it. */
+  function send(record: Conversation, input: StudioForm, parent?: string) {
+    if (active.current) return
+    const intent = {
+      record,
+      parent,
+      maxTokens: input.maxTokens,
+      size: input.size,
+      quality: input.quality,
+    }
+    if (key) {
+      const entry = record.entries.at(-1)
+      writeSession(`${key}:running`, {
+        ...record,
+        entries:
+          record.mode === 'text'
+            ? record.entries
+            : [{ ...entry, reference: undefined }],
+      })
+      writeSession(`${key}:intent`, intent)
+    }
+    void follow(record, intent)
+  }
+  /** Archive lookup can attach from a different device; never submit when opening history. */
+  function reset(next: StudioEntry[], item?: Conversation) {
+    if (active.current) return
+    setEntries(next)
+    if (item?.running) {
+      if (key) {
+        writeSession(`${key}:running`, {
+          ...item,
+          entries: item.entries.map((entry) => ({
+            ...entry,
+            reference: undefined,
+            image: undefined,
+          })),
+        })
+      }
+      void follow(item)
     }
   }
-
-  /** Stop receiving, not billing: upstream work already dispatched may still incur a charge. */
-  const stop = () => {
-    stream.stopStream()
-    imageAbort.current?.abort()
-    finish(sequence.current, {
-      error: 'Stopped. Check usage before trying again.',
-    })
-    sequence.current += 1
+  /** Acknowledgement can race a stop click: the observer sends cancellation after acceptance. */
+  function stop() {
+    stopRequested.current = true
   }
-
-  /** Discard only the local transcript, after any active transport has been stopped. */
-  const reset = (next: StudioEntry[]) => {
-    if (locked.current) return
-    sequence.current = Math.max(sequence.current, next.at(-1)?.id ?? 0)
-    setEntries(next)
-  }
-  return { entries, busy, send, stop, reset }
+  return { entries, busy, reconnecting, send, reset, stop }
 }

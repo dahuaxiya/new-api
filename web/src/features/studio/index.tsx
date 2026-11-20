@@ -48,22 +48,24 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getStudio, openStudio, studioFormSchema, type StudioForm } from './api'
-import { writeCloud } from './studio-cloud'
 import { StudioHistory } from './studio-history'
 import { StudioReference } from './studio-reference'
 import { StudioResults } from './studio-results'
 import {
   migrateHistory,
   readActive,
+  readRunning,
   readLegacy,
   readSelection,
-  removeLocalHistory,
   writeSession,
   type Conversation,
 } from './studio-session'
 import { useStudioRun } from './use-studio-run'
 
+const defaultOutputLimit = 10_240
+
 /** Remount all private state on account/session changes; never share transcripts between logins. */
+
 export function ModelStudio() {
   const identity = useAuthStore(
     (s) => `${s.auth.user?.id}:${s.auth.session?.sid}`
@@ -77,8 +79,11 @@ function StudioWorkspace(props: { identity: string }) {
   const isRoot = useAuthStore((s) => s.auth.user?.role === ROLE.SUPER_ADMIN)
   const userId = useAuthStore((s) => s.auth.user?.id)
   const storageKey = userId ? `studio.v1:${userId}` : null
+  const [resuming] = useState(() => readRunning(storageKey))
   const [saved] = useState(() => readSelection(storageKey))
-  const [mode, setMode] = useState<'text' | 'image'>(saved?.mode ?? 'text')
+  const [mode, setMode] = useState<'text' | 'image'>(
+    resuming?.mode ?? saved?.mode ?? 'text'
+  )
   const mobile = useIsMobile()
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [reference, setReference] = useState<string>()
@@ -86,25 +91,28 @@ function StudioWorkspace(props: { identity: string }) {
   const [policyOpen, setPolicyOpen] = useState(false)
   const [openedId, setOpenedId] = useState(0)
   const [chosenProductId, setChosenProductId] = useState<string | null>(
-    saved?.product ?? null
+    resuming?.product ?? saved?.product ?? null
   )
-  const [initial] = useState(() =>
-    saved?.mode === 'text' ? readActive(storageKey, saved.product) : undefined
+  const [initial] = useState(
+    () =>
+      resuming ??
+      (saved?.mode === 'text'
+        ? readActive(storageKey, saved.product)
+        : undefined)
   )
   const [initialTurns] = useState(
     () =>
       initial?.entries ??
       (saved?.mode === 'text' ? readLegacy(storageKey, saved.product) : [])
   )
-  const run = useStudioRun(initialTurns)
   const activeId = useRef(initial?.id)
-  const pending = useRef<(Conversation & { parent?: string }) | null>(null)
+
   const form = useForm<StudioForm>({
     resolver: zodResolver(studioFormSchema),
     defaultValues: {
       prompt: '',
-      model: saved?.model ?? '',
-      maxTokens: 1024,
+      model: resuming?.entries.at(-1)?.model ?? saved?.model ?? '',
+      maxTokens: defaultOutputLimit,
       size: '1024x1024',
       quality: 'medium',
     },
@@ -148,10 +156,29 @@ function StudioWorkspace(props: { identity: string }) {
     ) ?? []
   const model = useWatch({ control: form.control, name: 'model' })
   const selected = models.find((item) => item.id === model)
-  const [cloudFailed, setCloudFailed] = useState<
-    (Conversation & { parent?: string })[]
-  >([])
   const [storageFailed, setStorageFailed] = useState(false)
+  const maxOutput = selected?.max_output
+  const preferredLimit = useRef(defaultOutputLimit)
+  useEffect(() => {
+    if (mode === 'text' && maxOutput) {
+      form.setValue('maxTokens', Math.min(preferredLimit.current, maxOutput))
+    }
+  }, [mode, model, maxOutput, form])
+  const run = useStudioRun(initialTurns, storageKey, initial, (item) => {
+    if (
+      item.mode !== 'image' &&
+      writeSession(storageKey && `${storageKey}:chat:${item.product}`, item) ===
+        false
+    ) {
+      setStorageFailed(true)
+    }
+    const last = item.entries.at(-1)
+    if (last?.error && !form.getValues('prompt')) {
+      form.setValue('prompt', last.prompt)
+    }
+    if (last?.reference) setReference(last.reference)
+    void query.refetch()
+  })
   useEffect(() => {
     if (
       selectedProductId &&
@@ -166,44 +193,6 @@ function StudioWorkspace(props: { identity: string }) {
     void migrateHistory(storageKey).catch(() => setStorageFailed(true))
   }, [storageKey])
 
-  useEffect(() => {
-    // 流式输出期间只存一次中断占位。收到最终状态才替换它，浏览历史不会续期。
-    const started = pending.current
-    const last = run.entries.at(-1)
-    if (!storageKey || !started || run.busy || !last) return
-    pending.current = null
-    const entries =
-      started.mode === 'image'
-        ? [
-            {
-              ...last,
-              reference: started.entries[0].reference,
-            },
-          ]
-        : run.entries
-    const settled = { ...started, entries, updatedAt: Date.now() }
-    if (started.mode !== 'image') {
-      const tabSaved = writeSession(
-        `${storageKey}:chat:${started.product}`,
-        settled
-      )
-      if (tabSaved === false) setStorageFailed(true)
-    }
-    void writeCloud(storageKey, settled, started.parent)
-      .then(() => {
-        if (started.parent) {
-          void removeLocalHistory(storageKey, started.parent).catch(() =>
-            setStorageFailed(true)
-          )
-        }
-      })
-      .catch(() =>
-        setCloudFailed((rows) => [
-          ...rows.filter((r) => r.id !== settled.id),
-          settled,
-        ])
-      )
-  }, [storageKey, run.busy, run.entries])
   const available = Boolean(query.data?.catalog.enabled && selected)
   const catalog = query.data?.catalog
   const hasCatalogModels = catalog?.products.some((item) => item.models.length)
@@ -240,7 +229,7 @@ function StudioWorkspace(props: { identity: string }) {
     setReference(undefined)
     setReferenceBlocked(false)
     activeId.current = item?.id
-    run.reset(item?.entries ?? [])
+    run.reset(item?.entries ?? [], item)
     form.setValue('prompt', '')
   }
   /** Group changes clear local context; every request sends its own immutable selection. */
@@ -269,51 +258,28 @@ function StudioWorkspace(props: { identity: string }) {
       })
       return
     }
-    await run.send(
-      input,
+    const parent = mode === 'text' ? activeId.current : undefined
+    const entry = {
+      id: (run.entries.at(-1)?.id ?? 0) + 1,
+      prompt: input.prompt,
+      model: input.model,
+      content: '',
+      reasoning: '',
+      complete: false,
+      reference:
+        mode === 'image' && selected.reference_image ? reference : undefined,
+    }
+    const record = {
+      id: crypto.randomUUID(),
+      product: selectedProductId,
       mode,
-      selectedProductId,
-      (turn) => {
-        form.setValue('prompt', '')
-        // Navigation cancels the transport. Save the submitted prompt once without replaying a paid request.
-        if (storageKey) {
-          const interrupted = {
-            ...turn,
-            error: 'Stopped. Check usage before trying again.',
-          }
-          const parent =
-            mode === 'text'
-              ? (activeId.current ??
-                readActive(storageKey, selectedProductId)?.id)
-              : undefined
-          const snapshot = {
-            mode,
-            id: crypto.randomUUID(),
-            product: selectedProductId,
-            updatedAt: Date.now(),
-            entries:
-              mode === 'image'
-                ? [{ ...interrupted, reference }]
-                : [...run.entries, interrupted],
-          }
-          pending.current = { ...snapshot, parent }
-          setCloudFailed((rows) => rows.filter((row) => row.id !== parent))
-          void writeCloud(storageKey, snapshot, parent).catch(() => {})
-          activeId.current = snapshot.id
-          if (mode === 'image') return
-          const tabSaved = writeSession(
-            `${storageKey}:chat:${selectedProductId}`,
-            snapshot
-          )
-          if (!tabSaved) setStorageFailed(true)
-        }
-      },
-      () => {
-        if (!form.getValues('prompt')) form.setValue('prompt', input.prompt)
-      },
-      mode === 'image' && selected.reference_image ? reference : undefined
-    )
-    void query.refetch()
+      updatedAt: Date.now(),
+      running: true,
+      entries: mode === 'image' ? [entry] : [...run.entries, entry],
+    }
+    form.setValue('prompt', '')
+    activeId.current = record.id
+    run.send(record, input, parent)
   }
 
   if (query.isPending) return <LoadingState message={t('Loading...')} />
@@ -343,7 +309,6 @@ function StudioWorkspace(props: { identity: string }) {
                 )
               }
               if (activeId.current === item.id) restore()
-              setCloudFailed((rows) => rows.filter((row) => row.id !== item.id))
             }}
             onSelect={(item) => {
               setMode(item.mode ?? 'text')
@@ -631,6 +596,12 @@ function StudioWorkspace(props: { identity: string }) {
                     disabled={run.busy}
                     aria-invalid={Boolean(form.formState.errors.maxTokens)}
                     {...form.register('maxTokens', { valueAsNumber: true })}
+                    onInput={(event) => {
+                      const value = event.currentTarget.valueAsNumber
+                      if (value >= 1 && value <= 32768) {
+                        preferredLimit.current = value
+                      }
+                    }}
                   />
                 </div>
               )}
@@ -662,32 +633,8 @@ function StudioWorkspace(props: { identity: string }) {
             </p>
           )}
         </div>
-        {cloudFailed.length > 0 && storageKey && (
-          <div role='alert' className='text-sm'>
-            {t('Could not save history to the server.')}{' '}
-            <Button
-              type='button'
-              size='sm'
-              variant='ghost'
-              onClick={async () => {
-                for (const item of cloudFailed) {
-                  try {
-                    await writeCloud(storageKey, item, item.parent)
-                    if (item.parent) {
-                      await removeLocalHistory(storageKey, item.parent)
-                    }
-                    setCloudFailed((rows) =>
-                      rows.filter((row) => row.id !== item.id)
-                    )
-                  } catch {
-                    break
-                  }
-                }
-              }}
-            >
-              {t('Retry')}
-            </Button>
-          </div>
+        {run.reconnecting && (
+          <p role='status'>{t('Connection interrupted. Reconnecting…')}</p>
         )}
         {storageFailed && (
           <p

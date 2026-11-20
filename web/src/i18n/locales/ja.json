@@ -8157,6 +8157,7 @@
     "Could not access history.": "履歴を読み込めませんでした。",
     "Delete history entry?": "この履歴を削除しますか？",
     "Could not save history to the server.": "履歴をサーバーに保存できませんでした。",
+    "Connection interrupted. Reconnecting…": "接続が切れました。再接続中…",
     "New conversation": "新しい会話",
     "Output limit exceeds this model limit": "モデルの出力上限を超えています",
     "Quality": "品質",

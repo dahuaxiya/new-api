@@ -51,6 +51,7 @@ type studioHistoryEntry struct {
 	Reference string `json:"reference,omitempty"`
 }
 type studioHistoryRecord struct {
+	Running   bool                 `json:"running,omitempty"`
 	ID        string               `json:"id"`
 	Product   string               `json:"product"`
 	Mode      string               `json:"mode"`
@@ -110,6 +111,10 @@ func purgeStudioOwner(dir string, owner int, now time.Time) error {
 				f.Close()
 				expired = err == nil && head.expired(now)
 			}
+		} else if item.Type().IsRegular() && strings.HasSuffix(item.Name(), ".run") {
+			var info os.FileInfo
+			info, err = item.Info()
+			expired = err == nil && now.Sub(info.ModTime()) >= studioHistoryRetention
 		} else if item.Type().IsRegular() && strings.HasSuffix(item.Name(), ".part") {
 			var info os.FileInfo
 			info, err = item.Info()
@@ -242,6 +247,10 @@ func DeleteStudioHistory(c *gin.Context) {
 	lock := &historyLocks[c.GetInt("id")%len(historyLocks)]
 	lock.Lock()
 	defer lock.Unlock()
+	if _, active := studioRuns.Load(filepath.Join(studioOwnerDir(c), id)); active {
+		historyError(c, 409)
+		return
+	}
 	err := os.Remove(filepath.Join(studioOwnerDir(c), id+".record"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		historyError(c, 500)
@@ -369,35 +378,17 @@ func PutStudioHistory(c *gin.Context) {
 		historyError(c, 400)
 		return
 	}
-	title := row.Entries[0].Prompt
-	if utf8.RuneCountInString(title) > 100 {
-		title = string([]rune(title)[:100])
-	}
-	// Store only typed fields. Re-encoding removes any unrecognized client-supplied content.
-	payload, err := common.Marshal(row)
-	if err != nil {
-		historyError(c, 500)
+	// Browser history imports cannot create a pending job.
+	row.Running = false
+	if _, err := os.Stat(filepath.Join(dir, id+".run")); err == nil {
+		historyError(c, 409)
 		return
 	}
-	head, err := common.Marshal(studioHistoryHead{id, row.Product, row.Mode, row.UpdatedAt, title})
-	if err != nil {
-		historyError(c, 500)
+	if _, active := studioRuns.Load(filepath.Join(dir, parent)); parent != "" && active {
+		historyError(c, 409)
 		return
 	}
-	dest, err := os.CreateTemp(dir, "*.part")
-	if err != nil {
-		historyError(c, 500)
-		return
-	}
-	defer os.Remove(dest.Name())
-	if _, err = dest.Write(append(head, '\n')); err == nil {
-		_, err = dest.Write(payload)
-	}
-	if err == nil {
-		err = dest.Sync()
-	}
-	closeErr := dest.Close()
-	if err != nil || closeErr != nil || os.Rename(dest.Name(), filepath.Join(dir, id+".record")) != nil {
+	if err := storeStudioRecord(dir, &row); err != nil {
 		historyError(c, 500)
 		return
 	}
@@ -409,4 +400,37 @@ func PutStudioHistory(c *gin.Context) {
 		}
 	}
 	c.JSON(200, gin.H{"success": true})
+}
+
+// storeStudioRecord commits one typed snapshot atomically while the caller holds the owner lock.
+func storeStudioRecord(dir string, row *studioHistoryRecord) error {
+	title := row.Entries[0].Prompt
+	if utf8.RuneCountInString(title) > 100 {
+		title = string([]rune(title)[:100])
+	}
+	// Store only typed fields. Re-encoding removes any unrecognized client-supplied content.
+	payload, err := common.Marshal(row)
+	if err != nil {
+		return errors.New("cannot save studio record")
+	}
+	head, err := common.Marshal(studioHistoryHead{row.ID, row.Product, row.Mode, row.UpdatedAt, title})
+	if err != nil {
+		return errors.New("cannot save studio record")
+	}
+	dest, err := os.CreateTemp(dir, "*.part")
+	if err != nil {
+		return errors.New("cannot save studio record")
+	}
+	defer os.Remove(dest.Name())
+	if _, err = dest.Write(append(head, '\n')); err == nil {
+		_, err = dest.Write(payload)
+	}
+	if err == nil {
+		err = dest.Sync()
+	}
+	closeErr := dest.Close()
+	if err != nil || closeErr != nil || os.Rename(dest.Name(), filepath.Join(dir, row.ID+".record")) != nil {
+		return errors.New("cannot save studio record")
+	}
+	return nil
 }

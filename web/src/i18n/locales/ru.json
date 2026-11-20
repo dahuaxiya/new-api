@@ -8157,6 +8157,7 @@
     "Could not access history.": "Не удалось открыть историю.",
     "Delete history entry?": "Удалить запись?",
     "Could not save history to the server.": "Не удалось сохранить историю на сервере.",
+    "Connection interrupted. Reconnecting…": "Соединение прервано. Переподключение…",
     "New conversation": "Новый диалог",
     "Output limit exceeds this model limit": "Превышен лимит вывода модели",
     "Quality": "Качество",
