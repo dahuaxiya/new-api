@@ -55,9 +55,6 @@ export function StudioResults(props: {
                 ? 'Describe the image you want'
                 : 'What would you like to work on?'
             )}
-            description={t(
-              'Use your wallet balance. Your price limits apply to every request.'
-            )}
           />
         )}
         {props.entries.map((item, index) => (

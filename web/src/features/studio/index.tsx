@@ -244,14 +244,9 @@ function StudioWorkspace(props: { identity: string }) {
   return (
     <section className='flex min-h-0 min-w-0 flex-1 flex-col max-md:overflow-y-auto'>
       <header className='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-1.5 md:gap-4 md:px-8 md:py-5'>
-        <div>
-          <h1 className='text-xl font-semibold tracking-tight'>
-            {t('Model studio')}
-          </h1>
-          <p className='text-muted-foreground mt-1 hidden text-sm md:block'>
-            {t('Chat and create, in one place.')}
-          </p>
-        </div>
+        <h1 className='text-xl font-semibold tracking-tight'>
+          {t('Model studio')}
+        </h1>
         <div className='flex items-center gap-2'>
           <Button
             variant='ghost'
@@ -498,6 +493,7 @@ function StudioWorkspace(props: { identity: string }) {
               <Button
                 type='button'
                 className='max-md:min-h-10'
+                title={t('Stopping may still incur charges.')}
                 onClick={run.stop}
               >
                 <Square aria-hidden='true' />
@@ -520,22 +516,11 @@ function StudioWorkspace(props: { identity: string }) {
             </p>
           )}
         </div>
-        <p className='text-muted-foreground hidden text-center text-xs md:block'>
-          {t('Enter to send · Shift+Enter for a new line')}
-        </p>
-        <p className='text-muted-foreground text-center text-xs'>
-          {t('Spending protection')}: ¥
-          {policy?.max_request_cny ||
-            query.data.studio.defaults?.max_request_cny}{' '}
-          / {t('Request')} · ¥
-          {policy?.daily_budget_cny ||
-            query.data.studio.defaults?.daily_budget_cny}{' '}
-          / {t('Day')}
-        </p>
-        <p className='text-muted-foreground text-center text-xs'>
-          {storageFailed && t('Chat history could not be saved in this tab.')}{' '}
-          {t('Stopping may still incur charges.')}
-        </p>
+        {storageFailed && (
+          <p role='status' className='text-muted-foreground text-center text-xs'>
+            {t('Chat history could not be saved in this tab.')}
+          </p>
+        )}
       </form>
       {tokenId > 0 && (
         <ApiKeyPricePolicy
