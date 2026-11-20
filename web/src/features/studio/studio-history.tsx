@@ -16,12 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { History, Trash2 } from 'lucide-react'
+import { History, ImageIcon, MessageSquare, Search, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Sheet,
   SheetContent,
@@ -55,6 +56,8 @@ export function StudioHistory(props: {
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [filter, setFilter] = useState<'all' | 'text' | 'image'>('all')
+  const [search, setSearch] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -112,6 +115,17 @@ export function StudioHistory(props: {
     setFailed(local.status === 'rejected' || cloud.status === 'rejected')
   }
 
+  // 搜索只匹配已加载的标题和分组，筛选时无需下载正文或图片。
+  const term = search.trim().toLowerCase()
+  const visibleRows = rows.filter((row) => {
+    const mode = row.mode ?? 'text'
+    return (
+      (filter === 'all' || filter === mode) &&
+      (row.title.toLowerCase().includes(term) ||
+        row.product.toLowerCase().includes(term))
+    )
+  })
+
   return (
     <Sheet
       open={open}
@@ -119,6 +133,8 @@ export function StudioHistory(props: {
         setOpen(next)
         if (next) {
           setRows([])
+          setSearch('')
+          setFilter('all')
           void perform(load)
         } else {
           epoch.current++
@@ -131,7 +147,7 @@ export function StudioHistory(props: {
           <Button
             variant='ghost'
             size='sm'
-            className='max-md:size-11'
+            className='max-md:size-11 max-md:rounded-xl'
             title={t('Studio history')}
             disabled={props.disabled || !key}
           />
@@ -140,11 +156,52 @@ export function StudioHistory(props: {
         <History aria-hidden='true' />
         <span className='max-md:sr-only'>{t('Studio history')}</span>
       </SheetTrigger>
-      <SheetContent className='w-full sm:max-w-sm'>
+      <SheetContent className='w-full gap-0 sm:max-w-md'>
         <SheetHeader>
           <SheetTitle>{t('Studio history')}</SheetTitle>
         </SheetHeader>
-        <div className='overflow-y-auto px-3 pb-4'>
+        <div className='space-y-2.5 border-b px-4 pb-3'>
+          <div className='relative'>
+            <Search
+              className='text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2'
+              aria-hidden='true'
+            />
+            <Input
+              className='h-11 ps-9'
+              type='search'
+              aria-label={t('Search history')}
+              placeholder={t('Search history')}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          <div
+            className='flex items-center gap-1.5'
+            role='group'
+            aria-label={t('Mode')}
+          >
+            {(
+              [
+                ['all', t('All')],
+                ['text', t('Chat')],
+                ['image', t('Image generation')],
+              ] as const
+            ).map(([value, label]) => (
+              <Button
+                key={value}
+                type='button'
+                size='sm'
+                className='min-h-10 rounded-full px-3'
+                variant={filter === value ? 'secondary' : 'ghost'}
+                aria-pressed={filter === value}
+                onClick={() => setFilter(value)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <div className='min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]'>
           {failed && (
             <div role='alert'>
               {t('Could not access history.')}{' '}
@@ -157,9 +214,18 @@ export function StudioHistory(props: {
               </Button>
             </div>
           )}
-          {busy && <p role='status'>{t('Loading...')}</p>}
+          {busy && (
+            <p className='text-muted-foreground px-2 py-3' role='status'>
+              {t('Loading...')}
+            </p>
+          )}
           {!busy && !failed && !rows.length && (
             <p className='text-muted-foreground px-2'>{t('No history yet.')}</p>
+          )}
+          {!busy && rows.length > 0 && !visibleRows.length && (
+            <p className='text-muted-foreground px-2 py-3'>
+              {t('No results found.')}
+            </p>
           )}
           {rows.some((row) => row.local) && (
             <Button
@@ -182,12 +248,15 @@ export function StudioHistory(props: {
               {t('Sync local chats')}
             </Button>
           )}
-          {rows.map((row) => (
-            <div key={row.id} className='flex items-center'>
+          {visibleRows.map((row) => (
+            <div
+              key={row.id}
+              className='hover:bg-muted/65 focus-within:bg-muted/65 flex items-center gap-1 rounded-xl'
+            >
               <Button
                 variant='ghost'
                 disabled={busy}
-                className='h-auto min-w-0 flex-1 flex-col items-start gap-1 px-2 py-3 text-start'
+                className='h-auto min-w-0 flex-1 justify-start gap-3 px-2 py-3 text-start hover:bg-transparent'
                 onClick={() =>
                   void perform(async (ticket) => {
                     const item = row.local ?? (await readCloud(row.id))
@@ -197,16 +266,25 @@ export function StudioHistory(props: {
                   })
                 }
               >
-                <span className='w-full truncate'>{row.title}</span>
-                <span className='text-muted-foreground max-w-full truncate text-xs'>
-                  {t(row.mode === 'image' ? 'Image generation' : 'Chat')} ·{' '}
-                  {row.product} ·{' '}
-                  {formatTimestampToDate(row.updatedAt, 'milliseconds')}
+                <span className='bg-muted grid size-9 shrink-0 place-items-center rounded-lg'>
+                  {row.mode === 'image' ? (
+                    <ImageIcon aria-hidden='true' />
+                  ) : (
+                    <MessageSquare aria-hidden='true' />
+                  )}
+                </span>
+                <span className='grid min-w-0 flex-1 gap-1'>
+                  <span className='truncate'>{row.title}</span>
+                  <span className='text-muted-foreground truncate text-xs'>
+                    {row.product} ·{' '}
+                    {formatTimestampToDate(row.updatedAt, 'milliseconds')}
+                  </span>
                 </span>
               </Button>
               <Button
                 variant='ghost'
                 size='icon'
+                className='size-11 shrink-0'
                 disabled={busy}
                 aria-label={`${t('Delete')} ${row.title}`}
                 onClick={() => setDeleting(row)}

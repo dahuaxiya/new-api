@@ -20,6 +20,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   ArrowUp,
+  CircleDollarSign,
+  LoaderCircle,
   ImageIcon,
   MessageSquare,
   Plus,
@@ -36,6 +38,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -292,12 +300,12 @@ function StudioWorkspace(props: { identity: string }) {
     )
   }
   return (
-    <section className='flex min-h-0 min-w-0 flex-1 flex-col max-md:overflow-y-auto'>
-      <header className='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-1.5 md:gap-4 md:px-8 md:py-5'>
-        <h1 className='text-xl font-semibold tracking-tight'>
+    <section className='bg-muted/25 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'>
+      <header className='bg-background flex shrink-0 items-center justify-between gap-1 px-3 pt-1.5 pb-0.5 md:px-6 md:pt-3'>
+        <h1 className='truncate text-base font-semibold tracking-tight md:text-lg'>
           {t('Model studio')}
         </h1>
-        <div className='flex items-center gap-2'>
+        <div className='flex shrink-0 items-center gap-0.5 md:gap-1.5'>
           <StudioHistory
             storageKey={storageKey}
             disabled={run.busy}
@@ -331,7 +339,7 @@ function StudioWorkspace(props: { identity: string }) {
             variant='ghost'
             size='sm'
             title={t('Spending protection')}
-            className='max-md:size-11'
+            className='max-md:size-11 max-md:rounded-xl'
             disabled={run.busy || setup.isPending || !product}
             onClick={() => {
               setup.mutate(selectedProductId)
@@ -344,7 +352,7 @@ function StudioWorkspace(props: { identity: string }) {
             variant='outline'
             size='sm'
             title={t('New conversation')}
-            className='max-md:size-11'
+            className='max-md:size-11 max-md:rounded-xl'
             disabled={run.busy || run.entries.length === 0}
             onClick={() => {
               restore()
@@ -364,13 +372,13 @@ function StudioWorkspace(props: { identity: string }) {
           </Button>
         </div>
       </header>
-      <div className='grid shrink-0 grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center gap-2 border-b px-3 py-2 md:flex md:flex-wrap md:gap-4 md:px-8 md:py-3'>
+      <div className='bg-background grid shrink-0 grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-center gap-2 border-b px-3 pt-1 pb-2 md:flex md:flex-wrap md:gap-2.5 md:px-6 md:pb-3'>
         <Tabs
-          className='max-md:col-span-2'
+          className='max-md:col-span-3 md:me-1.5'
           value={mode}
           onValueChange={changeMode}
         >
-          <TabsList className='max-md:w-full' aria-label={t('Mode')}>
+          <TabsList className='h-9 max-md:w-full' aria-label={t('Mode')}>
             <TabsTrigger
               className='max-md:min-h-9'
               value='text'
@@ -391,7 +399,7 @@ function StudioWorkspace(props: { identity: string }) {
         </Tabs>
         <div className='min-w-0 md:max-w-56 md:min-w-40'>
           <NativeSelect
-            className='max-md:w-full max-md:[&_select]:h-10'
+            className='w-full [&_select]:h-10 [&_select]:truncate md:[&_select]:h-9'
             aria-label={t('Call group')}
             value={selectedProductId}
             disabled={run.busy || !catalog?.products.length}
@@ -409,7 +417,7 @@ function StudioWorkspace(props: { identity: string }) {
         </div>
         <div className='min-w-0 md:max-w-xs md:min-w-48 md:flex-1'>
           <NativeSelect
-            className='max-md:w-full max-md:[&_select]:h-10'
+            className='w-full [&_select]:h-10 [&_select]:truncate md:[&_select]:h-9'
             aria-label={t('Model')}
             disabled={run.busy || !models.length}
             {...form.register('model', {
@@ -430,22 +438,48 @@ function StudioWorkspace(props: { identity: string }) {
             ))}
           </NativeSelect>
         </div>
-        {selected && (
-          <p className='text-muted-foreground col-span-2 text-xs tabular-nums'>
-            {t('Input')} ¥{selected.tiers[0].prices.input} ·{' '}
-            {reference && selected.reference_image && (
-              <>
-                {t('Image input')} ¥
-                {Number(
-                  (Number(selected.tiers[0].prices.input) * 1.6).toFixed(9)
-                )}{' '}
-                ·{' '}
-              </>
-            )}
-            {t(mode === 'image' ? 'Image output' : 'Output')} ¥
-            {selected.tiers[0].prices.output} / 1M Tokens
-          </p>
-        )}
+        <Popover>
+          <PopoverTrigger
+            render={
+              <Button
+                variant='ghost'
+                size='icon'
+                className='size-10'
+                aria-label={t('Pricing')}
+                disabled={!selected}
+              />
+            }
+          >
+            <CircleDollarSign aria-hidden='true' />
+          </PopoverTrigger>
+          {selected && (
+            <PopoverContent className='w-64 p-3' align='end'>
+              <PopoverTitle>{selected.id}</PopoverTitle>
+              <dl className='grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 tabular-nums'>
+                <dt>{t('Input')}</dt>
+                <dd>¥{selected.tiers[0].prices.input}</dd>
+                {reference && selected.reference_image && (
+                  <>
+                    <dt>{t('Image input')}</dt>
+                    <dd>
+                      ¥
+                      {Number(
+                        (Number(selected.tiers[0].prices.input) * 1.6).toFixed(
+                          9
+                        )
+                      )}
+                    </dd>
+                  </>
+                )}
+                <dt>{t(mode === 'image' ? 'Image output' : 'Output')}</dt>
+                <dd>¥{selected.tiers[0].prices.output}</dd>
+              </dl>
+              <p className='text-muted-foreground text-end text-xs'>
+                / 1M Tokens
+              </p>
+            </PopoverContent>
+          )}
+        </Popover>
       </div>
       {blockedMessage && (
         <div
@@ -475,9 +509,9 @@ function StudioWorkspace(props: { identity: string }) {
       <StudioResults entries={run.entries} busy={run.busy} mode={mode} />
       <form
         onSubmit={(event) => void form.handleSubmit(submit)(event)}
-        className='mx-auto w-full max-w-3xl shrink-0 space-y-1.5 px-3 py-2 md:space-y-3 md:px-8 md:pb-5'
+        className='mx-auto w-full max-w-[52rem] shrink-0 px-2.5 pt-1 pb-2 md:px-6 md:pb-4'
       >
-        <div className='bg-background space-y-1 rounded-2xl border p-2 shadow-sm md:space-y-3 md:p-3'>
+        <div className='bg-background focus-within:border-ring/55 space-y-1 rounded-2xl border p-1.5 shadow-sm transition-colors md:space-y-1.5 md:p-2'>
           <Label className='sr-only' htmlFor='studio-prompt'>
             {t('Prompt')}
           </Label>
@@ -518,19 +552,19 @@ function StudioWorkspace(props: { identity: string }) {
             aria-invalid={Boolean(form.formState.errors.prompt)}
             {...form.register('prompt')}
             disabled={run.busy}
-            className='max-h-[18dvh] min-h-11 border-0 shadow-none focus-visible:ring-0 md:max-h-96 md:min-h-24'
+            className='max-h-[23dvh] min-h-12 resize-none border-0 bg-transparent px-2.5 py-2.5 shadow-none focus-visible:ring-0 md:max-h-[32dvh] md:min-h-14 dark:bg-transparent'
           />
           {form.formState.errors.prompt && (
             <p role='alert' className='text-destructive text-sm'>
               {t('Enter a prompt of up to 32,000 characters.')}
             </p>
           )}
-          <div className='flex flex-wrap items-center justify-between gap-2 md:items-end md:gap-3'>
+          <div className='flex flex-wrap items-center justify-between gap-1.5'>
             <Button
               type='button'
               variant='ghost'
               size='sm'
-              className='min-h-10 md:hidden'
+              className='text-muted-foreground min-h-11 px-2.5 md:min-h-9'
               aria-expanded={optionsOpen || !!form.formState.errors.maxTokens}
               aria-controls='studio-generation-options'
               onClick={() => setOptionsOpen(!optionsOpen)}
@@ -542,8 +576,8 @@ function StudioWorkspace(props: { identity: string }) {
               id='studio-generation-options'
               className={
                 optionsOpen || form.formState.errors.maxTokens
-                  ? 'order-last w-full md:order-none md:w-auto'
-                  : 'hidden md:block'
+                  ? 'order-last w-full border-t px-2.5 pt-2 pb-1'
+                  : 'hidden'
               }
             >
               {mode === 'image' ? (
@@ -609,7 +643,7 @@ function StudioWorkspace(props: { identity: string }) {
             {run.busy ? (
               <Button
                 type='button'
-                className='max-md:min-h-10'
+                className='min-h-11 rounded-xl px-3.5 md:min-h-9'
                 title={t('Stopping may still incur charges.')}
                 onClick={run.stop}
               >
@@ -619,7 +653,7 @@ function StudioWorkspace(props: { identity: string }) {
             ) : (
               <Button
                 type='submit'
-                className='max-md:min-h-10'
+                className='min-h-11 rounded-xl px-3.5 md:min-h-9'
                 disabled={!available || referenceBlocked}
               >
                 <ArrowUp aria-hidden='true' />
@@ -634,7 +668,16 @@ function StudioWorkspace(props: { identity: string }) {
           )}
         </div>
         {run.reconnecting && (
-          <p role='status'>{t('Connection interrupted. Reconnecting…')}</p>
+          <p
+            role='status'
+            className='text-muted-foreground flex items-center gap-2 px-2.5 pt-2 text-xs'
+          >
+            <LoaderCircle
+              className='size-3.5 motion-safe:animate-spin'
+              aria-hidden='true'
+            />
+            {t('Connection interrupted. Reconnecting…')}
+          </p>
         )}
         {storageFailed && (
           <p

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Download, ImageIcon, MessageSquare } from 'lucide-react'
+import { Download, ImageIcon, LoaderCircle, MessageSquare } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -26,7 +26,6 @@ import {
 } from '@/components/ai-elements/conversation'
 import { Response } from '@/components/ai-elements/response'
 import { CopyButton } from '@/components/copy-button'
-import { EmptyState } from '@/components/empty-state'
 import { Button } from '@/components/ui/button'
 
 import type { StudioEntry } from './use-studio-run'
@@ -40,44 +39,49 @@ export function StudioResults(props: {
   const { t } = useTranslation()
   return (
     <Conversation
-      className='min-w-0 max-md:min-h-32'
+      className='min-w-0'
       initial='instant'
       resize='instant'
       aria-label={t('Results')}
     >
-      <ConversationContent className='mx-auto w-full max-w-3xl min-w-0 space-y-5 px-3 py-3 md:space-y-10 md:px-8 md:py-8'>
+      <ConversationContent className='mx-auto flex min-h-full w-full max-w-[52rem] min-w-0 flex-col gap-7 px-4 py-4 md:gap-10 md:px-8 md:py-8'>
         {props.entries.length === 0 && (
-          <EmptyState
-            className='max-md:min-h-0 max-md:gap-2 max-md:p-3'
-            icon={props.mode === 'image' ? ImageIcon : MessageSquare}
-            title={t(
-              props.mode === 'image'
-                ? 'Describe the image you want'
-                : 'What would you like to work on?'
-            )}
-          />
+          <div className='m-auto grid justify-items-center gap-3 px-2 py-4 text-center'>
+            <div className='bg-background text-foreground/75 grid size-11 place-items-center rounded-2xl border shadow-xs md:size-14'>
+              {props.mode === 'image' ? (
+                <ImageIcon className='size-5' aria-hidden='true' />
+              ) : (
+                <MessageSquare className='size-5' aria-hidden='true' />
+              )}
+            </div>
+            <h2 className='text-foreground/90 text-base font-medium tracking-tight md:text-2xl'>
+              {props.mode === 'image'
+                ? t('Describe the image you want')
+                : t('What would you like to work on?')}
+            </h2>
+          </div>
         )}
         {props.entries.map((item, index) => (
           <article
             key={item.id}
-            className='min-w-0 space-y-3 [overflow-wrap:anywhere] md:space-y-5'
+            className='min-w-0 space-y-3 wrap-anywhere md:space-y-4'
           >
-            <p className='bg-muted/60 ms-auto w-fit max-w-[90%] rounded-2xl px-4 py-3 whitespace-pre-wrap'>
+            <p className='bg-primary/8 ms-auto w-fit max-w-[92%] rounded-2xl rounded-ee-md px-3.5 py-2.5 text-[0.9375rem] leading-relaxed whitespace-pre-wrap md:max-w-[80%] md:px-4'>
               {item.prompt}
             </p>
-            <div className='space-y-3'>
-              <p className='text-muted-foreground text-xs font-medium'>
+            <div className='bg-background min-w-0 space-y-3 rounded-2xl rounded-es-md border px-3.5 py-3 shadow-xs md:px-5 md:py-4'>
+              <p className='text-muted-foreground text-xs font-medium wrap-anywhere'>
                 {item.model}
               </p>
               {item.reasoning && (
-                <details className='text-muted-foreground text-sm'>
-                  <summary>{t('Reasoning')}</summary>
+                <details className='bg-muted/65 text-muted-foreground rounded-lg px-3 py-2 text-sm'>
+                  <summary className='cursor-pointer'>{t('Reasoning')}</summary>
                   <p className='mt-3 whitespace-pre-wrap'>{item.reasoning}</p>
                 </details>
               )}
               {item.content && (
                 <Response
-                  className='max-w-full min-w-0 overflow-x-auto'
+                  className='max-w-full min-w-0 overflow-x-auto text-[0.9375rem] leading-relaxed'
                   final={item.complete || Boolean(item.error)}
                 >
                   {item.content}
@@ -88,7 +92,9 @@ export function StudioResults(props: {
                   <img
                     src={item.image}
                     alt={item.prompt}
-                    className='max-h-[65vh] max-w-full rounded-xl object-contain'
+                    className='bg-muted/45 max-h-[58dvh] max-w-full rounded-xl object-contain'
+                    loading='lazy'
+                    decoding='async'
                   />
                   <Button
                     variant='outline'
@@ -109,7 +115,14 @@ export function StudioResults(props: {
                 index === props.entries.length - 1 &&
                 !item.content &&
                 !item.image && (
-                  <p role='status' className='text-muted-foreground text-sm'>
+                  <p
+                    role='status'
+                    className='text-muted-foreground flex items-center gap-2 text-sm'
+                  >
+                    <LoaderCircle
+                      className='size-3.5 motion-safe:animate-spin'
+                      aria-hidden='true'
+                    />
                     {t(
                       props.mode === 'image'
                         ? 'Generating image…'
@@ -133,7 +146,10 @@ export function StudioResults(props: {
           </article>
         ))}
       </ConversationContent>
-      <ConversationScrollButton />
+      <ConversationScrollButton
+        className='size-11 rounded-full shadow-sm'
+        aria-label={t('Scroll to bottom')}
+      />
     </Conversation>
   )
 }
