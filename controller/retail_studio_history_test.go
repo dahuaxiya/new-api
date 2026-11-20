@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -60,4 +62,29 @@ func TestStudioHistoryRoundTrip(t *testing.T) {
 	require.Equal(t, 404, request(1, "GET", "/history/not-a-uuid", nil).Code)
 	require.Equal(t, 200, request(1, "DELETE", "/history/"+id+"?owner=1", nil).Code)
 	require.Equal(t, 404, request(1, "GET", "/history/"+id, nil).Code)
+	// An old import cannot renew retention; simulate an existing file written by the previous release.
+	now := time.Now()
+	row.UpdatedAt = now.Add(-studioHistoryRetention).UnixMilli()
+	raw, err = common.Marshal(row)
+	require.NoError(t, err)
+	require.Equal(t, 410, request(1, "PUT", "/history/"+id+"?owner=1&upload="+uuid.NewString()+"&offset=0&last=1", raw).Code)
+	dir := filepath.Join(os.Getenv("STUDIO_HISTORY_DIR"), "1")
+	for _, mode := range []string{"text", "image"} {
+		expired := studioHistoryHead{ID: uuid.NewString(), Mode: mode, UpdatedAt: row.UpdatedAt, Title: "expired"}
+		recent := expired
+		recent.ID = uuid.NewString()
+		recent.UpdatedAt = now.Add(-studioHistoryRetention + time.Hour).UnixMilli()
+		for _, head := range []studioHistoryHead{expired, recent} {
+			header, err := common.Marshal(head)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, head.ID+".record"), append(header, '\n', '{', '}'), 0600))
+		}
+		require.NotContains(t, request(1, "GET", "/history", nil).Body.String(), expired.ID)
+		require.Equal(t, 404, request(1, "GET", "/history/"+expired.ID, nil).Code)
+		require.Equal(t, 200, request(1, "GET", "/history/"+recent.ID, nil).Code)
+		require.NoError(t, purgeStudioOwner(dir, 1, now))
+		require.NoFileExists(t, filepath.Join(dir, expired.ID+".record"))
+		require.FileExists(t, filepath.Join(dir, recent.ID+".record"))
+	}
+
 }

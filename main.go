@@ -161,6 +161,9 @@ func main() {
 	taskContext, stopTasks := context.WithCancel(context.Background())
 	defer stopTasks()
 	tasksDone := service.StartSystemTaskRunner(taskContext)
+	if common.IsRetailSite() {
+		go controller.RunStudioHistoryCleanup(taskContext)
+	}
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true

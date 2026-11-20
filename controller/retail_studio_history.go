@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 // visible index until a complete, validated revision can replace the previous file by rename.
 const studioChunk = 2 << 20
 const studioRecordLimit = 76 << 20
+const studioHistoryRetention = 30 * 24 * time.Hour
 
 var historyLocks [64]sync.Mutex
 
@@ -56,14 +58,102 @@ type studioHistoryRecord struct {
 	Entries   []studioHistoryEntry `json:"entries"`
 }
 
-// studioOwnerDir selects storage solely from the authenticated identity. The default lives beside the persistent database.
-func studioOwnerDir(c *gin.Context) string {
-	root := os.Getenv("STUDIO_HISTORY_DIR")
-	if root == "" {
-		dbfile, _, _ := strings.Cut(common.SQLitePath, "?")
-		root = filepath.Join(filepath.Dir(dbfile), "studio-history")
+// studioHistoryRoot resolves the same persistent volume for API handlers and background cleanup.
+func studioHistoryRoot() string {
+	if root := os.Getenv("STUDIO_HISTORY_DIR"); root != "" {
+		return root
 	}
-	return filepath.Join(root, strconv.Itoa(c.GetInt("id")))
+	dbfile, _, _ := strings.Cut(common.SQLitePath, "?")
+	return filepath.Join(filepath.Dir(dbfile), "studio-history")
+}
+
+// studioOwnerDir uses only the authenticated identity to select the private directory.
+func studioOwnerDir(c *gin.Context) string {
+	return filepath.Join(studioHistoryRoot(), strconv.Itoa(c.GetInt("id")))
+}
+
+// readStudioHistoryHead leaves the reader at the payload and uses the saved timestamp even on older files.
+func readStudioHistoryHead(r *bufio.Reader) (studioHistoryHead, error) {
+	var head studioHistoryHead
+	line, err := r.ReadBytes('\n')
+	if err == nil {
+		err = common.Unmarshal(line, &head)
+	}
+	return head, err
+}
+
+// expired uses the last content update. Looking at a record never extends retention.
+func (head studioHistoryHead) expired(now time.Time) bool {
+	return head.UpdatedAt <= now.Add(-studioHistoryRetention).UnixMilli()
+}
+
+// purgeStudioOwner drops expired records and abandoned uploads even for accounts that never sign in again.
+func purgeStudioOwner(dir string, owner int, now time.Time) error {
+	lock := &historyLocks[owner%len(historyLocks)]
+	lock.Lock()
+	defer lock.Unlock()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	var firstErr error
+	for _, item := range entries {
+		path := filepath.Join(dir, item.Name())
+		var expired bool
+		var err error
+		if item.Type().IsRegular() && strings.HasSuffix(item.Name(), ".record") {
+			var f *os.File
+			f, err = os.Open(path)
+			if err == nil {
+				var head studioHistoryHead
+				head, err = readStudioHistoryHead(bufio.NewReader(f))
+				f.Close()
+				expired = err == nil && head.expired(now)
+			}
+		} else if item.Type().IsRegular() && strings.HasSuffix(item.Name(), ".part") {
+			var info os.FileInfo
+			info, err = item.Info()
+			expired = err == nil && now.Sub(info.ModTime()) >= time.Hour
+		}
+		// A failed read is retried on the next sweep; do not destroy an unreadable record.
+		if expired {
+			err = os.Remove(path)
+		}
+		if firstErr == nil && err != nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// RunStudioHistoryCleanup sweeps at startup and hourly. API reads enforce expiry between sweeps.
+func RunStudioHistoryCleanup(ctx context.Context) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		root := studioHistoryRoot()
+		accounts, err := os.ReadDir(root)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			common.SysError("Unable to scan studio history storage")
+		}
+		for _, account := range accounts {
+			if ctx.Err() != nil {
+				return
+			}
+			owner, err := strconv.Atoi(account.Name())
+			if err != nil || owner <= 0 || !account.IsDir() || strconv.Itoa(owner) != account.Name() {
+				continue
+			}
+			if purgeStudioOwner(filepath.Join(root, account.Name()), owner, time.Now()) != nil {
+				common.SysError("Unable to clean up studio history storage")
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // historyID accepts canonical UUIDs only. No request path component may name a filesystem path.
@@ -95,12 +185,14 @@ func ListStudioHistory(c *gin.Context) {
 			historyError(c, 500)
 			return
 		}
-		line, err := bufio.NewReader(f).ReadBytes('\n')
+		head, err := readStudioHistoryHead(bufio.NewReader(f))
 		f.Close()
-		var head studioHistoryHead
-		if err != nil || common.Unmarshal(line, &head) != nil {
+		if err != nil {
 			historyError(c, 500)
 			return
+		}
+		if head.expired(time.Now()) {
+			continue
 		}
 		rows = append(rows, head)
 	}
@@ -122,8 +214,13 @@ func ReadStudioHistory(c *gin.Context) {
 	}
 	defer f.Close()
 	r := bufio.NewReader(f)
-	if _, err = r.ReadBytes('\n'); err != nil {
+	head, err := readStudioHistoryHead(r)
+	if err != nil {
 		historyError(c, 500)
+		return
+	}
+	if head.expired(time.Now()) {
+		historyError(c, 404)
 		return
 	}
 	c.Header("Content-Type", "application/json")
@@ -256,7 +353,12 @@ func PutStudioHistory(c *gin.Context) {
 		return
 	}
 	// Preserve original dates on import and tolerate an ahead-of-time device clock.
-	row.UpdatedAt = min(row.UpdatedAt, time.Now().UnixMilli())
+	now := time.Now()
+	row.UpdatedAt = min(row.UpdatedAt, now.UnixMilli())
+	if row.UpdatedAt <= now.Add(-studioHistoryRetention).UnixMilli() {
+		historyError(c, 410)
+		return
+	}
 	for _, e := range row.Entries {
 		if e.Prompt == "" || e.Model == "" || !safeStudioRaster(e.Image) || !safeStudioRaster(e.Reference) || (row.Mode == "text" && (e.Image != "" || e.Reference != "")) {
 			historyError(c, 400)
