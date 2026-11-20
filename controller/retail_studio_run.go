@@ -177,8 +177,7 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 			historyError(c, 507)
 			return
 		}
-		if uploadErr != nil || in.Record.ID != id || (in.Parent != "" && (!historyID(in.Parent) || in.Parent == id)) ||
-			(file != nil && in.Record.Mode == "image" && in.Parent != "") {
+		if uploadErr != nil || in.Record.ID != id || (in.Parent != "" && (!historyID(in.Parent) || in.Parent == id)) {
 			historyError(c, 400)
 			return
 		}
@@ -325,6 +324,26 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 				}
 			}
 		}
+		if err == nil && in.Record.Mode == "image" && in.Parent != "" {
+			// Hydrate from the account snapshot after duplicate detection and before retiring
+			// the parent. A stale second tab cannot start a paid request from an obsolete turn.
+			var edit bool
+			edit, err = continueStudioImage(dir, &in, file != nil)
+			if err == nil {
+				// Images endpoints are stateless. Carry earlier instructions alongside the new
+				// prompt, while the authenticated history retains the original message text.
+				var payload map[string]any
+				err = common.Unmarshal(body, &payload)
+				if err == nil {
+					payload["prompt"] = studioImagePrompt(in.Record.Entries)
+					body, err = common.Marshal(payload)
+				}
+			}
+			if err == nil && edit {
+				path = "/api/retail/studio/images/edits"
+				in.uploadedReference = true
+			}
+		}
 		if err == nil {
 			err = storeStudioRecord(dir, &in.Record)
 		}
@@ -341,7 +360,11 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 			_ = deleteStudioRecord(key)
 			os.Remove(key + ".run")
 			<-studioSlots
-			historyError(c, 500)
+			if errors.Is(err, errImageParent) {
+				historyError(c, 409)
+			} else {
+				historyError(c, 500)
+			}
 			return
 		}
 		if in.Parent != "" {
@@ -350,7 +373,7 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		if len(in.chatImages) > 0 {
 			ctx = service.WithStudioVision(ctx, in.chatImages)
-		} else if file != nil {
+		} else if in.Record.Mode == "image" && in.uploadedReference {
 			ctx = service.WithStudioReference(ctx, key+".reference")
 		}
 		worker := &studioWorker{cancel: cancel}

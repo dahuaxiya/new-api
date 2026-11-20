@@ -172,3 +172,66 @@ func TestStudioRunImageOptions(t *testing.T) {
 		})
 	}
 }
+
+// TestStudioImageThread exercises the public run entry point through generation, repeated edits,
+// stale-parent rejection and duplicate acknowledgement. Every historical original remains readable.
+func TestStudioImageThread(t *testing.T) {
+	t.Setenv("STUDIO_HISTORY_DIR", t.TempDir())
+	image := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="
+	png, err := base64.StdEncoding.DecodeString(image)
+	require.NoError(t, err)
+	var calls atomic.Int32
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) { c.Set("id", 1); c.Next() })
+	engine.POST("/run/:id", StartStudioRun(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		if n == 1 {
+			require.Contains(t, r.URL.Path, "/generations")
+		} else {
+			require.Contains(t, r.URL.Path, "/edits")
+			raw, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			require.Contains(t, string(raw), "A red fox")
+		}
+		io.WriteString(w, `{"data":[{"b64_json":"`+image+`"}]}`)
+	})))
+	engine.GET("/run/:id", GetStudioRun)
+	engine.GET(studioMediaPrefix+":id/:role", ReadStudioMedia)
+	call := func(method, path string, payload []byte) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, bytes.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, req)
+		return w
+	}
+	parent := ""
+	for i, prompt := range []string{"A red fox", "Add snow", "Make it night"} {
+		id := uuid.NewString()
+		in := studioIntent{Parent: parent, Size: "auto", Quality: "auto", Record: studioHistoryRecord{ID: id, Mode: "image", Product: "standard", Entries: []studioHistoryEntry{{ID: i + 1, Model: "gpt-image-2", Prompt: prompt}}}}
+		raw, err := common.Marshal(in)
+		require.NoError(t, err)
+		path := "/run/" + id + "?owner=1"
+		require.Equal(t, 202, call("POST", path, raw).Code)
+		var out struct{ Record studioHistoryRecord }
+		require.Eventually(t, func() bool {
+			return common.Unmarshal(call("GET", "/run/"+id, nil).Body.Bytes(), &out) == nil && len(out.Record.Entries) > 0
+		}, time.Second, time.Millisecond)
+		require.Len(t, out.Record.Entries, i+1)
+		for j, e := range out.Record.Entries {
+			require.True(t, e.Complete, e.Error)
+			require.Equal(t, png, call("GET", e.Image, nil).Body.Bytes())
+			if j > 0 {
+				require.Equal(t, png, call("GET", e.Reference, nil).Body.Bytes())
+			}
+		}
+		require.Equal(t, 200, call("POST", path, raw).Code)
+		if parent != "" {
+			require.Equal(t, 404, call("GET", "/run/"+parent, nil).Code)
+			in.Record.ID = uuid.NewString()
+			raw, _ = common.Marshal(in)
+			require.Equal(t, 409, call("POST", "/run/"+in.Record.ID+"?owner=1", raw).Code)
+		}
+		parent = id
+	}
+	require.EqualValues(t, 3, calls.Load())
+}

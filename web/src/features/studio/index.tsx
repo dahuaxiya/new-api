@@ -243,7 +243,10 @@ function StudioWorkspace(props: {
       (item) => (item.kind === 'image') === (mode === 'image')
     ) ?? []
   const imageSize = useWatch({ control: form.control, name: 'size' })
-  const outputFormat = useWatch({ control: form.control, name: 'outputFormat' })
+  const outputFormat = useWatch({
+    control: form.control,
+    name: 'outputFormat',
+  })
   const model = useWatch({ control: form.control, name: 'model' })
   const selected = models.find((item) => item.id === model)
   const extendedImage = selected?.reference_image === true
@@ -285,8 +288,23 @@ function StudioWorkspace(props: {
     initial?.entries ?? props.legacy,
     storageKey,
     initial,
-    (item) => {
-      remember(item)
+    (item, savedId) => {
+      activeId.current = savedId
+      if (savedId === item.id) {
+        remember(item)
+      } else if (
+        readCurrent(storageKey, {
+          mode: item.mode ?? 'text',
+          product: item.product,
+        })?.id === item.id
+      ) {
+        // The optimistic ID was never accepted. Preserve the previous snapshot for refresh and retry.
+        writeCurrent(
+          storageKey,
+          { mode: item.mode ?? 'text', product: item.product },
+          savedId ?? null
+        )
+      }
       const last = item.entries.at(-1)
       if (last?.error && !form.getValues('prompt')) {
         form.setValue('prompt', last.prompt)
@@ -423,7 +441,7 @@ function StudioWorkspace(props: {
       }
       input = { ...input, size }
     }
-    const parent = mode === 'text' ? activeId.current : undefined
+    const parent = activeId.current
     const sentReference =
       mode === 'text' || selected.reference_image ? reference : undefined
     const entry = {
@@ -444,7 +462,7 @@ function StudioWorkspace(props: {
       mode,
       updatedAt: Date.now(),
       running: true,
-      entries: mode === 'image' ? [entry] : [...run.entries, entry],
+      entries: [...run.entries, entry],
     }
     form.setValue('prompt', '')
     setReference(undefined)
@@ -614,7 +632,10 @@ function StudioWorkspace(props: {
             storageKey={storageKey}
             disabled={run.busy}
             onDelete={(item) => {
-              const scope = { mode: item.mode ?? 'text', product: item.product }
+              const scope = {
+                mode: item.mode ?? 'text',
+                product: item.product,
+              }
               if (
                 readCurrent(storageKey, scope)?.id === item.id ||
                 activeId.current === item.id
@@ -754,19 +775,24 @@ function StudioWorkspace(props: {
               <dl className='grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 tabular-nums'>
                 <dt>{t('Input')}</dt>
                 <dd>¥{selected.tiers[0].prices.input}</dd>
-                {reference && selected.reference_image && (
-                  <>
-                    <dt>{t('Image input')}</dt>
-                    <dd>
-                      ¥
-                      {Number(
-                        (Number(selected.tiers[0].prices.input) * 1.6).toFixed(
-                          9
-                        )
-                      )}
-                    </dd>
-                  </>
-                )}
+                {(reference ||
+                  (mode === 'image' &&
+                    run.entries.some(
+                      (entry) => entry.complete && entry.image
+                    ))) &&
+                  selected.reference_image && (
+                    <>
+                      <dt>{t('Image input')}</dt>
+                      <dd>
+                        ¥
+                        {Number(
+                          (
+                            Number(selected.tiers[0].prices.input) * 1.6
+                          ).toFixed(9)
+                        )}
+                      </dd>
+                    </>
+                  )}
                 <dt>{t(mode === 'image' ? 'Image output' : 'Output')}</dt>
                 <dd>¥{selected.tiers[0].prices.output}</dd>
               </dl>

@@ -119,11 +119,14 @@ func deleteStudioRecord(key string) error {
 	}
 	err := errors.Join(removeStudioMedia(key+".reference"), removeStudioMedia(key+".result"))
 	// Enumerate this UUID's attachment names even after a partially committed run.
-	matches, globErr := filepath.Glob(filepath.Join(filepath.Dir(key), filepath.Base(key)+".chat-*"))
-	for _, path := range matches {
-		err = errors.Join(err, removeStudioMedia(path))
+	for _, prefix := range []string{"chat", "result", "reference"} {
+		matches, globErr := filepath.Glob(key + "." + prefix + "-*")
+		err = errors.Join(err, globErr)
+		for _, path := range matches {
+			err = errors.Join(err, removeStudioMedia(path))
+		}
 	}
-	return errors.Join(err, globErr)
+	return err
 }
 
 // removeStudioMedia makes repeated cleanup safe after deletion or an interrupted write.
@@ -140,7 +143,7 @@ func ReadStudioMedia(c *gin.Context) {
 	id, role := c.Param("id"), c.Param("role")
 	index, parseErr := strconv.Atoi(strings.TrimPrefix(role, "chat-"))
 	chat := parseErr == nil && index >= 0 && role == studioChatRole(index)
-	if !historyID(id) || (!chat && role != "reference" && role != "result") {
+	if !historyID(id) || (!chat && !studioImageRole(role)) {
 		historyError(c, 404)
 		return
 	}

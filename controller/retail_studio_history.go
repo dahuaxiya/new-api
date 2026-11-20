@@ -115,7 +115,7 @@ func purgeStudioOwner(dir string, owner int, now time.Time) error {
 			var info os.FileInfo
 			info, err = item.Info()
 			expired = err == nil && now.Sub(info.ModTime()) >= studioHistoryRetention
-		} else if item.Type().IsRegular() && (strings.HasSuffix(item.Name(), ".reference") || strings.HasSuffix(item.Name(), ".result") || strings.HasPrefix(filepath.Ext(item.Name()), ".chat-")) {
+		} else if item.Type().IsRegular() && (studioImageRole(strings.TrimPrefix(filepath.Ext(item.Name()), ".")) || strings.HasPrefix(filepath.Ext(item.Name()), ".chat-")) {
 			key := strings.TrimSuffix(path, filepath.Ext(path))
 			_, statErr := os.Stat(key + ".record")
 			expired = errors.Is(statErr, os.ErrNotExist)

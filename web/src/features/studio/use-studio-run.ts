@@ -40,7 +40,7 @@ export function useStudioRun(
   initialTurns: StudioEntry[],
   key: string | null,
   initial: Conversation | undefined,
-  onFinish: (item: Conversation) => void
+  onFinish: (item: Conversation, savedId?: string) => void
 ) {
   const [entries, setEntries] = useState(initialTurns)
   const [sentReference, setSentReference] = useState<File | string>()
@@ -183,7 +183,8 @@ export function useStudioRun(
       writeSession(`${key}:intent`, null)
       writeSession(`${key}:running`, null)
     }
-    finish.current(result)
+    // A rejected upload has no server snapshot. Retrying must use the last accepted parent.
+    finish.current(result, accepted ? record.id : intent?.parent)
   }
   const resume = useRef(follow)
   useEffect(() => {
@@ -213,7 +214,11 @@ export function useStudioRun(
   ) {
     if (active.current) return
     const intent = {
-      record,
+      // Image history and original files are already on the server. Send only the new turn.
+      record:
+        record.mode === 'image'
+          ? { ...record, entries: record.entries.slice(-1) }
+          : record,
       parent,
       maxTokens: input.maxTokens,
       size: input.size,
@@ -228,13 +233,15 @@ export function useStudioRun(
         : {}),
     }
     if (key) {
-      const entry = record.entries.at(-1)
       writeSession(`${key}:running`, {
         ...record,
-        entries:
-          record.mode === 'text'
-            ? record.entries
-            : [{ ...entry, reference: undefined }],
+        entries: record.entries.map((entry) => ({
+          ...entry,
+          reference: entry.reference?.startsWith('data:')
+            ? undefined
+            : entry.reference,
+          image: entry.image?.startsWith('data:') ? undefined : entry.image,
+        })),
       })
       // A file remains in memory for same-page retries. After navigation, only resume a claimed job.
       writeSession(

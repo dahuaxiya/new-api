@@ -98,8 +98,12 @@ function mount(
       maxTokens: number
     }
     if (server.has(prefix + record.id)) return { data: { success: true } }
+    const previous = parent && server.get(prefix + parent)
     if (parent) server.delete(prefix + parent)
     const copy = structuredClone(record)
+    if (previous && copy.mode === 'image') {
+      copy.entries = [...previous.entries, ...copy.entries]
+    }
     server.set(prefix + copy.id, copy)
     const entry = copy.entries.at(-1)
     if (!entry) throw new Error('Expected a submitted turn')
@@ -162,7 +166,9 @@ function mount(
     if (url.includes('/runs/')) {
       const row = server.get(prefix + url.split('/').at(-1))
       if (!row) {
-        throw Object.assign(new Error('missing'), { response: { status: 404 } })
+        throw Object.assign(new Error('missing'), {
+          response: { status: 404 },
+        })
       }
       return {
         data: row.running
@@ -924,7 +930,9 @@ it('keeps mobile image settings outside the composer and uses them after closing
   const prompt = screen.getByLabelText('Prompt')
   const trigger = screen.getByRole('button', { name: 'Advanced Settings' })
   fireEvent.click(trigger)
-  const sheet = await screen.findByRole('dialog', { name: 'Advanced Settings' })
+  const sheet = await screen.findByRole('dialog', {
+    name: 'Advanced Settings',
+  })
   expect(prompt.closest('form')).not.toContainElement(sheet)
   fireEvent.change(within(sheet).getByLabelText('Image size'), {
     target: { value: '864x1536' },
@@ -1167,4 +1175,28 @@ it('pastes a reference image without replacing the prompt or intercepting text',
   const reference = (payload as FormData).get('image') as File
   expect(reference.type).toBe('image/webp')
   expect(new Uint8Array(await reference.arrayBuffer())).toEqual(bytes)
+})
+
+/** The second image request continues the first record; only New conversation clears its parent. */
+it('keeps successive generations together until the user starts a new conversation', async () => {
+  mount(true)
+  fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'image-model' },
+  })
+  for (const prompt of ['Draw a tree', 'Make the leaves red']) {
+    fireEvent.change(screen.getByLabelText('Prompt'), {
+      target: { value: prompt },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
+    await screen.findByRole('img', { name: prompt })
+  }
+  expect(screen.getByRole('img', { name: 'Draw a tree' })).toBeVisible()
+  expect(server.size).toBe(1)
+  expect([...server.values()][0].entries.map((e) => e.prompt)).toEqual([
+    'Draw a tree',
+    'Make the leaves red',
+  ])
+  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  expect(screen.queryByRole('img', { name: 'Draw a tree' })).toBeNull()
 })
