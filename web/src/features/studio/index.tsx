@@ -26,7 +26,7 @@ import {
   SlidersHorizontal,
   Square,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -48,6 +48,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { getStudio, openStudio, studioFormSchema, type StudioForm } from './api'
 import { StudioResults } from './studio-results'
+import { readSelection, readTurns, writeSession } from './studio-session'
 import { useStudioRun } from './use-studio-run'
 
 /** Remount all private state on account/session changes; never share transcripts between logins. */
@@ -62,16 +63,24 @@ export function ModelStudio() {
 function StudioWorkspace(props: { identity: string }) {
   const { t } = useTranslation()
   const isRoot = useAuthStore((s) => s.auth.user?.role === ROLE.SUPER_ADMIN)
-  const [mode, setMode] = useState<'text' | 'image'>('text')
+  const userId = useAuthStore((s) => s.auth.user?.id)
+  const storageKey = userId ? `studio.v1:${userId}` : null
+  const [saved] = useState(() => readSelection(storageKey))
+  const [mode, setMode] = useState<'text' | 'image'>(saved?.mode ?? 'text')
   const [policyOpen, setPolicyOpen] = useState(false)
   const [openedId, setOpenedId] = useState(0)
-  const [chosenProductId, setChosenProductId] = useState<string | null>(null)
-  const run = useStudioRun()
+  const [chosenProductId, setChosenProductId] = useState<string | null>(
+    saved?.product ?? null
+  )
+  const [initialTurns] = useState(() =>
+    saved?.mode === 'text' ? readTurns(storageKey, saved.product) : []
+  )
+  const run = useStudioRun(initialTurns)
   const form = useForm<StudioForm>({
     resolver: zodResolver(studioFormSchema),
     defaultValues: {
       prompt: '',
-      model: '',
+      model: saved?.model ?? '',
       maxTokens: 1024,
       size: '1024x1024',
       quality: 'medium',
@@ -114,7 +123,26 @@ function StudioWorkspace(props: { identity: string }) {
     product?.models.filter(
       (item) => (item.kind === 'image') === (mode === 'image')
     ) ?? []
-  const selected = models.find((item) => item.id === form.watch('model'))
+  const model = form.watch('model')
+  const selected = models.find((item) => item.id === model)
+  const [storageFailed, setStorageFailed] = useState(false)
+  useEffect(() => {
+    if (
+      selectedProductId &&
+      writeSession(storageKey, { product: selectedProductId, mode, model }) ===
+        false
+    ) {
+      setStorageFailed(true)
+    }
+  }, [storageKey, selectedProductId, mode, model])
+  useEffect(() => {
+    // Only settled turns enter storage. Avoid rewriting the transcript on every streamed token.
+    if (!storageKey || mode !== 'text' || !selectedProductId || run.busy) return
+    const key = `${storageKey}:chat:${selectedProductId}`
+    setStorageFailed(
+      writeSession(key, run.entries.length ? run.entries : null) === false
+    )
+  }, [storageKey, selectedProductId, mode, run.busy, run.entries])
   const available = Boolean(query.data?.catalog.enabled && selected)
   const catalog = query.data?.catalog
   const hasCatalogModels = catalog?.products.some((item) => item.models.length)
@@ -152,13 +180,15 @@ function StudioWorkspace(props: { identity: string }) {
     setChosenProductId(id)
     form.setValue('model', '')
     // Conversation context is local to the chosen group; do not forward old prompts to a different supplier.
-    run.clear()
+    run.reset(mode === 'text' ? readTurns(storageKey, id) : [])
+    form.setValue('prompt', '')
   }
   /** Keep generated images and conversations separate; mode switches start a fresh local workspace. */
   const changeMode = (value: unknown) => {
     if (run.busy || (value !== 'text' && value !== 'image')) return
     setMode(value)
-    run.clear()
+    run.reset(value === 'text' ? readTurns(storageKey, selectedProductId) : [])
+    form.setValue('prompt', '')
     form.setValue('model', '')
   }
   /** Validate both the form and current catalog before sending; the server independently rechecks all limits. */
@@ -170,7 +200,32 @@ function StudioWorkspace(props: { identity: string }) {
       })
       return
     }
-    await run.send(input, mode, selectedProductId)
+    await run.send(
+      input,
+      mode,
+      selectedProductId,
+      (turn) => {
+        form.setValue('prompt', '')
+        // Navigation cancels the transport. Save the submitted prompt once without replaying a paid request.
+        if (storageKey && mode === 'text') {
+          const interrupted = {
+            ...turn,
+            error: 'Stopped. Check usage before trying again.',
+          }
+          if (
+            writeSession(`${storageKey}:chat:${selectedProductId}`, [
+              ...run.entries,
+              interrupted,
+            ]) === false
+          ) {
+            setStorageFailed(true)
+          }
+        }
+      },
+      () => {
+        if (!form.getValues('prompt')) form.setValue('prompt', input.prompt)
+      }
+    )
     void query.refetch()
   }
 
@@ -210,7 +265,10 @@ function StudioWorkspace(props: { identity: string }) {
             variant='outline'
             size='sm'
             disabled={run.busy || run.entries.length === 0}
-            onClick={run.clear}
+            onClick={() => {
+              run.reset([])
+              form.setValue('prompt', '')
+            }}
           >
             <Plus aria-hidden='true' />
             {t('New conversation')}
@@ -417,9 +475,8 @@ function StudioWorkspace(props: { identity: string }) {
           / {t('Day')}
         </p>
         <p className='text-muted-foreground text-center text-xs'>
-          {t(
-            'Content stays on this page only. Refreshing clears it; stopping may still incur charges.'
-          )}
+          {storageFailed && t('Chat history could not be saved in this tab.')}{' '}
+          {t('Stopping may still incur charges.')}
         </p>
       </form>
       {tokenId > 0 && (

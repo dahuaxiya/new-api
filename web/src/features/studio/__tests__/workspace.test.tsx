@@ -37,11 +37,14 @@ const streamSend = vi.hoisted(() =>
   vi.fn(
     async (
       _payload: unknown,
-      _update: unknown,
+      _update: (kind: 'content', text: string) => void,
       complete: () => void,
-      _error: unknown,
+      _error: (text: string) => void,
       _headers: Record<string, string>
-    ) => complete()
+    ) => {
+      _update('content', 'Received')
+      complete()
+    }
   )
 )
 vi.mock('@/features/playground/hooks/use-stream-request', () => ({
@@ -68,13 +71,14 @@ function mount(
     paused?: boolean
     noPlan?: boolean
     noRoute?: boolean
+    userId?: number
     root?: boolean
     secondGroup?: boolean
     automatic?: boolean
   } = {}
 ) {
   useAuthStore.getState().auth.setUser({
-    id: 1,
+    id: options.userId ?? 1,
     username: 'studio-user',
     role: options.root ? 100 : 1,
   })
@@ -157,6 +161,7 @@ function mount(
 
 afterEach(() => {
   cleanup()
+  window.sessionStorage.clear()
   clients.splice(0).forEach((client) => client.clear())
   vi.restoreAllMocks()
   streamSend.mockClear()
@@ -188,6 +193,7 @@ it('sends the first chat directly with its selected group and no setup request',
   expect(streamSend).not.toHaveBeenCalled()
   fireEvent.keyDown(screen.getByLabelText('Prompt'), { key: 'Enter' })
   await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(1))
+  expect(screen.getByLabelText('Prompt')).toHaveValue('')
   expect(streamSend.mock.calls[0][0]).toMatchObject({
     model: 'text-model',
     messages: [{ role: 'user', content: 'Hello' }],
@@ -387,4 +393,89 @@ it('updates the visible group only after saving and leaves browsing selection un
       }),
     })
   )
+})
+
+/** A fresh mount reads the last selection and completed turns; New conversation clears only its history. */
+it('resumes a premium conversation after remount and starts a new one with the same model', async () => {
+  const options = { secondGroup: true }
+  const first = mount(true, options)
+  fireEvent.change(await screen.findByLabelText('Call group'), {
+    target: { value: 'premium' },
+  })
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'premium-text' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Remember Ada' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await screen.findByText('Remember Ada', { selector: 'p' })
+  first.unmount()
+  const second = mount(true, options)
+  expect(await screen.findByLabelText('Call group')).toHaveValue('premium')
+  expect(screen.getByLabelText('Model')).toHaveValue('premium-text')
+  expect(screen.getByText('Remember Ada')).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Who?' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(2))
+  expect(streamSend.mock.calls[1][0]).toMatchObject({
+    messages: [
+      { role: 'user', content: 'Remember Ada' },
+      { role: 'assistant', content: 'Received' },
+      { role: 'user', content: 'Who?' },
+    ],
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  second.unmount()
+  mount(true, options)
+  expect(await screen.findByLabelText('Model')).toHaveValue('premium-text')
+  expect(screen.queryByText('Remember Ada')).toBeNull()
+})
+
+/** Failed submissions stay editable while failed turns are excluded from later requests. */
+it('restores a failed prompt and retries only on the next manual send', async () => {
+  streamSend.mockImplementationOnce(async (_p, _u, _c, error) =>
+    error('Temporary failure')
+  )
+  mount(true)
+  fireEvent.change(await screen.findByLabelText('Model'), {
+    target: { value: 'text-model' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Retry me' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  expect(await screen.findByText('Temporary failure')).toBeVisible()
+  expect(screen.getByLabelText('Prompt')).toHaveValue('Retry me')
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(2))
+  expect(streamSend.mock.calls[1][0]).toMatchObject({
+    messages: [{ role: 'user', content: 'Retry me' }],
+  })
+})
+
+/** Leaving mid-generation preserves the prompt for its owner without sending it a second time. */
+it('restores an interrupted message for its owner only', async () => {
+  streamSend.mockImplementationOnce(async () => {})
+  const first = mount(true)
+  fireEvent.change(await screen.findByLabelText('Model'), {
+    target: { value: 'text-model' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Private message' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await screen.findByRole('button', { name: 'Stop' })
+  expect(screen.getByLabelText('Prompt')).toHaveValue('')
+  first.unmount()
+  const other = mount(true, { userId: 2 })
+  expect(await screen.findByLabelText('Model')).toHaveValue('')
+  expect(screen.queryByText('Private message')).toBeNull()
+  other.unmount()
+  mount(true)
+  expect(await screen.findByText('Private message')).toBeVisible()
+  expect(screen.getByRole('alert')).toBeVisible()
+  expect(streamSend).toHaveBeenCalledTimes(1)
 })

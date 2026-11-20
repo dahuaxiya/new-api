@@ -38,12 +38,12 @@ export type StudioEntry = {
 /** Keep transcripts in memory and cancel transport on navigation/account changes.
  * A synchronous latch prevents two submissions before React renders the disabled button.
  */
-export function useStudioRun() {
-  const [entries, setEntries] = useState<StudioEntry[]>([])
+export function useStudioRun(initialTurns: StudioEntry[]) {
+  const [entries, setEntries] = useState<StudioEntry[]>(initialTurns)
   const [busy, setBusy] = useState(false)
   const locked = useRef(false)
   const imageAbort = useRef<AbortController | null>(null)
-  const sequence = useRef(0)
+  const sequence = useRef(initialTurns.at(-1)?.id ?? 0)
   const stream = useStreamRequest('/api/retail/studio/chat/completions')
   useEffect(
     () => () => {
@@ -66,23 +66,24 @@ export function useStudioRun() {
   const send = async (
     input: StudioForm,
     mode: 'text' | 'image',
-    productId: string
+    productId: string,
+    onAccepted: (turn: StudioEntry) => void,
+    onFailure: () => void
   ): Promise<void> => {
     if (locked.current) return
     locked.current = true
     setBusy(true)
     const id = ++sequence.current
-    setEntries((current) => [
-      ...current,
-      {
-        id,
-        prompt: input.prompt,
-        model: input.model,
-        content: '',
-        reasoning: '',
-        complete: false,
-      },
-    ])
+    const turn = {
+      id,
+      prompt: input.prompt,
+      model: input.model,
+      content: '',
+      reasoning: '',
+      complete: false,
+    }
+    onAccepted(turn)
+    setEntries((current) => [...current, turn])
     if (mode === 'image') {
       const controller = new AbortController()
       imageAbort.current = controller
@@ -95,6 +96,7 @@ export function useStudioRun() {
         finish(id, { image, complete: true })
       } catch (error) {
         if (!controller.signal.aborted) {
+          onFailure()
           handleServerError(error)
           finish(id, { error: getServerErrorMessage(error) })
         }
@@ -107,27 +109,35 @@ export function useStudioRun() {
         { role: 'user' as const, content: item.prompt },
         { role: 'assistant' as const, content: item.content },
       ])
-    await stream.sendStreamRequest(
-      {
-        model: input.model,
-        messages: [...messages, { role: 'user', content: input.prompt }],
-        max_tokens: input.maxTokens,
-        stream: true,
-        stream_options: { include_usage: true },
-      },
-      (kind, chunk) => {
-        if (id !== sequence.current) return
-        const field = kind === 'reasoning' ? 'reasoning' : 'content'
-        setEntries((current) =>
-          current.map((item) =>
-            item.id === id ? { ...item, [field]: item[field] + chunk } : item
+    try {
+      await stream.sendStreamRequest(
+        {
+          model: input.model,
+          messages: [...messages, { role: 'user', content: input.prompt }],
+          max_tokens: input.maxTokens,
+          stream: true,
+          stream_options: { include_usage: true },
+        },
+        (kind, chunk) => {
+          if (id !== sequence.current) return
+          const field = kind === 'reasoning' ? 'reasoning' : 'content'
+          setEntries((current) =>
+            current.map((item) =>
+              item.id === id ? { ...item, [field]: item[field] + chunk } : item
+            )
           )
-        )
-      },
-      () => finish(id, { complete: true }),
-      (message) => finish(id, { error: message }),
-      { 'X-Retail-Product': productId }
-    )
+        },
+        () => finish(id, { complete: true }),
+        (message) => {
+          onFailure()
+          finish(id, { error: message })
+        },
+        { 'X-Retail-Product': productId }
+      )
+    } catch (error) {
+      onFailure()
+      finish(id, { error: getServerErrorMessage(error) })
+    }
   }
 
   /** Stop receiving, not billing: upstream work already dispatched may still incur a charge. */
@@ -141,8 +151,10 @@ export function useStudioRun() {
   }
 
   /** Discard only the local transcript, after any active transport has been stopped. */
-  const clear = () => {
-    if (!locked.current) setEntries([])
+  const reset = (next: StudioEntry[]) => {
+    if (locked.current) return
+    sequence.current = Math.max(sequence.current, next.at(-1)?.id ?? 0)
+    setEntries(next)
   }
-  return { entries, busy, send, stop, clear }
+  return { entries, busy, send, stop, reset }
 }
