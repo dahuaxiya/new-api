@@ -339,3 +339,71 @@ func TestRetailModelSyncAtomicPublication(t *testing.T) {
 		})
 	}
 }
+
+// TestRetailGroupLaunchDatabases checks cancellation, price changes and publication with an independent Claude credential on each supported database.
+func TestRetailGroupLaunchDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := useVM2APIEnrollmentDatabase(t, dialect)
+			require.NoError(t, migrateDB())
+			endpoint := "https://aixingxing.pro"
+			site := Channel{Name: "Anthropic", Key: "site-key", BaseURL: &endpoint, Type: 14, Models: "claude-current", Group: "retail", Status: 1}
+			require.NoError(t, site.Insert())
+			path := filepath.Join(t.TempDir(), "retail.json")
+			raw, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"channel_id": site.Id, "kind": "reseller"}}})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(path, raw, 0600))
+			t.Setenv("RETAIL_RELAY_CONFIG", path)
+			now := time.Now().Unix()
+			ctx := context.Background()
+			feed := &retailprice.PublicRateSnapshot{Source: "https://aixingxing.pro/api/public/rates", UpdatedAt: now, FetchedAt: now, Groups: []retailprice.PublicRate{{Group: "a", Multiplier: "0.5"}, {Group: "b", Multiplier: "0.5"}}}
+			binding := retailprice.GroupBinding{LocalGroup: "default", ChannelID: site.Id, UpstreamGroup: "a"}
+			v, err := SaveRetailGroupBindings(ctx, 0, []retailprice.GroupBinding{binding}, true, feed, 1)
+			require.NoError(t, err)
+			price := retailprice.OfficialModels()[0]
+			price.ID = "claude-current"
+			price.OfficialModel = price.ID
+			price.VerifiedAt = now - 30
+			price.ValidUntil = now + 3600
+			legacy := retailprice.Product{ID: "legacy", Name: "legacy", UserGroups: []string{"default"}, Routes: []retailprice.Route{{ChannelID: site.Id, Models: map[string]string{price.ID: price.ID}}}}
+			v, err = PublishRetailPriceBook(v, retailprice.Book{Enabled: true, WalletCNYPerUnit: "1", ReceiptRatio: "1", Models: []retailprice.Model{price}, Products: []retailprice.Product{legacy}}, nil, 1)
+			require.NoError(t, err)
+			margin := 2000
+			in := RetailGroupLaunch{Version: v, Site: site.Id, Group: "claude-normal", Upstream: "b", Models: []string{price.ID, "claude-unknown"}, Key: "new-claude-key", Margin: &margin}
+			preview, err := LaunchRetailGroup(ctx, in, 1)
+			require.NoError(t, err)
+			require.NotEmpty(t, preview.Review)
+			require.Len(t, preview.Rows, 2)
+			require.Equal(t, "1.25", preview.Rows[0].Tiers[0].Prices.Input)
+			require.Equal(t, "official_price_missing_or_expired", preview.Rows[1].Reason)
+			var n int64
+			require.NoError(t, db.Model(&Channel{}).Where("retail_site_id = ?", site.Id).Count(&n).Error)
+			require.Zero(t, n)
+			in.Review = preview.Review
+			margin = 3000
+			_, err = LaunchRetailGroup(ctx, in, 1)
+			require.ErrorIs(t, err, ErrRetailPriceConflict)
+			margin = 2000
+			result, err := LaunchRetailGroup(ctx, in, 1)
+			require.NoError(t, err)
+			require.Equal(t, v+1, result.Version)
+			_, err = LaunchRetailGroup(ctx, in, 1)
+			require.ErrorIs(t, err, ErrRetailPriceConflict)
+			final, version, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Equal(t, result.Version, version)
+			require.Equal(t, legacy, final.Products[0])
+			require.Zero(t, final.MarginBPS)
+			require.Len(t, final.Products, 2)
+			product := final.Products[1]
+			require.True(t, product.Public)
+			require.Equal(t, in.Group, product.BindingGroup)
+			require.Len(t, product.Routes[0].Models, 1)
+			targets, err := RetailDisplayTargets()
+			require.NoError(t, err)
+			quote, err := final.MakeQuote(version, "default", retailprice.KeyPolicy{GroupCurrent: true, ProductID: product.ID}, price.ID, 1, targets.Eligible(product, price.ID), now)
+			require.NoError(t, err)
+			require.Equal(t, preview.Rows[0].Tiers, quote.Sale)
+		})
+	}
+}

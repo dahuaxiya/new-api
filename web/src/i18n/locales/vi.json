@@ -1,5 +1,15 @@
 {
   "translation": {
+    "Publish a call group": "Công bố nhóm gọi",
+    "Supply site": "Trang nhà cung cấp",
+    "New upstream Key": "Khóa nhà cung cấp mới",
+    "Call group name": "Tên nhóm gọi",
+    "Site default ({{value}}%)": "Mặc định của trang ({{value}}%)",
+    "Save and publish group": "Lưu và công bố",
+    "Call group published": "Đã công bố nhóm gọi",
+    "Enable retail sales and automatic upstream rates before publishing a group": "Hãy bật bán lẻ và cập nhật giá nhà cung cấp tự động trước khi công bố.",
+    "Upstream rates have expired. Sync the bound rates and preview again.": "Giá nhà cung cấp đã hết hạn. Hãy đồng bộ và xem trước lại.",
+    "This call group is already published": "Nhóm gọi này đã được công bố.",
     "Add a Key and at least one model before enabling it": "Thêm khóa và ít nhất một mô hình trước khi bật",
     "Add Key and bind group": "Thêm khóa và liên kết nhóm",
     "Reuse an existing Key": "Dùng lại khóa hiện có",

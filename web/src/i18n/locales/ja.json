@@ -1,5 +1,15 @@
 {
   "translation": {
+    "Publish a call group": "呼び出しグループを公開",
+    "Supply site": "上流サイト",
+    "New upstream Key": "新しい上流キー",
+    "Call group name": "呼び出しグループ名",
+    "Site default ({{value}}%)": "サイトの既定値（{{value}}%）",
+    "Save and publish group": "保存して公開",
+    "Call group published": "グループを公開しました",
+    "Enable retail sales and automatic upstream rates before publishing a group": "販売と上流料金の自動更新を有効にしてください。",
+    "Upstream rates have expired. Sync the bound rates and preview again.": "上流料金の期限が切れました。同期して再度確認してください。",
+    "This call group is already published": "このグループは公開済みです。",
     "Add a Key and at least one model before enabling it": "有効にするには、キーと少なくとも 1 つのモデルを追加してください",
     "Add Key and bind group": "キーを追加してグループに紐付ける",
     "Reuse an existing Key": "既存のキーを使う",

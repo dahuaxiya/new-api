@@ -1,5 +1,15 @@
 {
   "translation": {
+    "Publish a call group": "上架呼叫群組",
+    "Supply site": "上游站點",
+    "New upstream Key": "使用新 Key",
+    "Call group name": "本站呼叫群組名稱",
+    "Site default ({{value}}%)": "沿用站點毛利率（{{value}}%）",
+    "Save and publish group": "儲存並上架",
+    "Call group published": "呼叫群組已上架",
+    "Enable retail sales and automatic upstream rates before publishing a group": "請先開放銷售並啟用自動跟隨上游倍率",
+    "Upstream rates have expired. Sync the bound rates and preview again.": "上游倍率已過期，請同步倍率後重新預覽。",
+    "This call group is already published": "這個呼叫群組已經上架",
     "Add a Key and at least one model before enabling it": "填寫 Key 並新增至少一個模型後才能啟用",
     "Add Key and bind group": "新增 Key 並綁定分組",
     "Reuse an existing Key": "使用已有的 Key",

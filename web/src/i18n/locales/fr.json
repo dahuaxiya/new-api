@@ -1,5 +1,15 @@
 {
   "translation": {
+    "Publish a call group": "Publier un groupe d’appel",
+    "Supply site": "Site fournisseur",
+    "New upstream Key": "Nouvelle clé fournisseur",
+    "Call group name": "Nom du groupe d’appel",
+    "Site default ({{value}}%)": "Marge du site ({{value}} %)",
+    "Save and publish group": "Enregistrer et publier",
+    "Call group published": "Groupe publié",
+    "Enable retail sales and automatic upstream rates before publishing a group": "Activez les ventes et les tarifs automatiques du fournisseur avant de publier.",
+    "Upstream rates have expired. Sync the bound rates and preview again.": "Les tarifs ont expiré. Synchronisez-les avant de relancer l’aperçu.",
+    "This call group is already published": "Ce groupe est déjà publié.",
     "Add a Key and at least one model before enabling it": "Ajoutez une clé et au moins un modèle avant de l’activer",
     "Add Key and bind group": "Ajouter une clé et associer un groupe",
     "Reuse an existing Key": "Réutiliser une clé existante",

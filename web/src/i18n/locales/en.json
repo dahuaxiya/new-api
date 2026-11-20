@@ -1,5 +1,15 @@
 {
   "translation": {
+    "Publish a call group": "Publish a call group",
+    "Supply site": "Supply site",
+    "New upstream Key": "New upstream Key",
+    "Call group name": "Call group name",
+    "Site default ({{value}}%)": "Site default ({{value}}%)",
+    "Save and publish group": "Save and publish group",
+    "Call group published": "Call group published",
+    "Enable retail sales and automatic upstream rates before publishing a group": "Enable retail sales and automatic upstream rates before publishing a group",
+    "Upstream rates have expired. Sync the bound rates and preview again.": "Upstream rates have expired. Sync the bound rates and preview again.",
+    "This call group is already published": "This call group is already published",
     "Add a Key and at least one model before enabling it": "Add a Key and at least one model before enabling it",
     "Add Key and bind group": "Add Key and bind group",
     "Reuse an existing Key": "Reuse an existing Key",

@@ -160,6 +160,12 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 	localGroups := ratio_setting.GetGroupRatioCopy()
 	return mutateRetailPriceBookIn(db, ctx, expected, actorID, false, func(book *retailprice.Book) error {
 		// Seed from the old routes before replacing them, including the last route being removed.
+		// Published call groups can be created independently of legacy account ratio groups.
+		for _, product := range book.Products {
+			if product.Public {
+				localGroups[product.BindingGroup] = 1
+			}
+		}
 		groups := book.RegisteredGroups()
 		for _, binding := range bindings {
 			if group := groups[binding.ChannelID]; group != "" && group != binding.UpstreamGroup {

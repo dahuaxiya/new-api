@@ -126,13 +126,18 @@ func (targets RetailRouteTargets) Eligible(product retailprice.Product, name str
 // RetailCatalogTargets intersects enrolled supplies with enabled abilities and channel mappings.
 // Optional names restrict per-request work; an empty list loads the whole catalog for display.
 func RetailCatalogTargets(group string, ids []int, names ...string) (RetailRouteTargets, error) {
+	return retailCatalogTargetsIn(DB, group, ids, names...)
+}
+
+// retailCatalogTargetsIn reads abilities from the same transaction as a proposed supply.
+func retailCatalogTargetsIn(db *gorm.DB, group string, ids []int, names ...string) (RetailRouteTargets, error) {
 	type row struct {
 		Model        string
 		ChannelID    int
 		ModelMapping *string
 	}
 	var rows []row
-	query := DB.Model(&Ability{}).Select("abilities.model, abilities.channel_id, channels.model_mapping").Joins("JOIN channels ON channels.id = abilities.channel_id").Where(&Ability{Group: group, Enabled: true}).Where("channels.status = ? AND abilities.channel_id IN ?", common.ChannelStatusEnabled, ids)
+	query := db.Model(&Ability{}).Select("abilities.model, abilities.channel_id, channels.model_mapping").Joins("JOIN channels ON channels.id = abilities.channel_id").Where(&Ability{Group: group, Enabled: true}).Where("channels.status = ? AND abilities.channel_id IN ?", common.ChannelStatusEnabled, ids)
 	if len(names) > 0 {
 		query = query.Where("abilities.model IN ?", names)
 	}

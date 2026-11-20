@@ -1,3 +1,8 @@
+import { defaultBillingSettings } from '@/features/system-settings/billing/defaults'
+import { GroupPricingSection } from '@/features/system-settings/billing/group-pricing-section'
+import { SettingsPage } from '@/features/system-settings/components/settings-page'
+import type { BillingSettings } from '@/features/system-settings/types'
+
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,10 +21,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { defaultBillingSettings } from '@/features/system-settings/billing/defaults'
-import { GroupPricingSection } from '@/features/system-settings/billing/group-pricing-section'
-import { SettingsPage } from '@/features/system-settings/components/settings-page'
-import type { BillingSettings } from '@/features/system-settings/types'
+import { RetailGroupLaunch } from './retail-group-launch'
 
 const GROUP_MANAGEMENT_SECTION = 'group-management'
 
@@ -31,7 +33,13 @@ export function GroupManagement() {
       defaultSettings={defaultBillingSettings}
       defaultSection={GROUP_MANAGEMENT_SECTION}
       getSectionContent={(_section, settings) => (
-        <GroupPricingSection settings={settings} titleKey='Group Management' />
+        <>
+          <RetailGroupLaunch />
+          <GroupPricingSection
+            settings={settings}
+            titleKey='Group Management'
+          />
+        </>
       )}
       getSectionMeta={() => ({ titleKey: 'Group Management' })}
     />

@@ -1,5 +1,15 @@
 {
   "translation": {
+    "Publish a call group": "Опубликовать группу вызовов",
+    "Supply site": "Сайт поставщика",
+    "New upstream Key": "Новый ключ поставщика",
+    "Call group name": "Имя группы вызовов",
+    "Site default ({{value}}%)": "Маржа сайта ({{value}} %)",
+    "Save and publish group": "Сохранить и опубликовать",
+    "Call group published": "Группа опубликована",
+    "Enable retail sales and automatic upstream rates before publishing a group": "Сначала включите продажи и автоматическое обновление тарифов.",
+    "Upstream rates have expired. Sync the bound rates and preview again.": "Тарифы устарели. Обновите их и повторите предпросмотр.",
+    "This call group is already published": "Эта группа уже опубликована.",
     "Add a Key and at least one model before enabling it": "Добавьте ключ и хотя бы одну модель перед включением",
     "Add Key and bind group": "Добавить ключ и привязать группу",
     "Reuse an existing Key": "Использовать существующий ключ",

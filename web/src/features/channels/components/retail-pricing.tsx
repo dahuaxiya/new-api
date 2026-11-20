@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -187,7 +187,10 @@ function RetailPricingEditor(props: {
       rates: JSON.stringify(props.state.book.rates ?? [], null, 2),
     },
   })
-  const { book, models, products, rates } = form.watch()
+  const [book, models, products, rates] = useWatch({
+    control: form.control,
+    name: ['book', 'models', 'products', 'rates'],
+  })
   const [preview, setPreview] = useState<{
     draft: string
     rows: RetailPricePreview[]
@@ -593,7 +596,7 @@ function RetailPricingEditor(props: {
 }
 
 /** Show the full calculated tariff both in the optional preview and the publication review. */
-function SellingPricePreview(props: { rows: RetailPricePreview[] }) {
+export function SellingPricePreview(props: { rows: RetailPricePreview[] }) {
   const { t } = useTranslation()
   return (
     <div className='space-y-4' aria-live='polite'>

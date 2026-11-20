@@ -72,6 +72,7 @@ type Route struct {
 
 // Product defines independently authorized sales access and equivalent procurement routes.
 type Product struct {
+	MarginBPS    *int     `json:"margin_bps,omitempty"` // Nil products inherit the site margin, including every historical product.
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`
 	Public       bool     `json:"public,omitempty"`
@@ -220,6 +221,9 @@ func (b Book) Validate(now int64) error {
 		rates[r.ID] = true
 	}
 	for _, p := range b.Products {
+		if p.MarginBPS != nil && (*p.MarginBPS < 0 || *p.MarginBPS > 9500) {
+			return ErrConfig
+		}
 		if !idPattern.MatchString(p.ID) || products[p.ID] || strings.TrimSpace(p.Name) == "" || len(p.Name) > 100 || (!p.Public && len(p.UserGroups) == 0) || len(p.UserGroups) > 100 || len(p.Routes) == 0 || len(p.Routes) > 100 {
 			return ErrConfig
 		}
@@ -351,6 +355,10 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 	}
 	if outputLimit <= 0 || outputLimit > official.MaxOutput {
 		return nil, ErrBudget
+	}
+	// Only the selected product overrides the margin. Book is a value copy, so other quotes retain their policy.
+	if product.MarginBPS != nil {
+		b.MarginBPS = *product.MarginBPS
 	}
 	var cheapest decimal.Decimal
 	expires := official.ValidUntil

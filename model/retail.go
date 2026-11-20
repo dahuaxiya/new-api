@@ -1,6 +1,7 @@
 package model
 
 import (
+	"gorm.io/gorm"
 	"os"
 	"strings"
 
@@ -50,7 +51,12 @@ func RetailTokenGroup(userID, tokenID int) (string, error) {
 // RetailSupplyIDs 只允许显式登记、属于销售组且未被托管客户占用的渠道进入候选列表。
 // 重新查库防止渠道缓存或后台误改分组将客户账号混入公共供货。
 func RetailSupplyIDs(group string) ([]int, error) {
-	cfg, err := RetailSupplyConfig(DB)
+	return retailSupplyIDsIn(DB, group)
+}
+
+// retailSupplyIDsIn includes pending channel creation only inside its publishing transaction.
+func retailSupplyIDsIn(db *gorm.DB, group string) ([]int, error) {
+	cfg, err := RetailSupplyConfig(db)
 	if err != nil || !cfg.Enabled || cfg.Group != group {
 		return nil, retail_setting.ErrUnavailable
 	}
@@ -59,11 +65,11 @@ func RetailSupplyIDs(group string) ([]int, error) {
 		ids = append(ids, supply.ChannelID)
 	}
 	var channels []Channel
-	if err = DB.Select("id", "group", "status", "type").Where("id IN ?", ids).Find(&channels).Error; err != nil {
+	if err = db.Select("id", "group", "status", "type").Where("id IN ?", ids).Find(&channels).Error; err != nil {
 		return nil, err
 	}
 	var bound []int
-	if err = DB.Model(&GPTHostingBinding{}).Where("channel_id IN ?", ids).Pluck("channel_id", &bound).Error; err != nil {
+	if err = db.Model(&GPTHostingBinding{}).Where("channel_id IN ?", ids).Pluck("channel_id", &bound).Error; err != nil {
 		return nil, err
 	}
 	blocked := map[int]bool{}

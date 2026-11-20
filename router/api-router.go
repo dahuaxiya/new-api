@@ -39,6 +39,7 @@ func SetApiRouter(router *gin.Engine) {
 		retailAdmin.POST("/pricing/group-bindings/sync", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-pricing"), controller.SyncRetailGroupBindings)
 		retailAdmin.POST("/pricing/preview", middleware.SessionCookieOriginGuard(), controller.PreviewRetailPricing)
 		retailAdmin.POST("/pricing/official-draft", middleware.SessionCookieOriginGuard(), controller.GenerateRetailOfficialDraft)
+		retailAdmin.POST("/pricing/group-launch", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-pricing"), controller.LaunchRetailGroup)
 		retailAdmin.PUT("/pricing", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-pricing"), controller.PutRetailPricingAdmin)
 		retailAdmin.POST("/pricing/rates", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-pricing"), controller.ImportRetailRates)
 		retailUser := apiRouter.Group("/retail", middleware.UserAuth(), middleware.DisableCache())

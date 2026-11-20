@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -309,7 +309,20 @@ function BindingEditor(props: {
     toIntlLocale(i18n.resolvedLanguage || i18n.language),
     { dateStyle: 'short', timeStyle: 'medium' }
   )
-  const now = Math.max(props.state.server_time, Math.floor(Date.now() / 1000))
+  const [now, setNow] = useState(() =>
+    Math.max(props.state.server_time, Math.floor(Date.now() / 1000))
+  )
+  useEffect(() => {
+    if (!committed) return
+    // Show expiration even when the operator leaves the form idle during a feed outage.
+    const expires = Math.min(committed.updated_at, committed.fetched_at) + 300
+    const delay = Math.max(
+      0,
+      expires - Math.max(props.state.server_time, Date.now() / 1000)
+    )
+    const timer = window.setTimeout(() => setNow(expires), delay * 1000)
+    return () => window.clearTimeout(timer)
+  }, [committed, props.state.server_time])
   const healthy =
     props.state.sync.enabled &&
     !props.state.sync.last_error &&
@@ -590,7 +603,10 @@ function BindingEditor(props: {
                         (1 + salePolicy.buffer_bps / 10000)) /
                       Number(salePolicy.receipt_ratio) /
                       (1 - salePolicy.fee_bps / 10000) /
-                      (1 - salePolicy.margin_bps / 10000)
+                      (1 -
+                        (props.state.group_margins?.[row.local_group] ??
+                          salePolicy.margin_bps) /
+                          10000)
                     )
                       .toFixed(8)
                       .replace(/0+$/, '')
@@ -823,7 +839,9 @@ function BindingEditor(props: {
                       label={`${t('Allowed models')} ${index + 1}`}
                       following={bindings.some(
                         (other) =>
-                          other.channel_id === channel.id && other.follow_models
+                          channel.type === 1 &&
+                          other.channel_id === channel.id &&
+                          other.follow_models
                       )}
                       disabled={mutation.isPending}
                       onChange={(models) => editSupply(channel.id, { models })}
@@ -832,24 +850,26 @@ function BindingEditor(props: {
                 </FieldGroup>
               )}
               <div className='space-y-1 text-sm'>
-                <div className='flex items-center gap-2'>
-                  <Switch
-                    id={`follow-models-${row.rowID}`}
-                    checked={!!row.follow_models}
-                    disabled={mutation.isPending}
-                    onCheckedChange={(on) =>
-                      setBindings(
-                        bindings.map((item, i) =>
-                          i === index ? { ...item, follow_models: on } : item
+                {(channel?.type === 1 || row.follow_models) && (
+                  <div className='flex items-center gap-2'>
+                    <Switch
+                      id={`follow-models-${row.rowID}`}
+                      checked={!!row.follow_models}
+                      disabled={mutation.isPending}
+                      onCheckedChange={(on) =>
+                        setBindings(
+                          bindings.map((item, i) =>
+                            i === index ? { ...item, follow_models: on } : item
+                          )
                         )
-                      )
-                    }
-                  />
-                  <Label htmlFor={`follow-models-${row.rowID}`}>
-                    {t('Follow this supply group’s models')}
-                  </Label>
-                </div>
-                {row.follow_models && (
+                      }
+                    />
+                    <Label htmlFor={`follow-models-${row.rowID}`}>
+                      {t('Follow this supply group’s models')}
+                    </Label>
+                  </div>
+                )}
+                {channel?.type === 1 && row.follow_models && (
                   <p className='text-muted-foreground text-xs'>
                     {t(
                       'Every 10 minutes while sales are enabled. Missing prices need review; two complete reads confirm removals.'

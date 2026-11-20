@@ -29,10 +29,19 @@ func GetRetailGroupBindings(c *gin.Context) {
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		groups = append(groups, group)
 	}
+	margins := map[string]int{}
+	for _, p := range book.Products {
+		if p.Public && !slices.Contains(groups, p.BindingGroup) {
+			groups = append(groups, p.BindingGroup)
+		}
+		if p.Public && p.MarginBPS != nil {
+			margins[p.BindingGroup] = *p.MarginBPS
+		}
+	}
 	slices.Sort(groups)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
 		"credential_groups": book.RegisteredGroups(), "version": version, "bindings": book.GroupBindings, "model_sync": book.ModelSync, "sync": book.PublicRateSync,
-		"local_groups": groups, "channels": channels, "server_time": time.Now().Unix(),
+		"group_margins": margins, "local_groups": groups, "channels": channels, "server_time": time.Now().Unix(),
 		"sale_policy":   retailprice.SalePolicy{ReceiptRatio: book.ReceiptRatio, MarginBPS: book.MarginBPS, FeeBPS: book.FeeBPS, BufferBPS: book.BufferBPS},
 		"pricing_ready": len(book.Models) > 0 && len(book.Products) > 0, "pricing_enabled": book.Enabled,
 	}})
@@ -172,4 +181,30 @@ func (h retailRatesHandler) Run(ctx context.Context, task *model.SystemTask, run
 		status = model.SystemTaskStatusFailed
 	}
 	finishSystemTaskHandler(task, runnerID, status, nil, err)
+}
+
+// LaunchRetailGroup previews or atomically publishes one root-reviewed public group.
+func LaunchRetailGroup(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 128<<10)
+	var in model.RetailGroupLaunch
+	if !common.IsRetailSite() || c.ShouldBindJSON(&in) != nil {
+		retailPricingManagementError(c, retailprice.ErrConfig)
+		return
+	}
+	result, err := model.LaunchRetailGroup(c.Request.Context(), in, c.GetInt("id"))
+	if err != nil {
+		switch err {
+		case model.ErrRetailGroupExists, model.ErrRetailLaunchPaused, model.ErrRetailSupplyGroupName, model.ErrRetailSupplyGroupKey, model.ErrRetailSupplyGroupIncomplete:
+			common.ApiError(c, err)
+		case retailprice.ErrExpired:
+			common.ApiError(c, common.NewMessage("Upstream rates have expired. Sync the bound rates and preview again."))
+		default:
+			retailPricingManagementError(c, err)
+		}
+		return
+	}
+	if in.Review != "" {
+		model.InitChannelCache()
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }

@@ -141,6 +141,7 @@ export type RetailSupplyEdit = {
   models: string
 }
 export type RetailBindingState = {
+  group_margins?: Record<string, number>
   credential_groups?: Record<number, string>
   sale_policy: RetailSalePolicy
   version: number
@@ -365,4 +366,39 @@ export async function putRetailKeyGroup(
       })
     ).data
   )
+}
+
+export type RetailLaunchInput = {
+  expected_version: number
+  site_id: number
+  channel_id: number
+  local_group: string
+  upstream_group: string
+  margin_bps?: number
+  key?: string
+  models?: string[]
+}
+export type RetailLaunchReview = {
+  rows: Array<{ model: string; tiers?: RetailTier[]; reason?: string }>
+  review: string
+  version: number
+}
+
+/** 空 review 只预览，发布时使用同一版本和报价。丢弃 Axios 对请求体的引用，避免错误状态保留 Key。 */
+export async function launchRetailGroup(
+  input: RetailLaunchInput,
+  review = ''
+): Promise<RetailLaunchReview> {
+  try {
+    return requireServerSuccess(
+      (
+        await api.post('/api/retail/admin/pricing/group-launch', {
+          ...input,
+          review,
+        })
+      ).data
+    ).data
+  } catch (error) {
+    throw new Error(getServerErrorMessage(error))
+  }
 }
