@@ -32,6 +32,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { ModelStudio } from '..'
 import { imageDataURL } from '../api'
+import { readHistory, saveHistory } from '../studio-session'
 
 const streamSend = vi.hoisted(() =>
   vi.fn(
@@ -162,6 +163,7 @@ function mount(
 afterEach(() => {
   cleanup()
   window.sessionStorage.clear()
+  window.localStorage.clear()
   clients.splice(0).forEach((client) => client.clear())
   vi.restoreAllMocks()
   streamSend.mockClear()
@@ -497,4 +499,129 @@ it('restores an interrupted message for its owner only', async () => {
   expect(await screen.findByText('Private message')).toBeVisible()
   expect(screen.getByRole('alert')).toBeVisible()
   expect(streamSend).toHaveBeenCalledTimes(1)
+})
+
+/** 同组新建后关页重开，两段聊天均可取回；只在用户继续发送时提交原分组上下文。 */
+it('reopens an archived conversation in its original group after closing the tab', async () => {
+  const options = { secondGroup: true }
+  const tab = mount(true, options)
+  fireEvent.change(await screen.findByLabelText('Call group'), {
+    target: { value: 'premium' },
+  })
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'premium-text' },
+  })
+  for (const prompt of ['First topic', 'Second topic']) {
+    fireEvent.change(screen.getByLabelText('Prompt'), {
+      target: { value: prompt },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await screen.findByText('Received')
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  }
+  tab.unmount()
+  sessionStorage.clear()
+  const other = mount(true, { userId: 2 })
+  fireEvent.click(await screen.findByRole('button', { name: 'Chat history' }))
+  expect(await screen.findByText('No saved conversations yet.')).toBeVisible()
+  other.unmount()
+  mount(true, options)
+  fireEvent.click(await screen.findByRole('button', { name: 'Chat history' }))
+  const list = within(await screen.findByRole('dialog'))
+  expect(list.getByRole('button', { name: /Second topic/ })).toBeVisible()
+  fireEvent.click(list.getByRole('button', { name: /First topic/ }))
+  expect(
+    await screen.findByText('First topic', { selector: 'p' })
+  ).toBeVisible()
+  expect(screen.getByLabelText('Call group')).toHaveValue('premium')
+  expect(screen.getByLabelText('Model')).toHaveValue('premium-text')
+  expect(streamSend).toHaveBeenCalledTimes(2)
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Continue' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(3))
+  expect(streamSend.mock.calls[2][0]).toMatchObject({
+    messages: [
+      { role: 'user', content: 'First topic' },
+      { role: 'assistant', content: 'Received' },
+      { role: 'user', content: 'Continue' },
+    ],
+  })
+  expect(readHistory('studio.v1:1')).toHaveLength(2)
+})
+
+/** 清理最久未更新的会话；单条超额不能删除已有历史，同源分支也不能相互覆盖。 */
+it('bounds retained history and keeps separate continuations of the same version', async () => {
+  const key = 'studio.v1:test'
+  const now = Date.now()
+  const turn = {
+    id: 1,
+    model: 'm',
+    prompt: 'message',
+    content: 'reply',
+    reasoning: '',
+    complete: true,
+  }
+  const base = {
+    id: 'parent',
+    product: 'group',
+    updatedAt: now,
+    entries: [turn],
+  }
+  await saveHistory(key, base)
+  await Promise.all(
+    ['left', 'right'].map((id) => saveHistory(key, { ...base, id }, base.id))
+  )
+  expect(
+    readHistory(key)
+      .map((row) => row.id)
+      .sort()
+  ).toEqual(['left', 'right'])
+  for (let i = 1; i <= 20; i++) {
+    await saveHistory(key, { ...base, id: String(i), updatedAt: now + i })
+  }
+  expect(readHistory(key)).toHaveLength(20)
+  expect(readHistory(key).at(-1)?.id).toBe('1')
+  await expect(
+    saveHistory(key, {
+      ...base,
+      id: 'big',
+      updatedAt: now + 25,
+      entries: [{ ...turn, content: 'x'.repeat(5 * 1024 * 1024) }],
+    })
+  ).rejects.toThrow()
+  expect(readHistory(key)).toHaveLength(20)
+  vi.spyOn(Date, 'now').mockReturnValue(now + 31 * 24 * 60 * 60 * 1000)
+  expect(readHistory(key)).toHaveLength(0)
+})
+
+/** 升级尚未关闭的旧标签后，即使关页也能从历史中打开当时的消息。 */
+it('archives legacy tab transcripts without replaying them', async () => {
+  sessionStorage.setItem(
+    'studio.v1:1',
+    JSON.stringify({ mode: 'text', product: 'standard', model: 'text-model' })
+  )
+  sessionStorage.setItem(
+    'studio.v1:1:chat:standard',
+    JSON.stringify([
+      {
+        id: 1,
+        prompt: 'Before upgrade',
+        model: 'text-model',
+        reasoning: '',
+        content: 'Original reply',
+        complete: true,
+      },
+    ])
+  )
+  const first = mount(true)
+  await screen.findByText('Original reply')
+  first.unmount()
+  sessionStorage.clear()
+  mount(true)
+  fireEvent.click(await screen.findByRole('button', { name: 'Chat history' }))
+  fireEvent.click(await screen.findByRole('button', { name: /Before upgrade/ }))
+  expect(await screen.findByText('Original reply')).toBeVisible()
+  expect(streamSend).not.toHaveBeenCalled()
 })

@@ -26,8 +26,8 @@ import {
   SlidersHorizontal,
   Square,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useEffect, useRef, useState } from 'react'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import { ErrorState } from '@/components/error-state'
@@ -48,8 +48,17 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getStudio, openStudio, studioFormSchema, type StudioForm } from './api'
+import { StudioHistory } from './studio-history'
 import { StudioResults } from './studio-results'
-import { readSelection, readTurns, writeSession } from './studio-session'
+import {
+  migrateHistory,
+  readActive,
+  readLegacy,
+  readSelection,
+  saveHistory,
+  writeSession,
+  type Conversation,
+} from './studio-session'
 import { useStudioRun } from './use-studio-run'
 
 /** Remount all private state on account/session changes; never share transcripts between logins. */
@@ -75,10 +84,17 @@ function StudioWorkspace(props: { identity: string }) {
   const [chosenProductId, setChosenProductId] = useState<string | null>(
     saved?.product ?? null
   )
-  const [initialTurns] = useState(() =>
-    saved?.mode === 'text' ? readTurns(storageKey, saved.product) : []
+  const [initial] = useState(() =>
+    saved?.mode === 'text' ? readActive(storageKey, saved.product) : undefined
+  )
+  const [initialTurns] = useState(
+    () =>
+      initial?.entries ??
+      (saved?.mode === 'text' ? readLegacy(storageKey, saved.product) : [])
   )
   const run = useStudioRun(initialTurns)
+  const activeId = useRef(initial?.id)
+  const pending = useRef<Conversation | null>(null)
   const form = useForm<StudioForm>({
     resolver: zodResolver(studioFormSchema),
     defaultValues: {
@@ -126,7 +142,7 @@ function StudioWorkspace(props: { identity: string }) {
     product?.models.filter(
       (item) => (item.kind === 'image') === (mode === 'image')
     ) ?? []
-  const model = form.watch('model')
+  const model = useWatch({ control: form.control, name: 'model' })
   const selected = models.find((item) => item.id === model)
   const [storageFailed, setStorageFailed] = useState(false)
   useEffect(() => {
@@ -135,17 +151,29 @@ function StudioWorkspace(props: { identity: string }) {
       writeSession(storageKey, { product: selectedProductId, mode, model }) ===
         false
     ) {
-      setStorageFailed(true)
+      queueMicrotask(() => setStorageFailed(true))
     }
   }, [storageKey, selectedProductId, mode, model])
   useEffect(() => {
-    // Only settled turns enter storage. Avoid rewriting the transcript on every streamed token.
-    if (!storageKey || mode !== 'text' || !selectedProductId || run.busy) return
-    const key = `${storageKey}:chat:${selectedProductId}`
-    setStorageFailed(
-      writeSession(key, run.entries.length ? run.entries : null) === false
+    if (!storageKey) return
+    void migrateHistory(storageKey).catch(() => setStorageFailed(true))
+  }, [storageKey])
+
+  useEffect(() => {
+    // 流式输出期间只存一次中断占位。收到最终状态才替换它，浏览历史不会续期。
+    const started = pending.current
+    if (!storageKey || !started || run.busy || !run.entries.length) return
+    pending.current = null
+    const settled = { ...started, entries: run.entries, updatedAt: Date.now() }
+    const tabSaved = writeSession(
+      `${storageKey}:chat:${started.product}`,
+      settled
     )
-  }, [storageKey, selectedProductId, mode, run.busy, run.entries])
+    void saveHistory(storageKey, settled).then(
+      () => setStorageFailed(tabSaved === false),
+      () => setStorageFailed(true)
+    )
+  }, [storageKey, run.busy, run.entries])
   const available = Boolean(query.data?.catalog.enabled && selected)
   const catalog = query.data?.catalog
   const hasCatalogModels = catalog?.products.some((item) => item.models.length)
@@ -177,21 +205,27 @@ function StudioWorkspace(props: { identity: string }) {
     setPolicyOpen(open)
     if (!open) void query.refetch()
   }
+  /** 只恢复用户选中的文本记录。图像工作区和新对话都以空上下文开始。 */
+  const restore = (item?: Conversation) => {
+    activeId.current = item?.id
+    run.reset(item?.entries ?? [])
+    form.setValue('prompt', '')
+  }
   /** Group changes clear local context; every request sends its own immutable selection. */
   const changeProduct = (id: string) => {
     if (run.busy) return
     setChosenProductId(id)
     form.setValue('model', '')
     // Conversation context is local to the chosen group; do not forward old prompts to a different supplier.
-    run.reset(mode === 'text' ? readTurns(storageKey, id) : [])
-    form.setValue('prompt', '')
+    restore(mode === 'text' ? readActive(storageKey, id) : undefined)
   }
   /** Keep generated images and conversations separate; mode switches start a fresh local workspace. */
   const changeMode = (value: unknown) => {
     if (run.busy || (value !== 'text' && value !== 'image')) return
     setMode(value)
-    run.reset(value === 'text' ? readTurns(storageKey, selectedProductId) : [])
-    form.setValue('prompt', '')
+    restore(
+      value === 'text' ? readActive(storageKey, selectedProductId) : undefined
+    )
     form.setValue('model', '')
   }
   /** Validate both the form and current catalog before sending; the server independently rechecks all limits. */
@@ -215,14 +249,24 @@ function StudioWorkspace(props: { identity: string }) {
             ...turn,
             error: 'Stopped. Check usage before trying again.',
           }
-          if (
-            writeSession(`${storageKey}:chat:${selectedProductId}`, [
-              ...run.entries,
-              interrupted,
-            ]) === false
-          ) {
-            setStorageFailed(true)
+          const parent =
+            activeId.current ?? readActive(storageKey, selectedProductId)?.id
+          const snapshot = {
+            id: crypto.randomUUID(),
+            product: selectedProductId,
+            updatedAt: Date.now(),
+            entries: [...run.entries, interrupted],
           }
+          pending.current = snapshot
+          activeId.current = snapshot.id
+          const tabSaved = writeSession(
+            `${storageKey}:chat:${selectedProductId}`,
+            snapshot
+          )
+          if (!tabSaved) setStorageFailed(true)
+          void saveHistory(storageKey, snapshot, parent).catch(() =>
+            setStorageFailed(true)
+          )
         }
       },
       () => {
@@ -248,6 +292,24 @@ function StudioWorkspace(props: { identity: string }) {
           {t('Model studio')}
         </h1>
         <div className='flex items-center gap-2'>
+          <StudioHistory
+            storageKey={storageKey}
+            disabled={run.busy}
+            onSelect={(item) => {
+              setMode('text')
+              setChosenProductId(item.product)
+              restore(item)
+              form.setValue('model', item.entries.at(-1)?.model ?? '')
+              if (
+                writeSession(
+                  storageKey && `${storageKey}:chat:${item.product}`,
+                  item
+                ) === false
+              ) {
+                setStorageFailed(true)
+              }
+            }}
+          />
           <Button
             variant='ghost'
             size='sm'
@@ -268,8 +330,16 @@ function StudioWorkspace(props: { identity: string }) {
             className='max-md:size-11'
             disabled={run.busy || run.entries.length === 0}
             onClick={() => {
-              run.reset([])
-              form.setValue('prompt', '')
+              restore()
+              if (
+                mode === 'text' &&
+                writeSession(
+                  storageKey && `${storageKey}:chat:${selectedProductId}`,
+                  null
+                ) === false
+              ) {
+                setStorageFailed(true)
+              }
             }}
           >
             <Plus aria-hidden='true' />
@@ -326,6 +396,7 @@ function StudioWorkspace(props: { identity: string }) {
             aria-label={t('Model')}
             disabled={run.busy || !models.length}
             {...form.register('model')}
+            value={selected?.id ?? ''}
           >
             <NativeSelectOption value=''>
               {t('Select a model')}
@@ -372,7 +443,7 @@ function StudioWorkspace(props: { identity: string }) {
       )}
       <StudioResults entries={run.entries} busy={run.busy} mode={mode} />
       <form
-        onSubmit={form.handleSubmit(submit)}
+        onSubmit={(event) => void form.handleSubmit(submit)(event)}
         className='mx-auto w-full max-w-3xl shrink-0 space-y-1.5 px-3 py-2 md:space-y-3 md:px-8 md:pb-5'
       >
         <div className='bg-background space-y-1 rounded-2xl border p-2 shadow-sm md:space-y-3 md:p-3'>
@@ -517,7 +588,10 @@ function StudioWorkspace(props: { identity: string }) {
           )}
         </div>
         {storageFailed && (
-          <p role='status' className='text-muted-foreground text-center text-xs'>
+          <p
+            role='status'
+            className='text-muted-foreground text-center text-xs'
+          >
             {t('Chat history could not be saved in this tab.')}
           </p>
         )}
