@@ -584,3 +584,81 @@ func TestRetailSiteRatesDatabases(t *testing.T) {
 		})
 	}
 }
+
+// TestRetailCredentialCenterDatabases exercises the first write, concurrent edits and stable routing identity on each supported engine.
+func TestRetailCredentialCenterDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := useVM2APIEnrollmentDatabase(t, dialect)
+			require.NoError(t, migrateDB())
+			endpoint := "https://supplier.example"
+			parent := Channel{Name: "Site", Key: "parent-secret", BaseURL: &endpoint, Type: 1, Models: "model-a", Group: "retail", Status: 1}
+			require.NoError(t, parent.Insert())
+			cfg := filepath.Join(t.TempDir(), "retail.json")
+			raw, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"channel_id": parent.Id, "kind": "reseller"}}})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(cfg, raw, 0600))
+			t.Setenv("RETAIL_RELAY_CONFIG", cfg)
+			t.Setenv("SITE_MODE", "retail")
+			ctx := context.Background()
+			inventory := func() RetailCredentialInventory {
+				t.Helper()
+				out, err := ReadRetailCredentials(ctx)
+				require.NoError(t, err)
+				encoded, err := common.Marshal(out)
+				require.NoError(t, err)
+				require.NotContains(t, string(encoded), "secret")
+				return out
+			}
+			initial := inventory()
+			create := RetailCredentialEdit{Version: initial.Version, Stamp: initial.Stamp, Action: "create", Site: parent.Id, Name: "Fast", Group: "fast", Key: "child-secret", Models: "model-a"}
+			id, err := EditRetailCredential(ctx, create, 1)
+			require.NoError(t, err)
+			require.Positive(t, id)
+			current := inventory()
+			require.Equal(t, "fast", current.Groups[id])
+			require.Empty(t, current.Groups[parent.Id])
+			require.Equal(t, "model-a", current.Targets["model-a"][id])
+			_, err = EditRetailCredential(ctx, create, 1)
+			require.ErrorIs(t, err, ErrRetailPriceConflict)
+			create.Version, create.Stamp, create.Name = current.Version, current.Stamp, "Another"
+			_, err = EditRetailCredential(ctx, create, 1)
+			require.ErrorIs(t, err, ErrRetailSupplyGroupKey)
+			rotate := RetailCredentialEdit{Version: current.Version, Stamp: current.Stamp, Site: parent.Id, ID: id, Action: "rotate", Key: "new-secret", Group: "fast"}
+			_, err = EditRetailCredential(ctx, rotate, 1)
+			require.ErrorIs(t, err, retailprice.ErrConfig)
+			rotate.ConfirmGroup = "fast"
+			// Channel maintenance outside pricing can advance the channel stamp alone; never replay that old preview.
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", id).Update("key", "outside-secret").Error)
+			_, err = EditRetailCredential(ctx, rotate, 1)
+			require.ErrorIs(t, err, ErrRetailPriceConflict)
+			rotate.Stamp = inventory().Stamp
+			rotated, err := EditRetailCredential(ctx, rotate, 1)
+			require.NoError(t, err)
+			require.Equal(t, id, rotated)
+			require.Error(t, (&Channel{Id: id, Key: "stale-secret"}).Update())
+			var stored Channel
+			require.NoError(t, db.First(&stored, id).Error)
+			require.Equal(t, "new-secret", stored.Key)
+			var state RetailPriceState
+			require.NoError(t, db.First(&state, 1).Error)
+			published := state.Payload
+			for _, action := range []string{"disable", "enable"} {
+				latest := inventory()
+				change := RetailCredentialEdit{Action: action, Site: parent.Id, ID: id, Version: latest.Version, Stamp: latest.Stamp}
+				_, err = EditRetailCredential(ctx, change, 1)
+				require.NoError(t, err)
+				_, enabled := inventory().Targets["model-a"][id]
+				require.Equal(t, action == "enable", enabled)
+				require.NoError(t, db.First(&state, 1).Error)
+				require.Equal(t, published, state.Payload)
+			}
+			require.NoError(t, db.Create(&GPTHostingBinding{ChannelID: parent.Id, UserID: 991}).Error)
+			hidden := inventory()
+			require.Empty(t, hidden.Channels)
+			rotate.Version, rotate.Stamp = hidden.Version, hidden.Stamp
+			_, err = EditRetailCredential(ctx, rotate, 1)
+			require.ErrorIs(t, err, retailprice.ErrAccess)
+		})
+	}
+}

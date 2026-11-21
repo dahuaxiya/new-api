@@ -611,6 +611,18 @@ func (channel *Channel) Update() error {
 		}
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
+		// The generic editor carries no credential revision. An old form must never put a rotated retail Key back.
+		if common.IsRetailSite() && channel.Key != "" {
+			managed, err := RetailRateSiteChannels(tx)
+			if err != nil {
+				return err
+			}
+			for _, item := range managed {
+				if item.ID == channel.Id {
+					return common.NewMessage("Replace this Key in Upstream Keys")
+				}
+			}
+		}
 		if err := syncRetailSiteAddress(tx, channel); err != nil {
 			return err
 		}

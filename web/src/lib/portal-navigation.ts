@@ -6,6 +6,8 @@ export function isRetiredPortalPage(
   role: number,
   mode?: 'hosting' | 'retail'
 ): boolean {
+  if (pathname.split('/')[1] === 'upstream-keys' && mode === 'hosting')
+    return true
   // 旧收藏也要服从当前站点边界；真正的数据隔离由后端与独立部署保证。
   if (
     mode === 'retail' &&

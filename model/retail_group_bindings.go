@@ -18,6 +18,7 @@ import (
 
 // RetailBindingChannel exposes only safe operator labels, never a channel credential.
 type RetailBindingChannel struct {
+	credentialStamp    string // Keyed concurrency token; never returned as an individual channel field.
 	AllowNewCredential bool   `json:"allow_new_credential"`
 	ID                 int    `json:"id"`
 	Name               string `json:"name"`

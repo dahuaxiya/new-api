@@ -115,6 +115,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/models': { section: 'admin', module: 'models' },
   '/models/metadata': { section: 'admin', module: 'models' },
   '/models/deployments': { section: 'admin', module: 'models' },
+  '/upstream-keys': { section: 'admin', module: 'channel' },
   '/groups': { section: 'admin', module: 'setting' },
   '/users': { section: 'admin', module: 'user' },
   '/user-usage': { section: 'admin', module: 'user' },

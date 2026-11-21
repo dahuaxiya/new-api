@@ -22,6 +22,7 @@ import {
   CreditCard,
   FileText,
   Layers3,
+  KeyRound,
   LayoutDashboard,
   PlugZap,
   Radio,
@@ -39,7 +40,7 @@ import type { SidebarView } from '../types'
 export const ADMIN_VIEW: SidebarView = {
   id: 'administration',
   pathPattern:
-    /^\/(?:user-usage|users|channels|models|groups|redemption-codes|subscriptions|system-info|task-plugins|usage-logs|dashboard\/(?:models|flow|users))(?:\/|$)/,
+    /^\/(?:user-usage|users|channels|upstream-keys|models|groups|redemption-codes|subscriptions|system-info|task-plugins|usage-logs|dashboard\/(?:models|flow|users))(?:\/|$)/,
   parent: { to: '/dashboard/overview', label: 'Back to user center' },
   getNavGroups: (t) => [
     {
@@ -61,6 +62,12 @@ export const ADMIN_VIEW: SidebarView = {
           title: t('Channels'),
           url: '/channels',
           icon: Radio,
+        },
+        {
+          title: t('Upstream Keys'),
+          url: '/upstream-keys',
+          icon: KeyRound,
+          requiredRole: ROLE.SUPER_ADMIN,
         },
         {
           title: t('Models'),

@@ -29,6 +29,8 @@ func SetApiRouter(router *gin.Engine) {
 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()
 	{
 		retailAdmin := apiRouter.Group("/retail/admin", middleware.RootAuth(), middleware.DisableCache())
+		retailAdmin.GET("/credentials", controller.GetRetailCredentials)
+		retailAdmin.PUT("/credentials", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-supply-groups"), controller.PutRetailCredential)
 		retailAdmin.GET("/accounting", controller.RetailAccounting)
 		retailAdmin.GET("/supplies", controller.RetailSupplies)
 		retailAdmin.POST("/supplies/groups", middleware.SessionCookieOriginGuard(), middleware.UserCriticalRateLimit("retail-supply-groups"), controller.CreateRetailSupplyGroup)

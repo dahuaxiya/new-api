@@ -92,6 +92,14 @@ export function RetailPricing() {
                 'Users select a group on this site. Its supply route determines the upstream Key and purchase price.'
               )}
             </SheetDescription>
+            <a
+              href='/upstream-keys'
+              target='_blank'
+              rel='noopener noreferrer'
+              className='text-sm underline'
+            >
+              {t('Upstream Keys')}
+            </a>
           </SheetHeader>
           <div className='flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6'>
             <Tabs defaultValue='routes' className='space-y-3'>
