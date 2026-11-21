@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Current filing site": "Текущий сайт хранения",
+    "New filing site": "Новый сайт хранения",
+    "Detach all routes before transferring this Key": "Перед передачей ключа отвяжите все маршруты",
     "Filing site": "Сайт хранения",
     "Change filing site": "Изменить сайт хранения",
     "Unfiled Keys": "Ключи без сайта",

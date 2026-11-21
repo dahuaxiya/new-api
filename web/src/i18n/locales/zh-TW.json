@@ -1,7 +1,10 @@
 {
   "translation": {
-    "Filing site": "保管站點",
-    "Change filing site": "調整保管站點",
+    "Current filing site": "目前歸屬站點",
+    "New filing site": "新歸屬站點",
+    "Detach all routes before transferring this Key": "請先解除這把 Key 的所有線路綁定，再移交",
+    "Filing site": "歸屬站點",
+    "Change filing site": "調整歸屬站點",
     "Unfiled Keys": "待歸檔的 Key",
     "Select a site": "選擇站點",
     "Select saved Key": "選擇已儲存的 Key",

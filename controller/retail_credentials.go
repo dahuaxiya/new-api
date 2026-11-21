@@ -81,11 +81,16 @@ func PutRetailKeyLibrary(c *gin.Context) {
 	switch err {
 	case nil:
 		model.InitChannelCache()
-		model.RecordAuditLog(c, model.AuditLog{UserId: c.GetInt("id"), ActorRole: c.GetInt("role"), Action: "retail.key." + in.Action, Category: model.AuditCategoryOperation, Content: fmt.Sprintf("key #%d, channel #%d", id, in.Channel), Success: true})
+		content := fmt.Sprintf("key #%d, channel #%d", id, in.Channel)
+		if in.Action == "transfer_owner" {
+			// Record only the source and destination validated in the transfer transaction.
+			content = fmt.Sprintf("key #%d, site #%d -> #%d", id, in.FromSiteID, in.OwnerSiteID)
+		}
+		model.RecordAuditLog(c, model.AuditLog{UserId: c.GetInt("id"), ActorRole: c.GetInt("role"), Action: "retail.key." + in.Action, Category: model.AuditCategoryOperation, Content: content, Success: true})
 		common.ApiSuccess(c, gin.H{"id": id})
 	case model.ErrRetailLibraryConflict:
 		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "Key inventory changed. Reopen the form."})
-	case model.ErrRetailLibraryUsed, model.ErrRetailLibraryUnavailable, model.ErrRetailSupplyGroupKey:
+	case model.ErrRetailLibraryTransferUsed, model.ErrRetailLibraryUsed, model.ErrRetailLibraryUnavailable, model.ErrRetailSupplyGroupKey:
 		common.ApiError(c, err)
 	default:
 		retailPricingManagementError(c, err)

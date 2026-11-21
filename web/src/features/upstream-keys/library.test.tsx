@@ -135,3 +135,95 @@ it('binds an existing credential from site settings', async () => {
     )
   )
 })
+
+/** Importing a child shows its root's identity separately from the route and keeps custody server-derived. */
+it('identifies the filing site before importing a child credential', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        keys: [],
+        channels: [
+          { id: 7, site_id: 7, name: 'Root' },
+          { id: 8, site_id: 7, name: 'Fast', has_key: true },
+        ],
+        groups: {},
+        uses: {},
+        stamp: 's',
+      },
+    },
+  })
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <SiteKeyPicker channel={8} />
+    </QueryClientProvider>
+  )
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Import existing Key' })
+  )
+  const dialog = within(screen.getByRole('dialog'))
+  expect(dialog.getByText('Filing site').nextElementSibling).toHaveTextContent(
+    'Root #7'
+  )
+  expect(dialog.getByText('Supply route').nextElementSibling).toHaveTextContent(
+    'Fast #8'
+  )
+  fireEvent.click(dialog.getByRole('button', { name: 'Import existing Key' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  expect(put.mock.calls[0][1]).toMatchObject({
+    action: 'import',
+    channel_id: 8,
+  })
+  expect(put.mock.calls[0][1]).not.toHaveProperty('owner_site_id')
+})
+
+/** A transfer submits the reviewed source and the selected new root; the current root is not a destination. */
+it('transfers an unused Key to a different root', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        keys: [{ id: 3, name: 'Spare', owner_site_id: 7 }],
+        channels: [
+          { id: 7, site_id: 7, name: 'A' },
+          { id: 8, site_id: 8, name: 'B' },
+        ],
+        groups: {},
+        uses: {},
+        stamp: 's',
+      },
+    },
+  })
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <KeyLibrary identity='root' />
+    </QueryClientProvider>
+  )
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Change filing site' })
+  )
+  const dialog = within(screen.getByRole('dialog'))
+  expect(dialog.queryByRole('option', { name: 'A #7' })).toBeNull()
+  fireEvent.change(dialog.getByLabelText('New filing site'), {
+    target: { value: '8' },
+  })
+  fireEvent.click(dialog.getByRole('button', { name: 'Change filing site' }))
+  await waitFor(() =>
+    expect(put).toHaveBeenCalledWith(
+      '/api/retail/admin/key-library',
+      expect.objectContaining({
+        action: 'transfer_owner',
+        from_site_id: 7,
+        owner_site_id: 8,
+        id: 3,
+      }),
+      expect.anything()
+    )
+  )
+})

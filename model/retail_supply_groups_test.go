@@ -865,6 +865,34 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			key, err := saved.SupplySecret(db)
 			require.NoError(t, err)
 			require.Equal(t, "old-secret", key)
+			transfer := RetailLibraryEdit{Action: "transfer_owner", ID: other, FromSiteID: first.Id, OwnerSiteID: foreign.Id}
+			_, err = write(transfer)
+			require.ErrorIs(t, err, ErrRetailLibraryTransferUsed)
+			_, err = write(RetailLibraryEdit{Action: "detach", Channel: child, Destination: first.GetBaseURL()})
+			require.NoError(t, err)
+			view, err = ReadRetailKeyLibrary(ctx)
+			require.NoError(t, err)
+			transfer.Stamp = view.Stamp
+			_, err = EditRetailKeyLibrary(ctx, transfer, 1)
+			require.NoError(t, err)
+			_, err = EditRetailKeyLibrary(ctx, transfer, 1)
+			require.ErrorIs(t, err, ErrRetailLibraryConflict)
+			var moved RetailUpstreamKey
+			require.NoError(t, db.First(&moved, other).Error)
+			require.Equal(t, foreign.Id, moved.OwnerSiteID)
+			require.Equal(t, imported.Sealed, moved.Sealed)
+			require.Equal(t, imported.Version+1, moved.Version)
+			// The cached source route cannot dispatch after transfer, even when the two roots share a URL.
+			_, err = saved.SupplySecret(db)
+			require.ErrorIs(t, err, ErrRetailLibraryUnavailable)
+			_, err = write(RetailLibraryEdit{Action: "bind", ID: other, Channel: first.Id, Destination: first.GetBaseURL()})
+			require.ErrorIs(t, err, retailprice.ErrAccess)
+			_, err = write(RetailLibraryEdit{Action: "bind", ID: other, Channel: foreign.Id, Destination: foreign.GetBaseURL()})
+			require.NoError(t, err)
+			require.NoError(t, db.First(foreign, foreign.Id).Error)
+			key, err = foreign.SupplySecret(db)
+			require.NoError(t, err)
+			require.Equal(t, "old-secret", key)
 		})
 	}
 }

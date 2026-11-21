@@ -36,6 +36,7 @@ type Library = {
   stamp: string
 }
 type Action =
+  | 'transfer_owner'
   | 'assign_owner'
   | 'create'
   | 'rotate'
@@ -46,6 +47,7 @@ type Action =
   | 'add_route'
 type Draft = { action: Action; library: Library; entry?: Entry; site?: Site }
 const labels = {
+  transfer_owner: 'Change filing site',
   assign_owner: 'Change filing site',
   add_route: 'Add route with saved Key',
   create: 'Add upstream Key',
@@ -105,9 +107,16 @@ function EditKey({
   )
   const [models, setModels] = useState('')
   const [owner, setOwner] = useState('')
-  const needsOwner = action === 'create' || action === 'assign_owner'
+  const needsOwner =
+    action === 'create' ||
+    action === 'assign_owner' ||
+    action === 'transfer_owner'
   const filingSites =
-    library.channels?.filter((row) => row.id === row.site_id) ?? []
+    library.channels?.filter(
+      (row) =>
+        row.id === row.site_id &&
+        (action !== 'transfer_owner' || row.id !== entry?.owner_site_id)
+    ) ?? []
   const [selected, setSelected] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -148,6 +157,9 @@ function EditKey({
               ? Number(selected)
               : (entry?.id ?? 0),
           ...(needsOwner && { owner_site_id: Number(owner) }),
+          ...(action === 'transfer_owner' && {
+            from_site_id: entry?.owner_site_id,
+          }),
           channel_id: site?.id ?? 0,
           destination: site?.base_url ?? '',
           name,
@@ -198,10 +210,31 @@ function EditKey({
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={submit} className='space-y-4'>
-          {site && <p className='break-all'>{siteLabel(library, site.id)}</p>}
+          {action === 'import' && site ? (
+            <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-2'>
+              <dt>{t('Filing site')}</dt>
+              <dd>
+                {filingSiteLabel(library, site.site_id, t('Unfiled Keys'))}
+              </dd>
+              <dt>{t('Supply route')}</dt>
+              <dd className='min-w-0 break-all'>
+                {siteLabel(library, site.id)}
+              </dd>
+            </dl>
+          ) : (
+            site && <p className='break-all'>{siteLabel(library, site.id)}</p>
+          )}
+          {action === 'transfer_owner' && entry && (
+            <p>
+              {t('Current filing site')} ·{' '}
+              {filingSiteLabel(library, entry.owner_site_id, t('Unfiled Keys'))}
+            </p>
+          )}
           {needsOwner && (
             <label className='block'>
-              {t('Filing site')}
+              {t(
+                action === 'transfer_owner' ? 'New filing site' : 'Filing site'
+              )}
               <NativeSelect
                 required
                 value={owner}
@@ -290,7 +323,13 @@ function EditKey({
           )}
           {uses.length > 0 && (
             <div>
-              <strong>{t('Upstream sites')}</strong>
+              <strong>
+                {t(
+                  action === 'transfer_owner'
+                    ? 'Detach all routes before transferring this Key'
+                    : 'Upstream sites'
+                )}
+              </strong>
               <ul>
                 {uses.map((id) => (
                   <li className='break-all' key={id}>
@@ -325,6 +364,7 @@ function EditKey({
               disabled={
                 busy ||
                 (needsOwner && !owner) ||
+                (action === 'transfer_owner' && uses.length > 0) ||
                 (needsConfirmation && !confirmed) ||
                 conflict ||
                 ((action === 'bind' || action === 'add_route') && !selected)
@@ -418,21 +458,21 @@ export function KeyLibrary({ identity }: { identity: string }) {
                         {t(labels.detach)} #{id}
                       </Button>
                     ))}
-                  {!entry.owner_site_id && (
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() =>
-                        setDraft({
-                          action: 'assign_owner',
-                          entry,
-                          library: data,
-                        })
-                      }
-                    >
-                      {t(labels.assign_owner)}
-                    </Button>
-                  )}
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() =>
+                      setDraft({
+                        action: entry.owner_site_id
+                          ? 'transfer_owner'
+                          : 'assign_owner',
+                        entry,
+                        library: data,
+                      })
+                    }
+                  >
+                    {t(labels.assign_owner)}
+                  </Button>
                   <Button
                     variant='outline'
                     size='sm'

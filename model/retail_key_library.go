@@ -46,6 +46,7 @@ type RetailLibraryState struct {
 
 // RetailLibraryEdit carries the destination seen by the administrator. Only create and rotate accept a secret.
 type RetailLibraryEdit struct {
+	FromSiteID    int            `json:"from_site_id"`
 	OwnerSiteID   int            `json:"owner_site_id"`
 	ConfirmGroups map[int]string `json:"confirm_groups"`
 	Action        string         `json:"action"`
@@ -59,6 +60,7 @@ type RetailLibraryEdit struct {
 }
 
 var ErrRetailLibraryConflict = errors.New("upstream key inventory changed")
+var ErrRetailLibraryTransferUsed = common.NewMessage("Detach all routes before transferring this Key")
 var ErrRetailLibraryUsed = common.NewMessage("Remove this Key from its sites before deleting it")
 var ErrRetailLibraryUnavailable = common.NewMessage("Upstream Key is unavailable")
 
@@ -384,7 +386,7 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 		// A filing site is the approved root channel, never a child credential. Do not infer
 		// custody from a consumer: an existing Key may be in use at several unrelated sites.
 		switch in.Action {
-		case "import", "create", "assign_owner":
+		case "import", "create", "assign_owner", "transfer_owner":
 			ownerID := in.OwnerSiteID
 			if in.Action == "import" {
 				// The client cannot redirect custody during import. Resolve the source's root
@@ -398,6 +400,18 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 				return row.ID == ownerID && row.SiteID == row.ID
 			}) {
 				return retailprice.ErrConfig
+			}
+			if in.Action == "transfer_owner" {
+				// Binding and transfer share the pricing lock. Check even hidden and disabled references:
+				// transferring a live key could silently stop the old route or revive a stale target route.
+				if id == 0 || key.OwnerSiteID <= 0 || in.FromSiteID != key.OwnerSiteID || ownerID == key.OwnerSiteID || ch.Id != 0 || in.Key != "" {
+					return retailprice.ErrConfig
+				}
+				if len(state.Uses[id]) != 0 {
+					return ErrRetailLibraryTransferUsed
+				}
+				// Ciphertext is bound to the stable inventory ID. The receiving site must bind its own route separately.
+				return tx.Model(&key).Updates(map[string]any{"owner_site_id": ownerID, "version": key.Version + 1}).Error
 			}
 			if in.Action == "assign_owner" {
 				if id == 0 || key.OwnerSiteID != 0 || ch.Id != 0 || in.Key != "" {
