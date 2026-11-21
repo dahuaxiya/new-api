@@ -192,11 +192,18 @@ func (c *Client) pagePay(id string, cents int64, subject string, expires int64, 
 	if err != nil {
 		return "", nil, ErrPayment
 	}
-	params := make(map[string]string)
-	for key, values := range u.Query() {
+	// 网关先从 URL 读取字符集，再解码 POST 表单。charset 只传一次，保留 SDK 签名时的原值。
+	fields := u.Query()
+	charset := fields.Get("charset")
+	if !strings.EqualFold(charset, "utf-8") {
+		return "", nil, ErrPayment
+	}
+	u.RawQuery = url.Values{"charset": {charset}}.Encode()
+	fields.Del("charset")
+	params := make(map[string]string, len(fields))
+	for key, values := range fields {
 		params[key] = values[0]
 	}
-	u.RawQuery = ""
 	return u.String(), params, nil
 }
 

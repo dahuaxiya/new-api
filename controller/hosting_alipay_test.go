@@ -116,10 +116,16 @@ func TestHostingAlipayProtocol(t *testing.T) {
 	expires := time.Now().Add(15 * time.Minute).Unix()
 	endpoint, params, err := f.client.PagePay("HPfixture", 4000, 30, expires, "https://portal.test/api/notify", "https://portal.test/wallet?tab=hosting")
 	require.NoError(t, err)
-	assert.Equal(t, "https://openapi.alipay.com/gateway.do", endpoint)
+	// 网关从 URL 读取 charset，合并表单后仍须通过 SDK 原始签名的校验。
+	gateway, err := url.Parse(endpoint)
+	require.NoError(t, err)
+	values := gateway.Query()
+	assert.Equal(t, "utf-8", strings.ToLower(values.Get("charset")))
+	assert.NotContains(t, params, "charset")
+	gateway.RawQuery = ""
+	assert.Equal(t, "https://openapi.alipay.com/gateway.do", gateway.String())
 	assert.Equal(t, "alipay.trade.page.pay", params["method"])
 	assert.Equal(t, "RSA2", params["sign_type"])
-	values := url.Values{}
 	for k, v := range params {
 		values.Set(k, v)
 	}
