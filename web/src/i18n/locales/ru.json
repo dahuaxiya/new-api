@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Edit Key": "Изменить ключ",
+    "Saved Keys": "Сохранённые ключи",
+    "Import Key": "Импортировать",
     "Current filing site": "Текущий сайт хранения",
     "New filing site": "Новый сайт хранения",
     "Detach all routes before transferring this Key": "Перед передачей ключа отвяжите все маршруты",

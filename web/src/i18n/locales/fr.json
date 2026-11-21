@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Edit Key": "Modifier la clé",
+    "Saved Keys": "Clés enregistrées",
+    "Import Key": "Importer",
     "Current filing site": "Site de rattachement actuel",
     "New filing site": "Nouveau site de rattachement",
     "Detach all routes before transferring this Key": "Détachez toutes les routes avant de transférer cette clé",

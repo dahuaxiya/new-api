@@ -44,7 +44,7 @@ type RetailLibraryState struct {
 	Stamp    string                 `json:"stamp"`
 }
 
-// RetailLibraryEdit carries the destination seen by the administrator. Only create and rotate accept a secret.
+// RetailLibraryEdit carries the destination seen by the administrator. An edit with an empty Key changes only the display name.
 type RetailLibraryEdit struct {
 	FromSiteID    int            `json:"from_site_id"`
 	OwnerSiteID   int            `json:"owner_site_id"`
@@ -350,6 +350,7 @@ func ReadRetailKeyLibrary(ctx context.Context) (out RetailLibraryState, err erro
 }
 
 // EditRetailKeyLibrary serializes binding changes with the existing retail configuration writers.
+// A replacement and its optional rename commit together after the administrator confirms the affected groups.
 // Import is explicit and atomic so installations can upgrade without changing credentials used by running older binaries.
 func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) (int, error) {
 	if actor <= 0 || in.ID < 0 || in.Channel < 0 {
@@ -429,10 +430,24 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 				return retailprice.ErrConfig
 			}
 		}
+		// A metadata-only edit must not decrypt the Key or advance any route's pricing revision.
+		rotating := in.Action == "rotate" || (in.Action == "edit" && in.Key != "")
+		if in.Action == "edit" {
+			in.Name = strings.TrimSpace(in.Name)
+			if id == 0 || ch.Id != 0 || in.Name == "" || utf8.RuneCountInString(in.Name) > 120 {
+				return retailprice.ErrConfig
+			}
+			if !rotating {
+				if in.Name == key.Name {
+					return nil
+				}
+				return tx.Model(&key).Updates(map[string]any{"name": in.Name, "version": key.Version + 1}).Error
+			}
+		}
 		// The price revision protects older pricing/binding forms that do not know about library IDs.
 		// Changes to an unused credential can never affect the price workflow.
 		var affected []int
-		if in.Action == "rotate" {
+		if rotating {
 			if key.OwnerSiteID <= 0 {
 				return retailprice.ErrConfig
 			}
@@ -451,10 +466,10 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 				groups[owner] = group
 			}
 		}
-		if (in.Action == "rotate" || in.Action == "bind") && !maps.Equal(groups, in.ConfirmGroups) {
+		if (rotating || in.Action == "bind") && !maps.Equal(groups, in.ConfirmGroups) {
 			return retailprice.ErrConfig
 		}
-		if (len(affected) > 0 && (in.Action == "rotate" || in.Action == "bind" || in.Action == "detach")) || in.Action == "add_route" {
+		if (len(affected) > 0 && (rotating || in.Action == "bind" || in.Action == "detach")) || in.Action == "add_route" {
 			next := price.Version + 1
 			if err := tx.Create(&RetailPriceVersion{Version: next, Payload: price.Payload, ActorID: actor, CreatedAt: time.Now().Unix()}).Error; err != nil {
 				return err
@@ -464,7 +479,7 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 			}
 		}
 		switch in.Action {
-		case "create", "import", "rotate":
+		case "create", "import", "rotate", "edit":
 			secret := in.Key
 			if in.Action == "import" {
 				if ch.Id == 0 || ch.RetailKeyID != 0 || ch.Key == "" || secret != "" {
@@ -481,7 +496,7 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 			if len(secret) > 4096 || strings.ContainsFunc(secret, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
 				return retailprice.ErrConfig
 			}
-			if in.Action == "rotate" {
+			if rotating {
 				if id == 0 {
 					return retailprice.ErrConfig
 				}
@@ -514,7 +529,11 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 				return err
 			}
 			sealed := base64.RawStdEncoding.EncodeToString(aead.Seal(nil, nil, []byte(secret), fmt.Appendf(nil, "v1/%d", id)))
-			if err := tx.Model(&key).Updates(map[string]any{"sealed": sealed, "version": key.Version + 1}).Error; err != nil {
+			updates := map[string]any{"sealed": sealed, "version": key.Version + 1}
+			if in.Action == "edit" {
+				updates["name"] = in.Name
+			}
+			if err := tx.Model(&key).Updates(updates).Error; err != nil {
 				return err
 			}
 			if in.Action != "import" {

@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Edit Key": "キーを編集",
+    "Saved Keys": "登録済みのキー",
+    "Import Key": "登録",
     "Current filing site": "現在の保管サイト",
     "New filing site": "新しい保管サイト",
     "Detach all routes before transferring this Key": "このキーを移管する前にすべてのルートの関連付けを解除してください",

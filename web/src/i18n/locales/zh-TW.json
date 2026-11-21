@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Edit Key": "編輯 Key",
+    "Saved Keys": "已入庫",
+    "Import Key": "入庫",
     "Current filing site": "目前歸屬站點",
     "New filing site": "新歸屬站點",
     "Detach all routes before transferring this Key": "請先解除這把 Key 的所有線路綁定，再移交",

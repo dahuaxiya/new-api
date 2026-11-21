@@ -1,7 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Globe2, KeyRound, Pencil, Plus } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { DataTableRowActionMenu } from '@/components/data-table/core/row-action-menu'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -11,6 +13,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import type { RetailBindingChannel } from '@/features/channels/retail-pricing-api'
@@ -39,7 +45,7 @@ type Action =
   | 'transfer_owner'
   | 'assign_owner'
   | 'create'
-  | 'rotate'
+  | 'edit'
   | 'delete'
   | 'bind'
   | 'detach'
@@ -51,7 +57,7 @@ const labels = {
   assign_owner: 'Change filing site',
   add_route: 'Add route with saved Key',
   create: 'Add upstream Key',
-  rotate: 'Replace upstream Key',
+  edit: 'Edit Key',
   delete: 'Delete',
   bind: 'Select saved Key',
   detach: 'Detach Key and disable route',
@@ -102,9 +108,10 @@ function EditKey({
   const cache = useQueryClient()
   const { action, entry, site, library } = draft
   const [secret, setSecret] = useState('')
-  const [name, setName] = useState(
-    action === 'import' ? (site?.name ?? '') : ''
-  )
+  const [name, setName] = useState(() => {
+    if (action === 'edit') return entry?.name ?? ''
+    return action === 'import' ? (site?.name ?? '') : ''
+  })
   const [models, setModels] = useState('')
   const [owner, setOwner] = useState('')
   const needsOwner =
@@ -124,7 +131,7 @@ function EditKey({
   const [conflict, setConflict] = useState(false)
   const uses = entry ? (library.uses[entry.id] ?? []) : []
   let affected: number[] = []
-  if (action === 'rotate' && entry) {
+  if (action === 'edit' && secret && entry) {
     // A historical foreign reference can only be detached. It never receives this replacement.
     affected = (library.channels ?? [])
       .filter(
@@ -185,13 +192,15 @@ function EditKey({
       if (
         (err as { response?: { status?: number } }).response?.status === 409
       ) {
+        setSecret('')
         setConflict(true)
         await cache.invalidateQueries({
           queryKey: ['retail-key-library', identity],
         })
       }
     } finally {
-      setSecret('')
+      // An edit retry must not silently become a rename. The open form alone holds its replacement.
+      if (action !== 'edit') setSecret('')
       setBusy(false)
     }
   }
@@ -253,6 +262,7 @@ function EditKey({
           )}
           {(action === 'create' ||
             action === 'import' ||
+            action === 'edit' ||
             action === 'add_route') && (
             <label className='block'>
               {t('Name')}
@@ -264,17 +274,26 @@ function EditKey({
               />
             </label>
           )}
-          {(action === 'create' || action === 'rotate') && (
+          {(action === 'create' ||
+            (action === 'edit' && !!entry?.owner_site_id)) && (
             <label className='block'>
               {t('Upstream API Key')}
               <Input
-                required
+                required={action === 'create'}
+                placeholder={
+                  action === 'edit'
+                    ? t('Leave blank to keep the existing key')
+                    : undefined
+                }
                 type='password'
                 autoComplete='new-password'
                 maxLength={4096}
                 spellCheck={false}
                 value={secret}
-                onChange={(e) => setSecret(e.target.value)}
+                onChange={(e) => {
+                  setSecret(e.target.value)
+                  setConfirmed(false)
+                }}
               />
             </label>
           )}
@@ -363,6 +382,8 @@ function EditKey({
               type='submit'
               disabled={
                 busy ||
+                (action === 'edit' &&
+                  (!name.trim() || (!secret && name.trim() === entry?.name))) ||
                 (needsOwner && !owner) ||
                 (action === 'transfer_owner' && uses.length > 0) ||
                 (needsConfirmation && !confirmed) ||
@@ -370,7 +391,7 @@ function EditKey({
                 ((action === 'bind' || action === 'add_route') && !selected)
               }
             >
-              {t(labels[action])}
+              {action === 'edit' ? t('Save') : t(labels[action])}
             </Button>
           </DialogFooter>
         </form>
@@ -379,7 +400,45 @@ function EditKey({
   )
 }
 
-/** Render each Key once under its custodian. Inline credentials remain on their source sites until imported. */
+/** The page header shares the inventory query. Pin the snapshot when opening a create form. */
+export function AddLibraryKey({ identity }: { identity: string }) {
+  const { t } = useTranslation()
+  const { data } = useLibrary(identity)
+  const [draft, setDraft] = useState<Draft>()
+  return (
+    <>
+      <Button
+        disabled={!data?.channels?.some((row) => row.id === row.site_id)}
+        onClick={() => data && setDraft({ action: 'create', library: data })}
+      >
+        <Plus aria-hidden />
+        {t(labels.create)}
+      </Button>
+      {draft && (
+        <EditKey
+          identity={identity}
+          draft={draft}
+          close={() => setDraft(undefined)}
+        />
+      )}
+    </>
+  )
+}
+
+/** Keep referenced routes distinct from library IDs. Show a destination inline only when it differs from the site's header. */
+function routeSummary(library: Library, id: number, ownerUrl?: string) {
+  const route = library.channels?.find((row) => row.id === id)
+  if (!route) return `#${id}`
+  return [
+    `${route.name} #${id}`,
+    route.base_url !== ownerUrl && route.base_url,
+    library.groups[id],
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/** Render each Key under its owner, including legacy references that still need an explicit detach. */
 export function KeyLibrary({ identity }: { identity: string }) {
   const { t } = useTranslation()
   const query = useLibrary(identity)
@@ -394,132 +453,219 @@ export function KeyLibrary({ identity }: { identity: string }) {
     )
   }
   if (!data) return <p>{t('Loading...')}</p>
-  const old = data.channels?.filter((c) => !c.library_id && c.has_key) ?? []
-  // Include inactive owners and unfiled legacy entries so removing a site cannot hide inventory.
+  const channels = data.channels ?? []
+  const pending = channels.filter((c) => !c.library_id && c.has_key)
+  // Include missing owners and unfiled legacy entries even when no selectable root remains.
   const ownerIds = [
     ...new Set([
-      ...(data.channels ?? []).map((row) => row.site_id),
+      ...channels.map((row) => row.site_id),
       ...data.keys.map((entry) => entry.owner_site_id || 0),
     ]),
   ].sort((a, b) => a - b)
   return (
-    <section className='space-y-3'>
-      <Button
-        disabled={!data.channels?.some((row) => row.id === row.site_id)}
-        onClick={() => setDraft({ action: 'create', library: data })}
-      >
-        {t(labels.create)}
-      </Button>
-      {!data.keys.length && <p>{t('No saved Keys')}</p>}
-      {ownerIds.map((ownerId) => (
-        <section key={ownerId} className='space-y-2'>
-          <h2 className='font-medium'>
-            {filingSiteLabel(data, ownerId, t('Unfiled Keys'))}
-          </h2>
-          {data.keys
-            .filter((entry) => (entry.owner_site_id || 0) === ownerId)
-            .map((entry) => (
-              <div
-                key={entry.id}
-                className='flex flex-wrap items-center justify-between gap-2 border-b py-3'
-              >
-                <div>
-                  <strong>
-                    {entry.name} #{entry.id}
-                  </strong>
-                  <p className='text-muted-foreground text-sm break-all'>
-                    {(data.uses[entry.id] ?? [])
-                      .map((id) => siteLabel(data, id))
-                      .join(' / ') || t('Unused')}
-                  </p>
-                </div>
-                <div className='flex gap-2'>
-                  {(data.uses[entry.id] ?? [])
-                    .filter(
-                      (id) =>
-                        !data.channels?.some(
-                          (c) =>
-                            c.id === id && c.site_id === entry.owner_site_id
-                        )
+    <div className='space-y-5'>
+      {!ownerIds.length && (
+        <p className='text-muted-foreground py-6 text-sm'>
+          {t('No saved Keys')}
+        </p>
+      )}
+      {ownerIds.map((ownerId) => {
+        const root = channels.find(
+          (c) => c.id === ownerId && c.site_id === ownerId
+        )
+        const saved = data.keys.filter(
+          (entry) => (entry.owner_site_id || 0) === ownerId
+        )
+        const legacy = pending.filter((site) => site.site_id === ownerId)
+        return (
+          <section
+            key={ownerId}
+            aria-labelledby={`key-site-${ownerId}`}
+            className='bg-card text-card-foreground overflow-hidden rounded-xl border shadow-xs'
+          >
+            <header className='bg-muted/35 flex items-center gap-3 border-b px-4 py-4 sm:px-5'>
+              <span className='bg-background text-primary grid size-10 shrink-0 place-items-center rounded-lg border'>
+                <Globe2 className='size-5' aria-hidden />
+              </span>
+              <div className='min-w-0'>
+                <h3
+                  id={`key-site-${ownerId}`}
+                  className='text-base font-semibold wrap-anywhere'
+                >
+                  {root?.name || (ownerId ? '' : t('Unfiled Keys'))}{' '}
+                  {!!ownerId && (
+                    <span className='text-muted-foreground font-mono text-xs'>
+                      #{ownerId}
+                    </span>
+                  )}
+                </h3>
+                {root?.base_url && (
+                  <div className='text-muted-foreground text-xs wrap-anywhere'>
+                    {root.base_url}
+                  </div>
+                )}
+              </div>
+            </header>
+            {!!saved.length && (
+              <div className='px-4 pt-3 sm:px-5'>
+                <h4 className='text-muted-foreground mb-1 text-xs font-medium'>
+                  {t('Saved Keys')}
+                </h4>
+                <ul className='divide-y'>
+                  {saved.map((entry) => {
+                    const uses = data.uses[entry.id] ?? []
+                    return (
+                      <li
+                        key={entry.id}
+                        className='flex items-center gap-3 py-2'
+                      >
+                        <KeyRound
+                          className='text-muted-foreground size-4 shrink-0'
+                          aria-hidden
+                        />
+                        <div className='min-w-0 flex-1 sm:grid sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:items-center sm:gap-4'>
+                          <div className='text-sm font-medium wrap-anywhere'>
+                            {entry.name}{' '}
+                            <span className='text-muted-foreground font-mono text-xs'>
+                              #{entry.id}
+                            </span>
+                          </div>
+                          <div className='text-muted-foreground text-xs leading-relaxed wrap-anywhere'>
+                            {uses.length
+                              ? uses.map((id) => (
+                                  <div key={id}>
+                                    {routeSummary(data, id, root?.base_url)}
+                                  </div>
+                                ))
+                              : t('Unused')}
+                          </div>
+                        </div>
+                        <Button
+                          size='icon'
+                          variant='ghost'
+                          aria-label={`${t(labels.edit)} · ${entry.name} #${entry.id}`}
+                          title={t(labels.edit)}
+                          onClick={() =>
+                            setDraft({ action: 'edit', entry, library: data })
+                          }
+                        >
+                          <Pencil aria-hidden />
+                        </Button>
+                        <DataTableRowActionMenu
+                          ariaLabel={`${t('Actions')} · ${entry.name} #${entry.id}`}
+                        >
+                          <DropdownMenuItem
+                            onClick={() =>
+                              setDraft({
+                                action: entry.owner_site_id
+                                  ? 'transfer_owner'
+                                  : 'assign_owner',
+                                entry,
+                                library: data,
+                              })
+                            }
+                          >
+                            {t(labels.assign_owner)}
+                          </DropdownMenuItem>
+                          {/* Hidden or foreign references must still be detachable by their safe numeric IDs. */}
+                          {uses
+                            .filter(
+                              (id) =>
+                                !channels.some(
+                                  (c) =>
+                                    c.id === id &&
+                                    c.site_id === entry.owner_site_id
+                                )
+                            )
+                            .map((id) => (
+                              <DropdownMenuItem
+                                key={id}
+                                onClick={() =>
+                                  setDraft({
+                                    action: 'detach',
+                                    library: data,
+                                    site: {
+                                      id,
+                                      name: `#${id}`,
+                                      base_url: '',
+                                    } as Site,
+                                  })
+                                }
+                              >
+                                {t(labels.detach)} #{id}
+                              </DropdownMenuItem>
+                            ))}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            variant='destructive'
+                            disabled={!!uses.length}
+                            onClick={() =>
+                              setDraft({
+                                action: 'delete',
+                                entry,
+                                library: data,
+                              })
+                            }
+                          >
+                            {t('Delete')}
+                          </DropdownMenuItem>
+                        </DataTableRowActionMenu>
+                      </li>
                     )
-                    .map((id) => (
+                  })}
+                </ul>
+              </div>
+            )}
+            {!!legacy.length && (
+              <div
+                className={`px-4 py-3 sm:px-5 ${saved.length ? 'border-t' : ''}`}
+              >
+                <h4 className='text-muted-foreground mb-1 text-xs font-medium'>
+                  {t('Existing site Keys')}
+                </h4>
+                <ul className='divide-y'>
+                  {legacy.map((site) => (
+                    <li
+                      key={site.id}
+                      className='flex items-center justify-between gap-3 py-1.5'
+                    >
+                      <div className='min-w-0 text-sm wrap-anywhere'>
+                        {site.name}{' '}
+                        <span className='text-muted-foreground font-mono text-xs'>
+                          #{site.id}
+                        </span>
+                        <div className='text-muted-foreground text-xs'>
+                          {[
+                            site.base_url !== root?.base_url && site.base_url,
+                            data.groups[site.id],
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </div>
+                      </div>
                       <Button
-                        key={id}
                         size='sm'
                         variant='outline'
+                        aria-label={`${t(labels.import)} · ${site.name} #${site.id}`}
                         onClick={() =>
-                          setDraft({
-                            action: 'detach',
-                            library: data,
-                            site: { id, name: `#${id}`, base_url: '' } as Site,
-                          })
+                          setDraft({ action: 'import', site, library: data })
                         }
                       >
-                        {t(labels.detach)} #{id}
+                        {t('Import Key')}
                       </Button>
-                    ))}
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    onClick={() =>
-                      setDraft({
-                        action: entry.owner_site_id
-                          ? 'transfer_owner'
-                          : 'assign_owner',
-                        entry,
-                        library: data,
-                      })
-                    }
-                  >
-                    {t(labels.assign_owner)}
-                  </Button>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    disabled={!entry.owner_site_id}
-                    onClick={() =>
-                      setDraft({ action: 'rotate', entry, library: data })
-                    }
-                  >
-                    {t(labels.rotate)}
-                  </Button>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    disabled={!!data.uses[entry.id]?.length}
-                    onClick={() =>
-                      setDraft({ action: 'delete', entry, library: data })
-                    }
-                  >
-                    {t('Delete')}
-                  </Button>
-                </div>
+                    </li>
+                  ))}
+                </ul>
               </div>
-            ))}
-          {old.some((site) => site.site_id === ownerId) && (
-            <h3 className='text-sm font-medium'>{t('Existing site Keys')}</h3>
-          )}
-          {old
-            .filter((site) => site.site_id === ownerId)
-            .map((site) => (
-              <div
-                key={site.id}
-                className='flex flex-wrap items-center justify-between gap-2 border-b py-2'
-              >
-                <span>{siteLabel(data, site.id)}</span>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  onClick={() =>
-                    setDraft({ action: 'import', site, library: data })
-                  }
-                >
-                  {t(labels.import)}
-                </Button>
-              </div>
-            ))}
-        </section>
-      ))}
+            )}
+            {!saved.length && !legacy.length && (
+              <p className='text-muted-foreground px-5 py-4 text-sm'>
+                {t('No saved Keys')}
+              </p>
+            )}
+          </section>
+        )
+      })}
       {draft && (
         <EditKey
           identity={identity}
@@ -527,7 +673,7 @@ export function KeyLibrary({ identity }: { identity: string }) {
           close={() => setDraft(undefined)}
         />
       )}
-    </section>
+    </div>
   )
 }
 
