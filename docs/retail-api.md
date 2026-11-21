@@ -8,7 +8,7 @@
 - 上游通过已有渠道页配置，只允许 OpenAI 兼容（type 1）和 Anthropic（type 14）。订阅供货先由 vm2api 转为兼容接口；第三方服务直接接入渠道。
 - 客户可调用 `POST /v1/chat/completions`、`POST /v1/responses`、`POST /v1/messages`，支持同步响应及 SSE；可用 `GET /v1/models` 查看可售模型。
 - WebSocket、Realtime、Playground、异步任务、compact、count_tokens、图片/音视频专用接口不在本期开放范围。此限制按 API 路径执行，并非对兼容文本接口中所有多模态字段做能力认证。
-- 请求须携带完整上下文；任何层级的非空 `previous_response_id`、`encrypted_content`、`conversation` 都会被拒绝。不能据此宣称完整兼容 Codex / Claude Code 的所有功能。
+- 使用 Responses 续聊时，客户端可以随 `input` 重发历史消息及 reasoning、compaction 项的 `encrypted_content`。上游决定能否使用该密文。使用 `previous_response_id` 时，本地需能核对原 Key、渠道和上游凭据，上游需能找回前文。遇到 `previous_response_not_found` 时，可改用完整历史重试。
 - 账务管理提供 root 会话 API 和渠道页“中转账务”入口，支持三类账本查询与预留释放；尚无自动采购账单导入或实时利润报表。
 
 ## 供货配置
