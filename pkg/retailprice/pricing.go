@@ -43,6 +43,7 @@ type Tier struct {
 
 // Model freezes an official tariff and an explicit currency; aliases must be mapped by the operator.
 type Model struct {
+	PriceMode string `json:"price_mode,omitempty"` // Empty for historical imports, official after verification, manual for overrides.
 	// Kind distinguishes text completion from text-only image generation. Empty preserves existing books.
 	Kind          string `json:"kind,omitempty"`
 	ID            string `json:"id"`
@@ -197,6 +198,9 @@ func (b Book) Validate(now int64) error {
 	}
 	models, rates, products := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, m := range b.Models {
+		if m.PriceMode != "" && m.PriceMode != "official" && m.PriceMode != "manual" {
+			return ErrConfig
+		}
 		if m.Kind != "" && m.Kind != "text" && m.Kind != "image" {
 			return ErrConfig
 		}

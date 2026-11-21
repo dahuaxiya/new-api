@@ -105,7 +105,9 @@ export function RetailPricing() {
             <Tabs defaultValue='routes' className='space-y-3'>
               <TabsList>
                 <TabsTrigger value='routes'>{t('Supply routes')}</TabsTrigger>
-                <TabsTrigger value='pricing'>{t('Price book')}</TabsTrigger>
+                <TabsTrigger value='pricing'>
+                  {t('Automatic pricing')}
+                </TabsTrigger>
               </TabsList>
               {/* Keep both drafts mounted when switching views; only explicit saves write changes. */}
               <TabsContent value='routes' keepMounted>
@@ -156,13 +158,52 @@ export function RetailPricing() {
                     >
                       {t('Refresh')}
                     </Button>
-                    <RetailPricingEditor
-                      key={`${identity}:${query.data.version}`}
-                      state={query.data}
-                      staleDraft={staleDraft}
-                      onSaved={() => void query.refetch()}
-                      onDirtyChange={setHasPricingDraft}
-                    />
+                    <p className='text-sm' role='status'>
+                      {t(
+                        'Following official prices for {{count}} of {{total}} models',
+                        {
+                          count: query.data.book.models.filter(
+                            (m) =>
+                              m.price_mode === 'official' &&
+                              m.valid_until > query.data!.server_time
+                          ).length,
+                          total: query.data.book.models.length,
+                        }
+                      )}
+                    </p>
+                    {query.data.book.models.some(
+                      (m) =>
+                        m.price_mode !== 'official' ||
+                        m.valid_until <= query.data!.server_time
+                    ) && (
+                      <details>
+                        <summary>
+                          {t('Models outside automatic pricing')}
+                        </summary>
+                        <p className='text-sm'>
+                          {query.data.book.models
+                            .filter(
+                              (m) =>
+                                m.price_mode !== 'official' ||
+                                m.valid_until <= query.data!.server_time
+                            )
+                            .map((m) => m.id)
+                            .join(', ')}
+                        </p>
+                      </details>
+                    )}
+                    <details className='space-y-3'>
+                      <summary className='cursor-pointer text-sm'>
+                        {t('Manual price book settings')}
+                      </summary>
+                      <RetailPricingEditor
+                        key={`${identity}:${query.data.version}`}
+                        state={query.data}
+                        staleDraft={staleDraft}
+                        onSaved={() => void query.refetch()}
+                        onDirtyChange={setHasPricingDraft}
+                      />
+                    </details>
                   </>
                 )}
               </TabsContent>

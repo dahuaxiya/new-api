@@ -381,6 +381,7 @@ func TestRetailGroupLaunchDatabases(t *testing.T) {
 			preview, err := LaunchRetailGroup(ctx, in, 1)
 			require.NoError(t, err)
 			require.NotEmpty(t, preview.Review)
+			require.False(t, preview.Applied)
 			require.Len(t, preview.Rows, 2)
 			require.Equal(t, "1.25", preview.Rows[0].Tiers[0].Prices.Input)
 			require.Equal(t, "0.625", preview.SaleMultiplier)
@@ -394,8 +395,11 @@ func TestRetailGroupLaunchDatabases(t *testing.T) {
 			_, err = LaunchRetailGroup(ctx, in, 1)
 			require.ErrorIs(t, err, ErrRetailPriceConflict)
 			margin = 2000
+			// Direct publish uses the locked quote and cannot duplicate a credential on retry.
+			in.Review, in.Apply = "", true
 			result, err := LaunchRetailGroup(ctx, in, 1)
 			require.NoError(t, err)
+			require.True(t, result.Applied)
 			require.Equal(t, v+1, result.Version)
 			_, err = LaunchRetailGroup(ctx, in, 1)
 			require.ErrorIs(t, err, ErrRetailPriceConflict)
@@ -480,6 +484,35 @@ func TestRetailGroupLaunchDatabases(t *testing.T) {
 			require.NoError(t, err)
 			require.Empty(t, reused.Review)
 			require.Equal(t, []int{pool.Id}, reused.UnavailableChannels)
+			other.Apply = true
+			refused, err := LaunchRetailGroup(ctx, other, 1)
+			require.NoError(t, err)
+			require.False(t, refused.Applied)
+			current, currentVersion, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Equal(t, version, currentVersion)
+			// Add an independent catalog tariff, then verify that the worker only patches
+			// this model, preserving accounting, route ownership and manual entries.
+			tracked := retailprice.OfficialModels()[0]
+			tracked.VerifiedAt, tracked.ValidUntil = now-30, now+3600
+			current.Models = append(current.Models, tracked)
+			currentVersion, err = PublishRetailPriceBook(currentVersion, current, nil, 1)
+			require.NoError(t, err)
+			prices := map[string]map[string][]retailprice.Tier{retailprice.OpenAIPriceURL: {tracked.ID: tracked.Tiers}}
+			report, err := SyncOfficialRetailPrices(ctx, currentVersion, prices, now)
+			require.NoError(t, err)
+			require.Equal(t, []string{tracked.ID}, report["verified"])
+			saved, nextVersion, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Equal(t, currentVersion+1, nextVersion)
+			require.Equal(t, "official", saved.Models[len(saved.Models)-1].PriceMode)
+			saved.Models[len(saved.Models)-1] = tracked
+			require.Equal(t, current, saved)
+			_, err = SyncOfficialRetailPrices(ctx, nextVersion, nil, now+1)
+			require.NoError(t, err)
+			_, sameVersion, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Equal(t, nextVersion, sameVersion)
 
 		})
 	}

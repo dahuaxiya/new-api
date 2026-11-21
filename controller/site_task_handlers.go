@@ -30,6 +30,7 @@ func registerSiteTasks() {
 	if common.IsRetailSite() {
 		service.RegisterSystemTaskHandler(retailRatesHandler{})
 		service.RegisterSystemTaskHandler(retailSiteRatesHandler{})
+		service.RegisterSystemTaskHandler(retailOfficialPricesHandler{})
 		service.RegisterSystemTaskHandler(retailModelsHandler{})
 		service.RegisterSystemTaskHandler(siteTaskHandler{kind: siteTaskWalletPayment})
 		return

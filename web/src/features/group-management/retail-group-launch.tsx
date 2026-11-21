@@ -368,26 +368,33 @@ function LaunchForm({
     ) &&
     (margin === '' || (Number(margin) >= 0 && Number(margin) <= 95))
   )
+  /** 只在服务器事务成功后关闭表单；部分缺价时仍告诉操作者具体跳过的模型。 */
+  function published(groupName: string, rows: RetailLaunchReview['rows']) {
+    for (const prefix of [
+      'retail-catalog',
+      'retail-pricing',
+      'retail-group-bindings',
+      'retail-studio',
+    ]) {
+      void client.invalidateQueries({ queryKey: [prefix] })
+    }
+    toast.success(
+      `${t(editing ? 'Saved' : 'Call group published')} · ${groupName}`
+    )
+    const skipped = rows.filter((r) => r.reason).map((r) => r.model)
+    if (skipped.length)
+      toast.message(t('Skipped models') + ' · ' + skipped.join(', '))
+    onPublished()
+  }
   /** 读取新 Key 时只使用选中站点的协议和地址。后台验证并计算可售范围，浏览器不推算价格。 */
-  async function submit() {
+  async function submit(apply = false) {
     if (!selected || busy) return
     setBusy(true)
     setFailure('')
     try {
       if (preview) {
         await launchRetailGroup(preview.input, preview.result.review)
-        for (const prefix of [
-          'retail-catalog',
-          'retail-pricing',
-          'retail-group-bindings',
-          'retail-studio',
-        ]) {
-          void client.invalidateQueries({ queryKey: [prefix] })
-        }
-        toast.success(
-          `${t(editing ? 'Saved' : 'Call group published')} · ${preview.input.local_group}`
-        )
-        onPublished()
+        published(preview.input.local_group, preview.result.rows)
         return
       }
       if (!canPreview || channel === null) return
@@ -441,7 +448,13 @@ function LaunchForm({
         input.key = key.trim()
         input.models = [...new Set(response.data)].sort()
       }
-      const result = await launchRetailGroup(input)
+      const result = await launchRetailGroup(
+        apply ? { ...input, apply: true } : input
+      )
+      if (apply && result.applied) {
+        published(input.local_group, result.rows)
+        return
+      }
       setPreview({
         input,
         result,
@@ -463,10 +476,7 @@ function LaunchForm({
     model_mapping_conflict:
       'Channel model mapping differs from the price route',
   }
-  let actionLabel = 'Preview CNY selling prices'
-  if (preview) {
-    actionLabel = editing ? 'Save' : 'Save and publish group'
-  }
+  const actionLabel = editing ? 'Save' : 'Save and publish group'
   return (
     <div className='min-h-0 flex-1 space-y-4 overflow-auto p-6'>
       {state.isError && (
@@ -892,6 +902,17 @@ function LaunchForm({
             </div>
           )}
           <div className='bg-background sticky bottom-0 flex flex-wrap gap-2 border-t py-3'>
+            {!preview && (
+              <Button
+                variant='outline'
+                disabled={
+                  busy || !canPreview || !data.pricing_enabled || !sourceReady
+                }
+                onClick={() => void submit()}
+              >
+                {t('Preview CNY selling prices')}
+              </Button>
+            )}
             {preview && (
               <Button
                 variant='outline'
@@ -909,7 +930,7 @@ function LaunchForm({
                 !sourceReady ||
                 (!!preview && !preview.result.review)
               }
-              onClick={() => void submit()}
+              onClick={() => void submit(true)}
             >
               {t(busy ? 'Loading...' : actionLabel)}
             </Button>

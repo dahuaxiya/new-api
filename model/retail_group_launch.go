@@ -18,6 +18,7 @@ import (
 
 // RetailGroupLaunch addresses one public group. Only new credentials accept a Key and discovered model list.
 type RetailGroupLaunch struct {
+	Apply       bool                `json:"apply,omitempty"` // Direct publication uses only the locked server-side quote.
 	Version     int64               `json:"expected_version"`
 	ProductID   string              `json:"product_id"`
 	Site        int                 `json:"site_id"`
@@ -47,6 +48,7 @@ type RetailLaunchRow struct {
 	Channels []int              `json:"channels,omitempty"`
 }
 type RetailLaunchResult struct {
+	Applied             bool              `json:"applied"` // Set after the outer transaction commits; previews can also carry a review digest.
 	UnavailableChannels []int             `json:"unavailable_channels,omitempty"`
 	Rows                []RetailLaunchRow `json:"rows"`
 	Review              string            `json:"review"`
@@ -63,7 +65,7 @@ var ErrRetailLaunchPaused = errors.New("Enable retail sales and load the upstrea
 // ability and audit writes. Confirmation compares visible tariffs again before allowing the transaction to commit.
 func LaunchRetailGroup(ctx context.Context, in RetailGroupLaunch, actor int) (RetailLaunchResult, error) {
 	out := RetailLaunchResult{Rows: []RetailLaunchRow{}}
-	if actor <= 0 || in.Site <= 0 || in.Channel < 0 || in.Group == "" || len(in.Group) > 100 || len(in.Models) > 200 || len(in.Routes) > 99 || (in.Margin != nil && (*in.Margin < 0 || *in.Margin > 9500)) {
+	if (in.Apply && in.Review != "") || actor <= 0 || in.Site <= 0 || in.Channel < 0 || in.Group == "" || len(in.Group) > 100 || len(in.Models) > 200 || len(in.Routes) > 99 || (in.Margin != nil && (*in.Margin < 0 || *in.Margin > 9500)) {
 		return out, retailprice.ErrConfig
 	}
 	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -318,6 +320,11 @@ func LaunchRetailGroup(ctx context.Context, in RetailGroupLaunch, actor int) (Re
 			if count > 0 && len(out.UnavailableChannels) == 0 {
 				out.Review = fmt.Sprintf("%x", sha256.Sum256(raw))
 			}
+			// Direct publication has the same eligibility gate and version lock as reviewed publication.
+			// Return the exclusions without writing even a provisional credential if the gate fails.
+			if in.Apply && out.Review != "" {
+				return nil
+			}
 			if in.Review == "" {
 				return errLaunchPreview
 			}
@@ -333,5 +340,6 @@ func LaunchRetailGroup(ctx context.Context, in RetailGroupLaunch, actor int) (Re
 		out.Version = in.Version
 		return out, nil
 	}
+	out.Applied = err == nil && (in.Apply || in.Review != "")
 	return out, err
 }

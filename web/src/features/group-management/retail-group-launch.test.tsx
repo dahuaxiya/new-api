@@ -191,6 +191,7 @@ it('matches credentials by upstream group and publishes only the reviewed route'
       success: true,
       data: {
         version: 12,
+        applied: true,
         review: 'confirmed-price',
         rows: [{ model: 'claude-model', tiers: [] }],
       },
@@ -226,9 +227,6 @@ it('matches credentials by upstream group and publishes only the reviewed route'
   fireEvent.click(screen.getByRole('button', { name: 'Back' }))
   expect(screen.getByLabelText('Call group name')).toHaveValue('new-claude')
   fireEvent.click(
-    screen.getByRole('button', { name: 'Preview CNY selling prices' })
-  )
-  fireEvent.click(
     await screen.findByRole('button', { name: 'Save and publish group' })
   )
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
@@ -238,7 +236,8 @@ it('matches credentials by upstream group and publishes only the reviewed route'
     upstream_group: 'claude',
     local_group: 'new-claude',
     additional_routes: [{ channel_id: 5, upstream_group: 'gpt', rate_id: '' }],
-    review: 'confirmed-price',
+    review: '',
+    apply: true,
   })
   cleanup()
   client.clear()

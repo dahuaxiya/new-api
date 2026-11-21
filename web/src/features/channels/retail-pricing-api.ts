@@ -65,6 +65,7 @@ export type RetailPriceBook = {
   models: Array<{
     id: string
     kind?: 'text' | 'image' | ''
+    price_mode?: 'official' | 'manual'
     official_model: string
     currency: 'USD' | 'CNY'
     source: string
@@ -412,6 +413,7 @@ export type RetailLaunchRoute = {
 }
 
 export type RetailLaunchInput = {
+  apply?: boolean
   expected_version: number
   product_id?: string
   additional_routes?: RetailLaunchRoute[]
@@ -425,6 +427,7 @@ export type RetailLaunchInput = {
   models?: string[]
 }
 export type RetailLaunchReview = {
+  applied?: boolean
   unavailable_channels?: number[]
   rows: Array<{
     model: string

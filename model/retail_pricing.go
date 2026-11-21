@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -94,6 +95,38 @@ func PublishRetailPriceBook(expected int64, book retailprice.Book, ratesOnly []r
 			// Manual imports cannot overwrite the independently verified public feed.
 			current.Rates = ratesOnly
 		} else {
+			// Imports must never label an edited tariff as freshly verified. A deliberate
+			// change of deadline or billing basis is also a manual pricing decision.
+			for i := range book.Models {
+				next := &book.Models[i]
+				index := slices.IndexFunc(current.Models, func(m retailprice.Model) bool { return m.ID == next.ID })
+				if index < 0 {
+					if next.PriceMode == "official" {
+						next.PriceMode = ""
+					}
+					continue
+				}
+				prior := current.Models[index]
+				// Older export tools omit optional kind and verification metadata. A missing
+				// field cannot opt an unchanged price out of automatic verification.
+				if next.Kind == "" {
+					next.Kind = prior.Kind
+				}
+				if next.VerifiedAt == 0 {
+					next.VerifiedAt = prior.VerifiedAt
+				}
+				if next.ValidUntil == 0 {
+					next.ValidUntil = prior.ValidUntil
+				}
+				if next.OfficialModel != prior.OfficialModel || next.Currency != prior.Currency || next.Source != prior.Source || next.Kind != prior.Kind || next.VerifiedAt != prior.VerifiedAt || next.ValidUntil != prior.ValidUntil || !slices.Equal(next.Tiers, prior.Tiers) {
+					next.PriceMode = "manual"
+				} else if prior.PriceMode == "manual" && next.PriceMode == "official" {
+					// An explicit re-enrollment still requires a matching fresh official observation.
+					next.PriceMode = ""
+				} else if next.PriceMode != "manual" {
+					next.PriceMode = prior.PriceMode
+				}
+			}
 			book.SiteGroupRates = current.SiteGroupRates     // 价表导入沿用已登记的采购价归属。
 			book.CredentialGroups = current.CredentialGroups // Only the credential editor may establish ownership.
 			book.ModelSync = current.ModelSync               // Observation history is server-owned, never supplied by a price editor.
@@ -454,4 +487,33 @@ func settleRetailPriceBudget(tx *gorm.DB, charge RetailCharge, target int) (stri
 		return "", err
 	}
 	return actual.String(), nil
+}
+
+// SyncOfficialRetailPrices applies verified prices to the current book under the same version
+// lock used by admission. Failures from one provider never renew its models or undo another source.
+func SyncOfficialRetailPrices(ctx context.Context, expected int64, feeds map[string]map[string][]retailprice.Tier, now int64) (map[string][]string, error) {
+	result := map[string][]string{}
+	_, err := mutateRetailPriceBook(ctx, expected, 0, false, func(book *retailprice.Book) error {
+		if !book.Enabled {
+			return nil
+		}
+		for i := range book.Models {
+			m := &book.Models[i]
+			if m.PriceMode == "manual" {
+				result["manual"] = append(result["manual"], m.ID)
+				continue
+			}
+			url := retailprice.OpenAIPriceURL
+			if strings.HasPrefix(m.ID, "claude-") {
+				url = retailprice.ClaudePriceURL
+			}
+			if retailprice.RefreshOfficialModel(m, url, feeds[url][m.ID], now) {
+				result["verified"] = append(result["verified"], m.ID)
+			} else {
+				result["unverified"] = append(result["unverified"], m.ID)
+			}
+		}
+		return nil
+	})
+	return result, err
 }

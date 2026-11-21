@@ -54,7 +54,7 @@ const readyBook = {
 const priceRows = [{ product: 'Normal', model: 'gpt-6.1-sol', available: true }]
 
 /** Mount the production drawer with only the HTTP boundary replaced. */
-function openPricing() {
+async function openPricing(manual = true) {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'root', role: 100 })
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -66,7 +66,8 @@ function openPricing() {
     </QueryClientProvider>
   )
   fireEvent.click(screen.getByRole('button', { name: 'Retail pricing' }))
-  fireEvent.click(screen.getByRole('tab', { name: 'Price book' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Automatic pricing' }))
+  if (manual) fireEvent.click(await screen.findByText('Manual price book settings'))
 }
 
 afterEach(() => {
@@ -82,7 +83,7 @@ it('keeps empty draft publication blocked after a successful empty preview', asy
     data: { success: true, data: { version: 4, book } },
   })
   vi.spyOn(api, 'post').mockResolvedValue({ data: { success: true, data: [] } })
-  openPricing()
+  await openPricing()
   fireEvent.click(
     await screen.findByRole('button', { name: 'Preview CNY selling prices' })
   )
@@ -103,7 +104,7 @@ it('automatically previews on publish and confirms exactly the reviewed draft', 
   const put = vi
     .spyOn(api, 'put')
     .mockResolvedValue({ data: { success: true } })
-  openPricing()
+  await openPricing()
   fireEvent.click(
     await screen.findByRole('button', { name: 'Publish price book' })
   )
@@ -141,7 +142,7 @@ it('blocks confirmation when the draft changes during automatic preview', async 
       })
   )
   const put = vi.spyOn(api, 'put')
-  openPricing()
+  await openPricing()
   fireEvent.click(
     await screen.findByRole('button', { name: 'Publish price book' })
   )
@@ -159,7 +160,7 @@ it('rejects malformed JSON without sending a price preview', async () => {
     data: { success: true, data: { version: 4, book } },
   })
   const post = vi.spyOn(api, 'post')
-  openPricing()
+  await openPricing()
   fireEvent.change(
     await screen.findByLabelText('Upstream group multipliers (JSON)'),
     { target: { value: '{invalid' } }
@@ -204,7 +205,7 @@ it('blocks an existing catalog draft after saving following margin', async () =>
   vi.spyOn(api, 'put').mockResolvedValue({
     data: { success: true, data: { version: 5 } },
   })
-  openPricing()
+  await openPricing()
   fireEvent.change(
     await screen.findByLabelText('CNY per existing wallet unit'),
     { target: { value: '2' } }
@@ -225,7 +226,7 @@ it('blocks an existing catalog draft after saving following margin', async () =>
     screen.getByRole('button', { name: 'Save bindings and margin' })
   )
   fireEvent.click(await screen.findByRole('button', { name: 'Confirm save' }))
-  fireEvent.click(await screen.findByRole('tab', { name: 'Price book' }))
+  fireEvent.click(await screen.findByRole('tab', { name: 'Automatic pricing' }))
   await waitFor(() =>
     expect(
       screen.getByRole('button', { name: 'Preview CNY selling prices' })
@@ -242,7 +243,7 @@ it('blocks an existing catalog draft after saving following margin', async () =>
 
 it('hides editing controls when the price book cannot be loaded', async () => {
   vi.spyOn(api, 'get').mockRejectedValue(new Error('Unavailable'))
-  openPricing()
+  await openPricing(false)
   expect(
     await screen.findByText('Unable to load retail pricing')
   ).toBeInTheDocument()
@@ -256,7 +257,7 @@ it('keeps manual multiplier imports collapsed and explains that following needs 
   vi.spyOn(api, 'get').mockResolvedValue({
     data: { success: true, data: { version: 4, book } },
   })
-  openPricing()
+  await openPricing()
   await screen.findByText('Manual multipliers · other suppliers')
   expect(screen.getByLabelText('Import multiplier file')).not.toBeVisible()
   const manual = screen
@@ -305,7 +306,7 @@ it('generates a local official catalog and explains account-group mismatches bef
     },
   })
   const put = vi.spyOn(api, 'put')
-  openPricing()
+  await openPricing()
   fireEvent.click(
     await screen.findByRole('button', {
       name: 'Generate official prices and routes',

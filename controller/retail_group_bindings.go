@@ -222,7 +222,7 @@ func LaunchRetailGroup(c *gin.Context) {
 		}
 		return
 	}
-	if in.Review != "" {
+	if result.Applied {
 		model.InitChannelCache()
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
