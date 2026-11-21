@@ -72,13 +72,14 @@ type Route struct {
 
 // Product defines independently authorized sales access and equivalent procurement routes.
 type Product struct {
-	MarginBPS    *int     `json:"margin_bps,omitempty"` // Nil products inherit the site margin, including every historical product.
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Public       bool     `json:"public,omitempty"`
-	BindingGroup string   `json:"binding_group,omitempty"`
-	UserGroups   []string `json:"user_groups"`
-	Routes       []Route  `json:"routes"`
+	RateSourceChannelID int      `json:"rate_source_channel_id,omitempty"` // 旧组为 0，继续按原有报价规则。
+	MarginBPS           *int     `json:"margin_bps,omitempty"`             // Nil products inherit the site margin, including every historical product.
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	Public              bool     `json:"public,omitempty"`
+	BindingGroup        string   `json:"binding_group,omitempty"`
+	UserGroups          []string `json:"user_groups"`
+	Routes              []Route  `json:"routes"`
 }
 
 // AllowsGroup checks sales access only; procurement uses BindingGroup, not the customer's account group.
@@ -104,6 +105,11 @@ func (b Book) RegisteredGroups() map[int]string {
 
 // Book stores an immutable pricing version. Wallet conversion is explicit and never a display FX rate.
 type Book struct {
+	UnavailableRateChannels map[int]bool `json:"-"` // 请求时按当前供货授权计算，禁止从客户端价表导入。
+	// 手工采购价按上游站点和分组登记。线路引用同一费率表项，更新金额即对所有引用生效。
+	SiteFeeds         map[int]SiteRateFeed      `json:"site_rate_feeds,omitempty"`
+	RateSiteByChannel map[int]int               `json:"rate_site_by_channel,omitempty"`
+	SiteGroupRates    map[int]map[string]string `json:"site_group_rates,omitempty"`
 	CredentialGroups  map[int]string            `json:"credential_groups,omitempty"`
 	ModelSync         map[string]ModelSyncState `json:"model_sync,omitempty"`
 	SalePolicyManaged bool                      `json:"sale_policy_managed,omitempty"`
@@ -229,7 +235,11 @@ func (b Book) Validate(now int64) error {
 		}
 		// Public access must have an explicit procurement identity. Otherwise a
 		// customer's account group could select a different multiplier or a stale manual rate.
-		if (p.Public && p.BindingGroup == "") || (p.BindingGroup != "" && !validBindingGroup(p.BindingGroup)) {
+		if (p.Public && p.BindingGroup == "") || (p.BindingGroup != "" && !ValidBindingGroup(p.BindingGroup)) {
+			return ErrConfig
+		}
+		// 定价来源必须是本组明确绑定的上游分组。来源线路停用时，已核验的倍率仍可用于其他线路。
+		if p.RateSourceChannelID != 0 && (!p.Public || b.Binding(p.BindingGroup, p.RateSourceChannelID) == nil) {
 			return ErrConfig
 		}
 		products[p.ID] = true
@@ -239,7 +249,8 @@ func (b Book) Validate(now int64) error {
 				return ErrConfig
 			}
 			seenChannels[route.ChannelID] = true
-			if route.RateID == "" || slices.ContainsFunc(b.GroupBindings, func(binding GroupBinding) bool { return binding.ChannelID == route.ChannelID }) {
+			managedCost := b.RateSiteByChannel[route.ChannelID] != 0 && b.CredentialGroups[route.ChannelID] != ""
+			if route.RateID == "" || (!managedCost && slices.ContainsFunc(b.GroupBindings, func(binding GroupBinding) bool { return binding.ChannelID == route.ChannelID })) {
 				groups := p.UserGroups
 				if p.BindingGroup != "" {
 					groups = []string{p.BindingGroup}
@@ -315,8 +326,8 @@ func (b Book) SaleFactor(multiplier string) (decimal.Decimal, error) {
 	return factor, nil
 }
 
-// MakeQuote uses the cheapest eligible group and freezes its entire sales schedule.
-// More expensive fallbacks are not admitted under an already accepted cheaper quote.
+// MakeQuote freezes the selected group's tariff before routing. Anchored groups
+// admit all routes that can serve that tariff. Historical groups keep cheapest-route pricing.
 func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName string, outputLimit int, eligible []int, now int64, inputTokens ...int) (*Quote, error) {
 	// Persisted state is still an input boundary: corrupted or partially restored
 	// catalogs must fail closed before indexing tiers or evaluating a cost floor.
@@ -360,8 +371,21 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 	if product.MarginBPS != nil {
 		b.MarginBPS = *product.MarginBPS
 	}
-	var cheapest decimal.Decimal
+	var saleFactor decimal.Decimal
 	expires := official.ValidUntil
+	routeFloor := b
+	if product.RateSourceChannelID != 0 {
+		rate, err := b.BoundRate(*b.Binding(product.BindingGroup, product.RateSourceChannelID))
+		if err != nil {
+			return nil, err
+		}
+		saleFactor, err = b.SaleFactor(rate.Multiplier)
+		if err != nil {
+			return nil, err
+		}
+		// 备用线路可牺牲目标毛利，但必须覆盖采购、手续费、折扣和成本缓冲。
+		routeFloor.MarginBPS = 0
+	}
 	channels := []int{}
 	// Legacy private products used account groups as binding selectors. New call
 	// groups pin procurement independently so every customer gets the same group price.
@@ -374,7 +398,12 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 			continue
 		}
 		routeRates, rateID := b.Rates, route.RateID
-		if binding := b.Binding(bindingGroup, route.ChannelID); binding != nil {
+		binding := b.Binding(bindingGroup, route.ChannelID)
+		// 已登记归属的历史手工线路与同组的新线路共用采购价。读取快照无需重写原商品。
+		if binding == nil && b.RateSiteByChannel[route.ChannelID] != 0 && b.CredentialGroups[route.ChannelID] != "" {
+			binding = &GroupBinding{ChannelID: route.ChannelID, UpstreamGroup: b.CredentialGroups[route.ChannelID]}
+		}
+		if binding != nil {
 			// Pauses are scoped to the bound credential and upstream ID; manual aliases survive outages.
 			if binding.FollowModels && slices.Contains(b.ModelSync[binding.SyncID()].Paused, route.Models[modelName]) {
 				continue
@@ -393,13 +422,18 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 			if r.ID != rateID || r.ValidUntil <= now {
 				continue
 			}
-			factor, err := b.SaleFactor(r.Multiplier)
+			factor, err := routeFloor.SaleFactor(r.Multiplier)
 			if err != nil {
 				return nil, err
 			}
-			if len(channels) == 0 || factor.LessThan(cheapest) {
-				cheapest, channels, expires = factor, []int{route.ChannelID}, min(official.ValidUntil, r.ValidUntil)
-			} else if factor.Equal(cheapest) {
+			if product.RateSourceChannelID != 0 {
+				if factor.LessThanOrEqual(saleFactor) {
+					channels = append(channels, route.ChannelID)
+					expires = min(expires, r.ValidUntil)
+				}
+			} else if len(channels) == 0 || factor.LessThan(saleFactor) {
+				saleFactor, channels, expires = factor, []int{route.ChannelID}, min(official.ValidUntil, r.ValidUntil)
+			} else if factor.Equal(saleFactor) {
 				channels = append(channels, route.ChannelID)
 				expires = min(expires, r.ValidUntil)
 			}
@@ -414,7 +448,7 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		values := make([]string, 5)
 		for i, raw := range tier.Prices.Values() {
 			base, _ := Amount(raw)
-			price := base.Mul(cheapest).RoundCeil(8)
+			price := base.Mul(saleFactor).RoundCeil(8)
 			limit, _ := Amount(cap.Values()[i])
 			if !key.StudioCurrent && !key.GroupCurrent && price.GreaterThan(limit) {
 				return nil, ErrCap

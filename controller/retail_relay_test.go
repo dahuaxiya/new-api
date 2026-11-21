@@ -601,6 +601,7 @@ func TestRetailPricingManagement(t *testing.T) {
 	admin.GET("/pricing", GetRetailPricingAdmin)
 	admin.GET("/pricing/public-rates", GetRetailPublicRates)
 	admin.GET("/pricing/group-bindings", GetRetailGroupBindings)
+	admin.PUT("/pricing/site-rates", middleware.SessionCookieOriginGuard(), PutRetailSiteRates)
 	admin.PUT("/pricing/group-bindings", middleware.SessionCookieOriginGuard(), PutRetailGroupBindings)
 	admin.POST("/pricing/group-bindings/sync", middleware.SessionCookieOriginGuard(), SyncRetailGroupBindings)
 	admin.PUT("/pricing", middleware.SessionCookieOriginGuard(), PutRetailPricingAdmin)
@@ -990,6 +991,49 @@ func TestRetailPricingManagement(t *testing.T) {
 	w = request("PUT", "/api/retail/admin/pricing/group-bindings", "https://example.com", payload)
 	require.Contains(t, w.Body.String(), `"success":false`)
 
+	// 从旧版星行迁移到单站冻结时，即使接口故障也应保留同一份可信快照。后台不可继续刷新该站。
+	feedPath := "/api/retail/admin/pricing/site-rates"
+	requestFeed := func(version int64, follow *bool) *httptest.ResponseRecorder {
+		input := gin.H{"expected_version": version, "site_id": 101, "url": retailPublicRatesURL}
+		if follow != nil {
+			input["follow"] = *follow
+		}
+		return request("PUT", feedPath, "https://example.com", input)
+	}
+	w = requestFeed(newVersion, &off)
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	migrated, v, err := model.GetRetailPriceBook()
+	require.NoError(t, err)
+	require.False(t, migrated.SiteFeeds[101].Follow)
+	require.Equal(t, migrated.PublicRateSync.Snapshot, migrated.SiteFeeds[101].Snapshot)
+	require.NoError(t, syncRetailSiteRates(context.Background()))
+	currentRate := "0.36"
+	retailPublicRatesClient.Transport = retailPublicRatesTestTransport(func(r *http.Request) (*http.Response, error) {
+		body := fmt.Sprintf(`{"success":true,"server":"https://aixingxing.pro","updated_at":%q,"groups":[{"group":"Pro","name":"Pro","rate":%s}]}`, time.Now().UTC().Format(time.RFC3339), currentRate)
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})
+	w = requestFeed(v, nil)
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	manual, v, err := model.GetRetailPriceBook()
+	require.NoError(t, err)
+	require.False(t, manual.SiteFeeds[101].Follow)
+	on := true
+	w = requestFeed(v, &on)
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	currentRate = "0.45"
+	require.NoError(t, syncRetailSiteRates(context.Background()))
+	updated, v, err := model.GetRetailPriceBook()
+	require.NoError(t, err)
+	value, err := updated.BoundRate(retailprice.GroupBinding{ChannelID: 101, UpstreamGroup: "Pro"})
+	require.NoError(t, err)
+	require.Equal(t, "0.45", value.Multiplier)
+	w = requestFeed(v, &off)
+	require.Contains(t, w.Body.String(), `"success":true`, w.Body.String())
+	currentRate = "0.99"
+	require.NoError(t, syncRetailSiteRates(context.Background()))
+	frozen, _, err := model.GetRetailPriceBook()
+	require.NoError(t, err)
+	require.Equal(t, "0.45", frozen.SiteFeeds[101].Snapshot.Groups[0].Multiplier)
 	require.Equal(t, "another", account.Group)
 	require.NoError(t, model.DB.Model(user).Update("status", common.UserStatusDisabled).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
@@ -1438,4 +1482,15 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	ordinary := model.Token{UserId: user.Id, ServiceMode: model.TokenServiceRetail, Key: "test-ordinary", Status: 1, ExpiredTime: -1}
 	require.NoError(t, model.DB.Create(&ordinary).Error)
 	require.Error(t, model.PutRetailKeyPolicy(user.Id, ordinary.Id, 0, policy), "API keys cannot opt into studio-only pricing")
+}
+
+// TestRetailSiteRateFeedIdentity 校验不同站点不能冒充同名分组，金额保留原始小数精度。
+func TestRetailSiteRateFeedIdentity(t *testing.T) {
+	now := time.Now().UTC()
+	body := []byte(fmt.Sprintf(`{"success":true,"server":"https://second.example","updated_at":%q,"groups":[{"group":"shared","name":"Shared","rate":0.12345678}]}`, now.Format(time.RFC3339)))
+	rates, _, ok := parseRetailSiteRates(body, now, "https://second.example")
+	require.True(t, ok)
+	require.Equal(t, "0.12345678", rates[0].Multiplier)
+	_, _, ok = parseRetailSiteRates(body, now, "https://first.example")
+	require.False(t, ok)
 }

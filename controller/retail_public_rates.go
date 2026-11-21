@@ -14,6 +14,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 )
@@ -42,13 +43,26 @@ func GetRetailPublicRates(c *gin.Context) {
 // fetchRetailPublicRates is shared by manual preview and the leased synchronizer.
 // It never forwards operator headers or follows redirects to another endpoint.
 func fetchRetailPublicRates(ctx context.Context) (*retailprice.PublicRateSnapshot, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, retailPublicRatesURL, nil)
+	return fetchRetailSiteRates(ctx, retailPublicRatesURL)
+}
+
+// fetchRetailSiteRates 只向经过站点归属检查的接口发送匿名 GET。复用受保护传输并禁止重定向。
+func fetchRetailSiteRates(ctx context.Context, endpoint string) (*retailprice.PublicRateSnapshot, error) {
+	client := retailPublicRatesClient
+	if endpoint != retailPublicRatesURL {
+		protected := service.GetSSRFProtectedHTTPClient()
+		if protected == nil || retailprice.RateFeedOrigin(endpoint) == "" {
+			return nil, retailprice.ErrConfig
+		}
+		client = &http.Client{Transport: protected.Transport, Timeout: 8 * time.Second, CheckRedirect: retailPublicRatesClient.CheckRedirect}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, common.NewMessage("Unable to read upstream public multipliers")
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Cache-Control", "no-cache")
-	response, err := retailPublicRatesClient.Do(req)
+	response, err := client.Do(req)
 	if err != nil {
 		return nil, common.NewMessage("Unable to read upstream public multipliers")
 	}
@@ -63,19 +77,24 @@ func fetchRetailPublicRates(ctx context.Context) (*retailprice.PublicRateSnapsho
 		return nil, common.NewMessage("Invalid upstream public multiplier response")
 	}
 	fetchedAt := time.Now().UTC()
-	groups, updatedAt, ok := parseRetailPublicRates(body, fetchedAt)
+	groups, updatedAt, ok := parseRetailSiteRates(body, fetchedAt, retailprice.RateFeedOrigin(endpoint))
 	if !ok {
 		return nil, common.NewMessage("Invalid upstream public multiplier response")
 	}
 	// Stable order makes unchanged-price renewals independent of the supplier's display ordering.
 	slices.SortFunc(groups, func(a, b retailPublicRate) int { return strings.Compare(a.Group, b.Group) })
-	return &retailprice.PublicRateSnapshot{Source: retailPublicRatesURL, UpdatedAt: updatedAt, FetchedAt: fetchedAt.Unix(), Groups: groups}, nil
+	return &retailprice.PublicRateSnapshot{Source: endpoint, UpdatedAt: updatedAt, FetchedAt: fetchedAt.Unix(), Groups: groups}, nil
 }
 
 // parseRetailPublicRates validates the entire snapshot before displaying any group.
 // Preview accepts historical snapshots for inspection. Billing separately requires an explicit binding
 // and a successful sync containing that group.
 func parseRetailPublicRates(body []byte, fetchedAt time.Time) ([]retailPublicRate, int64, bool) {
+	return parseRetailSiteRates(body, fetchedAt, "https://aixingxing.pro")
+}
+
+// parseRetailSiteRates 要求响应声明的站点和实际请求匹配，整份成功后才交给计价。
+func parseRetailSiteRates(body []byte, fetchedAt time.Time, origin string) ([]retailPublicRate, int64, bool) {
 	var source struct {
 		Success   bool   `json:"success"`
 		Server    string `json:"server"`
@@ -86,7 +105,7 @@ func parseRetailPublicRates(body []byte, fetchedAt time.Time) ([]retailPublicRat
 			Rate  common.RawMessage `json:"rate"`
 		} `json:"groups"`
 	}
-	if common.Unmarshal(body, &source) != nil || !source.Success || source.Server != "https://aixingxing.pro" || len(source.Groups) == 0 || len(source.Groups) > 200 {
+	if common.Unmarshal(body, &source) != nil || !source.Success || source.Server != origin || len(source.Groups) == 0 || len(source.Groups) > 200 {
 		return nil, 0, false
 	}
 	updatedAt, err := time.Parse(time.RFC3339, source.UpdatedAt)

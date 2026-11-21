@@ -2,8 +2,9 @@ package model
 
 import (
 	"context"
+	"maps"
 	"net/url"
-	"reflect"
+
 	"slices"
 	"strings"
 	"time"
@@ -17,15 +18,16 @@ import (
 
 // RetailBindingChannel exposes only safe operator labels, never a channel credential.
 type RetailBindingChannel struct {
-	ID           int    `json:"id"`
-	Name         string `json:"name"`
-	SiteID       int    `json:"site_id"`
-	BaseURL      string `json:"base_url"`
-	Type         int    `json:"type"`
-	Models       string `json:"models"`
-	HasKey       bool   `json:"has_key"`
-	Status       int    `json:"status"`
-	ModelMapping string `json:"-"` // Internal only: used to compare published and actual upstream model IDs.
+	AllowNewCredential bool   `json:"allow_new_credential"`
+	ID                 int    `json:"id"`
+	Name               string `json:"name"`
+	SiteID             int    `json:"site_id"`
+	BaseURL            string `json:"base_url"`
+	Type               int    `json:"type"`
+	Models             string `json:"models"`
+	HasKey             bool   `json:"has_key"`
+	Status             int    `json:"status"`
+	ModelMapping       string `json:"-"` // Internal only: used to compare published and actual upstream model IDs.
 }
 
 // RetailBindingChannels lists explicitly authorized Xingxing reseller credentials.
@@ -75,6 +77,83 @@ func retailBindingChannels(db *gorm.DB) ([]RetailBindingChannel, error) {
 	return result, nil
 }
 
+// RetailRouteChannels exposes eligible supply credentials without their keys.
+func RetailRouteChannels(db *gorm.DB, group string) ([]RetailBindingChannel, error) {
+	ids, err := retailSupplyIDsIn(db, group)
+	if err != nil {
+		return nil, err
+	}
+	var channels []Channel
+	if err := db.Where("id IN ?", ids).Order("id").Find(&channels).Error; err != nil {
+		return nil, err
+	}
+	out := []RetailBindingChannel{}
+	for _, ch := range channels {
+		// A pooled channel cannot guarantee that every credential has the selected upstream tariff.
+		if !validRetailSupplySite(ch, group) || ch.Key == "" || ch.ChannelInfo.IsMultiKey || strings.ContainsAny(ch.Key, "\r\n") {
+			continue
+		}
+		siteID := ch.RetailSiteID
+		if siteID == 0 {
+			siteID = ch.Id
+		}
+		out = append(out, RetailBindingChannel{ID: ch.Id, SiteID: siteID, Name: ch.Name, BaseURL: ch.GetBaseURL(), Type: ch.Type, Models: ch.Models, HasKey: true, Status: ch.Status, ModelMapping: ch.GetModelMapping()})
+	}
+	return out, nil
+}
+
+// registerRetailGroupRate fixes one manual tariff identity for a supplier group across all local products.
+// Call inside a price-book transaction. Change the referenced rate's amount to reprice every consumer.
+func registerRetailGroupRate(book *retailprice.Book, site int, group, rate string) error {
+	if previous := book.SiteGroupRates[site][group]; previous != "" && previous != rate {
+		return ErrRetailGroupRateConflict
+	}
+	if book.SiteGroupRates == nil {
+		book.SiteGroupRates = make(map[int]map[string]string)
+	}
+	if book.SiteGroupRates[site] == nil {
+		book.SiteGroupRates[site] = make(map[string]string)
+	}
+	book.SiteGroupRates[site][group] = rate
+	return nil
+}
+
+// validateRetailGroupRates enforces procurement ownership for full-book imports as well as group edits.
+// Historical routes without a registered upstream group retain their original manual tariff.
+func validateRetailGroupRates(tx *gorm.DB, book *retailprice.Book) error {
+	groups := book.RegisteredGroups()
+	manual := map[int][]string{}
+	for _, p := range book.Products {
+		for _, r := range p.Routes {
+			if book.RateSiteByChannel[r.ChannelID] == 0 && r.RateID != "" && groups[r.ChannelID] != "" && book.Binding(p.BindingGroup, r.ChannelID) == nil {
+				manual[r.ChannelID] = append(manual[r.ChannelID], r.RateID)
+			}
+		}
+	}
+	if len(manual) == 0 {
+		return nil
+	}
+	var channels []Channel
+	if err := tx.Select("id", "retail_site_id").Where("id IN ?", slices.Collect(maps.Keys(manual))).Find(&channels).Error; err != nil {
+		return err
+	}
+	if len(channels) != len(manual) {
+		return retailprice.ErrConfig
+	}
+	for _, ch := range channels {
+		site := ch.RetailSiteID
+		if site == 0 {
+			site = ch.Id
+		}
+		for _, rate := range manual[ch.Id] {
+			if err := registerRetailGroupRate(book, site, groups[ch.Id], rate); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // mutateRetailPriceBook serializes operator edits and feed updates with request admission.
 // A timestamp-only renewal keeps the price version and avoids a full audit copy every minute.
 func mutateRetailPriceBook(ctx context.Context, expected int64, actorID int, renewal bool, edit func(*retailprice.Book) error) (int64, error) {
@@ -100,23 +179,31 @@ func mutateRetailPriceBookIn(db *gorm.DB, ctx context.Context, expected int64, a
 			return retailprice.ErrConfig
 		}
 		oldSync := book.PublicRateSync
+		oldFeeds := maps.Clone(book.SiteFeeds)
+		oldSites := maps.Clone(book.RateSiteByChannel)
 		if err := edit(&book); err != nil {
 			return err
 		}
 		now := time.Now().Unix()
-		if err := book.Validate(now); err != nil {
-			return err
-		}
-		cfg, err := RetailSupplyConfig(tx)
-		if err != nil {
-			return err
-		}
-		for _, product := range book.Products {
-			for _, route := range product.Routes {
-				if !slices.ContainsFunc(cfg.Supplies, func(s retail_setting.Supply) bool { return s.ChannelID == route.ChannelID }) {
-					return retailprice.ErrAccess
+		// 续期回调只修改倍率与来源归属，不提交商品或线路。已撤销的旧供应商不能阻止其他站点跟价。
+		if !renewal {
+			if err := validateRetailGroupRates(tx, &book); err != nil {
+				return err
+			}
+			cfg, err := RetailSupplyConfig(tx)
+			if err != nil {
+				return err
+			}
+			for _, product := range book.Products {
+				for _, route := range product.Routes {
+					if !slices.ContainsFunc(cfg.Supplies, func(s retail_setting.Supply) bool { return s.ChannelID == route.ChannelID }) {
+						return retailprice.ErrAccess
+					}
 				}
 			}
+		}
+		if err := book.Validate(now); err != nil {
+			return err
 		}
 		payload, err := common.Marshal(book)
 		if err != nil || len(payload) > 1<<20 {
@@ -126,7 +213,10 @@ func mutateRetailPriceBookIn(db *gorm.DB, ctx context.Context, expected int64, a
 		if string(payload) == state.Payload {
 			return nil
 		}
-		samePrices := renewal && oldSync.Enabled == book.PublicRateSync.Enabled && oldSync.LastError == book.PublicRateSync.LastError && oldSync.Snapshot != nil && book.PublicRateSync.Snapshot != nil && reflect.DeepEqual(oldSync.Snapshot.Groups, book.PublicRateSync.Snapshot.Groups)
+		// 仅取回时间或发布时刻变化时续期，避免让正在编辑的表单每分钟失效。
+		samePrices := renewal && sameSyncTariff(oldSync, book.PublicRateSync) && maps.Equal(oldSites, book.RateSiteByChannel) && maps.EqualFunc(oldFeeds, book.SiteFeeds, func(a, b retailprice.SiteRateFeed) bool {
+			return a.URL == b.URL && sameSyncTariff(retailprice.PublicRateSync{Enabled: a.Follow, LastError: a.LastError, Snapshot: a.Snapshot}, retailprice.PublicRateSync{Enabled: b.Follow, LastError: b.LastError, Snapshot: b.Snapshot})
+		})
 		if !samePrices {
 			version++
 			if err := tx.Create(&RetailPriceVersion{Version: version, Payload: string(payload), ActorID: actorID, CreatedAt: now}).Error; err != nil {
@@ -138,6 +228,17 @@ func mutateRetailPriceBookIn(db *gorm.DB, ctx context.Context, expected int64, a
 		return tx.Model(state).Updates(map[string]any{"version": version, "payload": string(payload)}).Error
 	})
 	return version, err
+}
+
+// sameSyncTariff 忽略成功续期的时间戳，但错误恢复、组清单或倍率变化必须产生新版本。
+func sameSyncTariff(a, b retailprice.PublicRateSync) bool {
+	if a.Enabled != b.Enabled || a.LastError != b.LastError {
+		return false
+	}
+	if a.Snapshot == nil || b.Snapshot == nil {
+		return a.Snapshot == b.Snapshot
+	}
+	return a.Snapshot.Source == b.Snapshot.Source && slices.Equal(a.Snapshot.Groups, b.Snapshot.Groups)
 }
 
 // SaveRetailGroupBindings atomically saves mappings, consent and optional resale economics.
@@ -167,18 +268,33 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 			}
 		}
 		groups := book.RegisteredGroups()
+		// 旧供货编辑器只管理星行。保留其无法展示的外站绑定，避免只改毛利时丢失线路。
+		for _, old := range book.GroupBindings {
+			if book.RateSiteByChannel[old.ChannelID] != 0 && !slices.ContainsFunc(channels, func(c RetailBindingChannel) bool { return c.ID == old.ChannelID }) && !slices.Contains(bindings, old) {
+				bindings = append(bindings, old)
+			}
+		}
 		for _, binding := range bindings {
 			if group := groups[binding.ChannelID]; group != "" && group != binding.UpstreamGroup {
 				return retailprice.ErrConfig
 			}
 			groups[binding.ChannelID] = binding.UpstreamGroup
+			if book.RateSiteByChannel[binding.ChannelID] != 0 && slices.Contains(book.GroupBindings, binding) {
+				continue
+			}
 			if _, ok := localGroups[binding.LocalGroup]; !ok {
 				return retailprice.ErrAccess
 			}
 			if !slices.ContainsFunc(channels, func(ch RetailBindingChannel) bool { return ch.ID == binding.ChannelID }) {
 				return retailprice.ErrAccess
 			}
-			if snapshot == nil || !slices.ContainsFunc(snapshot.Groups, func(rate retailprice.PublicRate) bool { return rate.Group == binding.UpstreamGroup }) {
+			ch := channels[slices.IndexFunc(channels, func(c RetailBindingChannel) bool { return c.ID == binding.ChannelID })]
+			groupSnapshot := snapshot
+			if feed, ok := book.SiteFeeds[ch.SiteID]; ok {
+				book.RateSiteByChannel[binding.ChannelID] = ch.SiteID
+				groupSnapshot = feed.Snapshot
+			}
+			if groupSnapshot == nil || !slices.ContainsFunc(groupSnapshot.Groups, func(rate retailprice.PublicRate) bool { return rate.Group == binding.UpstreamGroup }) {
 				return retailprice.ErrConfig
 			}
 		}
@@ -198,7 +314,7 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 				if product.BindingGroup != previous.LocalGroup && (product.BindingGroup != "" || !slices.Contains(product.UserGroups, previous.LocalGroup)) {
 					continue
 				}
-				if slices.ContainsFunc(product.Routes, func(route retailprice.Route) bool { return route.ChannelID == previous.ChannelID }) {
+				if product.RateSourceChannelID == previous.ChannelID || slices.ContainsFunc(product.Routes, func(route retailprice.Route) bool { return route.ChannelID == previous.ChannelID }) {
 					return retailprice.ErrAccess
 				}
 			}
@@ -226,6 +342,9 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 		book.PublicRateSync = retailprice.PublicRateSync{Enabled: enabled, Snapshot: snapshot}
 		if enabled {
 			for _, binding := range bindings {
+				if book.RateSiteByChannel[binding.ChannelID] != 0 {
+					continue
+				} // 逐站快照的失败状态由该站的独立开关和任务管理。
 				if _, err := book.BoundRate(binding); err != nil {
 					return err
 				}

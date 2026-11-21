@@ -92,6 +92,12 @@ func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) Offic
 	products := map[string]Product{}
 	order := []string{}
 	for _, binding := range book.GroupBindings {
+		// 分组上架页独立管理已选线路，旧价表生成器不能重新加入已移除的线路。
+		if slices.ContainsFunc(book.Products, func(p Product) bool {
+			return p.BindingGroup == binding.LocalGroup && p.RateSourceChannelID != 0
+		}) {
+			continue
+		}
 		channel := slices.IndexFunc(supplies, func(s CatalogSupply) bool { return s.ID == binding.ChannelID })
 		if channel < 0 || !supplies[channel].Available {
 			result.Excluded = append(result.Excluded, CatalogExclusion{ChannelID: binding.ChannelID, Reason: "supply_unavailable"})
@@ -101,7 +107,7 @@ func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) Offic
 		// Existing explicit route mappings may legitimately differ from the public model ID.
 		savedTargets := map[string]string{}
 		for _, p := range book.Products {
-			if p.ID == officialProductID(binding.LocalGroup) {
+			if p.ID == OfficialProductID(binding.LocalGroup) {
 				for _, r := range p.Routes {
 					if r.ChannelID == binding.ChannelID {
 						savedTargets = r.Models
@@ -133,13 +139,13 @@ func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) Offic
 				result.Book.Models = append(result.Book.Models, official)
 				existing[name] = true
 			}
-			routes[name] = name
+			routes[name] = expected
 		}
 		if len(routes) == 0 {
 			continue
 		}
 		// Hash only names for stable, bounded IDs. Never derive an executable path from a group label.
-		id := officialProductID(binding.LocalGroup)
+		id := OfficialProductID(binding.LocalGroup)
 		product, ok := products[id]
 		if !ok {
 			product = Product{ID: id, Name: binding.LocalGroup, Public: true, BindingGroup: binding.LocalGroup, UserGroups: []string{}}
@@ -191,8 +197,8 @@ func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) Offic
 	return result
 }
 
-// officialProductID keeps the public call group stable across manual publication and discovery.
-func officialProductID(group string) string {
+// OfficialProductID keeps the public call group stable across manual publication and discovery.
+func OfficialProductID(group string) string {
 	sum := sha256.Sum256([]byte(group))
 	return fmt.Sprintf("official-%x", sum[:8])
 }

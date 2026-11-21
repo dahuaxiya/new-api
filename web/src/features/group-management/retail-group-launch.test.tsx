@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -108,7 +109,7 @@ it('previews a new Claude credential and retains the draft after a conflicting p
   expect(await screen.findByText('claude', { selector: 'dt' })).toBeVisible()
   expect(screen.getByText('#5 · actual-upstream')).toBeVisible()
   fireEvent.click(screen.getByRole('button', { name: 'Publish a call group' }))
-  fireEvent.change(await screen.findByLabelText('Upstream group'), {
+  fireEvent.change(await screen.findByLabelText('Selling multiplier source'), {
     target: { value: 'claude' },
   })
   fireEvent.change(screen.getByLabelText('Upstream API Key'), {
@@ -201,12 +202,20 @@ it('matches credentials by upstream group and publishes only the reviewed route'
     </QueryClientProvider>
   )
   fireEvent.click(screen.getByRole('button', { name: 'Publish a call group' }))
-  const upstream = await screen.findByLabelText('Upstream group')
+  const upstream = await screen.findByLabelText('Selling multiplier source')
   fireEvent.change(upstream, { target: { value: 'gpt' } })
   expect(screen.getByLabelText(/Supply credential/)).toHaveValue('')
   fireEvent.change(upstream, { target: { value: 'claude' } })
   expect(screen.getByLabelText(/Supply credential/)).toHaveValue('4')
-  expect(screen.queryByRole('option', { name: /supply-5/ })).toBeNull()
+  expect(
+    within(screen.getByLabelText(/Supply credential/)).queryByRole('option', {
+      name: /supply-5/,
+    })
+  ).toBeNull()
+  fireEvent.change(screen.getByLabelText('Add upstream route'), {
+    target: { value: '5' },
+  })
+  expect(screen.getByLabelText('Upstream group')).toHaveValue('gpt')
   fireEvent.change(screen.getByLabelText('Call group name'), {
     target: { value: 'new-claude' },
   })
@@ -228,8 +237,200 @@ it('matches credentials by upstream group and publishes only the reviewed route'
     channel_id: 4,
     upstream_group: 'claude',
     local_group: 'new-claude',
+    additional_routes: [{ channel_id: 5, upstream_group: 'gpt', rate_id: '' }],
     review: 'confirmed-price',
   })
   cleanup()
   client.clear()
+})
+
+/** 自动跟价时保留草稿并使用新版本；同一分组的人工改价需要重新加载才能继续。 */
+it('re-previews a draft at the current price version and protects concurrent group changes', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  })
+  client.setQueryData(['status'], { site_mode: 'retail' })
+  useAuthStore.getState().auth.setUser({ id: 1, username: 'root', role: 100 })
+  let version = 1
+  let margin = 2000
+  const bindings = [
+    { channel_id: 2, local_group: 'normal', upstream_group: 'fast' },
+  ]
+  vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+    data: {
+      success: true,
+      data: url.endsWith('/pricing')
+        ? {
+            version,
+            book: {
+              products: [
+                {
+                  id: 'existing',
+                  name: 'normal',
+                  public: true,
+                  binding_group: 'normal',
+                  margin_bps: margin,
+                  rate_source_channel_id: 2,
+                  routes: [
+                    { channel_id: 2, rate_id: '', models: { text: 'text' } },
+                  ],
+                },
+              ],
+              group_bindings: bindings,
+            },
+          }
+        : {
+            version,
+            channels: [
+              { id: 2, site_id: 2, name: 'supply', has_key: true, status: 1 },
+            ],
+            local_groups: [],
+            pricing_enabled: true,
+            credential_groups: { 2: 'fast' },
+            sync: {
+              enabled: true,
+              snapshot: { groups: [{ group: 'fast', multiplier: '0.5' }] },
+            },
+            sale_policy: { margin_bps: 2000 },
+          },
+    },
+  }))
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: {
+      success: true,
+      data: { version: 2, review: 'new-preview', rows: [] },
+    },
+  })
+  render(
+    <QueryClientProvider client={client}>
+      <RetailGroupLaunch />
+    </QueryClientProvider>
+  )
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Edit call group routing' })
+  )
+  const input = await screen.findByLabelText('Target margin (%)')
+  fireEvent.change(input, { target: { value: '30' } })
+  version = 2
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Preview CNY selling prices' })
+  )
+  await screen.findByRole('button', { name: 'Back' })
+  expect(post.mock.calls[0][1]).toMatchObject({
+    expected_version: 2,
+    margin_bps: 3000,
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  version = 3
+  margin = 4000
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Preview CNY selling prices' })
+  )
+  await screen.findByRole('alert')
+  expect(post).toHaveBeenCalledTimes(1)
+  expect(screen.getByLabelText('Target margin (%)')).toHaveValue(30)
+  fireEvent.click(screen.getByRole('button', { name: 'Reload saved bindings' }))
+  expect(await screen.findByLabelText('Target margin (%)')).toHaveValue(40)
+  cleanup()
+  client.clear()
+})
+
+/** 同名上游组切换站点后显示对应倍率；手动读取只提交该站点，已冻结的报价仍可用于上架。 */
+it('scopes identical upstream group names to their site and refreshes without changing follow', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  client.setQueryData(['status'], { site_mode: 'retail' })
+  useAuthStore.getState().auth.setUser({ id: 1, username: 'root', role: 100 })
+  const channels = [1, 2].map((id) => ({
+    id,
+    site_id: id,
+    name: `site${id}`,
+    type: 1,
+    base_url: `https://s${id}.example`,
+    has_key: true,
+    status: 1,
+  }))
+  const state = {
+    version: 7,
+    pricing_enabled: true,
+    channels: [],
+    routing_channels: channels,
+    rate_channels: channels,
+    sync: { enabled: false },
+    local_groups: [],
+    sale_policy: { margin_bps: 0 },
+    credential_groups: { 1: 'shared', 2: 'shared' },
+    site_feeds: Object.fromEntries(
+      channels.map((c) => [
+        c.id,
+        {
+          url: `${c.base_url}/prices`,
+          follow: false,
+          snapshot: {
+            groups: [
+              {
+                group: 'shared',
+                name: 'Shared',
+                multiplier: c.id === 1 ? '0.4' : '0.2',
+              },
+            ],
+          },
+        },
+      ])
+    ),
+  }
+  vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+    data: {
+      success: true,
+      data: url.endsWith('/pricing')
+        ? { book: { products: [], rates: [] }, version: 7 }
+        : state,
+    },
+  }))
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true, data: { version: 7 } } })
+  render(
+    <QueryClientProvider client={client}>
+      <RetailGroupLaunch />
+    </QueryClientProvider>
+  )
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Publish a call group' })
+  )
+  const site = await screen.findByLabelText('Supply site')
+  expect(
+    screen.getByRole('option', { name: 'Shared · 0.4×' })
+  ).toBeInTheDocument()
+  fireEvent.change(site, { target: { value: '2' } })
+  expect(
+    screen.queryByRole('option', { name: 'Shared · 0.4×' })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.getByRole('option', { name: 'Shared · 0.2×' })
+  ).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Selling multiplier source'), {
+    target: { value: 'shared' },
+  })
+  fireEvent.change(screen.getByLabelText('Call group name'), {
+    target: { value: 'test' },
+  })
+  expect(
+    screen.getByRole('button', { name: 'Preview CNY selling prices' })
+  ).toBeEnabled()
+  fireEvent.click(
+    screen.getByText('Upstream rate feed', { selector: 'summary' })
+  )
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Load upstream groups' })
+  )
+  await waitFor(() =>
+    expect(put).toHaveBeenCalledWith('/api/retail/admin/pricing/site-rates', {
+      site_id: 2,
+      expected_version: 7,
+      url: 'https://s2.example/prices',
+      follow: undefined,
+    })
+  )
 })

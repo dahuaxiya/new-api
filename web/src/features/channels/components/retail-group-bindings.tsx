@@ -538,7 +538,13 @@ function BindingEditor(props: {
         {bindings.map((row, index) => {
           const channel = channels.find((item) => item.id === row.channel_id)
           const draft = supplies[row.channel_id]
-          const rate = source?.groups.find(
+          // 旧编辑器也按供货凭据归属展示价目，防止同名的外站分组显示星行倍率。
+          const siteId =
+            props.state.rate_site_by_channel?.[row.channel_id] ??
+            channel?.site_id
+          const siteFeed = siteId ? props.state.site_feeds?.[siteId] : undefined
+          const rowSource = siteFeed?.snapshot ?? (channel ? source : undefined)
+          const rate = rowSource?.groups.find(
             (group) => group.group === row.upstream_group
           )
           const saved = props.state.bindings?.find(
@@ -548,8 +554,8 @@ function BindingEditor(props: {
               binding.upstream_group === row.upstream_group
           )
           const active =
-            healthy &&
-            committed?.groups.some(
+            (siteFeed ? !siteFeed.last_error : healthy) &&
+            (siteFeed?.snapshot ?? committed)?.groups.some(
               (group) => group.group === row.upstream_group
             ) &&
             saved
@@ -560,6 +566,17 @@ function BindingEditor(props: {
             row.follow_models && saved?.follow_models
               ? props.state.model_sync?.[`${row.channel_id}:${row.local_group}`]
               : undefined
+          if (!channel && siteFeed) {
+            // 外站路由在分组管理中编辑，供货页只读展示并保留此次保存中的原记录。
+            return (
+              <p key={row.rowID}>
+                {row.local_group} ← {row.upstream_group} · #{row.channel_id} ·{' '}
+                {active && rate
+                  ? `${rate.multiplier}×`
+                  : t('Paused: multiplier unavailable')}
+              </p>
+            )
+          }
           if (changed) status = t('Unsaved changes')
           return (
             <details
@@ -576,28 +593,32 @@ function BindingEditor(props: {
                   </span>
                 )}
                 {/* Display is approximate; server decimal arithmetic determines quotes and charges. */}
-                {rate && policyValid && (
-                  <output
-                    className='ml-2 font-mono tabular-nums'
-                    aria-label={`${t('Estimated selling multiplier')} ${index + 1}`}
-                  >
-                    {t('Estimated selling multiplier')}: ≈
-                    {(
-                      (Number(rate.multiplier) *
-                        (1 + salePolicy.buffer_bps / 10000)) /
-                      Number(salePolicy.receipt_ratio) /
-                      (1 - salePolicy.fee_bps / 10000) /
-                      (1 -
-                        (props.state.group_margins?.[row.local_group] ??
-                          salePolicy.margin_bps) /
-                          10000)
-                    )
-                      .toFixed(8)
-                      .replace(/0+$/, '')
-                      .replace(/\.$/, '')}
-                    ×
-                  </output>
-                )}
+                {rate &&
+                  policyValid &&
+                  (!props.state.rate_source_channels?.[row.local_group] ||
+                    props.state.rate_source_channels[row.local_group] ===
+                      row.channel_id) && (
+                    <output
+                      className='ml-2 font-mono tabular-nums'
+                      aria-label={`${t('Estimated selling multiplier')} ${index + 1}`}
+                    >
+                      {t('Estimated selling multiplier')}: ≈
+                      {(
+                        (Number(rate.multiplier) *
+                          (1 + salePolicy.buffer_bps / 10000)) /
+                        Number(salePolicy.receipt_ratio) /
+                        (1 - salePolicy.fee_bps / 10000) /
+                        (1 -
+                          (props.state.group_margins?.[row.local_group] ??
+                            salePolicy.margin_bps) /
+                            10000)
+                      )
+                        .toFixed(8)
+                        .replace(/0+$/, '')
+                        .replace(/\.$/, '')}
+                      ×
+                    </output>
+                  )}
                 {(!active || changed) && (
                   <span className='text-muted-foreground ml-2'>{status}</span>
                 )}
@@ -742,7 +763,7 @@ function BindingEditor(props: {
                         {row.upstream_group} · {t('Unavailable')}
                       </NativeSelectOption>
                     )}
-                    {source?.groups.map((group) => (
+                    {rowSource?.groups.map((group) => (
                       <NativeSelectOption key={group.group} value={group.group}>
                         {group.group} · {group.multiplier}×
                       </NativeSelectOption>

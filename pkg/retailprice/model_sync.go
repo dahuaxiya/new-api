@@ -29,11 +29,7 @@ func (b *Book) ApplyModelList(binding GroupBinding, upstream []string, mapping m
 	key := binding.SyncID()
 	old := b.ModelSync[key]
 	state := ModelSyncState{}
-	if len(upstream) == 0 {
-		old.Failed = true
-		b.ModelSync[key] = old
-		return nil
-	}
+
 	present := map[string]bool{}
 	for _, id := range upstream {
 		present[id] = true
@@ -47,9 +43,15 @@ func (b *Book) ApplyModelList(binding GroupBinding, upstream []string, mapping m
 		prices[m.ID] = m
 		existing[m.ID] = true
 	}
-	id := officialProductID(binding.LocalGroup)
+	id := OfficialProductID(binding.LocalGroup)
 	p := Product{ID: id, Name: binding.LocalGroup, BindingGroup: binding.LocalGroup, Public: true}
-	pi := slices.IndexFunc(b.Products, func(v Product) bool { return v.ID == id })
+	// 已迁移的公开组可能保留手工商品 ID。优先使用它，避免同步时生成另一件同名商品。
+	pi := slices.IndexFunc(b.Products, func(v Product) bool {
+		return v.Public && v.RateSourceChannelID != 0 && v.BindingGroup == binding.LocalGroup
+	})
+	if pi < 0 {
+		pi = slices.IndexFunc(b.Products, func(v Product) bool { return v.ID == id })
+	}
 	if pi >= 0 {
 		p = b.Products[pi]
 	}
@@ -60,6 +62,15 @@ func (b *Book) ApplyModelList(binding GroupBinding, upstream []string, mapping m
 		return nil
 	}
 	ri := slices.IndexFunc(p.Routes, func(v Route) bool { return v.ChannelID == binding.ChannelID })
+	// 已独立配置路由的组只自动更新已选线路的模型。
+	if p.RateSourceChannelID != 0 && ri < 0 {
+		return nil
+	}
+	if len(upstream) == 0 {
+		old.Failed = true
+		b.ModelSync[key] = old
+		return nil
+	}
 	route := Route{ChannelID: binding.ChannelID, Models: map[string]string{}}
 	if ri >= 0 {
 		route = p.Routes[ri]

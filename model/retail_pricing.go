@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -93,8 +94,10 @@ func PublishRetailPriceBook(expected int64, book retailprice.Book, ratesOnly []r
 			// Manual imports cannot overwrite the independently verified public feed.
 			current.Rates = ratesOnly
 		} else {
+			book.SiteGroupRates = current.SiteGroupRates     // 价表导入沿用已登记的采购价归属。
 			book.CredentialGroups = current.CredentialGroups // Only the credential editor may establish ownership.
 			book.ModelSync = current.ModelSync               // Observation history is server-owned, never supplied by a price editor.
+			book.SiteFeeds, book.RateSiteByChannel = current.SiteFeeds, current.RateSiteByChannel
 			book.GroupBindings, book.PublicRateSync = current.GroupBindings, current.PublicRateSync
 			// Once economics are saved separately, even a first catalog publication
 			// must preserve them. Legacy books retain their original editing contract.
@@ -242,7 +245,7 @@ func RetailQuoteWithInput(userID, tokenID int, modelName string, outputLimit, in
 }
 
 func retailQuote(userID, tokenID int, modelName string, outputLimit, inputTokens int, eligible []int, productIDs ...string) (*retailprice.Quote, error) {
-	book, version, err := GetRetailPriceBook()
+	book, version, err := GetQuotableRetailPriceBook()
 	if err != nil {
 		return nil, err
 	}
@@ -359,9 +362,16 @@ func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailpric
 			}
 			policy.ProductID = quote.ProductID
 		}
+		if err := checkRetailRateAccess(tx, &book); err != nil {
+			return err
+		}
 		fresh, err := book.MakeQuote(state.Version, user.Group, policy, quote.Model.ID, quote.OutputLimit, quote.Channels, time.Now().Unix(), quote.ReservedInputTokens)
 		if err != nil {
 			return err
+		}
+		// 在报价与预留之间失去授权的供货方必须重新选路，避免后续沿用旧的候选集合。
+		if !slices.Equal(fresh.Channels, quote.Channels) {
+			return ErrRetailPriceConflict
 		}
 		if fresh.ProductID != quote.ProductID {
 			return retailprice.ErrAccess

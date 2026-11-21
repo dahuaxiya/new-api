@@ -361,3 +361,18 @@ func TestReferenceImageCharge(t *testing.T) {
 		t.Fatal("inconsistent input breakdown accepted")
 	}
 }
+
+// TestManagedGroupSyncKeepsCustomID checks that price-only supply cannot become callable after discovery.
+func TestManagedGroupSyncKeepsCustomID(t *testing.T) {
+	source := retailprice.GroupBinding{LocalGroup: "group", ChannelID: 1, UpstreamGroup: "source", FollowModels: true}
+	supply := retailprice.GroupBinding{LocalGroup: "group", ChannelID: 2, UpstreamGroup: "supply", FollowModels: true}
+	book := retailprice.Book{Products: []retailprice.Product{{ID: "existing-custom-id", Public: true, BindingGroup: "group", RateSourceChannelID: 1, Routes: []retailprice.Route{{ChannelID: 2, Models: map[string]string{}}}}}}
+	book.ApplyModelList(source, []string{"gpt-6.1-sol"}, nil, 1794916800)
+	require.Empty(t, book.ApplyModelList(source, nil, nil, 1794916800))
+	require.NotContains(t, book.ModelSync, source.SyncID())
+	require.Contains(t, book.ApplyModelList(supply, []string{"gpt-6.1-sol"}, nil, 1794916800), "gpt-6.1-sol")
+	require.Len(t, book.Products, 1)
+	require.Equal(t, "existing-custom-id", book.Products[0].ID)
+	require.Len(t, book.Products[0].Routes, 1)
+	require.Equal(t, 2, book.Products[0].Routes[0].ChannelID)
+}

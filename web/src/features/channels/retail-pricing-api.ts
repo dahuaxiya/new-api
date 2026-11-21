@@ -54,6 +54,7 @@ export async function getRetailPublicRates(
   ).data
 }
 export type RetailPriceBook = {
+  site_group_rates?: Record<number, Record<string, string>>
   group_bindings?: RetailGroupBinding[]
   enabled: boolean
   wallet_cny_per_unit: string
@@ -77,6 +78,8 @@ export type RetailPriceBook = {
     name: string
     public?: boolean
     binding_group?: string
+    rate_source_channel_id?: number
+    margin_bps?: number
     user_groups: string[]
     routes: Array<{
       channel_id: number
@@ -123,6 +126,7 @@ export type RetailSalePolicy = Pick<
   'receipt_ratio' | 'margin_bps' | 'fee_bps' | 'buffer_bps'
 >
 export type RetailBindingChannel = {
+  allow_new_credential?: boolean
   id: number
   name: string
   site_id: number
@@ -141,7 +145,37 @@ export type RetailSupplyEdit = {
   key: string
   models: string
 }
+export type RetailSiteFeed = {
+  url: string
+  follow: boolean
+  last_error?: string
+  snapshot: RetailPublicRates
+}
+
+/** 服务端重新读取同源接口，浏览器只提交站点、地址和跟随选项。 */
+export async function saveRetailSiteFeed(
+  site: number,
+  version: number,
+  url: string,
+  follow?: boolean
+) {
+  requireServerSuccess(
+    (
+      await api.put('/api/retail/admin/pricing/site-rates', {
+        site_id: site,
+        expected_version: version,
+        url,
+        follow,
+      })
+    ).data
+  )
+}
+
 export type RetailBindingState = {
+  rate_channels?: RetailBindingChannel[]
+  rate_site_by_channel?: Record<number, number>
+  rate_source_channels?: Record<string, number>
+  site_feeds?: Record<number, RetailSiteFeed>
   group_margins?: Record<string, number>
   credential_groups?: Record<number, string>
   sale_policy: RetailSalePolicy
@@ -154,6 +188,7 @@ export type RetailBindingState = {
   bindings: RetailGroupBinding[] | null
   local_groups: string[]
   channels: RetailBindingChannel[]
+  routing_channels?: RetailBindingChannel[]
   sync: { enabled: boolean; last_error?: string; snapshot?: RetailPublicRates }
   pricing_ready: boolean
   pricing_enabled: boolean
@@ -370,8 +405,17 @@ export async function putRetailKeyGroup(
   )
 }
 
+export type RetailLaunchRoute = {
+  channel_id: number
+  upstream_group: string
+  rate_id: string
+}
+
 export type RetailLaunchInput = {
   expected_version: number
+  product_id?: string
+  additional_routes?: RetailLaunchRoute[]
+  pricing_only?: boolean
   site_id: number
   channel_id: number
   local_group: string
@@ -381,7 +425,14 @@ export type RetailLaunchInput = {
   models?: string[]
 }
 export type RetailLaunchReview = {
-  rows: Array<{ model: string; tiers?: RetailTier[]; reason?: string }>
+  unavailable_channels?: number[]
+  rows: Array<{
+    model: string
+    tiers?: RetailTier[]
+    reason?: string
+    channels?: number[]
+  }>
+  sale_multiplier?: string
   review: string
   version: number
 }

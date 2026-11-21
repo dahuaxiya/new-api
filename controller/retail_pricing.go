@@ -117,11 +117,13 @@ func PreviewRetailPricing(c *gin.Context) {
 	}
 	// Publication preserves server-managed mappings; preview must use the same
 	// source so an older browser draft cannot show a manual price for a bound route.
-	current, _, err := model.GetRetailPriceBook()
+	current, _, err := model.GetQuotableRetailPriceBook()
+	input.Book.UnavailableRateChannels = current.UnavailableRateChannels
 	if err != nil {
 		retailPricingManagementError(c, err)
 		return
 	}
+	input.Book.SiteFeeds, input.Book.RateSiteByChannel = current.SiteFeeds, current.RateSiteByChannel
 	input.Book.GroupBindings, input.Book.PublicRateSync = current.GroupBindings, current.PublicRateSync
 	// Match publication: catalog edits cannot replace independently saved following economics.
 	input.Book.ModelSync = current.ModelSync
@@ -224,7 +226,7 @@ func PutRetailKeyPricing(c *gin.Context) {
 
 // GetRetailCatalog exposes only authorized selling prices; procurement groups, ratios and channel IDs stay private.
 func GetRetailCatalog(c *gin.Context) {
-	book, version, err := model.GetRetailPriceBook()
+	book, version, err := model.GetQuotableRetailPriceBook()
 	if err != nil {
 		common.ApiError(c, common.NewMessage("Unable to load retail pricing"))
 		return

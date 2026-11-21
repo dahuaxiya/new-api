@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -161,6 +162,19 @@ func retailPriceError(err error) *types.NewAPIError {
 	return types.NewErrorWithStatusCode(errors.New(code), types.ErrorCode(code), http.StatusForbidden, types.ErrOptionWithSkipRetry())
 }
 
+// retailDispatchOriginMatches 核对实际转发目的地与采购来源。旧星行绑定沿用固定域名，自定义来源只信任已保存的站点。
+func retailDispatchOriginMatches(book retailprice.Book, channel int, destination *url.URL) bool {
+	origin := ""
+	if site := book.RateSiteByChannel[channel]; site != 0 {
+		origin = retailprice.RateFeedOrigin(book.SiteFeeds[site].URL)
+	} else if slices.ContainsFunc(book.GroupBindings, func(b retailprice.GroupBinding) bool { return b.ChannelID == channel }) {
+		origin = "https://aixingxing.pro"
+	} else {
+		return true
+	}
+	return origin != "" && destination != nil && destination.Scheme == "https" && destination.User == nil && strings.EqualFold("https://"+destination.Host, origin)
+}
+
 // GuardRetailUpstream validates the final serialized body after model/parameter overrides, immediately before I/O.
 // Rates must still support the original sale quote; publishing a new version never reprices this request.
 func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
@@ -182,12 +196,8 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	if err != nil || !book.Enabled || version != quote.Version {
 		return retailprice.ErrExpired
 	}
-	// Channel configuration can change after a binding is saved. A Xingxing cost
-	// snapshot must never authorize procurement from a different supplier endpoint.
-	if slices.ContainsFunc(book.GroupBindings, func(binding retailprice.GroupBinding) bool { return binding.ChannelID == info.ChannelId }) {
-		if req.URL == nil || req.URL.Scheme != "https" || req.URL.Host != "aixingxing.pro" || req.URL.User != nil {
-			return retailprice.ErrAccess
-		}
+	if !retailDispatchOriginMatches(book, info.ChannelId, req.URL) {
+		return retailprice.ErrAccess
 	}
 	// First release disables automatic retries for guarded calls: failed procurement has unknown cost.
 	if info.RetryIndex > 0 {
@@ -216,8 +226,10 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		}
 	}
 	upstreamModel := ""
+	rateSourceID := 0
 	for _, product := range book.Products {
 		if product.ID == quote.ProductID {
+			rateSourceID = product.RateSourceChannelID
 			for _, route := range product.Routes {
 				if route.ChannelID == info.ChannelId {
 					upstreamModel = route.Models[quote.Model.ID]
@@ -313,7 +325,26 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		return retailprice.ErrBudget
 	}
 	// Persist the actual supplier tariff, never just the mutable channel identity.
-	snapshot, err := common.Marshal(map[string]any{"pricing_version": version, "product": quote.ProductID, "model": fresh.Model, "rates": book.Rates, "group_bindings": book.GroupBindings, "public_rate_sync": book.PublicRateSync})
+	audit := map[string]any{"pricing_version": version, "product": quote.ProductID, "model": fresh.Model, "rates": book.Rates, "group_bindings": book.GroupBindings, "public_rate_sync": book.PublicRateSync}
+	// 只记本次用到的两个分组及其报价时间，避免把所有上游的完整快照复制进每笔流水。
+	if len(book.SiteFeeds) > 0 {
+		tariffs := map[int]any{}
+		groups := book.RegisteredGroups()
+		for _, id := range []int{rateSourceID, info.ChannelId} {
+			site := book.RateSiteByChannel[id]
+			if site == 0 || groups[id] == "" {
+				continue
+			}
+			rate, err := book.BoundRate(retailprice.GroupBinding{ChannelID: id, UpstreamGroup: groups[id]})
+			if err != nil {
+				return err
+			}
+			feed := book.SiteFeeds[site]
+			tariffs[id] = map[string]any{"site_id": site, "rate": rate, "source": feed.URL, "updated_at": feed.Snapshot.UpdatedAt, "fetched_at": feed.Snapshot.FetchedAt}
+		}
+		audit["site_group_tariffs"] = tariffs
+	}
+	snapshot, err := common.Marshal(audit)
 	if err != nil {
 		return err
 	}

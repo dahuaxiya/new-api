@@ -349,8 +349,11 @@ func TestRetailGroupLaunchDatabases(t *testing.T) {
 			endpoint := "https://aixingxing.pro"
 			site := Channel{Name: "Anthropic", Key: "site-key", BaseURL: &endpoint, Type: 14, Models: "claude-current", Group: "retail", Status: 1}
 			require.NoError(t, site.Insert())
+			poolEndpoint := "https://pool.example.com"
+			pool := Channel{Name: "Own pool", Key: "pool-key", BaseURL: &poolEndpoint, Type: 1, Models: "claude-current", Group: "retail", Status: 1}
+			require.NoError(t, pool.Insert())
 			path := filepath.Join(t.TempDir(), "retail.json")
-			raw, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"channel_id": site.Id, "kind": "reseller"}}})
+			raw, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"channel_id": site.Id, "kind": "reseller"}, {"channel_id": pool.Id, "kind": "subscription"}}})
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(path, raw, 0600))
 			t.Setenv("RETAIL_RELAY_CONFIG", path)
@@ -366,15 +369,22 @@ func TestRetailGroupLaunchDatabases(t *testing.T) {
 			price.VerifiedAt = now - 30
 			price.ValidUntil = now + 3600
 			legacy := retailprice.Product{ID: "legacy", Name: "legacy", UserGroups: []string{"default"}, Routes: []retailprice.Route{{ChannelID: site.Id, Models: map[string]string{price.ID: price.ID}}}}
-			v, err = PublishRetailPriceBook(v, retailprice.Book{Enabled: true, WalletCNYPerUnit: "1", ReceiptRatio: "1", Models: []retailprice.Model{price}, Products: []retailprice.Product{legacy}}, nil, 1)
+			v, err = PublishRetailPriceBook(v, retailprice.Book{Enabled: true, WalletCNYPerUnit: "1", ReceiptRatio: "1", Models: []retailprice.Model{price}, Products: []retailprice.Product{legacy}, Rates: []retailprice.Rate{
+				{ID: "pool-standard", Multiplier: "0.55", VerifiedAt: now - 30, ValidUntil: now + 3600},
+				{ID: "pool-cheap", Multiplier: "0.15", VerifiedAt: now - 30, ValidUntil: now + 3600},
+			}}, nil, 1)
 			require.NoError(t, err)
 			margin := 2000
-			in := RetailGroupLaunch{Version: v, Site: site.Id, Group: "claude-normal", Upstream: "b", Models: []string{price.ID, "claude-unknown"}, Key: "new-claude-key", Margin: &margin}
+			in := RetailGroupLaunch{Version: v, Site: site.Id, Group: "claude-normal", Upstream: "b", Models: []string{price.ID, "claude-unknown"}, Key: "new-claude-key", Margin: &margin, Routes: []RetailLaunchRoute{
+				{ChannelID: pool.Id, UpstreamGroup: "accounts", RateID: "pool-standard"},
+			}}
 			preview, err := LaunchRetailGroup(ctx, in, 1)
 			require.NoError(t, err)
 			require.NotEmpty(t, preview.Review)
 			require.Len(t, preview.Rows, 2)
 			require.Equal(t, "1.25", preview.Rows[0].Tiers[0].Prices.Input)
+			require.Equal(t, "0.625", preview.SaleMultiplier)
+			require.ElementsMatch(t, []int{0, pool.Id}, preview.Rows[0].Channels)
 			require.Equal(t, "official_price_missing_or_expired", preview.Rows[1].Reason)
 			var n int64
 			require.NoError(t, db.Model(&Channel{}).Where("retail_site_id = ?", site.Id).Count(&n).Error)
@@ -404,6 +414,173 @@ func TestRetailGroupLaunchDatabases(t *testing.T) {
 			quote, err := final.MakeQuote(version, "default", retailprice.KeyPolicy{GroupCurrent: true, ProductID: product.ID}, price.ID, 1, targets.Eligible(product, price.ID), now)
 			require.NoError(t, err)
 			require.Equal(t, preview.Rows[0].Tiers, quote.Sale)
+			require.ElementsMatch(t, []int{product.RateSourceChannelID, pool.Id}, quote.Channels)
+			poolQuote, err := final.MakeQuote(version, "default", retailprice.KeyPolicy{GroupCurrent: true, ProductID: product.ID}, price.ID, 1, []int{pool.Id}, now)
+			require.NoError(t, err)
+			require.Equal(t, quote.Sale, poolQuote.Sale)
+
+			// 更新上游定价后，过贵的号池退出候选，分组仍沿用同一售价来源。
+			feed.Groups[1].Multiplier = "0.4"
+			version, err = SyncRetailGroupRates(ctx, version, feed, false)
+			require.NoError(t, err)
+			final, _, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			repriced, err := final.MakeQuote(version, "default", retailprice.KeyPolicy{GroupCurrent: true, ProductID: product.ID}, price.ID, 1, quote.Channels, now)
+			require.NoError(t, err)
+			require.Equal(t, "1", repriced.Sale[0].Prices.Input)
+			require.Equal(t, []int{product.RateSourceChannelID}, repriced.Channels)
+
+			// 定价来源可单独保留，编辑线路后已有 Key 继续引用原商品 ID。
+			feed.Groups[1].Multiplier = "0.5"
+			version, err = SyncRetailGroupRates(ctx, version, feed, false)
+			require.NoError(t, err)
+			edit := RetailGroupLaunch{Version: version, ProductID: product.ID, Site: site.Id,
+				Channel: product.RateSourceChannelID, Group: product.BindingGroup, Upstream: "b",
+				Margin: &margin, PricingOnly: true, Routes: in.Routes}
+			review, err := LaunchRetailGroup(ctx, edit, 1)
+			require.NoError(t, err)
+			require.Equal(t, []int{pool.Id}, review.Rows[0].Channels)
+			edit.Review = review.Review
+			_, err = LaunchRetailGroup(ctx, edit, 1)
+			require.NoError(t, err)
+			final, _, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Equal(t, product.ID, final.Products[1].ID)
+			require.Equal(t, product.RateSourceChannelID, final.Products[1].RateSourceChannelID)
+			require.Len(t, final.Products[1].Routes, 1)
+			require.Equal(t, pool.Id, final.Products[1].Routes[0].ChannelID)
+			// 同一采购分组由两个本站组复用，第二个直接继承已核验采购费率；显式写入低价必须失败。
+			final, version, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Equal(t, "pool-standard", final.SiteGroupRates[pool.Id]["accounts"])
+			other := edit
+			other.Version, other.Review, other.ProductID, other.Group = version, "", "", "another-group"
+			other.Routes = []RetailLaunchRoute{{ChannelID: pool.Id, UpstreamGroup: "accounts", RateID: "pool-cheap"}}
+			_, err = LaunchRetailGroup(ctx, other, 1)
+			require.ErrorIs(t, err, ErrRetailGroupRateConflict)
+			other.Routes[0].RateID = ""
+			reused, err := LaunchRetailGroup(ctx, other, 1)
+			require.NoError(t, err)
+			require.NotEmpty(t, reused.Review)
+			// 旧控制台也不能通过整表发布给同一供货分组换一套采购价。
+			final.Products[1].Routes[0].RateID = "pool-cheap"
+			_, err = PublishRetailPriceBook(version, final, nil, 1)
+			require.ErrorIs(t, err, ErrRetailGroupRateConflict)
+			// 上游来源停用后仍可预览只通过号池供货的设置。
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", edit.Channel).Update("status", common.ChannelStatusManuallyDisabled).Error)
+			edit.Review, edit.Version = "", version
+			reused, err = LaunchRetailGroup(ctx, edit, 1)
+			require.NoError(t, err)
+			require.NotEmpty(t, reused.Review)
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", edit.Channel).Update("status", common.ChannelStatusEnabled).Error)
+			// 如果只有来源线路能卖，预览反馈具体失效线路并拒绝生成可发布的确认码。
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", pool.Id).Update("models", "unknown-pool-model").Error)
+			other.PricingOnly = false
+			reused, err = LaunchRetailGroup(ctx, other, 1)
+			require.NoError(t, err)
+			require.Empty(t, reused.Review)
+			require.Equal(t, []int{pool.Id}, reused.UnavailableChannels)
+
+		})
+	}
+}
+
+// TestRetailSiteRatesDatabases 验证同名分组隔离、手工冻结、过期的并发写、续期版本与故障恢复。
+func TestRetailSiteRatesDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			useVM2APIEnrollmentDatabase(t, dialect)
+			require.NoError(t, migrateDB())
+			ctx := context.Background()
+			one := "https://aixingxing.pro"
+			two := "https://pool.example"
+			first := Channel{Name: "First", Key: "first", BaseURL: &one, Type: 1, Models: "demo", Group: "retail", Status: 1}
+			second := Channel{Name: "Second", Key: "second", BaseURL: &two, Type: 1, Models: "demo", Group: "retail", Status: 1}
+			require.NoError(t, first.Insert())
+			require.NoError(t, second.Insert())
+			raw, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"channel_id": first.Id, "kind": "reseller"}, {"channel_id": second.Id, "kind": "subscription"}}})
+			require.NoError(t, err)
+			path := filepath.Join(t.TempDir(), "retail.json")
+			require.NoError(t, os.WriteFile(path, raw, 0600))
+			t.Setenv("RETAIL_RELAY_CONFIG", path)
+			now := time.Now().Unix()
+			mk := func(origin, rate string, follow bool) retailprice.SiteRateFeed {
+				url := origin + "/api/public/rates"
+				return retailprice.SiteRateFeed{URL: url, Follow: follow, Snapshot: &retailprice.PublicRateSnapshot{Source: url, UpdatedAt: now - 5, FetchedAt: now - 5, Groups: []retailprice.PublicRate{{Group: "shared", Name: "shared", Multiplier: rate}}}}
+			}
+			a, b := mk(one, "0.4", true), mk(two, "0.2", false)
+			empty := retailprice.SiteRateFeed{}
+			_, err = SaveRetailSiteRates(ctx, 0, first.Id, empty, b, 1)
+			require.ErrorIs(t, err, retailprice.ErrAccess)
+			v, err := SaveRetailSiteRates(ctx, 0, first.Id, empty, a, 1)
+			require.NoError(t, err)
+			v, err = SaveRetailSiteRates(ctx, v, second.Id, empty, b, 1)
+			require.NoError(t, err)
+			price := retailprice.OfficialModels()[0]
+			price.ID, price.OfficialModel = "demo", "demo"
+			price.VerifiedAt, price.ValidUntil = now-30, now+3600
+			bootstrap := retailprice.Product{ID: "boot", Name: "boot", UserGroups: []string{"default"}, Routes: []retailprice.Route{{ChannelID: first.Id, RateID: "boot", Models: map[string]string{"demo": "demo"}}}}
+			v, err = PublishRetailPriceBook(v, retailprice.Book{Enabled: true, WalletCNYPerUnit: "1", ReceiptRatio: "1", Models: []retailprice.Model{price}, Products: []retailprice.Product{bootstrap}, Rates: []retailprice.Rate{{ID: "boot", Multiplier: "0.4", VerifiedAt: now - 30, ValidUntil: now + 3600}}}, nil, 1)
+			require.NoError(t, err)
+			input := RetailGroupLaunch{Site: second.Id, Channel: second.Id, Group: "pool", Upstream: "shared", Version: v}
+			preview, err := LaunchRetailGroup(ctx, input, 1)
+			require.NoError(t, err)
+			require.Equal(t, "0.2", preview.SaleMultiplier)
+			require.NotEmpty(t, preview.Review)
+			input.Review = preview.Review
+			out, err := LaunchRetailGroup(ctx, input, 1)
+			require.NoError(t, err)
+			v = out.Version
+			renewed := mk(one, "0.4", true)
+			renewed.Snapshot.FetchedAt = now
+			same, err := SaveRetailSiteRates(ctx, v, first.Id, a, renewed, 0)
+			require.NoError(t, err)
+			require.Equal(t, v, same)
+			failed := renewed
+			failed.LastError = "failure"
+			v, err = SaveRetailSiteRates(ctx, v, first.Id, renewed, failed, 0)
+			require.NoError(t, err)
+			book, _, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			_, err = book.BoundRate(retailprice.GroupBinding{ChannelID: first.Id, UpstreamGroup: "shared"})
+			require.ErrorIs(t, err, retailprice.ErrExpired)
+			rate, err := book.BoundRate(retailprice.GroupBinding{ChannelID: second.Id, UpstreamGroup: "shared"})
+			require.NoError(t, err)
+			require.Equal(t, "0.2", rate.Multiplier)
+			recovered := mk(one, "0.6", true)
+			recovered.Snapshot.FetchedAt = now
+			v, err = SaveRetailSiteRates(ctx, v, first.Id, failed, recovered, 0)
+			require.NoError(t, err)
+			frozen := recovered
+			frozen.Follow = false
+			v, err = SaveRetailSiteRates(ctx, v, first.Id, recovered, frozen, 1)
+			require.NoError(t, err)
+			_, err = SaveRetailSiteRates(ctx, v, first.Id, recovered, failed, 0)
+			require.ErrorIs(t, err, ErrRetailPriceConflict)
+			book, _, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			rate, err = book.BoundRate(retailprice.GroupBinding{ChannelID: first.Id, UpstreamGroup: "shared"})
+			require.NoError(t, err)
+			require.Equal(t, "0.6", rate.Multiplier)
+			// 手动冻结的采购价只能属于原域名。换供应商后，须重新读取新站点的报价。
+			t.Setenv("SITE_MODE", "retail")
+			changed := "https://replacement.example"
+			patch := Channel{Id: first.Id, BaseURL: &changed}
+			require.NoError(t, patch.Update())
+			book, _, err = GetQuotableRetailPriceBook()
+			require.NoError(t, err)
+			_, err = book.BoundRate(retailprice.GroupBinding{ChannelID: first.Id, UpstreamGroup: "shared"})
+			require.ErrorIs(t, err, retailprice.ErrExpired)
+
+			// 将冻结站点移出部署授权后，即使只引用其价格而通过其他渠道供货，来源也必须失效。
+			onlyOne, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"channel_id": first.Id, "kind": "reseller"}}})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(path, onlyOne, 0600))
+			book, _, err = GetQuotableRetailPriceBook()
+			require.NoError(t, err)
+			_, err = book.BoundRate(retailprice.GroupBinding{ChannelID: second.Id, UpstreamGroup: "shared"})
+			require.ErrorIs(t, err, retailprice.ErrExpired)
+
 		})
 	}
 }

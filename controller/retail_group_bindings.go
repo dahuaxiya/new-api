@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/retail_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,14 +26,32 @@ func GetRetailGroupBindings(c *gin.Context) {
 		retailPricingManagementError(c, err)
 		return
 	}
+	routingChannels := []model.RetailBindingChannel{}
+	cfg, err := retail_setting.Load()
+	if err == nil && cfg.Enabled {
+		routingChannels, err = model.RetailRouteChannels(model.DB, cfg.Group)
+	}
+	if err != nil {
+		retailPricingManagementError(c, err)
+		return
+	}
+	rateChannels, err := model.RetailRateSiteChannels(model.DB)
+	if err != nil {
+		retailPricingManagementError(c, err)
+		return
+	}
 	groups := []string{}
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		groups = append(groups, group)
 	}
 	margins := map[string]int{}
+	sources := map[string]int{}
 	for _, p := range book.Products {
 		if p.Public && !slices.Contains(groups, p.BindingGroup) {
 			groups = append(groups, p.BindingGroup)
+		}
+		if p.Public && p.RateSourceChannelID > 0 {
+			sources[p.BindingGroup] = p.RateSourceChannelID
 		}
 		if p.Public && p.MarginBPS != nil {
 			margins[p.BindingGroup] = *p.MarginBPS
@@ -40,8 +59,9 @@ func GetRetailGroupBindings(c *gin.Context) {
 	}
 	slices.Sort(groups)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+		"rate_source_channels": sources, "rate_site_by_channel": book.RateSiteByChannel, "rate_channels": rateChannels, "site_feeds": book.SiteFeeds,
 		"credential_groups": book.RegisteredGroups(), "version": version, "bindings": book.GroupBindings, "model_sync": book.ModelSync, "sync": book.PublicRateSync,
-		"group_margins": margins, "local_groups": groups, "channels": channels, "server_time": time.Now().Unix(),
+		"group_margins": margins, "local_groups": groups, "channels": channels, "routing_channels": routingChannels, "server_time": time.Now().Unix(),
 		"sale_policy":   retailprice.SalePolicy{ReceiptRatio: book.ReceiptRatio, MarginBPS: book.MarginBPS, FeeBPS: book.FeeBPS, BufferBPS: book.BufferBPS},
 		"pricing_ready": len(book.Models) > 0 && len(book.Products) > 0, "pricing_enabled": book.Enabled,
 	}})
@@ -84,7 +104,7 @@ func PutRetailGroupBindings(c *gin.Context) {
 		return
 	}
 	snapshot := book.PublicRateSync.Snapshot
-	if input.Enabled || len(input.Bindings) > 0 {
+	if slices.ContainsFunc(input.Bindings, func(b retailprice.GroupBinding) bool { return book.RateSiteByChannel[b.ChannelID] == 0 }) {
 		fresh, readErr := fetchRetailPublicRates(c.Request.Context())
 		if readErr != nil && (input.Enabled || snapshot == nil) {
 			common.ApiError(c, readErr)
@@ -149,7 +169,12 @@ func (retailRatesHandler) Enabled() bool {
 		return false
 	}
 	book, _, err := model.GetRetailPriceBook()
-	return err == nil && book.PublicRateSync.Enabled && len(book.GroupBindings) > 0
+	return err == nil && usesLegacyRates(book)
+}
+
+// usesLegacyRates 仅在确有绑定读取旧星行报价时才轮询；逐站暂停的来源不会被旧任务继续刷新。
+func usesLegacyRates(book retailprice.Book) bool {
+	return book.PublicRateSync.Enabled && slices.ContainsFunc(book.GroupBindings, func(b retailprice.GroupBinding) bool { return book.RateSiteByChannel[b.ChannelID] == 0 })
 }
 
 // Interval schedules the next check for changes to the published multipliers.
@@ -161,7 +186,7 @@ func (retailRatesHandler) NewPayload() any { return nil }
 // Run honors lease cancellation and uses optimistic publication to protect concurrent binding edits.
 func (h retailRatesHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
 	book, version, err := model.GetRetailPriceBook()
-	if err == nil && (!common.IsRetailSite() || !book.PublicRateSync.Enabled || len(book.GroupBindings) == 0) {
+	if err == nil && (!common.IsRetailSite() || !usesLegacyRates(book)) {
 		err = retailprice.ErrAccess
 	}
 	if err == nil {
@@ -188,7 +213,7 @@ func LaunchRetailGroup(c *gin.Context) {
 	result, err := model.LaunchRetailGroup(c.Request.Context(), in, c.GetInt("id"))
 	if err != nil {
 		switch err {
-		case model.ErrRetailGroupExists, model.ErrRetailLaunchPaused, model.ErrRetailSupplyGroupName, model.ErrRetailSupplyGroupKey, model.ErrRetailSupplyGroupIncomplete:
+		case model.ErrRetailGroupRateConflict, model.ErrRetailGroupExists, model.ErrRetailLaunchPaused, model.ErrRetailSupplyGroupName, model.ErrRetailSupplyGroupKey, model.ErrRetailSupplyGroupIncomplete:
 			common.ApiError(c, err)
 		case retailprice.ErrExpired:
 			common.ApiError(c, common.NewMessage("Upstream rates have expired. Sync the bound rates and preview again."))

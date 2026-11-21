@@ -26,6 +26,7 @@ import {
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import {
@@ -38,11 +39,14 @@ import { fetchModels } from '@/features/channels/api'
 import { SellingPricePreview } from '@/features/channels/components/retail-pricing'
 import {
   getRetailGroupBindings,
+  saveRetailSiteFeed,
+  type RetailSiteFeed,
   getRetailPricing,
   launchRetailGroup,
   type RetailPriceBook,
   type RetailLaunchInput,
   type RetailLaunchReview,
+  type RetailLaunchRoute,
 } from '@/features/channels/retail-pricing-api'
 import { useStatus } from '@/hooks/use-status'
 import { formatNumber } from '@/lib/format'
@@ -56,29 +60,69 @@ export function RetailGroupLaunch() {
   const { status } = useStatus()
   const { user, session } = useAuthStore((s) => s.auth)
   const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState<PublishedGroupEdit>()
   if (status?.site_mode !== 'retail' || user?.role !== ROLE.SUPER_ADMIN) {
     return null
   }
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <Button className='self-start' onClick={() => setOpen(true)}>
+      <Button
+        className='self-start'
+        onClick={() => {
+          setEditing(undefined)
+          setOpen(true)
+        }}
+      >
         {t('Publish a call group')}
       </Button>
-      <PublishedGroups identity={`${user.id}:${session?.sid}`} />
+      <PublishedGroups
+        identity={`${user.id}:${session?.sid}`}
+        onEdit={(draft) => {
+          setEditing(draft)
+          setOpen(true)
+        }}
+      />
       <SheetContent className={sideDrawerContentClassName('sm:max-w-2xl')}>
         <SheetHeader className={sideDrawerHeaderClassName()}>
-          <SheetTitle>{t('Publish a call group')}</SheetTitle>
+          <SheetTitle>
+            {t(editing ? 'Edit call group routing' : 'Publish a call group')}
+          </SheetTitle>
         </SheetHeader>
         {open && (
           <LaunchForm
-            key={`${user.id}:${session?.sid}`}
+            key={`${user.id}:${session?.sid}:${editing?.version ?? 'new'}`}
             identity={`${user.id}:${session?.sid}`}
+            editing={editing}
+            onReload={setEditing}
             onPublished={() => setOpen(false)}
           />
         )}
       </SheetContent>
     </Sheet>
   )
+}
+
+type PublishedProduct = RetailPriceBook['products'][number]
+type PublishedGroupEdit = {
+  product: PublishedProduct
+  version: number
+  bindings: RetailPriceBook['group_bindings']
+}
+
+/** 保存打开时该组的绑定，区分同组被修改和无关的全站价格更新。 */
+function groupEditSnapshot(
+  product: PublishedProduct,
+  book: RetailPriceBook,
+  version: number
+): PublishedGroupEdit {
+  return {
+    product,
+    version,
+    bindings:
+      book.group_bindings?.filter(
+        (b) => b.local_group === product.binding_group
+      ) ?? [],
+  }
 }
 
 /** 页面列表和重名检查使用同一份服务端价表，避免把账号分组当作已上架的线路。 */
@@ -110,11 +154,18 @@ function productRouteLabel(
 }
 
 /** 读取正式价表，供管理员核对实际发布的调用分组和线路。账号倍率表可能没有同名项。 */
-function PublishedGroups({ identity }: { identity: string }) {
+function PublishedGroups({
+  identity,
+  onEdit,
+}: {
+  identity: string
+  onEdit: (draft: PublishedGroupEdit) => void
+}) {
   const { t } = useTranslation()
   // 和价表共用按登录会话隔离的缓存，保存成功后由上架表单触发重新读取。
   const query = usePublishedPricing(identity)
-  const book = query.data?.book
+  const saved = query.data
+  const book = saved?.book
   return (
     <section aria-label={t('Published call groups')} className='space-y-2'>
       <h3 className='font-medium'>{t('Published call groups')}</h3>
@@ -135,7 +186,24 @@ function PublishedGroups({ identity }: { identity: string }) {
               <dt className='font-medium'>{product.name}</dt>
               <dd className='text-muted-foreground'>
                 {productRouteLabel(book, product)}
+                {product.rate_source_channel_id && (
+                  <span className='ms-2'>
+                    {t('Selling multiplier source')}: #
+                    {product.rate_source_channel_id}
+                  </span>
+                )}
               </dd>
+              {product.public && product.binding_group && (
+                <Button
+                  size='sm'
+                  variant='ghost'
+                  onClick={() =>
+                    onEdit(groupEditSnapshot(product, book, saved.version))
+                  }
+                >
+                  {t('Edit call group routing')}
+                </Button>
+              )}
             </div>
           ))}
         </dl>
@@ -147,26 +215,64 @@ function PublishedGroups({ identity }: { identity: string }) {
 /** 预览获取当前版本和新 Key 的首份模型清单。发布仅提交用户刚审阅的快照，冲突时保留输入。 */
 function LaunchForm({
   identity,
+  editing: editSnapshot,
+  onReload,
   onPublished,
 }: {
   identity: string
+  editing?: PublishedGroupEdit
+  onReload: (latest: PublishedGroupEdit) => void
   onPublished: () => void
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
+  const editing = editSnapshot?.product
   const state = useQuery({
     queryKey: ['retail-group-bindings', identity],
     queryFn: ({ signal }) => getRetailGroupBindings(signal),
     retry: false,
     refetchOnWindowFocus: false,
   })
-  const [site, setSite] = useState(0)
-  const [credentialChoice, setCredentialChoice] = useState<number | null>(null)
   const pricing = usePublishedPricing(identity)
-  const [upstream, setUpstream] = useState('')
-  const [group, setGroup] = useState('')
+  const initialAnchor =
+    editing?.rate_source_channel_id ??
+    pricing.data?.book.group_bindings?.find(
+      (binding) =>
+        binding.local_group === editing?.binding_group &&
+        editing.routes.some((route) => route.channel_id === binding.channel_id)
+    )?.channel_id
+  const [site, setSite] = useState(0)
+  const [credentialChoice, setCredentialChoice] = useState<number | null>(
+    initialAnchor ?? null
+  )
+  const [upstreamChoice, setUpstream] = useState<string>()
+  const [group, setGroup] = useState(editing?.binding_group ?? '')
   const [key, setKey] = useState('')
-  const [margin, setMargin] = useState('')
+  const [margin, setMargin] = useState(
+    editing?.margin_bps === undefined ? '' : String(editing.margin_bps / 100)
+  )
+  // 存量组预填原线路。调整定价来源需要明确选择新的绑定，旧线路仍可保留为备用。
+  const [useSourceRoute, setUseSourceRoute] = useState(
+    !editing ||
+      !initialAnchor ||
+      editing.routes.some((route) => route.channel_id === initialAnchor)
+  )
+  const [routeDrafts, setRouteDrafts] = useState<RetailLaunchRoute[]>(
+    () =>
+      editing?.routes
+        .filter((r) => r.channel_id !== initialAnchor)
+        .map((route) => ({
+          channel_id: route.channel_id,
+          upstream_group:
+            pricing.data?.book.group_bindings?.find(
+              (b) =>
+                b.local_group === editing.binding_group &&
+                b.channel_id === route.channel_id
+            )?.upstream_group ?? '',
+          rate_id: route.rate_id,
+        })) ?? []
+  )
+  const [conflict, setConflict] = useState<PublishedGroupEdit>()
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState('')
   const [preview, setPreview] = useState<{
@@ -176,16 +282,39 @@ function LaunchForm({
     result: RetailLaunchReview
   } | null>(null)
   const data = state.data
-  const sites = data?.channels.filter((c) => c.site_id === c.id) ?? []
-  const selected = sites.find((c) => c.id === (site || sites[0]?.id))
-  const rates = data?.sync.snapshot?.groups ?? []
+  const rateChannels = data?.rate_channels ?? data?.channels ?? []
+  const sites = rateChannels.filter((c) => c.site_id === c.id)
+  const anchorChannel = rateChannels.find((c) => c.id === initialAnchor)
+  const selected = sites.find(
+    (c) => c.id === (site || anchorChannel?.site_id || sites[0]?.id)
+  )
+  const upstream =
+    upstreamChoice ??
+    (initialAnchor ? data?.credential_groups?.[initialAnchor] : undefined) ??
+    ''
+  const routingChannels = data?.routing_channels ?? data?.channels ?? []
+  const legacySites = new Set(data?.channels.map((c) => c.site_id))
+  /** 只在已登记的星行渠道上兼容旧价表，外站同名组必须使用本人的站点快照。 */
+  function ratesFor(siteId?: number) {
+    if (!siteId) return []
+    return (
+      data?.site_feeds?.[siteId]?.snapshot.groups ??
+      (legacySites.has(siteId) ? data?.sync.snapshot?.groups : undefined) ??
+      []
+    )
+  }
+  const rates = ratesFor(selected?.id)
+  const sourceFeed = selected && data?.site_feeds?.[selected.id]
+  const sourceReady = sourceFeed
+    ? !sourceFeed.last_error
+    : !!(selected && legacySites.has(selected.id) && data?.sync.enabled)
   const credentials =
-    data?.channels.filter((c) => {
-      const pinned = data.credential_groups?.[c.id]
+    rateChannels.filter((c) => {
+      const pinned = data?.credential_groups?.[c.id]
       return (
         c.site_id === selected?.id &&
-        c.has_key &&
-        c.status === 1 &&
+        ((!useSourceRoute && pinned === upstream) ||
+          (c.has_key && c.status === 1)) &&
         (!pinned || pinned === upstream)
       )
     }) ?? []
@@ -193,20 +322,50 @@ function LaunchForm({
     (c) => data?.credential_groups?.[c.id] === upstream
   )
   // 只自动选唯一已绑定的 Key。未绑定的旧 Key 须由管理员选择，不能猜它在上游的用途。
-  let defaultChannel: number | null = matching[0]?.id ?? 0
+  let defaultChannel: number | null =
+    matching[0]?.id ?? (selected?.allow_new_credential === false ? null : 0)
   if (matching.length > 1) defaultChannel = null
   const channel = credentialChoice ?? defaultChannel
   const credential = credentials.find((c) => c.id === channel)
   const book = pricing.data?.book
   const duplicate = book?.products?.find(
-    (p) => p.name === group.trim() || p.binding_group === group.trim()
+    (p) =>
+      p.id !== editing?.id &&
+      (p.name === group.trim() || p.binding_group === group.trim())
   )
+  const additionalRoutes = routeDrafts
+    .filter((route) => route.channel_id !== channel)
+    .map((route) => {
+      const upstreamGroup =
+        data?.credential_groups?.[route.channel_id] ||
+        route.upstream_group.trim()
+      const siteId = routingChannels.find(
+        (c) => c.id === route.channel_id
+      )?.site_id
+      const sharedRate =
+        siteId && book?.site_group_rates?.[siteId]?.[upstreamGroup]
+      return {
+        ...route,
+        upstream_group: upstreamGroup,
+        rate_id: ratesFor(siteId).length ? '' : sharedRate || route.rate_id,
+      }
+    })
   const canPreview = !!(
     selected &&
     group.trim() &&
     !duplicate &&
-    upstream &&
+    rates.some((r) => r.group === upstream) &&
     (credential || (channel === 0 && key.trim())) &&
+    (useSourceRoute || additionalRoutes.length > 0) &&
+    additionalRoutes.every(
+      (route) =>
+        routingChannels.some((c) => c.id === route.channel_id) &&
+        route.upstream_group &&
+        (ratesFor(
+          routingChannels.find((c) => c.id === route.channel_id)?.site_id
+        ).some((r) => r.group === route.upstream_group) ||
+          route.rate_id)
+    ) &&
     (margin === '' || (Number(margin) >= 0 && Number(margin) <= 95))
   )
   /** 读取新 Key 时只使用选中站点的协议和地址。后台验证并计算可售范围，浏览器不推算价格。 */
@@ -226,19 +385,49 @@ function LaunchForm({
           void client.invalidateQueries({ queryKey: [prefix] })
         }
         toast.success(
-          `${t('Call group published')} · ${preview.input.local_group}`
+          `${t(editing ? 'Saved' : 'Call group published')} · ${preview.input.local_group}`
         )
         onPublished()
         return
       }
       if (!canPreview || channel === null) return
-      const latest = await getRetailGroupBindings()
+      // 预览始终使用新价表。仅其他分组或价格发生变化时可沿用草稿；同组变化需管理员重新核对。
+      let version: number
+      if (editSnapshot) {
+        const latest = await pricing.refetch({ throwOnError: true })
+        const saved = latest.data
+        const product = saved?.book.products.find(
+          (p) => p.id === editSnapshot.product.id
+        )
+        if (!saved || !product) {
+          throw new Error('Retail pricing changed. Reload before saving.')
+        }
+        const current = groupEditSnapshot(product, saved.book, saved.version)
+        if (
+          current.version !== editSnapshot.version &&
+          (JSON.stringify(current.product) !==
+            JSON.stringify(editSnapshot.product) ||
+            JSON.stringify(current.bindings) !==
+              JSON.stringify(editSnapshot.bindings))
+        ) {
+          setConflict(current)
+          throw new Error(
+            'Group routing changed. Reload the saved group to continue.'
+          )
+        }
+        version = saved.version
+      } else {
+        version = (await getRetailGroupBindings()).version
+      }
       const input: RetailLaunchInput = {
-        expected_version: latest.version,
+        expected_version: version,
         local_group: group.trim(),
         site_id: selected.id,
         channel_id: channel,
         upstream_group: upstream,
+        product_id: editing?.id,
+        additional_routes: additionalRoutes,
+        pricing_only: !useSourceRoute,
       }
       if (margin !== '') input.margin_bps = Math.round(Number(margin) * 100)
       if (!channel) {
@@ -274,9 +463,10 @@ function LaunchForm({
     model_mapping_conflict:
       'Channel model mapping differs from the price route',
   }
-  const actionLabel = preview
-    ? 'Save and publish group'
-    : 'Preview CNY selling prices'
+  let actionLabel = 'Preview CNY selling prices'
+  if (preview) {
+    actionLabel = editing ? 'Save' : 'Save and publish group'
+  }
   return (
     <div className='min-h-0 flex-1 space-y-4 overflow-auto p-6'>
       {state.isError && (
@@ -313,8 +503,27 @@ function LaunchForm({
                   ))}
                 </NativeSelect>
               </label>
+              {selected && (
+                <SiteFeedEditor
+                  key={`${selected.id}/${data.site_feeds?.[selected.id]?.url ?? ''}`}
+                  site={selected.id}
+                  baseUrl={selected.base_url}
+                  feed={data.site_feeds?.[selected.id]}
+                  initialOpen={!rates.length}
+                  version={data.version}
+                  legacyFollow={
+                    legacySites.has(selected.id) && data.sync.enabled
+                  }
+                  onSaved={async () => {
+                    await Promise.all([
+                      state.refetch({ throwOnError: true }),
+                      pricing.refetch({ throwOnError: true }),
+                    ])
+                  }}
+                />
+              )}
               <label>
-                {t('Upstream group')}
+                {t('Selling multiplier source')}
                 <NativeSelect
                   value={upstream}
                   onChange={(e) => {
@@ -355,9 +564,11 @@ function LaunchForm({
                         {data.credential_groups?.[c.id] || t('Unbound Key')}
                       </NativeSelectOption>
                     ))}
-                    <NativeSelectOption value={0}>
-                      {t('New upstream Key')}
-                    </NativeSelectOption>
+                    {selected?.allow_new_credential !== false && (
+                      <NativeSelectOption value={0}>
+                        {t('New upstream Key')}
+                      </NativeSelectOption>
+                    )}
                   </NativeSelect>
                 </label>
               )}
@@ -375,6 +586,7 @@ function LaunchForm({
               <label>
                 {t('Call group name')}
                 <Input
+                  readOnly={!!editing}
                   list='launch-local-groups'
                   value={group}
                   onChange={(e) => setGroup(e.target.value)}
@@ -406,6 +618,171 @@ function LaunchForm({
                   onChange={(e) => setMargin(e.target.value)}
                 />
               </label>
+              <label className='flex items-center gap-2 sm:col-span-2'>
+                <Checkbox
+                  checked={useSourceRoute}
+                  onCheckedChange={(value) => setUseSourceRoute(value === true)}
+                />
+                {t('Route requests to the selling multiplier source')}
+              </label>
+            </fieldset>
+          )}
+          {!preview && (
+            <fieldset disabled={busy} className='space-y-3'>
+              <legend className='mb-2 font-medium'>
+                {t('Additional upstream routes')}
+              </legend>
+              {additionalRoutes.map((route) => {
+                const option = routingChannels.find(
+                  (c) => c.id === route.channel_id
+                )
+                const routeRates = ratesFor(option?.site_id)
+                const usesPublicRate = !!routeRates.length
+                const pinned = data.credential_groups?.[route.channel_id]
+                return (
+                  <div
+                    key={route.channel_id}
+                    className='grid gap-2 rounded-md border p-3 sm:grid-cols-2'
+                  >
+                    <div className='flex items-center justify-between gap-2 sm:col-span-2'>
+                      <span>
+                        {option?.name ?? t('Unavailable or expired')} · #
+                        {route.channel_id}
+                      </span>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() =>
+                          setRouteDrafts((drafts) =>
+                            drafts.filter(
+                              (r) => r.channel_id !== route.channel_id
+                            )
+                          )
+                        }
+                      >
+                        {t('Remove')}
+                      </Button>
+                    </div>
+                    <label>
+                      {t('Upstream group')}
+                      {usesPublicRate ? (
+                        <NativeSelect
+                          value={route.upstream_group}
+                          disabled={!!pinned}
+                          onChange={(e) =>
+                            setRouteDrafts((drafts) =>
+                              drafts.map((r) =>
+                                r.channel_id === route.channel_id
+                                  ? {
+                                      ...r,
+                                      upstream_group: e.target.value,
+                                      rate_id: '',
+                                    }
+                                  : r
+                              )
+                            )
+                          }
+                        >
+                          <NativeSelectOption value=''>
+                            {t('Select group')}
+                          </NativeSelectOption>
+                          {pinned &&
+                            !routeRates.some((r) => r.group === pinned) && (
+                              <NativeSelectOption value={pinned}>
+                                {pinned} · {t('Unavailable')}
+                              </NativeSelectOption>
+                            )}
+                          {routeRates.map((r) => (
+                            <NativeSelectOption key={r.group} value={r.group}>
+                              {r.name || r.group} · {r.multiplier}×
+                            </NativeSelectOption>
+                          ))}
+                        </NativeSelect>
+                      ) : (
+                        <Input
+                          value={route.upstream_group}
+                          readOnly={!!pinned}
+                          onChange={(e) =>
+                            setRouteDrafts((drafts) =>
+                              drafts.map((r) =>
+                                r.channel_id === route.channel_id
+                                  ? { ...r, upstream_group: e.target.value }
+                                  : r
+                              )
+                            )
+                          }
+                        />
+                      )}
+                    </label>
+                    {!usesPublicRate && (
+                      <label>
+                        {t('Procurement rate')}
+                        <NativeSelect
+                          value={route.rate_id}
+                          disabled={
+                            !!(
+                              option &&
+                              book?.site_group_rates?.[option.site_id]?.[
+                                route.upstream_group
+                              ]
+                            )
+                          }
+                          onChange={(e) =>
+                            setRouteDrafts((drafts) =>
+                              drafts.map((r) =>
+                                r.channel_id === route.channel_id
+                                  ? { ...r, rate_id: e.target.value }
+                                  : r
+                              )
+                            )
+                          }
+                        >
+                          <NativeSelectOption value=''>
+                            {t('Select rate')}
+                          </NativeSelectOption>
+                          {book?.rates
+                            .filter(
+                              (rate) => rate.valid_until > data.server_time
+                            )
+                            .map((rate) => (
+                              <NativeSelectOption key={rate.id} value={rate.id}>
+                                {rate.id} · {rate.multiplier}×
+                              </NativeSelectOption>
+                            ))}
+                        </NativeSelect>
+                      </label>
+                    )}
+                  </div>
+                )
+              })}
+              <NativeSelect
+                aria-label={t('Add upstream route')}
+                value=''
+                onChange={(e) => {
+                  const id = Number(e.target.value)
+                  if (id) {
+                    setRouteDrafts((drafts) => [
+                      ...drafts,
+                      { channel_id: id, upstream_group: '', rate_id: '' },
+                    ])
+                  }
+                }}
+              >
+                <NativeSelectOption value=''>
+                  {t('Add upstream route')}
+                </NativeSelectOption>
+                {routingChannels
+                  .filter(
+                    (c) =>
+                      c.id !== channel &&
+                      !routeDrafts.some((r) => r.channel_id === c.id)
+                  )
+                  .map((c) => (
+                    <NativeSelectOption key={c.id} value={c.id}>
+                      {c.name} · #{c.id}
+                    </NativeSelectOption>
+                  ))}
+              </NativeSelect>
             </fieldset>
           )}
           {duplicate && book && !preview && (
@@ -415,10 +792,15 @@ function LaunchForm({
             </p>
           )}
           {failure && <p role='alert'>{failure}</p>}
-          {(!data.pricing_enabled || !data.sync.enabled) && (
+          {conflict && (
+            <Button disabled={busy} onClick={() => onReload(conflict)}>
+              {t('Reload saved bindings')}
+            </Button>
+          )}
+          {(!data.pricing_enabled || !sourceReady) && (
             <p>
               {t(
-                'Enable retail sales and automatic upstream rates before publishing a group'
+                'Enable retail sales and load the upstream rates before publishing'
               )}
             </p>
           )}
@@ -432,6 +814,25 @@ function LaunchForm({
                 <dd>{preview.input.upstream_group}</dd>
                 <dt>{t('Supply credential')}</dt>
                 <dd>{preview.credentialName}</dd>
+                {preview.result.sale_multiplier && (
+                  <>
+                    <dt>{t('Selling multiplier')}</dt>
+                    <dd>{preview.result.sale_multiplier}×</dd>
+                  </>
+                )}
+                {!!preview.input.additional_routes?.length && (
+                  <>
+                    <dt>{t('Additional upstream routes')}</dt>
+                    <dd>
+                      {preview.input.additional_routes
+                        .map(
+                          (route) =>
+                            `${routingChannels.find((c) => c.id === route.channel_id)?.name ?? ''} · #${route.channel_id}`
+                        )
+                        .join(' / ')}
+                    </dd>
+                  </>
+                )}
                 <dt>{t('Models to publish')}</dt>
                 <dd>
                   {formatNumber(
@@ -441,6 +842,14 @@ function LaunchForm({
                   )}
                 </dd>
               </dl>
+              {preview.result.unavailable_channels?.map((id) => (
+                <p key={id} role='alert'>
+                  {id === 0 ? t('New upstream Key') : `#${id}`} ·{' '}
+                  {t(
+                    'No eligible models. Remove this route or update its supply and pricing.'
+                  )}
+                </p>
+              ))}
               {preview.result.rows
                 .filter((r) => r.reason)
                 .map((r) => (
@@ -449,6 +858,30 @@ function LaunchForm({
                     {t(reasons[r.reason ?? ''] ?? 'Unavailable or expired')}
                   </p>
                 ))}
+              {preview.result.rows.some((row) => row.channels?.length) && (
+                <details className='space-y-2 rounded-md border p-3 text-sm'>
+                  <summary>{t('Eligible routes by model')}</summary>
+                  <dl className='space-y-1'>
+                    {preview.result.rows
+                      .filter((row) => row.channels?.length)
+                      .map((row) => (
+                        <div
+                          key={row.model}
+                          className='flex flex-wrap justify-between gap-x-2'
+                        >
+                          <dt>{row.model}</dt>
+                          <dd>
+                            {row.channels
+                              ?.map((id) =>
+                                id === 0 ? t('New upstream Key') : `#${id}`
+                              )
+                              .join(' / ')}
+                          </dd>
+                        </div>
+                      ))}
+                  </dl>
+                </details>
+              )}
               {preview.result.review && (
                 <SellingPricePreview
                   rows={preview.result.rows
@@ -473,7 +906,7 @@ function LaunchForm({
                 busy ||
                 (!preview && !canPreview) ||
                 !data.pricing_enabled ||
-                !data.sync.enabled ||
+                !sourceReady ||
                 (!!preview && !preview.result.review)
               }
               onClick={() => void submit()}
@@ -484,5 +917,100 @@ function LaunchForm({
         </>
       )}
     </div>
+  )
+}
+
+/** 跟随与读取分开提交。暂停保留最近一次已保存的倍率，网络故障时也能停止轮询。 */
+function SiteFeedEditor({
+  site,
+  baseUrl,
+  feed,
+  version,
+  legacyFollow,
+  initialOpen,
+  onSaved,
+}: {
+  site: number
+  baseUrl: string
+  feed?: RetailSiteFeed
+  version: number
+  initialOpen: boolean
+  legacyFollow: boolean
+  onSaved: () => Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [url, setUrl] = useState(() => {
+    if (feed) return feed.url
+    try {
+      return new URL('/api/public/rates', baseUrl).href
+    } catch {
+      return ''
+    }
+  })
+  const follow = feed?.follow ?? legacyFollow
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+  /** 使用展示时的版本号。冲突时重新取得最新版本，由管理员决定是否重新提交。 */
+  async function save(nextFollow?: boolean) {
+    if (pending) return
+    setPending(true)
+    setError('')
+    try {
+      await saveRetailSiteFeed(
+        site,
+        version,
+        nextFollow === false && feed ? feed.url : url.trim(),
+        nextFollow
+      )
+      await onSaved()
+    } catch (e) {
+      setError(t(getServerErrorMessage(e)))
+      await onSaved().catch(() => {})
+    } finally {
+      setPending(false)
+    }
+  }
+  const [expanded, setExpanded] = useState(initialOpen)
+  return (
+    <details
+      open={expanded}
+      onToggle={(e) => setExpanded(e.currentTarget.open)}
+      className='sm:col-span-2'
+    >
+      <summary>{t('Upstream rate feed')}</summary>
+      <div className='mt-2 grid gap-2'>
+        <label>
+          {t('Upstream rate feed URL')}
+          <Input
+            type='url'
+            value={url}
+            disabled={pending}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+        </label>
+        <div className='flex flex-wrap items-center gap-3'>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={pending || !url.trim()}
+            onClick={() => void save()}
+          >
+            {t('Load upstream groups')}
+          </Button>
+          <label className='flex items-center gap-2'>
+            <Checkbox
+              checked={follow}
+              disabled={pending || !url.trim()}
+              onCheckedChange={(checked) => void save(checked === true)}
+            />
+            {t('Automatically follow upstream multipliers')}
+          </label>
+        </div>
+        {(error || feed?.last_error) && (
+          <p role='alert'>{error || t(feed?.last_error ?? '')}</p>
+        )}
+      </div>
+    </details>
   )
 }

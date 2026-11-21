@@ -29,6 +29,7 @@ type siteTaskHandler struct{ kind string }
 func registerSiteTasks() {
 	if common.IsRetailSite() {
 		service.RegisterSystemTaskHandler(retailRatesHandler{})
+		service.RegisterSystemTaskHandler(retailSiteRatesHandler{})
 		service.RegisterSystemTaskHandler(retailModelsHandler{})
 		service.RegisterSystemTaskHandler(siteTaskHandler{kind: siteTaskWalletPayment})
 		return
