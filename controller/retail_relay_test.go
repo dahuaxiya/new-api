@@ -339,7 +339,14 @@ func TestRetailHTTPRelay(t *testing.T) {
 					if scenario.name == "responses_stream" {
 						kind = "compaction"
 					}
-					replay := fmt.Sprintf(`{"model":"gpt-4o","max_output_tokens":20,"stream":%t,"input":[{"type":%q,"encrypted_content":"client-replay","summary":[]},{"role":"user","content":"continue"}],"tools":[{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"conversation":{"type":"string"}}}}]}`, scenario.name == "responses_stream", kind)
+					replay := fmt.Sprintf(`{"model":"gpt-4o","max_output_tokens":20,"stream":%t,
+						"input":[
+							{"type":%q,"encrypted_content":"client-replay","summary":[]},
+							{"type":"custom_tool_call","id":"ctc_1","namespace":"functions","call_id":"call_1","name":"ticket_tool","input":"ticket","status":"completed"},
+							{"type":"custom_tool_call_output","call_id":"call_1","output":[{"type":"input_text","text":%q}]},
+							{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"open_page","url":"https://example.com/"}},
+							{"role":"user","content":"Repeat the ticket from the tool result."}],
+						"tools":[{"type":"custom","name":"ticket_tool"},{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"conversation":{"type":"string"}}}}]}`, scenario.name == "responses_stream", kind, uuid.NewString())
 					req = httptest.NewRequest("POST", scenario.path, strings.NewReader(replay))
 					req.Header.Set("Authorization", "Bearer sk-"+token.Key)
 					req.Header.Set("Content-Type", "application/json")
@@ -347,8 +354,8 @@ func TestRetailHTTPRelay(t *testing.T) {
 					engine.ServeHTTP(w, req)
 					require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 					require.EqualValues(t, 2, hits.Load())
-					for _, path := range []string{"input.0.type", "input.0.encrypted_content", "input.1.content", "tools.0.parameters.properties.conversation.type"} {
-						require.Equal(t, gjson.Get(replay, path).String(), gjson.Get(replayBody.Load().(string), path).String(), path)
+					for _, path := range []string{"input", "tools"} {
+						require.JSONEq(t, gjson.Get(replay, path).Raw, gjson.Get(replayBody.Load().(string), path).Raw, path)
 					}
 					var follow model.RetailCharge
 					require.NoError(t, model.DB.First(&follow, "id = ?", "retail-http-"+scenario.name+"-2").Error)
@@ -364,6 +371,22 @@ func TestRetailHTTPRelay(t *testing.T) {
 						require.Equal(t, 200, w.Code, w.Body.String())
 						require.EqualValues(t, 3, hits.Load())
 						require.Equal(t, "resp-1", gjson.Get(replayBody.Load().(string), "previous_response_id").String())
+
+						// 历史搜索只作为上下文。声明新搜索、未完成的动作及无报价媒体必须在触达上游前拒绝。
+						for _, rejected := range []string{
+							strings.Replace(replay, `"type":"custom","name":"ticket_tool"`, `"type":"web_search"`, 1),
+							strings.Replace(replay, `"ws_1","status":"completed"`, `"ws_1","status":"in_progress"`, 1),
+							strings.Replace(replay, `"type":"open_page"`, `"type":"unknown"`, 1),
+							strings.Replace(replay, `"type":"input_text","text"`, `"type":"input_audio","audio"`, 1),
+						} {
+							bad := httptest.NewRequest(http.MethodPost, scenario.path, strings.NewReader(rejected))
+							bad.Header = req.Header.Clone()
+							denied := httptest.NewRecorder()
+							engine.ServeHTTP(denied, bad)
+							require.Equal(t, http.StatusForbidden, denied.Code, denied.Body.String())
+							require.Contains(t, denied.Body.String(), "retail_price_configuration_invalid")
+							require.EqualValues(t, 3, hits.Load())
+						}
 
 						// 另一个 Key 即使属于同一用户名下，也不能查询本 Key 在共享账号里的历史。
 						other := model.Token{UserId: user.Id, Key: common.GetUUID(), Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true, ServiceMode: "retail"}

@@ -406,7 +406,7 @@ func validateRetailTextBody(raw []byte) error {
 }
 
 // validateRetailChat 校验文本计费契约。原生 Responses 只在 input 数组的直接元素中
-// 接受携带密文的历史，其嵌套消息仍须遵守媒体和工具限制。
+// 接受加密历史和工具回放；工具结果仍须遵守本次请求的媒体许可。
 func validateRetailChat(raw []byte, vision map[string]int, responses bool, previous string) error {
 	root := gjson.ParseBytes(raw)
 	if !gjson.ValidBytes(raw) || !root.IsObject() {
@@ -460,7 +460,8 @@ func validateRetailChat(raw []byte, vision map[string]int, responses bool, previ
 	valid := true
 	root.Get("tools").ForEach(func(_, tool gjson.Result) bool {
 		typ := tool.Get("type").String()
-		if typ != "function" && !(typ == "" && tool.Get("input_schema").Exists()) {
+		// custom 声明交给客户端执行；服务端提供的搜索等工具仍须独立报价。
+		if typ != "function" && !(responses && typ == "custom") && !(typ == "" && tool.Get("input_schema").Exists()) {
 			valid = false
 		}
 		return valid
@@ -473,15 +474,37 @@ func validateRetailChat(raw []byte, vision map[string]int, responses bool, previ
 	input := root.Get("input")
 	if responses && input.IsArray() {
 		for _, item := range input.Array() {
-			if _, ok := retailReplayCiphertext(item); ok {
-				// 仅密文豁免普通文本检查，同一个输入项不能借此携带未报价的媒体。
-				if item.Get("image_url").Exists() || item.Get("audio").Exists() {
+			// 只有直接位于 Responses input 的条目才是工具历史；工具返回的媒体
+			// 仍须走普通内容检查，不能因为外层调用已完成就放行。
+			_, encrypted := retailReplayCiphertext(item)
+			switch item.Get("type").Str {
+			case "custom_tool_call":
+				if item.Get("input").Type != gjson.String {
 					return retailprice.ErrConfig
 				}
-				queue = append(queue, item.Get("content"), item.Get("output"))
-				continue
+			case "custom_tool_call_output":
+				output := item.Get("output")
+				if output.Type != gjson.String && !output.IsArray() {
+					return retailprice.ErrConfig
+				}
+			case "web_search_call":
+				// 历史动作只作为模型上下文，不访问 URL，也不启用新搜索。
+				if item.Get("status").Str != "completed" {
+					return retailprice.ErrConfig
+				}
+				if _, err := dto.NormalizeResponsesWebSearchAction([]byte(item.Get("action").Raw)); err != nil {
+					return retailprice.ErrConfig
+				}
+			default:
+				if !encrypted {
+					queue = append(queue, item)
+					continue
+				}
 			}
-			queue = append(queue, item)
+			if item.Get("image_url").Exists() || item.Get("audio").Exists() || (!encrypted && item.Get("encrypted_content").Exists()) {
+				return retailprice.ErrConfig
+			}
+			queue = append(queue, item.Get("content"), item.Get("output"))
 		}
 	} else {
 		queue = append(queue, input)
