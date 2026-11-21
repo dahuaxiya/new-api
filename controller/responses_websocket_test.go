@@ -38,8 +38,11 @@ import (
 
 var responsesWSTestUserSequence atomic.Int64
 
+// setupResponsesWSRequestTest 为每个请求测试初始化鉴权所需的词库和隔离数据库。
 func setupResponsesWSRequestTest(t *testing.T) (*model.User, *model.Token) {
 	t.Helper()
+	// 鉴权拒绝和限流都可能返回本地化消息，单跑用例时也必须先装载词库。
+	require.NoError(t, i18n.Init())
 	previousDB := model.DB
 	previousLogDB := model.LOG_DB
 	previousType := common.MainDatabaseType()
