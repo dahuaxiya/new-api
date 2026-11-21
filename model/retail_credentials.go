@@ -169,7 +169,7 @@ func EditRetailCredential(ctx context.Context, in RetailCredentialEdit, actor in
 			}
 			ch.Status = common.ChannelStatusManuallyDisabled
 			if in.Action == "enable" {
-				if !ch.HasSupplyKey() || strings.TrimSpace(ch.Models) == "" {
+				if !inventory.Channels[pos].HasKey || strings.TrimSpace(ch.Models) == "" {
 					return ErrRetailSupplyGroupIncomplete
 				}
 				ch.Status = common.ChannelStatusEnabled

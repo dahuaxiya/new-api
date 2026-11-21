@@ -30,6 +30,10 @@ func RetailRateSiteChannels(tx *gorm.DB) ([]RetailBindingChannel, error) {
 	if err := tx.Where("id IN ? AND id NOT IN (?)", ids, occupied).Order("id").Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	owners, err := retailKeyOwners(tx, rows)
+	if err != nil {
+		return nil, err
+	}
 	out := []RetailBindingChannel{}
 	for _, ch := range rows {
 		if !validRetailSupplySite(ch, cfg.Group) || ch.ChannelInfo.IsMultiKey || strings.ContainsAny(ch.Key, "\r\n") {
@@ -39,7 +43,7 @@ func RetailRateSiteChannels(tx *gorm.DB) ([]RetailBindingChannel, error) {
 		if id == 0 {
 			id = ch.Id
 		}
-		out = append(out, RetailBindingChannel{LibraryID: ch.RetailKeyID, credentialStamp: credentialMAC([]byte(ch.Key + "\x00" + ch.GetModelMapping())), AllowNewCredential: ch.Id == id && resellers[id], ID: ch.Id, SiteID: id, Type: ch.Type, Name: ch.Name, BaseURL: ch.GetBaseURL(), Models: ch.Models, Status: ch.Status, HasKey: ch.HasSupplyKey(), ModelMapping: ch.GetModelMapping()})
+		out = append(out, RetailBindingChannel{LibraryID: ch.RetailKeyID, credentialStamp: credentialMAC([]byte(ch.Key + "\x00" + ch.GetModelMapping())), AllowNewCredential: ch.Id == id && resellers[id], ID: ch.Id, SiteID: id, Type: ch.Type, Name: ch.Name, BaseURL: ch.GetBaseURL(), Models: ch.Models, Status: ch.Status, HasKey: ch.hasSupplyKey(owners), ModelMapping: ch.GetModelMapping()})
 	}
 	return out, nil
 }

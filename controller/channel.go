@@ -21,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/retail_setting"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -1543,6 +1544,8 @@ func GetTagModels(c *gin.Context) {
 //
 //	suffix         - string appended to the original name (default "_copy")
 //	reset_balance  - bool, when true will reset balance & used_quota to 0 (default true)
+//
+// CopyChannel duplicates channel settings. A copy of a retail supply starts disabled and requires its own credential.
 func CopyChannel(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -1574,6 +1577,15 @@ func CopyChannel(c *gin.Context) {
 	// clone channel
 	clone := *origin // shallow copy is sufficient as we will overwrite primitives
 	clone.Id = 0     // let DB auto-generate
+	cfg, cfgErr := retail_setting.Load()
+	// Generic copy can turn a root into a new independent channel. Clear credentials before insertion,
+	// including legacy inline tokens. If the registry cannot be read, copying settings is still safe,
+	// but custody cannot be verified, so any such copy starts without credentials and disabled.
+	if cfgErr != nil || origin.RetailSiteID != 0 || origin.RetailKeyID != 0 || slices.ContainsFunc(cfg.Supplies, func(site retail_setting.Supply) bool { return site.ChannelID == origin.Id }) {
+		clone.Key, clone.Keys, clone.RetailKeyID, clone.RetailKeyTarget = "", nil, 0, ""
+		clone.Status = common.ChannelStatusManuallyDisabled
+	}
+
 	clone.CreatedTime = common.GetTimestamp()
 	clone.Name = origin.Name + suffix
 	clone.TestTime = 0

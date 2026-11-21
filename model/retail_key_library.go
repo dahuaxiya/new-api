@@ -26,8 +26,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// RetailUpstreamKey is filed under one supply site. Custody neither grants dispatch permission
-// nor restricts an explicit cross-site reference. Zero identifies inventory from before site filing.
+// RetailUpstreamKey belongs to one root site. Legacy inventory with no owner cannot be dispatched.
 type RetailUpstreamKey struct {
 	OwnerSiteID int    `json:"owner_site_id" gorm:"not null;default:0"`
 	ID          int    `json:"id"`
@@ -158,6 +157,14 @@ func (k RetailUpstreamKey) secret() (string, error) {
 // supplyTarget pins the selected adapter and exact destination. An address change requires a fresh selection.
 func (ch *Channel) supplyTarget() string { return fmt.Sprintf("%d/%s", ch.Type, ch.GetBaseURL()) }
 
+// supplySiteID identifies custody by root channel ID even when two upstream sites share an endpoint.
+func (ch Channel) supplySiteID() int {
+	if ch.RetailSiteID != 0 {
+		return ch.RetailSiteID
+	}
+	return ch.Id
+}
+
 // SupplySecret resolves a reference against the current binding at dispatch time. Stale cached channels cannot
 // use a different site's credential or continue using a retired library entry. Inline credentials retain their legacy behavior.
 func (ch *Channel) SupplySecret(db *gorm.DB) (string, error) {
@@ -170,10 +177,7 @@ func (ch *Channel) SupplySecret(db *gorm.DB) (string, error) {
 	// Recheck current enrollment and both endpoints of the parent/child relation on every dispatch.
 	// A cached channel cannot keep access after either site is moved to a customer hosting account.
 	cfg, err := retail_setting.Load()
-	anchor := ch.RetailSiteID
-	if anchor == 0 {
-		anchor = ch.Id
-	}
+	anchor := ch.supplySiteID()
 	if err != nil || !cfg.Enabled || !validRetailSupplySite(*ch, cfg.Group) || !slices.ContainsFunc(cfg.Supplies, func(site retail_setting.Supply) bool {
 		return site.ChannelID == anchor && (ch.Id == anchor || site.Kind == "reseller")
 	}) {
@@ -191,7 +195,7 @@ func (ch *Channel) SupplySecret(db *gorm.DB) (string, error) {
 	}
 	var live liveKey
 	q := db.Table("retail_upstream_keys AS k").Select("k.*, o."+commonGroupCol+" AS owner_group, p."+commonGroupCol+" AS parent_group, o.channel_info AS owner_info, p.channel_info AS parent_info").
-		Joins("JOIN channels AS o ON o.retail_key_id = k.id").Joins("JOIN channels AS p ON p.id = ?", anchor).
+		Joins("JOIN channels AS o ON o.retail_key_id = k.id").Joins("JOIN channels AS p ON p.id = k.owner_site_id AND p.id = ?", anchor).
 		Where("o.id = ? AND k.id = ? AND o.retail_key_target = ? AND COALESCE(o.retail_site_id,0) = ? AND COALESCE(p.retail_site_id,0) = 0", ch.Id, ch.RetailKeyID, ch.RetailKeyTarget, ch.RetailSiteID).
 		Where("o.type = ? AND p.type = ? AND o.base_url = ? AND p.base_url = ?", ch.Type, ch.Type, base, base).Where("NOT EXISTS (?)", occupied).Take(&live)
 	if q.Error != nil || live.OwnerInfo.IsMultiKey || live.ParentInfo.IsMultiKey {
@@ -206,21 +210,40 @@ func (ch *Channel) SupplySecret(db *gorm.DB) (string, error) {
 	return live.RetailUpstreamKey.secret()
 }
 
-// HasSupplyKey checks configured credential presence without decrypting a secret for a catalog or admin response.
-func (ch *Channel) HasSupplyKey() bool {
+// retailKeyOwners reads only ownership metadata for the referenced keys, in one query for a list of routes.
+func retailKeyOwners(tx *gorm.DB, channels []Channel) (map[int]int, error) {
+	var ids []int
+	for _, ch := range channels {
+		if ch.RetailKeyID > 0 {
+			ids = append(ids, ch.RetailKeyID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var entries []RetailUpstreamKey
+	if err := tx.Select("id", "owner_site_id").Where("id IN ?", ids).Find(&entries).Error; err != nil {
+		return nil, err
+	}
+	owners := make(map[int]int, len(entries))
+	for _, entry := range entries {
+		owners[entry.ID] = entry.OwnerSiteID
+	}
+	return owners, nil
+}
+
+// hasSupplyKey excludes stale and unfiled references from route selection without reading ciphertext.
+func (ch Channel) hasSupplyKey(owners map[int]int) bool {
 	if ch.RetailKeyID != 0 {
-		return ch.RetailKeyTarget == ch.supplyTarget()
+		return ch.BaseURL != nil && !ch.ChannelInfo.IsMultiKey && owners[ch.RetailKeyID] > 0 && owners[ch.RetailKeyID] == ch.supplySiteID() && ch.RetailKeyTarget == ch.supplyTarget()
 	}
 	return ch.Key != ""
 }
 
 // checkSiteSecret enforces the existing one-credential-per-upstream-group rule within one site,
-// including mixed legacy and library rows. Cross-site reuse remains an explicit operator choice.
+// including mixed legacy and library rows. A foreign legacy reference cannot be used at this site.
 func checkSiteSecret(tx *gorm.DB, owner Channel, candidate string) error {
-	anchor := owner.RetailSiteID
-	if anchor == 0 {
-		anchor = owner.Id
-	}
+	anchor := owner.supplySiteID()
 	var peers []Channel
 	if err := tx.Where("(retail_site_id = ? OR id = ?) AND id <> ?", anchor, anchor, owner.Id).Find(&peers).Error; err != nil {
 		return err
@@ -228,7 +251,12 @@ func checkSiteSecret(tx *gorm.DB, owner Channel, candidate string) error {
 	for _, peer := range peers {
 		if peer.RetailKeyID != 0 {
 			var key RetailUpstreamKey
-			if err := tx.First(&key, peer.RetailKeyID).Error; err != nil {
+			// Historical foreign references are inert; do not decrypt one during a local uniqueness check.
+			err := tx.Where("id = ? AND owner_site_id = ?", peer.RetailKeyID, anchor).Take(&key).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			if err != nil {
 				return err
 			}
 			secret, err := key.secret()
@@ -243,6 +271,33 @@ func checkSiteSecret(tx *gorm.DB, owner Channel, candidate string) error {
 		}
 	}
 	return nil
+}
+
+// localKeyUses scopes a stored reference to its physical root, including locally suspended or unenrolled routes.
+// Foreign references left by earlier versions cannot dispatch and must not participate in a rotation.
+func localKeyUses(tx *gorm.DB, id, root int) *gorm.DB {
+	return tx.Model(&Channel{}).Where("retail_key_id = ? AND (retail_site_id = ? OR (id = ? AND COALESCE(retail_site_id, 0) = 0))", id, root, root)
+}
+
+// validateRestoredSupply checks the routes that would become usable when a legacy key is filed.
+// Other roots stay blocked. An unused key is metadata-only and never needs decryption here.
+func validateRestoredSupply(tx *gorm.DB, key RetailUpstreamKey, root int) error {
+	var local []Channel
+	if err := localKeyUses(tx, key.ID, root).Limit(2).Find(&local).Error; err != nil {
+		return err
+	}
+	if len(local) == 0 {
+		return nil
+	}
+	if len(local) > 1 {
+		return ErrRetailSupplyGroupKey
+	}
+	secret, err := key.secret()
+	if err != nil {
+		return err
+	}
+	// An inline or already-filed sibling may have adopted this value while the old reference was inert.
+	return checkSiteSecret(tx, local[0], secret)
 }
 
 // readRetailKeyLibrary uses an independent concurrency stamp. Routine background price renewals do not invalidate the form.
@@ -337,10 +392,7 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 				if ownerID != 0 || ch.Id == 0 {
 					return retailprice.ErrConfig
 				}
-				ownerID = ch.RetailSiteID
-				if ownerID == 0 {
-					ownerID = ch.Id
-				}
+				ownerID = ch.supplySiteID()
 			}
 			if ownerID <= 0 || !slices.ContainsFunc(state.Channels, func(row RetailBindingChannel) bool {
 				return row.ID == ownerID && row.SiteID == row.ID
@@ -348,10 +400,13 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 				return retailprice.ErrConfig
 			}
 			if in.Action == "assign_owner" {
-				if id == 0 || ch.Id != 0 || in.Key != "" {
+				if id == 0 || key.OwnerSiteID != 0 || ch.Id != 0 || in.Key != "" {
 					return retailprice.ErrConfig
 				}
-				// This metadata-only edit invalidates inventory forms while preserving ciphertext, pricing and all consumers.
+				if err := validateRestoredSupply(tx, key, ownerID); err != nil {
+					return err
+				}
+				// File legacy inventory once. Historical foreign references stay visible for cleanup and cannot dispatch.
 				return tx.Model(&key).Updates(map[string]any{"owner_site_id": in.OwnerSiteID, "version": key.Version + 1}).Error
 			}
 			key.OwnerSiteID = ownerID
@@ -362,7 +417,17 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 		}
 		// The price revision protects older pricing/binding forms that do not know about library IDs.
 		// Changes to an unused credential can never affect the price workflow.
-		affected := state.Uses[id]
+		var affected []int
+		if in.Action == "rotate" {
+			if key.OwnerSiteID <= 0 {
+				return retailprice.ErrConfig
+			}
+			// Use the stored root before checking enrolled channels below. Silently skipping an
+			// unenrolled local route could rotate a credential the operator never confirmed.
+			if err := localKeyUses(tx, id, key.OwnerSiteID).Pluck("id", &affected).Error; err != nil {
+				return err
+			}
+		}
 		if in.Action == "bind" || in.Action == "detach" {
 			affected = []int{ch.Id}
 		}
@@ -406,12 +471,14 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 				if id == 0 {
 					return retailprice.ErrConfig
 				}
-				for _, channelID := range state.Uses[id] {
+				for _, channelID := range affected {
 					var owner Channel
 					if err := tx.First(&owner, channelID).Error; err != nil {
 						return err
 					}
-					if !slices.ContainsFunc(state.Channels, func(r RetailBindingChannel) bool { return r.ID == channelID }) {
+					if !slices.ContainsFunc(state.Channels, func(r RetailBindingChannel) bool {
+						return r.ID == channelID && key.OwnerSiteID > 0 && r.SiteID == key.OwnerSiteID
+					}) {
 						return retailprice.ErrAccess
 					}
 					if err := checkSiteSecret(tx, owner, secret); err != nil {
@@ -440,6 +507,10 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 				return nil
 			}
 		case "bind", "add_route":
+			// Check before decrypting or creating a child. Equal URLs do not imply a shared site.
+			if key.OwnerSiteID <= 0 || key.OwnerSiteID != ch.supplySiteID() {
+				return retailprice.ErrAccess
+			}
 			if ch.Id != 0 && in.Action == "add_route" {
 				// An operator can attach a second Key to a site before assigning a pricing group.
 				// Create a disabled draft first. Existing site eligibility and name validation stay centralized.

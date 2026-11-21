@@ -65,7 +65,11 @@ func retailSupplyIDsIn(db *gorm.DB, group string) ([]int, error) {
 		ids = append(ids, supply.ChannelID)
 	}
 	var channels []Channel
-	if err = db.Select("id", "group", "status", "type").Where("id IN ?", ids).Find(&channels).Error; err != nil {
+	if err = db.Select("id", "group", "status", "type", "base_url", "retail_key_target", "retail_key_id", "retail_site_id", "channel_info").Where("id IN ?", ids).Find(&channels).Error; err != nil {
+		return nil, err
+	}
+	owners, err := retailKeyOwners(db, channels)
+	if err != nil {
 		return nil, err
 	}
 	var bound []int
@@ -78,6 +82,10 @@ func retailSupplyIDsIn(db *gorm.DB, group string) ([]int, error) {
 	}
 	allowed := []int{}
 	for _, channel := range channels {
+		// A legacy foreign reference remains detachable, but cannot be offered for a new request.
+		if channel.RetailKeyID != 0 && !channel.hasSupplyKey(owners) {
+			continue
+		}
 		// 首版仅验收 OpenAI 兼容和 Claude 适配器；其他厂商的用量与退款语义需单独验证。
 		if channel.Type != constant.ChannelTypeOpenAI && channel.Type != constant.ChannelTypeAnthropic {
 			continue

@@ -696,7 +696,7 @@ func TestRetailCredentialCenterDatabases(t *testing.T) {
 	}
 }
 
-// TestRetailKeyLibraryDatabases verifies independent creation, shared rotation, destination pinning,
+// TestRetailKeyLibraryDatabases verifies independent creation, site isolation, destination pinning,
 // safe adoption of inline credentials and reference-aware deletion against each supported database.
 func TestRetailKeyLibraryDatabases(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
@@ -734,16 +734,39 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			require.NoError(t, db.First(&entry, id).Error)
 			require.NotContains(t, entry.Sealed, "test-secret")
 			require.Equal(t, sites[0].Id, entry.OwnerSiteID)
-			for i := range sites {
-				ch := &sites[i]
-				_, err = write(RetailLibraryEdit{Action: "bind", ID: id, Channel: ch.Id, Destination: ch.GetBaseURL()})
-				require.NoError(t, err)
-				require.NoError(t, db.First(ch, ch.Id).Error)
-				require.Empty(t, ch.Key)
-				key, _, apiErr := ch.GetNextEnabledKey()
-				require.Nil(t, apiErr)
-				require.Equal(t, "test-secret-1", key)
+			first, foreign := &sites[0], &sites[1]
+			// Equal destinations must not allow a key from another root. This also covers the create-child path.
+			require.NoError(t, db.Model(foreign).Update("base_url", first.GetBaseURL()).Error)
+			foreign.BaseURL = first.BaseURL
+			for _, action := range []string{"bind", "add_route"} {
+				_, err = write(RetailLibraryEdit{Action: action, ID: id, Channel: foreign.Id, Destination: foreign.GetBaseURL(), Name: "foreign", Models: "model-a"})
+				require.ErrorIs(t, err, retailprice.ErrAccess)
 			}
+			_, err = write(RetailLibraryEdit{Action: "bind", ID: id, Channel: first.Id, Destination: first.GetBaseURL()})
+			require.NoError(t, err)
+			// Seed a reference that the old version permitted; the new API cannot create it.
+			require.NoError(t, db.Table("channels").Where("id = ?", foreign.Id).Updates(map[string]any{"retail_key_id": id, "retail_key_target": foreign.supplyTarget()}).Error)
+			require.NoError(t, db.First(foreign, foreign.Id).Error)
+			require.NoError(t, db.First(first, first.Id).Error)
+			_, err = foreign.SupplySecret(db)
+			require.ErrorIs(t, err, ErrRetailLibraryUnavailable)
+			eligible, err := RetailSupplyIDs("retail")
+			require.NoError(t, err)
+			require.Contains(t, eligible, first.Id)
+			require.NotContains(t, eligible, foreign.Id)
+			// A changed destination must be removed from both catalog previews and retail selection.
+			require.NoError(t, db.Table("channels").Where("id = ?", first.Id).Update("retail_key_target", "stale").Error)
+			eligible, err = RetailSupplyIDs("retail")
+			require.NoError(t, err)
+			require.NotContains(t, eligible, first.Id)
+			targets, err := RetailCatalogTargets("retail", []int{first.Id, foreign.Id})
+			require.NoError(t, err)
+			require.Empty(t, targets)
+			require.NoError(t, db.Table("channels").Where("id = ?", first.Id).Update("retail_key_target", first.supplyTarget()).Error)
+
+			secret, err := first.SupplySecret(db)
+			require.NoError(t, err)
+			require.Equal(t, "test-secret-1", secret)
 			view, err := ReadRetailKeyLibrary(ctx)
 			require.NoError(t, err)
 			require.Len(t, view.Uses[id], 2)
@@ -753,16 +776,26 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			view, err = ReadRetailKeyLibrary(ctx)
 			require.NoError(t, err)
 			require.Zero(t, view.Keys[0].OwnerSiteID)
+			_, err = first.SupplySecret(db)
+			require.ErrorIs(t, err, ErrRetailLibraryUnavailable)
+			// A sibling may use the same secret while this old reference is blocked. Filing must not activate both.
+			sibling := Channel{RetailSiteID: first.Id, Key: "test-secret-1", Type: first.Type, BaseURL: first.BaseURL, Name: "occupied", Group: "retail"}
+			require.NoError(t, db.Create(&sibling).Error)
+			_, err = write(RetailLibraryEdit{Action: "assign_owner", ID: id, OwnerSiteID: first.Id})
+			require.ErrorIs(t, err, ErrRetailSupplyGroupKey)
+			require.NoError(t, db.Delete(&sibling).Error)
 			oldStamp := view.Stamp
 			var before, after RetailPriceState
 			require.NoError(t, db.First(&before, 1).Error)
-			_, err = write(RetailLibraryEdit{Action: "assign_owner", ID: id, OwnerSiteID: sites[1].Id})
+			_, err = write(RetailLibraryEdit{Action: "assign_owner", ID: id, OwnerSiteID: first.Id})
 			require.NoError(t, err)
-			_, err = EditRetailKeyLibrary(ctx, RetailLibraryEdit{Stamp: oldStamp, Action: "assign_owner", ID: id, OwnerSiteID: sites[0].Id}, 1)
+			_, err = EditRetailKeyLibrary(ctx, RetailLibraryEdit{Stamp: oldStamp, Action: "assign_owner", ID: id, OwnerSiteID: foreign.Id}, 1)
 			require.ErrorIs(t, err, ErrRetailLibraryConflict)
+			_, err = write(RetailLibraryEdit{Action: "assign_owner", ID: id, OwnerSiteID: foreign.Id})
+			require.Error(t, err)
 			view, err = ReadRetailKeyLibrary(ctx)
 			require.NoError(t, err)
-			require.Equal(t, sites[1].Id, view.Keys[0].OwnerSiteID)
+			require.Equal(t, first.Id, view.Keys[0].OwnerSiteID)
 			require.Len(t, view.Uses[id], 2)
 			var filed RetailUpstreamKey
 			require.NoError(t, db.First(&filed, id).Error)
@@ -775,11 +808,17 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			require.NotContains(t, string(public), entry.Sealed)
 			_, err = write(RetailLibraryEdit{Action: "delete", ID: id})
 			require.ErrorIs(t, err, ErrRetailLibraryUsed)
+			// A stale external reference must neither receive the new key nor prevent its owner from rotating it.
 			_, err = write(RetailLibraryEdit{Action: "rotate", ID: id, Key: "test-secret-2"})
+			require.NoError(t, err)
+			_, err = foreign.SupplySecret(db)
+			require.ErrorIs(t, err, ErrRetailLibraryUnavailable)
+			_, err = write(RetailLibraryEdit{Action: "detach", Channel: foreign.Id, Destination: foreign.GetBaseURL()})
 			require.NoError(t, err)
 			_, err = EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "rotate", ID: id, Stamp: view.Stamp, Key: "stale"}, 1)
 			require.ErrorIs(t, err, ErrRetailLibraryConflict)
-			for _, ch := range sites {
+			{
+				ch := *first
 				key, err := ch.SupplySecret(db)
 				require.NoError(t, err)
 				require.Equal(t, "test-secret-2", key)
@@ -793,7 +832,6 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 				_, err = ch.SupplySecret(db)
 				require.ErrorIs(t, err, ErrRetailLibraryUnavailable)
 			}
-			first := sites[0]
 			_, err = write(RetailLibraryEdit{Action: "add_route", Channel: first.Id, Destination: first.GetBaseURL(), ID: id, Name: "unassigned", Models: "model-a"})
 			require.NoError(t, err)
 			view, err = ReadRetailKeyLibrary(ctx)

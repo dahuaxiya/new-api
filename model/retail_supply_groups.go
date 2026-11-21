@@ -384,14 +384,18 @@ func saveRetailSupplyConfiguration(ctx context.Context, expected int64, bindings
 			if key != "" {
 				ch.Key = key
 			}
+			owners, err := retailKeyOwners(tx, []Channel{ch})
+			if err != nil {
+				return err
+			}
 			// Keep manual or automatic suspension unless the operator explicitly changes it.
 			// Validate the final Key and model list before restoring channel abilities.
 			if edit.Enabled != nil && *edit.Enabled {
-				if !ch.HasSupplyKey() || ch.Models == "" {
+				if !ch.hasSupplyKey(owners) || ch.Models == "" {
 					return ErrRetailSupplyGroupIncomplete
 				}
 				ch.Status = common.ChannelStatusEnabled
-			} else if edit.Enabled != nil || !ch.HasSupplyKey() || ch.Models == "" {
+			} else if edit.Enabled != nil || !ch.hasSupplyKey(owners) || ch.Models == "" {
 				ch.Status = common.ChannelStatusManuallyDisabled
 			}
 			updates := map[string]any{"name": ch.Name, "models": ch.Models, "status": ch.Status}

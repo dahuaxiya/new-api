@@ -40,11 +40,14 @@ func RetailModelListSource(db *gorm.DB, id int) (*Channel, error) {
 	if err = db.Model(&GPTHostingBinding{}).Where("channel_id = ?", id).Count(&occupied).Error; err != nil {
 		return nil, err
 	}
-	if occupied != 0 || !slices.ContainsFunc(rows, func(r RetailBindingChannel) bool { return r.ID == id && r.BaseURL == ch.GetBaseURL() }) || ch.ChannelInfo.IsMultiKey || ch.Type != constant.ChannelTypeOpenAI || !ch.HasSupplyKey() || strings.ContainsAny(ch.Key, "\r\n") || ch.Status != common.ChannelStatusEnabled || (ch.HeaderOverride != nil && *ch.HeaderOverride != "" && *ch.HeaderOverride != "{}") {
+	if occupied != 0 || !slices.ContainsFunc(rows, func(r RetailBindingChannel) bool { return r.ID == id && r.BaseURL == ch.GetBaseURL() }) || ch.ChannelInfo.IsMultiKey || ch.Type != constant.ChannelTypeOpenAI || strings.ContainsAny(ch.Key, "\r\n") || ch.Status != common.ChannelStatusEnabled || (ch.HeaderOverride != nil && *ch.HeaderOverride != "" && *ch.HeaderOverride != "{}") {
 		return nil, retailprice.ErrAccess
 	}
 	// This detached snapshot is used only for discovery and comparison, never saved.
 	ch.Key, err = ch.SupplySecret(db)
+	if err == nil && ch.Key == "" {
+		return nil, retailprice.ErrAccess
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +146,25 @@ func retailCatalogTargetsIn(db *gorm.DB, group string, ids []int, names ...strin
 	}
 	var rows []row
 	query := db.Model(&Ability{}).Select("abilities.model, abilities.channel_id, channels.model_mapping").Joins("JOIN channels ON channels.id = abilities.channel_id").Where(&Ability{Group: group, Enabled: true}).Where("channels.status = ? AND abilities.channel_id IN ?", common.ChannelStatusEnabled, ids)
+	// Preview callers can pass IDs directly. Filter the small set of library-backed routes once,
+	// before expanding it into one result per model. Inline routes keep their existing eligibility.
+	var referenced []Channel
+	if err := db.Select("id", "retail_site_id", "retail_key_id", "retail_key_target", "type", "base_url", "channel_info").Where("id IN ? AND retail_key_id > 0", ids).Find(&referenced).Error; err != nil {
+		return nil, err
+	}
+	owners, err := retailKeyOwners(db, referenced)
+	if err != nil {
+		return nil, err
+	}
+	var blocked []int
+	for _, ch := range referenced {
+		if !ch.hasSupplyKey(owners) {
+			blocked = append(blocked, ch.Id)
+		}
+	}
+	if len(blocked) > 0 {
+		query = query.Where("abilities.channel_id NOT IN ?", blocked)
+	}
 	if len(names) > 0 {
 		query = query.Where("abilities.model IN ?", names)
 	}

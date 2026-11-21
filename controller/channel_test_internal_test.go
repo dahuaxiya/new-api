@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -159,6 +161,40 @@ func TestMultiprotocolGatewayEndpointTypes(t *testing.T) {
 
 	assert.Equal(t, want, common.GetEndpointTypesByChannelType(constant.ChannelTypeNewAPI, "gpt-5"))
 	assert.Equal(t, want, common.GetEndpointTypesByChannelType(constant.ChannelTypeSub2API, "gpt-5"))
+}
+
+// TestCopyRetailSiteWithoutKey ensures copying a legacy root cannot give a new site its live inline credential.
+func TestCopyRetailSiteWithoutKey(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.AuditLog{}, &model.Log{}))
+	site := model.Channel{Name: "original", Type: constant.ChannelTypeOpenAI, Group: "retail", Key: "synthetic-credential", Models: "example", Status: common.ChannelStatusEnabled}
+	require.NoError(t, site.Insert())
+	path := filepath.Join(t.TempDir(), "supply.json")
+	require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf(`{"enabled":true,"group":"retail","supplies":[{"channel_id":%d,"kind":"reseller"}]}`, site.Id)), 0600))
+	t.Setenv("RETAIL_RELAY_CONFIG", path)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprint(site.Id)}}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/copy", nil)
+	CopyChannel(ctx)
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+	var clone model.Channel
+	require.NoError(t, db.Where("name = ?", "original_copy").First(&clone).Error)
+	require.Empty(t, clone.Key)
+	require.Zero(t, clone.RetailKeyID)
+	require.Equal(t, common.ChannelStatusManuallyDisabled, clone.Status)
+	// A broken registry cannot establish custody. Keep the copy operation available as a disabled template.
+	t.Setenv("RETAIL_RELAY_CONFIG", "relative.json")
+	recorder = httptest.NewRecorder()
+	ctx, _ = gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprint(site.Id)}}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/copy?suffix=_template", nil)
+	CopyChannel(ctx)
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+	var template model.Channel
+	require.NoError(t, db.Where("name = ?", "original_template").First(&template).Error)
+	require.Empty(t, template.Key)
+	require.Equal(t, common.ChannelStatusManuallyDisabled, template.Status)
 }
 
 func TestCopyChannelRejectsInvalidLegacyProxySettings(t *testing.T) {

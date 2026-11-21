@@ -78,7 +78,11 @@ it('binds an existing credential from site settings', async () => {
     data: {
       success: true,
       data: {
-        keys: [{ id: 3, name: 'Spare', version: 1, owner_site_id: 8 }],
+        keys: [
+          { id: 3, name: 'Spare', version: 1, owner_site_id: 7 },
+          { id: 4, name: 'Foreign', version: 1, owner_site_id: 8 },
+          { id: 5, name: 'Unfiled', version: 1, owner_site_id: 0 },
+        ],
         channels: [
           {
             id: 7,
@@ -106,8 +110,9 @@ it('binds an existing credential from site settings', async () => {
     await screen.findByRole('button', { name: 'Select saved Key' })
   )
   expect(
-    screen.getByRole('option', { name: 'Other #8 · Spare #3' })
+    screen.getByRole('option', { name: 'Example #7 · Spare #3' })
   ).toBeInTheDocument()
+  expect(screen.queryByRole('option', { name: /Foreign|Unfiled/ })).toBeNull()
   fireEvent.change(screen.getByRole('combobox'), { target: { value: '3' } })
   fireEvent.click(screen.getByRole('checkbox'))
   fireEvent.click(

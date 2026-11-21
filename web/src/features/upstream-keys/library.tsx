@@ -115,7 +115,14 @@ function EditKey({
   const [conflict, setConflict] = useState(false)
   const uses = entry ? (library.uses[entry.id] ?? []) : []
   let affected: number[] = []
-  if (action === 'rotate') affected = uses
+  if (action === 'rotate' && entry) {
+    // A historical foreign reference can only be detached. It never receives this replacement.
+    affected = (library.channels ?? [])
+      .filter(
+        (row) => row.site_id === entry.owner_site_id && uses.includes(row.id)
+      )
+      .map((row) => row.id)
+  }
   if (action === 'bind' && site) affected = [site.id]
   const groups = Object.fromEntries(
     affected
@@ -252,9 +259,11 @@ function EditKey({
                 {library.keys
                   .filter(
                     (k) =>
-                      action === 'add_route' ||
-                      k.id !== site?.library_id ||
-                      !site?.has_key
+                      k.owner_site_id > 0 &&
+                      k.owner_site_id === site?.site_id &&
+                      (action === 'add_route' ||
+                        k.id !== site.library_id ||
+                        !site.has_key)
                   )
                   .map((k) => (
                     <NativeSelectOption key={k.id} value={k.id}>
@@ -386,7 +395,13 @@ export function KeyLibrary({ identity }: { identity: string }) {
                 </div>
                 <div className='flex gap-2'>
                   {(data.uses[entry.id] ?? [])
-                    .filter((id) => !data.channels?.some((c) => c.id === id))
+                    .filter(
+                      (id) =>
+                        !data.channels?.some(
+                          (c) =>
+                            c.id === id && c.site_id === entry.owner_site_id
+                        )
+                    )
                     .map((id) => (
                       <Button
                         key={id}
@@ -403,18 +418,25 @@ export function KeyLibrary({ identity }: { identity: string }) {
                         {t(labels.detach)} #{id}
                       </Button>
                     ))}
+                  {!entry.owner_site_id && (
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() =>
+                        setDraft({
+                          action: 'assign_owner',
+                          entry,
+                          library: data,
+                        })
+                      }
+                    >
+                      {t(labels.assign_owner)}
+                    </Button>
+                  )}
                   <Button
                     variant='outline'
                     size='sm'
-                    onClick={() =>
-                      setDraft({ action: 'assign_owner', entry, library: data })
-                    }
-                  >
-                    {t(labels.assign_owner)}
-                  </Button>
-                  <Button
-                    variant='outline'
-                    size='sm'
+                    disabled={!entry.owner_site_id}
                     onClick={() =>
                       setDraft({ action: 'rotate', entry, library: data })
                     }
