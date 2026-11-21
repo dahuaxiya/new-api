@@ -1204,6 +1204,7 @@ type Input struct {
 	Name      string          `json:"name,omitempty"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 	ToolInput json.RawMessage `json:"input,omitempty"`
+	Action    json.RawMessage `json:"action,omitempty"`
 	Output    json.RawMessage `json:"output,omitempty"`
 }
 
@@ -1221,6 +1222,7 @@ type MediaInput struct {
 //   - input can be an array of objects with a `type` field
 //     supported types: input_text, output_text, input_image, input_file
 //   - tool-call items contribute their name, arguments or input, and output as input_text
+//   - completed web-search history contributes the serialized action as input_text
 func (r *OpenAIResponsesRequest) ParseInput() []MediaInput {
 	if r.Input == nil {
 		return nil
@@ -1249,6 +1251,11 @@ func (r *OpenAIResponsesRequest) ParseInput() []MediaInput {
 			switch input.Type {
 			case "function_call":
 				content = input.Arguments
+			case "web_search_call":
+				// 历史动作里的查询和来源也占输入上下文；工具费只依据本轮上游输出。
+				if len(input.Action) > 0 {
+					mediaInputs = append(mediaInputs, MediaInput{Type: "input_text", Text: string(input.Action)})
+				}
 			case "custom_tool_call":
 				content = input.ToolInput
 			case "function_call_output", "custom_tool_call_output", "local_shell_call_output":

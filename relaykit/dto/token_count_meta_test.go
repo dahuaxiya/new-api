@@ -45,9 +45,10 @@ func TestTokenCountMetaCountsAgentLoopContent(t *testing.T) {
 				{"type":"function_call","call_id":"c1","name":"read_file","arguments":"{\"path\":\"main.go\"}"},
 				{"type":"function_call_output","call_id":"c1","output":"package main\n\nfunc main() {\n\tprintln(\"hi\")\n}"},
 				{"type":"custom_tool_call","call_id":"c2","name":"apply_patch","input":"*** Begin Patch"},
-				{"type":"custom_tool_call_output","call_id":"c2","output":[{"type":"input_text","text":"Done!"}]}]}`,
+				{"type":"custom_tool_call_output","call_id":"c2","output":[{"type":"input_text","text":"Done!"}]},
+				{"type":"web_search_call","status":"completed","action":{"type":"search","query":"example query","sources":[{"type":"url","url":"https://example.com/history"}]}}]}`,
 			request:  &OpenAIResponsesRequest{},
-			contains: []string{"Be brief.\nUse tools.", "Reading it now.", "read_file", `{"path":"main.go"}`, toolOutput, "apply_patch", "*** Begin Patch", "Done!"},
+			contains: []string{"Be brief.\nUse tools.", "Reading it now.", "read_file", `{"path":"main.go"}`, toolOutput, "apply_patch", "*** Begin Patch", "Done!", "example query", "https://example.com/history"},
 		},
 		{
 			name: "claude",
