@@ -26,12 +26,14 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// RetailUpstreamKey belongs to the operator. A credential may exist before any site or tariff group.
+// RetailUpstreamKey is filed under one supply site. Custody neither grants dispatch permission
+// nor restricts an explicit cross-site reference. Zero identifies inventory from before site filing.
 type RetailUpstreamKey struct {
-	ID      int    `json:"id"`
-	Name    string `json:"name" gorm:"size:120;not null"`
-	Sealed  string `json:"-" gorm:"type:text;not null"`
-	Version int64  `json:"version" gorm:"not null"`
+	OwnerSiteID int    `json:"owner_site_id" gorm:"not null;default:0"`
+	ID          int    `json:"id"`
+	Name        string `json:"name" gorm:"size:120;not null"`
+	Sealed      string `json:"-" gorm:"type:text;not null"`
+	Version     int64  `json:"version" gorm:"not null"`
 }
 
 // RetailLibraryState contains display metadata only. Some references may belong to a site no longer enrolled.
@@ -45,6 +47,7 @@ type RetailLibraryState struct {
 
 // RetailLibraryEdit carries the destination seen by the administrator. Only create and rotate accept a secret.
 type RetailLibraryEdit struct {
+	OwnerSiteID   int            `json:"owner_site_id"`
 	ConfirmGroups map[int]string `json:"confirm_groups"`
 	Action        string         `json:"action"`
 	ID            int            `json:"id"`
@@ -244,7 +247,7 @@ func checkSiteSecret(tx *gorm.DB, owner Channel, candidate string) error {
 
 // readRetailKeyLibrary uses an independent concurrency stamp. Routine background price renewals do not invalidate the form.
 func readRetailKeyLibrary(tx *gorm.DB) (out RetailLibraryState, err error) {
-	if err = tx.Select("id", "name", "version").Order("id").Find(&out.Keys).Error; err != nil {
+	if err = tx.Select("id", "name", "version", "owner_site_id").Order("id").Find(&out.Keys).Error; err != nil {
 		return
 	}
 	if out.Channels, err = RetailRateSiteChannels(tx); err != nil {
@@ -320,6 +323,40 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 		var key RetailUpstreamKey
 		if id > 0 {
 			if err := lockForUpdate(tx).First(&key, id).Error; err != nil {
+				return retailprice.ErrConfig
+			}
+		}
+		// A filing site is the approved root channel, never a child credential. Do not infer
+		// custody from a consumer: an existing Key may be in use at several unrelated sites.
+		switch in.Action {
+		case "import", "create", "assign_owner":
+			ownerID := in.OwnerSiteID
+			if in.Action == "import" {
+				// The client cannot redirect custody during import. Resolve the source's root
+				// and verify that the root is itself still eligible, even for a valid child row.
+				if ownerID != 0 || ch.Id == 0 {
+					return retailprice.ErrConfig
+				}
+				ownerID = ch.RetailSiteID
+				if ownerID == 0 {
+					ownerID = ch.Id
+				}
+			}
+			if ownerID <= 0 || !slices.ContainsFunc(state.Channels, func(row RetailBindingChannel) bool {
+				return row.ID == ownerID && row.SiteID == row.ID
+			}) {
+				return retailprice.ErrConfig
+			}
+			if in.Action == "assign_owner" {
+				if id == 0 || ch.Id != 0 || in.Key != "" {
+					return retailprice.ErrConfig
+				}
+				// This metadata-only edit invalidates inventory forms while preserving ciphertext, pricing and all consumers.
+				return tx.Model(&key).Updates(map[string]any{"owner_site_id": in.OwnerSiteID, "version": key.Version + 1}).Error
+			}
+			key.OwnerSiteID = ownerID
+		default:
+			if in.OwnerSiteID != 0 {
 				return retailprice.ErrConfig
 			}
 		}

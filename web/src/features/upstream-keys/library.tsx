@@ -21,7 +21,12 @@ import {
 } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
-type Entry = { id: number; name: string; version: number }
+type Entry = {
+  owner_site_id: number
+  id: number
+  name: string
+  version: number
+}
 type Site = RetailBindingChannel & { library_id?: number }
 type Library = {
   keys: Entry[]
@@ -31,6 +36,7 @@ type Library = {
   stamp: string
 }
 type Action =
+  | 'assign_owner'
   | 'create'
   | 'rotate'
   | 'delete'
@@ -40,6 +46,7 @@ type Action =
   | 'add_route'
 type Draft = { action: Action; library: Library; entry?: Entry; site?: Site }
 const labels = {
+  assign_owner: 'Change filing site',
   add_route: 'Add route with saved Key',
   create: 'Add upstream Key',
   rotate: 'Replace upstream Key',
@@ -70,6 +77,15 @@ function siteLabel(library: Library, id: number) {
     : `#${id}`
 }
 
+/** File inventory by the root site ID. Two sites may share a URL and a name; legacy rows have ID zero. */
+function filingSiteLabel(library: Library, id: number, unfiled: string) {
+  if (!id) return unfiled
+  const root = library.channels?.find(
+    (row) => row.id === id && row.site_id === id
+  )
+  return root ? `${root.name} #${id}` : `#${id}`
+}
+
 /** A form keeps the reviewed snapshot until submission. Do not retain write-only input in query or mutation caches. */
 function EditKey({
   draft,
@@ -88,6 +104,10 @@ function EditKey({
     action === 'import' ? (site?.name ?? '') : ''
   )
   const [models, setModels] = useState('')
+  const [owner, setOwner] = useState('')
+  const needsOwner = action === 'create' || action === 'assign_owner'
+  const filingSites =
+    library.channels?.filter((row) => row.id === row.site_id) ?? []
   const [selected, setSelected] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -120,6 +140,7 @@ function EditKey({
             action === 'bind' || action === 'add_route'
               ? Number(selected)
               : (entry?.id ?? 0),
+          ...(needsOwner && { owner_site_id: Number(owner) }),
           channel_id: site?.id ?? 0,
           destination: site?.base_url ?? '',
           name,
@@ -171,6 +192,25 @@ function EditKey({
         </DialogHeader>
         <form onSubmit={submit} className='space-y-4'>
           {site && <p className='break-all'>{siteLabel(library, site.id)}</p>}
+          {needsOwner && (
+            <label className='block'>
+              {t('Filing site')}
+              <NativeSelect
+                required
+                value={owner}
+                onChange={(e) => setOwner(e.target.value)}
+              >
+                <NativeSelectOption value=''>
+                  {t('Select a site')}
+                </NativeSelectOption>
+                {filingSites.map((row) => (
+                  <NativeSelectOption key={row.id} value={row.id}>
+                    {row.name} #{row.id}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </label>
+          )}
           {(action === 'create' ||
             action === 'import' ||
             action === 'add_route') && (
@@ -218,7 +258,12 @@ function EditKey({
                   )
                   .map((k) => (
                     <NativeSelectOption key={k.id} value={k.id}>
-                      {k.name} #{k.id}
+                      {filingSiteLabel(
+                        library,
+                        k.owner_site_id,
+                        t('Unfiled Keys')
+                      )}{' '}
+                      · {k.name} #{k.id}
                     </NativeSelectOption>
                   ))}
               </NativeSelect>
@@ -270,6 +315,7 @@ function EditKey({
               type='submit'
               disabled={
                 busy ||
+                (needsOwner && !owner) ||
                 (needsConfirmation && !confirmed) ||
                 conflict ||
                 ((action === 'bind' || action === 'add_route') && !selected)
@@ -284,7 +330,7 @@ function EditKey({
   )
 }
 
-/** Entries are reusable even when no supply site exists. Existing inline Keys stay live until explicitly imported. */
+/** Render each Key once under its custodian. Inline credentials remain on their source sites until imported. */
 export function KeyLibrary({ identity }: { identity: string }) {
   const { t } = useTranslation()
   const query = useLibrary(identity)
@@ -300,90 +346,118 @@ export function KeyLibrary({ identity }: { identity: string }) {
   }
   if (!data) return <p>{t('Loading...')}</p>
   const old = data.channels?.filter((c) => !c.library_id && c.has_key) ?? []
+  // Include inactive owners and unfiled legacy entries so removing a site cannot hide inventory.
+  const ownerIds = [
+    ...new Set([
+      ...(data.channels ?? []).map((row) => row.site_id),
+      ...data.keys.map((entry) => entry.owner_site_id || 0),
+    ]),
+  ].sort((a, b) => a - b)
   return (
     <section className='space-y-3'>
-      <Button onClick={() => setDraft({ action: 'create', library: data })}>
+      <Button
+        disabled={!data.channels?.some((row) => row.id === row.site_id)}
+        onClick={() => setDraft({ action: 'create', library: data })}
+      >
         {t(labels.create)}
       </Button>
       {!data.keys.length && <p>{t('No saved Keys')}</p>}
-      {data.keys.map((entry) => (
-        <div
-          key={entry.id}
-          className='flex flex-wrap items-center justify-between gap-2 border-b py-3'
-        >
-          <div>
-            <strong>
-              {entry.name} #{entry.id}
-            </strong>
-            <p className='text-muted-foreground text-sm break-all'>
-              {(data.uses[entry.id] ?? [])
-                .map((id) => siteLabel(data, id))
-                .join(' / ') || t('Unused')}
-            </p>
-          </div>
-          <div className='flex gap-2'>
-            {(data.uses[entry.id] ?? [])
-              .filter((id) => !data.channels?.some((c) => c.id === id))
-              .map((id) => (
+      {ownerIds.map((ownerId) => (
+        <section key={ownerId} className='space-y-2'>
+          <h2 className='font-medium'>
+            {filingSiteLabel(data, ownerId, t('Unfiled Keys'))}
+          </h2>
+          {data.keys
+            .filter((entry) => (entry.owner_site_id || 0) === ownerId)
+            .map((entry) => (
+              <div
+                key={entry.id}
+                className='flex flex-wrap items-center justify-between gap-2 border-b py-3'
+              >
+                <div>
+                  <strong>
+                    {entry.name} #{entry.id}
+                  </strong>
+                  <p className='text-muted-foreground text-sm break-all'>
+                    {(data.uses[entry.id] ?? [])
+                      .map((id) => siteLabel(data, id))
+                      .join(' / ') || t('Unused')}
+                  </p>
+                </div>
+                <div className='flex gap-2'>
+                  {(data.uses[entry.id] ?? [])
+                    .filter((id) => !data.channels?.some((c) => c.id === id))
+                    .map((id) => (
+                      <Button
+                        key={id}
+                        size='sm'
+                        variant='outline'
+                        onClick={() =>
+                          setDraft({
+                            action: 'detach',
+                            library: data,
+                            site: { id, name: `#${id}`, base_url: '' } as Site,
+                          })
+                        }
+                      >
+                        {t(labels.detach)} #{id}
+                      </Button>
+                    ))}
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() =>
+                      setDraft({ action: 'assign_owner', entry, library: data })
+                    }
+                  >
+                    {t(labels.assign_owner)}
+                  </Button>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() =>
+                      setDraft({ action: 'rotate', entry, library: data })
+                    }
+                  >
+                    {t(labels.rotate)}
+                  </Button>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={!!data.uses[entry.id]?.length}
+                    onClick={() =>
+                      setDraft({ action: 'delete', entry, library: data })
+                    }
+                  >
+                    {t('Delete')}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          {old.some((site) => site.site_id === ownerId) && (
+            <h3 className='text-sm font-medium'>{t('Existing site Keys')}</h3>
+          )}
+          {old
+            .filter((site) => site.site_id === ownerId)
+            .map((site) => (
+              <div
+                key={site.id}
+                className='flex flex-wrap items-center justify-between gap-2 border-b py-2'
+              >
+                <span>{siteLabel(data, site.id)}</span>
                 <Button
-                  key={id}
                   size='sm'
                   variant='outline'
                   onClick={() =>
-                    setDraft({
-                      action: 'detach',
-                      library: data,
-                      site: { id, name: `#${id}`, base_url: '' } as Site,
-                    })
+                    setDraft({ action: 'import', site, library: data })
                   }
                 >
-                  {t(labels.detach)} #{id}
+                  {t(labels.import)}
                 </Button>
-              ))}
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() =>
-                setDraft({ action: 'rotate', entry, library: data })
-              }
-            >
-              {t(labels.rotate)}
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={!!data.uses[entry.id]?.length}
-              onClick={() =>
-                setDraft({ action: 'delete', entry, library: data })
-              }
-            >
-              {t('Delete')}
-            </Button>
-          </div>
-        </div>
-      ))}
-      {old.length > 0 && (
-        <section>
-          <h2 className='font-medium'>{t('Existing site Keys')}</h2>
-          {old.map((site) => (
-            <div
-              key={site.id}
-              className='flex flex-wrap items-center justify-between gap-2 border-b py-2'
-            >
-              <span>{siteLabel(data, site.id)}</span>
-              <Button
-                size='sm'
-                variant='outline'
-                onClick={() =>
-                  setDraft({ action: 'import', site, library: data })
-                }
-              >
-                {t(labels.import)}
-              </Button>
-            </div>
-          ))}
+              </div>
+            ))}
         </section>
-      )}
+      ))}
       {draft && (
         <EditKey
           identity={identity}

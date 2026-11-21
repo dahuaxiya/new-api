@@ -1,5 +1,9 @@
 {
   "translation": {
+    "Filing site": "Сайт хранения",
+    "Change filing site": "Изменить сайт хранения",
+    "Unfiled Keys": "Ключи без сайта",
+    "Select a site": "Выберите сайт",
     "Select saved Key": "Выбрать сохранённый ключ",
     "Add route with saved Key": "Добавить маршрут с сохранённым ключом",
     "Detach Key and disable route": "Отвязать ключ и отключить маршрут",

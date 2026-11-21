@@ -1,5 +1,9 @@
 {
   "translation": {
+    "Filing site": "Trang lưu giữ",
+    "Change filing site": "Đổi trang lưu giữ",
+    "Unfiled Keys": "Key chưa phân loại",
+    "Select a site": "Chọn trang",
     "Select saved Key": "Chọn khóa đã lưu",
     "Add route with saved Key": "Thêm tuyến bằng khóa đã lưu",
     "Detach Key and disable route": "Gỡ khóa và tắt tuyến",

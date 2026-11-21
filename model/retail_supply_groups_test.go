@@ -713,11 +713,8 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 				in.Stamp = view.Stamp
 				return EditRetailKeyLibrary(ctx, in, 1)
 			}
-			id, err := write(RetailLibraryEdit{Action: "create", Name: "Spare", Key: "test-secret-1"})
-			require.NoError(t, err)
-			var entry RetailUpstreamKey
-			require.NoError(t, db.First(&entry, id).Error)
-			require.NotContains(t, entry.Sealed, "test-secret")
+			_, err := write(RetailLibraryEdit{Action: "create", Key: "test", Name: "missing site"})
+			require.Error(t, err)
 			var sites []Channel
 			var supplies []map[string]any
 			for _, endpoint := range []string{"https://one.example", "https://two.example"} {
@@ -731,6 +728,12 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(cfg, raw, 0600))
 			t.Setenv("RETAIL_RELAY_CONFIG", cfg)
+			id, err := write(RetailLibraryEdit{Action: "create", Name: "Spare", OwnerSiteID: sites[0].Id, Key: "test-secret-1"})
+			require.NoError(t, err)
+			var entry RetailUpstreamKey
+			require.NoError(t, db.First(&entry, id).Error)
+			require.NotContains(t, entry.Sealed, "test-secret")
+			require.Equal(t, sites[0].Id, entry.OwnerSiteID)
 			for i := range sites {
 				ch := &sites[i]
 				_, err = write(RetailLibraryEdit{Action: "bind", ID: id, Channel: ch.Id, Destination: ch.GetBaseURL()})
@@ -744,6 +747,28 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			view, err := ReadRetailKeyLibrary(ctx)
 			require.NoError(t, err)
 			require.Len(t, view.Uses[id], 2)
+			// Upgrade a database that already has a shared key. Its two consumers cannot tell us who issued it.
+			require.NoError(t, db.Migrator().DropColumn(&RetailUpstreamKey{}, "OwnerSiteID"))
+			require.NoError(t, migrateDB())
+			view, err = ReadRetailKeyLibrary(ctx)
+			require.NoError(t, err)
+			require.Zero(t, view.Keys[0].OwnerSiteID)
+			oldStamp := view.Stamp
+			var before, after RetailPriceState
+			require.NoError(t, db.First(&before, 1).Error)
+			_, err = write(RetailLibraryEdit{Action: "assign_owner", ID: id, OwnerSiteID: sites[1].Id})
+			require.NoError(t, err)
+			_, err = EditRetailKeyLibrary(ctx, RetailLibraryEdit{Stamp: oldStamp, Action: "assign_owner", ID: id, OwnerSiteID: sites[0].Id}, 1)
+			require.ErrorIs(t, err, ErrRetailLibraryConflict)
+			view, err = ReadRetailKeyLibrary(ctx)
+			require.NoError(t, err)
+			require.Equal(t, sites[1].Id, view.Keys[0].OwnerSiteID)
+			require.Len(t, view.Uses[id], 2)
+			var filed RetailUpstreamKey
+			require.NoError(t, db.First(&filed, id).Error)
+			require.Equal(t, entry.Sealed, filed.Sealed)
+			require.NoError(t, db.First(&after, 1).Error)
+			require.Equal(t, before.Version, after.Version)
 			public, err := common.Marshal(view)
 			require.NoError(t, err)
 			require.NotContains(t, string(public), "test-secret")
@@ -776,6 +801,8 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			require.Len(t, view.Uses[id], 1)
 			child := view.Uses[id][0]
 			require.Empty(t, view.Groups[child])
+			_, err = write(RetailLibraryEdit{Action: "create", Name: "child is not a site", Key: "spare", OwnerSiteID: child})
+			require.Error(t, err)
 			var unassigned Channel
 			require.NoError(t, db.First(&unassigned, child).Error)
 			activeKey, _, apiErr := unassigned.GetNextEnabledKey()
@@ -785,12 +812,17 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			require.NoError(t, err)
 			_, err = write(RetailLibraryEdit{Action: "delete", ID: id})
 			require.NoError(t, err)
-			require.NoError(t, db.Model(&Channel{}).Where("id = ?", first.Id).Update("key", "old-secret").Error)
-			other, err := write(RetailLibraryEdit{Action: "import", Name: "Old", Channel: first.Id, Destination: first.GetBaseURL()})
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", child).Update("key", "old-secret").Error)
+			_, err = write(RetailLibraryEdit{Action: "import", Name: "untrusted owner", Channel: child, Destination: first.GetBaseURL(), OwnerSiteID: sites[1].Id})
+			require.Error(t, err)
+			other, err := write(RetailLibraryEdit{Action: "import", Name: "Old", Channel: child, Destination: first.GetBaseURL()})
 			require.NoError(t, err)
 			require.Positive(t, other)
+			var imported RetailUpstreamKey
+			require.NoError(t, db.First(&imported, other).Error)
+			require.Equal(t, first.Id, imported.OwnerSiteID)
 			var saved Channel
-			require.NoError(t, db.First(&saved, first.Id).Error)
+			require.NoError(t, db.First(&saved, child).Error)
 			require.Empty(t, saved.Key)
 			key, err := saved.SupplySecret(db)
 			require.NoError(t, err)
@@ -846,11 +878,18 @@ func TestRetailKeyLibraryInstallation(t *testing.T) {
 	t.Cleanup(func() { common.SQLitePath = oldPath })
 	t.Setenv("SESSION_SECRET", "")
 	t.Setenv("CRYPTO_SECRET", "")
-	t.Setenv("RETAIL_RELAY_CONFIG", "")
+	endpoint := "https://install.example"
+	site := Channel{Type: 1, Name: "install", BaseURL: &endpoint, Group: "retail", Status: 1}
+	require.NoError(t, site.Insert())
+	cfg := filepath.Join(t.TempDir(), "install.json")
+	data, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"kind": "reseller", "channel_id": site.Id}}})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(cfg, data, 0600))
+	t.Setenv("RETAIL_RELAY_CONFIG", cfg)
 	ctx := context.Background()
 	view, err := ReadRetailKeyLibrary(ctx)
 	require.NoError(t, err)
-	id, err := EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "create", Stamp: view.Stamp, Name: "test", Key: "test-secret"}, 1)
+	id, err := EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "create", OwnerSiteID: site.Id, Stamp: view.Stamp, Name: "test", Key: "test-secret"}, 1)
 	require.NoError(t, err)
 	var key RetailUpstreamKey
 	require.NoError(t, db.First(&key, id).Error)

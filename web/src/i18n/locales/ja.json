@@ -1,5 +1,9 @@
 {
   "translation": {
+    "Filing site": "保管サイト",
+    "Change filing site": "保管サイトを変更",
+    "Unfiled Keys": "未分類のキー",
+    "Select a site": "サイトを選択",
     "Select saved Key": "保存済みキーを選択",
     "Add route with saved Key": "保存済みキーで経路を追加",
     "Detach Key and disable route": "キーを解除して経路を無効化",

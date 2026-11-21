@@ -18,12 +18,18 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** A root can create a spare credential even on an empty installation; no group or site enters the request. */
-it('creates an unused Key without a site or group', async () => {
+/** A root can create a spare credential under an approved site without configuring a route or pricing group. */
+it('creates an unused Key under a site without a group', async () => {
   vi.spyOn(api, 'get').mockResolvedValue({
     data: {
       success: true,
-      data: { keys: [], channels: [], uses: {}, groups: {}, stamp: 's' },
+      data: {
+        keys: [],
+        channels: [{ id: 7, site_id: 7, name: 'Example' }],
+        uses: {},
+        groups: {},
+        stamp: 's',
+      },
     },
   })
   const put = vi
@@ -37,6 +43,9 @@ it('creates an unused Key without a site or group', async () => {
   fireEvent.click(
     await screen.findByRole('button', { name: 'Add upstream Key' })
   )
+  fireEvent.change(screen.getByLabelText('Filing site'), {
+    target: { value: '7' },
+  })
   fireEvent.change(screen.getByLabelText('Name'), {
     target: { value: 'Spare' },
   })
@@ -55,6 +64,7 @@ it('creates an unused Key without a site or group', async () => {
         action: 'create',
         name: 'Spare',
         channel_id: 0,
+        owner_site_id: 7,
         key: 'test-value',
       }),
       expect.anything()
@@ -68,8 +78,16 @@ it('binds an existing credential from site settings', async () => {
     data: {
       success: true,
       data: {
-        keys: [{ id: 3, name: 'Spare', version: 1 }],
-        channels: [{ id: 7, name: 'Example', base_url: 'https://up.example' }],
+        keys: [{ id: 3, name: 'Spare', version: 1, owner_site_id: 8 }],
+        channels: [
+          {
+            id: 7,
+            site_id: 7,
+            name: 'Example',
+            base_url: 'https://up.example',
+          },
+          { id: 8, site_id: 8, name: 'Other' },
+        ],
         uses: {},
         groups: { 7: 'fast' },
         stamp: 's',
@@ -87,6 +105,9 @@ it('binds an existing credential from site settings', async () => {
   fireEvent.click(
     await screen.findByRole('button', { name: 'Select saved Key' })
   )
+  expect(
+    screen.getByRole('option', { name: 'Other #8 · Spare #3' })
+  ).toBeInTheDocument()
   fireEvent.change(screen.getByRole('combobox'), { target: { value: '3' } })
   fireEvent.click(screen.getByRole('checkbox'))
   fireEvent.click(

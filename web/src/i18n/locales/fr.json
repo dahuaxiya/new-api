@@ -1,5 +1,9 @@
 {
   "translation": {
+    "Filing site": "Site de rattachement",
+    "Change filing site": "Changer le site de rattachement",
+    "Unfiled Keys": "Clés non classées",
+    "Select a site": "Choisir un site",
     "Select saved Key": "Sélectionner une clé enregistrée",
     "Add route with saved Key": "Ajouter une route avec une clé enregistrée",
     "Detach Key and disable route": "Détacher la clé et désactiver la route",

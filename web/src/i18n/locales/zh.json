@@ -1,5 +1,9 @@
 {
   "translation": {
+    "Filing site": "保管站点",
+    "Change filing site": "调整保管站点",
+    "Unfiled Keys": "待归档的 Key",
+    "Select a site": "选择站点",
     "Select saved Key": "选择已保存的 Key",
     "Add route with saved Key": "用已有 Key 添加线路",
     "Detach Key and disable route": "解除引用并停用线路",
