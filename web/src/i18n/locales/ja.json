@@ -1,5 +1,16 @@
 {
   "translation": {
+    "Select saved Key": "保存済みキーを選択",
+    "Add route with saved Key": "保存済みキーで経路を追加",
+    "Detach Key and disable route": "キーを解除して経路を無効化",
+    "Import existing Key": "既存のキーを取り込む",
+    "Existing site Keys": "サイトの既存キー",
+    "No saved Keys": "保存済みキーはありません",
+    "Upstream sites": "上流サイト",
+    "Remove this Key from its sites before deleting it": "削除する前にすべてのサイトからキーを解除してください",
+    "Upstream Key is unavailable": "上流キーを利用できません",
+    "Key inventory changed. Reopen the form.": "キーが変更されました。フォームを開き直してください。",
+    "Import the existing site Key before replacing it": "先にサイトの既存キーを取り込んでください",
     "Upstream Keys": "上流キー管理",
     "Upstream site": "上流サイト",
     "Add upstream Key": "上流キーを追加",

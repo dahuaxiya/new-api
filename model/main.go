@@ -360,6 +360,7 @@ func migrateDB() error {
 		&RetailAttempt{},
 		&RetailCost{},
 		&RetailPriceState{},
+		&RetailUpstreamKey{},
 		&RetailPriceVersion{},
 		&RetailKeyPricePolicy{},
 		&RetailPriceBudget{},

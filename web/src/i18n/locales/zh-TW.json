@@ -1,5 +1,16 @@
 {
   "translation": {
+    "Select saved Key": "選擇已儲存的 Key",
+    "Add route with saved Key": "用既有 Key 新增線路",
+    "Detach Key and disable route": "解除引用並停用線路",
+    "Import existing Key": "將現有 Key 收入庫中",
+    "Existing site Keys": "待收錄的站點 Key",
+    "No saved Keys": "庫中暫無 Key",
+    "Upstream sites": "上游站點",
+    "Remove this Key from its sites before deleting it": "請先解除所有站點對此 Key 的引用",
+    "Upstream Key is unavailable": "上游 Key 無法使用",
+    "Key inventory changed. Reopen the form.": "Key 或線路已變更，請重新開啟表單",
+    "Import the existing site Key before replacing it": "請先收錄此站點現有的 Key，再更換引用",
     "Upstream Keys": "上游 Key 管理",
     "Upstream site": "上游站點",
     "Add upstream Key": "新增上游 Key",

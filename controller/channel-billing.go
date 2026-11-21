@@ -614,7 +614,17 @@ func fetchAdvancedCustomBalance(channel *model.Channel) (channelBalanceResult, e
 	return channelBalanceResult{RawResponse: string(formatted)}, nil
 }
 
+// updateChannelBalance resolves a library Key only for the duration of this provider request.
 func updateChannelBalance(channel *model.Channel) (channelBalanceResult, error) {
+	if channel.RetailKeyID != 0 {
+		key, err := channel.SupplySecret(model.DB)
+		if err != nil {
+			return channelBalanceResult{}, err
+		}
+		snapshot := *channel
+		snapshot.Key = key
+		channel = &snapshot
+	}
 	if channel.Type == constant.ChannelTypeAdvancedCustom {
 		return fetchAdvancedCustomBalance(channel)
 	}

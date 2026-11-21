@@ -150,11 +150,8 @@ func createRetailSupplyGroupIn(db *gorm.DB, ctx context.Context, siteID int, nam
 		}
 		// Identical credentials cannot represent distinct upstream groups with independent costs.
 		if key != "" {
-			if err := tx.Model(&Channel{}).Where("(retail_site_id = ? OR id = ?)", siteID, siteID).Where(map[string]any{"key": key}).Count(&duplicate).Error; err != nil {
+			if err := checkSiteSecret(tx, Channel{RetailSiteID: siteID}, key); err != nil {
 				return err
-			}
-			if duplicate != 0 {
-				return ErrRetailSupplyGroupKey
 			}
 		}
 		status := common.ChannelStatusManuallyDisabled
@@ -192,12 +189,11 @@ func syncRetailSiteAddress(tx *gorm.DB, ch *Channel) error {
 		return err
 	}
 	if ch.Key != "" {
-		var duplicate int64
-		if err := tx.Model(&Channel{}).Where("(retail_site_id = ? OR id = ?) AND id <> ?", anchor, anchor, ch.Id).Where(map[string]any{"key": ch.Key}).Count(&duplicate).Error; err != nil {
-			return err
+		if stored.RetailKeyID != 0 {
+			return common.NewMessage("Replace this Key in Upstream Keys")
 		}
-		if duplicate != 0 {
-			return ErrRetailSupplyGroupKey
+		if err := checkSiteSecret(tx, stored, ch.Key); err != nil {
+			return err
 		}
 	}
 	if stored.RetailSiteID != 0 {
@@ -391,11 +387,11 @@ func saveRetailSupplyConfiguration(ctx context.Context, expected int64, bindings
 			// Keep manual or automatic suspension unless the operator explicitly changes it.
 			// Validate the final Key and model list before restoring channel abilities.
 			if edit.Enabled != nil && *edit.Enabled {
-				if ch.Key == "" || ch.Models == "" {
+				if !ch.HasSupplyKey() || ch.Models == "" {
 					return ErrRetailSupplyGroupIncomplete
 				}
 				ch.Status = common.ChannelStatusEnabled
-			} else if edit.Enabled != nil || ch.Key == "" || ch.Models == "" {
+			} else if edit.Enabled != nil || !ch.HasSupplyKey() || ch.Models == "" {
 				ch.Status = common.ChannelStatusManuallyDisabled
 			}
 			updates := map[string]any{"name": ch.Name, "models": ch.Models, "status": ch.Status}

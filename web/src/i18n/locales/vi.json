@@ -1,5 +1,16 @@
 {
   "translation": {
+    "Select saved Key": "Chọn khóa đã lưu",
+    "Add route with saved Key": "Thêm tuyến bằng khóa đã lưu",
+    "Detach Key and disable route": "Gỡ khóa và tắt tuyến",
+    "Import existing Key": "Nhập khóa hiện có",
+    "Existing site Keys": "Khóa hiện có của trang",
+    "No saved Keys": "Chưa có khóa đã lưu",
+    "Upstream sites": "Trang thượng nguồn",
+    "Remove this Key from its sites before deleting it": "Gỡ khóa khỏi các trang trước khi xóa",
+    "Upstream Key is unavailable": "Khóa thượng nguồn không khả dụng",
+    "Key inventory changed. Reopen the form.": "Khóa đã thay đổi. Hãy mở lại biểu mẫu.",
+    "Import the existing site Key before replacing it": "Nhập khóa hiện có của trang trước khi thay thế",
     "Upstream Keys": "Khóa nhà cung cấp",
     "Upstream site": "Trang nhà cung cấp",
     "Add upstream Key": "Thêm khóa nhà cung cấp",

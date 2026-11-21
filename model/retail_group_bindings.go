@@ -18,6 +18,7 @@ import (
 
 // RetailBindingChannel exposes only safe operator labels, never a channel credential.
 type RetailBindingChannel struct {
+	LibraryID          int    `json:"library_id,omitempty"`
 	credentialStamp    string // Keyed concurrency token; never returned as an individual channel field.
 	AllowNewCredential bool   `json:"allow_new_credential"`
 	ID                 int    `json:"id"`
@@ -51,7 +52,7 @@ func retailBindingChannels(db *gorm.DB) ([]RetailBindingChannel, error) {
 	}
 	var channels []Channel
 	if len(ids) > 0 {
-		if err := db.Select("id", "name", "base_url", "type", "group", "retail_site_id", "models", "key", "status", "model_mapping").Where("id IN ?", ids).Find(&channels).Error; err != nil {
+		if err := db.Select("id", "name", "base_url", "type", "group", "retail_site_id", "models", "key", "retail_key_id", "retail_key_target", "status", "model_mapping").Where("id IN ?", ids).Find(&channels).Error; err != nil {
 			return nil, err
 		}
 	}
@@ -73,7 +74,7 @@ func retailBindingChannels(db *gorm.DB) ([]RetailBindingChannel, error) {
 		if siteID == 0 {
 			siteID = channel.Id
 		}
-		result = append(result, RetailBindingChannel{ID: channel.Id, Name: channel.Name, SiteID: siteID, BaseURL: channel.GetBaseURL(), Type: channel.Type, Models: channel.Models, HasKey: channel.Key != "", Status: channel.Status, ModelMapping: channel.GetModelMapping()})
+		result = append(result, RetailBindingChannel{ID: channel.Id, Name: channel.Name, SiteID: siteID, BaseURL: channel.GetBaseURL(), Type: channel.Type, Models: channel.Models, HasKey: channel.HasSupplyKey(), Status: channel.Status, ModelMapping: channel.GetModelMapping()})
 	}
 	return result, nil
 }
@@ -91,7 +92,7 @@ func RetailRouteChannels(db *gorm.DB, group string) ([]RetailBindingChannel, err
 	out := []RetailBindingChannel{}
 	for _, ch := range channels {
 		// A pooled channel cannot guarantee that every credential has the selected upstream tariff.
-		if !validRetailSupplySite(ch, group) || ch.Key == "" || ch.ChannelInfo.IsMultiKey || strings.ContainsAny(ch.Key, "\r\n") {
+		if !validRetailSupplySite(ch, group) || !ch.HasSupplyKey() || ch.ChannelInfo.IsMultiKey || strings.ContainsAny(ch.Key, "\r\n") {
 			continue
 		}
 		siteID := ch.RetailSiteID

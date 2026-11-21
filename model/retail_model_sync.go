@@ -40,8 +40,13 @@ func RetailModelListSource(db *gorm.DB, id int) (*Channel, error) {
 	if err = db.Model(&GPTHostingBinding{}).Where("channel_id = ?", id).Count(&occupied).Error; err != nil {
 		return nil, err
 	}
-	if occupied != 0 || !slices.ContainsFunc(rows, func(r RetailBindingChannel) bool { return r.ID == id && r.BaseURL == ch.GetBaseURL() }) || ch.ChannelInfo.IsMultiKey || ch.Type != constant.ChannelTypeOpenAI || ch.Key == "" || strings.ContainsAny(ch.Key, "\r\n") || ch.Status != common.ChannelStatusEnabled || (ch.HeaderOverride != nil && *ch.HeaderOverride != "" && *ch.HeaderOverride != "{}") {
+	if occupied != 0 || !slices.ContainsFunc(rows, func(r RetailBindingChannel) bool { return r.ID == id && r.BaseURL == ch.GetBaseURL() }) || ch.ChannelInfo.IsMultiKey || ch.Type != constant.ChannelTypeOpenAI || !ch.HasSupplyKey() || strings.ContainsAny(ch.Key, "\r\n") || ch.Status != common.ChannelStatusEnabled || (ch.HeaderOverride != nil && *ch.HeaderOverride != "" && *ch.HeaderOverride != "{}") {
 		return nil, retailprice.ErrAccess
+	}
+	// This detached snapshot is used only for discovery and comparison, never saved.
+	ch.Key, err = ch.SupplySecret(db)
+	if err != nil {
+		return nil, err
 	}
 	return &ch, nil
 }

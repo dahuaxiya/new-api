@@ -32,6 +32,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
+import { SiteKeyPicker } from '@/features/upstream-keys/library'
 import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
 import { getServerErrorMessage } from '@/lib/server-error-message'
@@ -503,6 +504,7 @@ function BindingEditor(props: {
                           </span>
                         )}
                       </div>
+                      <SiteKeyPicker channel={ch.id} />
                       <Label className='flex items-center gap-2'>
                         {keyEnabled ? t('Enabled') : t('Disabled')}
                         <Switch

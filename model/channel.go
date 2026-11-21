@@ -21,6 +21,9 @@ import (
 )
 
 type Channel struct {
+	// Only the root Key library writes these columns. Generic JSON, Save and channel cloning cannot assign a library credential.
+	RetailKeyID     int    `json:"-" gorm:"->;index"`
+	RetailKeyTarget string `json:"-" gorm:"->"`
 	// RetailSiteID is managed only by the root supply-group API; generic channel JSON cannot enroll supply.
 	RetailSiteID       int     `json:"-" gorm:"index"`
 	Id                 int     `json:"id"`
@@ -211,6 +214,14 @@ func (channel *Channel) GetKeys() []string {
 }
 
 func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
+	// Runtime selection also covers connectivity tests and upstream model discovery.
+	if channel.RetailKeyID > 0 {
+		key, err := channel.SupplySecret(DB)
+		if err != nil {
+			return "", 0, types.NewError(err, types.ErrorCodeChannelNoAvailableKey)
+		}
+		return key, 0, nil
+	}
 	// If not in multi-key mode, return the original key string directly.
 	if !channel.ChannelInfo.IsMultiKey {
 		return channel.Key, 0, nil

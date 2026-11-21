@@ -106,8 +106,10 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { SecureVerificationDialog } from '@/features/auth/secure-verification'
 import { PluginIcon } from '@/features/task-plugins/components/plugin-icon'
+import { SiteKeyPicker } from '@/features/upstream-keys/library'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
+import { useStatus as useSiteStatus } from '@/hooks/use-status'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -426,6 +428,7 @@ export function ChannelMutateDrawer({
     ADMIN_PERMISSION_RESOURCES.TASK_PLUGIN,
     ADMIN_PERMISSION_ACTIONS.BIND
   )
+  const retailSite = useSiteStatus().status?.site_mode === 'retail'
   const canRevealChannelKey = currentUser?.role === ROLE.SUPER_ADMIN
   const [isCodexCredentialRefreshing, setIsCodexCredentialRefreshing] =
     useState(false)
@@ -4374,6 +4377,9 @@ export function ChannelMutateDrawer({
                 />
               )}
 
+              {open && retailSite && canRevealChannelKey && currentRow && (
+                <SiteKeyPicker channel={currentRow.id} />
+              )}
               <FormField
                 control={form.control}
                 name='key'

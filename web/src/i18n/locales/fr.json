@@ -1,5 +1,16 @@
 {
   "translation": {
+    "Select saved Key": "Sélectionner une clé enregistrée",
+    "Add route with saved Key": "Ajouter une route avec une clé enregistrée",
+    "Detach Key and disable route": "Détacher la clé et désactiver la route",
+    "Import existing Key": "Importer la clé existante",
+    "Existing site Keys": "Clés existantes des sites",
+    "No saved Keys": "Aucune clé enregistrée",
+    "Upstream sites": "Sites en amont",
+    "Remove this Key from its sites before deleting it": "Détachez la clé de tous les sites avant de la supprimer",
+    "Upstream Key is unavailable": "Clé en amont indisponible",
+    "Key inventory changed. Reopen the form.": "Les clés ont changé. Rouvrez le formulaire.",
+    "Import the existing site Key before replacing it": "Importez d’abord la clé actuelle du site",
     "Upstream Keys": "Clés amont",
     "Upstream site": "Site amont",
     "Add upstream Key": "Ajouter une clé amont",

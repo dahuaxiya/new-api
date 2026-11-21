@@ -695,3 +695,169 @@ func TestRetailCredentialCenterDatabases(t *testing.T) {
 		})
 	}
 }
+
+// TestRetailKeyLibraryDatabases verifies independent creation, shared rotation, destination pinning,
+// safe adoption of inline credentials and reference-aware deletion against each supported database.
+func TestRetailKeyLibraryDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := useVM2APIEnrollmentDatabase(t, dialect)
+			require.NoError(t, migrateDB())
+			t.Setenv("CRYPTO_SECRET", "test-only-library-master")
+			t.Setenv("RETAIL_RELAY_CONFIG", "")
+			ctx := context.Background()
+			write := func(in RetailLibraryEdit) (int, error) {
+				t.Helper()
+				view, err := ReadRetailKeyLibrary(ctx)
+				require.NoError(t, err)
+				in.Stamp = view.Stamp
+				return EditRetailKeyLibrary(ctx, in, 1)
+			}
+			id, err := write(RetailLibraryEdit{Action: "create", Name: "Spare", Key: "test-secret-1"})
+			require.NoError(t, err)
+			var entry RetailUpstreamKey
+			require.NoError(t, db.First(&entry, id).Error)
+			require.NotContains(t, entry.Sealed, "test-secret")
+			var sites []Channel
+			var supplies []map[string]any
+			for _, endpoint := range []string{"https://one.example", "https://two.example"} {
+				site := Channel{Name: endpoint, BaseURL: &endpoint, Type: 1, Group: "retail", Status: 1, Models: "model-a"}
+				require.NoError(t, site.Insert())
+				sites = append(sites, site)
+				supplies = append(supplies, map[string]any{"kind": "reseller", "channel_id": site.Id})
+			}
+			cfg := filepath.Join(t.TempDir(), "retail.json")
+			raw, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": supplies})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(cfg, raw, 0600))
+			t.Setenv("RETAIL_RELAY_CONFIG", cfg)
+			for i := range sites {
+				ch := &sites[i]
+				_, err = write(RetailLibraryEdit{Action: "bind", ID: id, Channel: ch.Id, Destination: ch.GetBaseURL()})
+				require.NoError(t, err)
+				require.NoError(t, db.First(ch, ch.Id).Error)
+				require.Empty(t, ch.Key)
+				key, _, apiErr := ch.GetNextEnabledKey()
+				require.Nil(t, apiErr)
+				require.Equal(t, "test-secret-1", key)
+			}
+			view, err := ReadRetailKeyLibrary(ctx)
+			require.NoError(t, err)
+			require.Len(t, view.Uses[id], 2)
+			public, err := common.Marshal(view)
+			require.NoError(t, err)
+			require.NotContains(t, string(public), "test-secret")
+			require.NotContains(t, string(public), entry.Sealed)
+			_, err = write(RetailLibraryEdit{Action: "delete", ID: id})
+			require.ErrorIs(t, err, ErrRetailLibraryUsed)
+			_, err = write(RetailLibraryEdit{Action: "rotate", ID: id, Key: "test-secret-2"})
+			require.NoError(t, err)
+			_, err = EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "rotate", ID: id, Stamp: view.Stamp, Key: "stale"}, 1)
+			require.ErrorIs(t, err, ErrRetailLibraryConflict)
+			for _, ch := range sites {
+				key, err := ch.SupplySecret(db)
+				require.NoError(t, err)
+				require.Equal(t, "test-secret-2", key)
+				wrong := ch
+				target := "https://wrong.example"
+				wrong.BaseURL = &target
+				_, err = wrong.SupplySecret(db)
+				require.ErrorIs(t, err, ErrRetailLibraryUnavailable)
+				_, err = write(RetailLibraryEdit{Action: "detach", Channel: ch.Id, Destination: ch.GetBaseURL()})
+				require.NoError(t, err)
+				_, err = ch.SupplySecret(db)
+				require.ErrorIs(t, err, ErrRetailLibraryUnavailable)
+			}
+			first := sites[0]
+			_, err = write(RetailLibraryEdit{Action: "add_route", Channel: first.Id, Destination: first.GetBaseURL(), ID: id, Name: "unassigned", Models: "model-a"})
+			require.NoError(t, err)
+			view, err = ReadRetailKeyLibrary(ctx)
+			require.NoError(t, err)
+			require.Len(t, view.Uses[id], 1)
+			child := view.Uses[id][0]
+			require.Empty(t, view.Groups[child])
+			var unassigned Channel
+			require.NoError(t, db.First(&unassigned, child).Error)
+			activeKey, _, apiErr := unassigned.GetNextEnabledKey()
+			require.Nil(t, apiErr)
+			require.Equal(t, "test-secret-2", activeKey)
+			_, err = write(RetailLibraryEdit{Action: "detach", Channel: child, Destination: first.GetBaseURL()})
+			require.NoError(t, err)
+			_, err = write(RetailLibraryEdit{Action: "delete", ID: id})
+			require.NoError(t, err)
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", first.Id).Update("key", "old-secret").Error)
+			other, err := write(RetailLibraryEdit{Action: "import", Name: "Old", Channel: first.Id, Destination: first.GetBaseURL()})
+			require.NoError(t, err)
+			require.Positive(t, other)
+			var saved Channel
+			require.NoError(t, db.First(&saved, first.Id).Error)
+			require.Empty(t, saved.Key)
+			key, err := saved.SupplySecret(db)
+			require.NoError(t, err)
+			require.Equal(t, "old-secret", key)
+		})
+	}
+}
+
+// TestRetailKeyLibraryRevocation exercises the authorization change between loading a channel into cache
+// and dispatching a request. A root must still be able to detach an excluded channel without sending its Key.
+func TestRetailKeyLibraryRevocation(t *testing.T) {
+	db := useVM2APIEnrollmentDatabase(t, "sqlite")
+	require.NoError(t, migrateDB())
+	t.Setenv("CRYPTO_SECRET", "test-only-master")
+	endpoint := "https://one.example"
+	channel := Channel{Key: "test-legacy", Type: 1, Name: "site", Group: "retail", BaseURL: &endpoint, Models: "m", Status: 1}
+	require.NoError(t, channel.Insert())
+	cfg := filepath.Join(t.TempDir(), "retail.json")
+	raw, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"kind": "reseller", "channel_id": channel.Id}}})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(cfg, raw, 0600))
+	t.Setenv("RETAIL_RELAY_CONFIG", cfg)
+	ctx := context.Background()
+	view, err := ReadRetailKeyLibrary(ctx)
+	require.NoError(t, err)
+	id, err := EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "import", Channel: channel.Id, Destination: endpoint, Stamp: view.Stamp, Name: "saved"}, 1)
+	require.NoError(t, err)
+	require.NoError(t, db.First(&channel, channel.Id).Error)
+	t.Setenv("RETAIL_RELAY_CONFIG", "")
+	_, err = channel.SupplySecret(db)
+	require.ErrorIs(t, err, ErrRetailLibraryUnavailable)
+	view, err = ReadRetailKeyLibrary(ctx)
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&channel).Updates(map[string]any{"key": "replacement-owner", "status": 1}).Error)
+	require.Empty(t, view.Channels)
+	require.Equal(t, []int{channel.Id}, view.Uses[id])
+	_, err = EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "detach", Channel: channel.Id, Stamp: view.Stamp}, 1)
+	require.NoError(t, err)
+	var retained Channel
+	require.NoError(t, db.First(&retained, channel.Id).Error)
+	require.Equal(t, "replacement-owner", retained.Key)
+	require.Equal(t, 1, retained.Status)
+	require.Zero(t, retained.RetailKeyID)
+}
+
+// TestRetailKeyLibraryInstallation checks restart decryption without environment configuration and
+// refuses to silently replace the installation key when restoring a database without its sidecar.
+func TestRetailKeyLibraryInstallation(t *testing.T) {
+	db := useVM2APIEnrollmentDatabase(t, "sqlite")
+	require.NoError(t, migrateDB())
+	oldPath := common.SQLitePath
+	common.SQLitePath = filepath.Join(t.TempDir(), "retail.db") + "?_txlock=immediate"
+	t.Cleanup(func() { common.SQLitePath = oldPath })
+	t.Setenv("SESSION_SECRET", "")
+	t.Setenv("CRYPTO_SECRET", "")
+	t.Setenv("RETAIL_RELAY_CONFIG", "")
+	ctx := context.Background()
+	view, err := ReadRetailKeyLibrary(ctx)
+	require.NoError(t, err)
+	id, err := EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "create", Stamp: view.Stamp, Name: "test", Key: "test-secret"}, 1)
+	require.NoError(t, err)
+	var key RetailUpstreamKey
+	require.NoError(t, db.First(&key, id).Error)
+	got, err := key.secret()
+	require.NoError(t, err)
+	require.Equal(t, "test-secret", got)
+	require.NoError(t, os.Remove(filepath.Join(filepath.Dir(common.SQLitePath), "retail.db.retail-key")))
+	_, err = key.secret()
+	require.ErrorIs(t, err, ErrRetailLibraryUnavailable)
+}

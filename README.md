@@ -240,6 +240,8 @@ docker compose logs -f new-api
 | `SESSION_COOKIE_TRUSTED_URL` | Required in Secure mode: comma-separated exact HTTPS origins, without paths or wildcards; leave unset for local HTTP |
 | `TRUSTED_PROXIES` | Trusted reverse-proxy IPs/CIDRs, or `none`; explicitly configure for your network |
 
+Retail upstream Keys use a stable `CRYPTO_SECRET`, falling back to the configured `SESSION_SECRET`. Keep the effective secret with installation backups and use the same value on every node. For a file-backed SQLite deployment with neither variable set, the first inventory write generates a private `<database>.retail-key` file alongside the database. Back up that file separately from the database and restore both together. MySQL and PostgreSQL deployments must supply the shared secret. Preserve the effective secret when moving installations or changing session settings.
+
 See the [environment example](./.env.example), [environment reference](https://docs.newapi.ai/en/docs/installation/config-maintenance/environment-variables), and [authentication and session guide](./docs/authentication.md) for full configuration. Configure container variables in Compose's `environment` or `env_file`; copying `.env.example` alone does not inject variables into the container.
 
 For production, put the console behind HTTPS and configure your reverse proxy for streaming and WebSocket upgrades. Persist and back up the database and mounted data. Multi-node deployments must share the main database and authentication secrets; separate Redis instances or in-memory rate limiters count limits independently per node. The session guide describes propagation behavior for each topology.

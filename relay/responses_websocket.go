@@ -556,7 +556,13 @@ func (s *responsesWSSession) restoreConnectionContext(c *gin.Context, model stri
 	if err != nil || channel == nil || channel.Status != common.ChannelStatusEnabled || !channel.GetSetting().ResponsesWebSocketEnabled {
 		return types.NewErrorWithStatusCode(errors.New("Responses WebSocket is disabled for this channel"), types.ErrorCode(appdto.FilterResponsesWebSocket), http.StatusForbidden, types.ErrOptionWithSkipRetry())
 	}
-	keyEnabled := channel.Key == s.lockedKey
+	singleKey, keyErr := channel.SupplySecret(appmodel.DB)
+	// A revoked library credential cannot resume an established upstream session,
+	// even if a stale channel object still carries legacy multi-key metadata.
+	if keyErr != nil {
+		return types.NewErrorWithStatusCode(errors.New("the upstream connection credential is no longer enabled"), types.ErrorCodeAccessDenied, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+	}
+	keyEnabled := singleKey == s.lockedKey
 	if channel.ChannelInfo.IsMultiKey {
 		keys := channel.GetKeys()
 		status := channel.ChannelInfo.MultiKeyStatusList[s.lockedKeyIndex]

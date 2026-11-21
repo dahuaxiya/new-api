@@ -153,7 +153,7 @@ func EditRetailCredential(ctx context.Context, in RetailCredentialEdit, actor in
 				return err
 			}
 		case "rotate":
-			if id == 0 || in.Key == "" || in.ConfirmGroup != in.Group || !retailprice.ValidBindingGroup(in.Group) || (group != "" && group != in.Group) {
+			if ch.RetailKeyID != 0 || id == 0 || in.Key == "" || in.ConfirmGroup != in.Group || !retailprice.ValidBindingGroup(in.Group) || (group != "" && group != in.Group) {
 				return retailprice.ErrConfig
 			}
 			// An operator confirms the new upstream Key belongs to the same tariff group. Check duplicates under the parent lock.
@@ -169,7 +169,7 @@ func EditRetailCredential(ctx context.Context, in RetailCredentialEdit, actor in
 			}
 			ch.Status = common.ChannelStatusManuallyDisabled
 			if in.Action == "enable" {
-				if ch.Key == "" || strings.TrimSpace(ch.Models) == "" {
+				if !ch.HasSupplyKey() || strings.TrimSpace(ch.Models) == "" {
 					return ErrRetailSupplyGroupIncomplete
 				}
 				ch.Status = common.ChannelStatusEnabled
