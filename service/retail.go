@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/retail_setting"
 	"github.com/gin-gonic/gin"
+	"slices"
 )
 
 // ApplyRetailRouting 在每次渠道选择时重载商业授权，HTTP 重试与 WebSocket 消息共用。
@@ -50,6 +51,14 @@ func ApplyRetailRouting(c *gin.Context, retry *RetryParam) error {
 	}
 	if quote != nil {
 		ids = quote.Channels
+	}
+	if bound, ok := c.Get("retail_previous_origin"); ok {
+		// 旧回复只能在当前报价允许的原渠道上续接。停售、换组和禁用都应立即生效。
+		channel := bound.(retailResponseOrigin).channel
+		if quote == nil || !slices.Contains(ids, channel) {
+			return errRetailPreviousUnavailable
+		}
+		ids = []int{channel}
 	}
 	constraints.AddFilter(dto.ChannelFilter{Kind: dto.FilterRetailSupply, AllowedChannelIDs: ids})
 	retry.TokenGroup = group

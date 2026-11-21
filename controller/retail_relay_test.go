@@ -31,6 +31,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // TestRetailSupplyIsolation 验证旧 Key 不能借助分组、pin 或会话亲和绕过商业账本。
@@ -168,9 +169,18 @@ func TestRetailHTTPRelay(t *testing.T) {
 					}
 				}
 				var hits atomic.Int32
+				var replayBody atomic.Value
 				var publishDuringCall func() error
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					hit := hits.Add(1)
+					if hit >= 2 && (scenario.name == "responses" || scenario.name == "responses_stream") {
+						body, readErr := io.ReadAll(r.Body)
+						if readErr != nil {
+							http.Error(w, "test upstream could not read replay", 500)
+							return
+						}
+						replayBody.Store(string(body))
+					}
 					// Publish after dispatch but before returning usage: settlement must
 					// retain the accepted rate while the next request sees the increase.
 					if hit == 1 && publishDuringCall != nil {
@@ -312,6 +322,71 @@ func TestRetailHTTPRelay(t *testing.T) {
 				engine.ServeHTTP(recorder, req)
 				require.Equal(t, 400, recorder.Code)
 				require.Equal(t, wantHits, hits.Load())
+				if scenario.name == "responses" || scenario.name == "responses_stream" {
+					require.Contains(t, recorder.Body.String(), "previous_response_not_found")
+					// 只给服务端引用时无法核对归属，即使请求沿用同一 Key 也不能从共享账号取回历史。
+					for _, extra := range []string{`"conversation":{"id":"conv_other"}`, `"input":[{"type":"item_reference","id":"item_other"}]`} {
+						ref := httptest.NewRequest("POST", scenario.path, strings.NewReader(`{"model":"gpt-4o",`+extra+"}"))
+						ref.Header = req.Header.Clone()
+						w := httptest.NewRecorder()
+						engine.ServeHTTP(w, ref)
+						require.Equal(t, 400, w.Code, w.Body.String())
+						require.Equal(t, wantHits, hits.Load())
+					}
+
+					// 第二轮同时带客户端保存的历史和含同名属性的函数定义；模拟上游必须收到原值。
+					kind := "reasoning"
+					if scenario.name == "responses_stream" {
+						kind = "compaction"
+					}
+					replay := fmt.Sprintf(`{"model":"gpt-4o","max_output_tokens":20,"stream":%t,"input":[{"type":%q,"encrypted_content":"client-replay","summary":[]},{"role":"user","content":"continue"}],"tools":[{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"conversation":{"type":"string"}}}}]}`, scenario.name == "responses_stream", kind)
+					req = httptest.NewRequest("POST", scenario.path, strings.NewReader(replay))
+					req.Header.Set("Authorization", "Bearer sk-"+token.Key)
+					req.Header.Set("Content-Type", "application/json")
+					w := httptest.NewRecorder()
+					engine.ServeHTTP(w, req)
+					require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+					require.EqualValues(t, 2, hits.Load())
+					for _, path := range []string{"input.0.type", "input.0.encrypted_content", "input.1.content", "tools.0.parameters.properties.conversation.type"} {
+						require.Equal(t, gjson.Get(replay, path).String(), gjson.Get(replayBody.Load().(string), path).String(), path)
+					}
+					var follow model.RetailCharge
+					require.NoError(t, model.DB.First(&follow, "id = ?", "retail-http-"+scenario.name+"-2").Error)
+					require.Equal(t, "settled", follow.Status)
+					require.Equal(t, charge.Actual, follow.Actual)
+					if priced {
+						// 同一 Key、同一获准渠道和凭据允许增量续聊，检查真实出站的引用及结算。
+						refBody := fmt.Sprintf(`{"model":"gpt-4o","previous_response_id":"resp-1","input":"next","max_output_tokens":20,"stream":%t}`, scenario.name == "responses_stream")
+						refReq := httptest.NewRequest("POST", scenario.path, strings.NewReader(refBody))
+						refReq.Header = req.Header.Clone()
+						w = httptest.NewRecorder()
+						engine.ServeHTTP(w, refReq)
+						require.Equal(t, 200, w.Code, w.Body.String())
+						require.EqualValues(t, 3, hits.Load())
+						require.Equal(t, "resp-1", gjson.Get(replayBody.Load().(string), "previous_response_id").String())
+
+						// 另一个 Key 即使属于同一用户名下，也不能查询本 Key 在共享账号里的历史。
+						other := model.Token{UserId: user.Id, Key: common.GetUUID(), Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true, ServiceMode: "retail"}
+						require.NoError(t, model.DB.Create(&other).Error)
+						foreign := httptest.NewRequest("POST", scenario.path, strings.NewReader(refBody))
+						foreign.Header = refReq.Header.Clone()
+						foreign.Header.Set("Authorization", "Bearer sk-"+other.Key)
+						w = httptest.NewRecorder()
+						engine.ServeHTTP(w, foreign)
+						require.Equal(t, 400, w.Code, w.Body.String())
+						require.Contains(t, w.Body.String(), "previous_response_not_found")
+						require.EqualValues(t, 3, hits.Load())
+						// 渠道号不变但供货凭据已轮换，旧回复也不能发给更换后的账号。
+						require.NoError(t, model.DB.Model(&channel).Update("key", "rotated-test-key").Error)
+						rotated := httptest.NewRequest("POST", scenario.path, strings.NewReader(refBody))
+						rotated.Header = refReq.Header.Clone()
+						w = httptest.NewRecorder()
+						engine.ServeHTTP(w, rotated)
+						require.Equal(t, 400, w.Code, w.Body.String())
+						require.Contains(t, w.Body.String(), "previous_response_not_found")
+						require.EqualValues(t, 3, hits.Load())
+					}
+				}
 				if priced && scenario.name == "chat" {
 					// Exercise the public HTTP contract, including the selection stage
 					// that runs before the relay handler reserves wallet money.

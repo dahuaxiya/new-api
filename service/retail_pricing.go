@@ -13,6 +13,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -99,7 +100,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if imageRequest != (quote.Model.Kind == "image") {
 		return true, retailPriceError(retailprice.ErrConfig)
 	}
-	if err := validateRetailRequest(c, raw, quote.Model.Kind); err != nil {
+	if err := validateRetailRequest(c, raw, quote.Model.Kind, c.Request.URL.Path); err != nil {
 		return true, retailPriceError(err)
 	}
 	// Counting is mandatory for a guarded request, even when the legacy global estimate switch is off.
@@ -108,9 +109,16 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if err != nil || tokens < 0 || tokens > quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo || (quote.InputLimit > 0 && tokens > quote.InputLimit) {
 		return true, retailPriceError(retailprice.ErrBudget)
 	}
-	// The image DTO estimates only the text prompt. For an edit reserve the admissible
-	// context so a short prompt cannot dispatch an unreserved image input.
-	if c.GetBool("retail_studio_image_edit") {
+	var replay []string
+	if c.Request.URL.Path == "/v1/responses" {
+		replay = retailReplayContents(raw)
+	}
+	// 本地分词器无法读出密文的上下文长度。与图片编辑相同，先预留可接受的上限，
+	// 再按上游返回的真实 usage 结算。保留本次输入，出站前核对协议转换没有丢掉历史。
+	if len(replay) > 0 {
+		c.Set("retail_response_replay", replay)
+	}
+	if c.GetBool("retail_studio_image_edit") || len(replay) > 0 || c.GetString("retail_previous_response") != "" {
 		tokens = quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo
 		if quote.InputLimit > 0 {
 			tokens = min(tokens, quote.InputLimit)
@@ -158,6 +166,10 @@ func retailPriceError(err error) *types.NewAPIError {
 func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
 	quote := info.RetailQuote
 	if quote == nil {
+		// 已认证的历史引用只能走有最终凭据检查的计费路径。
+		if c.GetString("retail_previous_response") != "" {
+			return retailprice.ErrAccess
+		}
 		return nil
 	}
 	if quote.ValidUntil <= time.Now().Unix() || req.GetBody == nil {
@@ -222,9 +234,26 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	if err != nil || len(raw) > 8<<20 || !gjson.ValidBytes(raw) {
 		return retailprice.ErrConfig
 	}
+	if !checkRetailResponseOrigin(c, req, info, raw) {
+		// 凭据在绑定后轮换，或出站协议无法表达该引用时，客户端可改为发送完整历史。
+		if c.GetString("retail_previous_response") != "" {
+			msg := i18n.T(c, i18n.MsgRetailStateUnsupported, map[string]any{"Field": "previous_response_id"})
+			return types.NewOpenAIError(errors.New(msg), "previous_response_not_found", http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		return retailprice.ErrAccess
+	}
 	reference := studioReferencePath(c.Request, c.GetBool("retail_studio_image_edit"))
-	if err := validateRetailRequest(c, raw, quote.Model.Kind); err != nil {
+	if err := validateRetailRequest(c, raw, quote.Model.Kind, req.URL.Path); err != nil {
 		return err
+	}
+	// 只有原生 Responses 能可靠传递这类历史。渠道覆盖参数或跨协议转换若增删、
+	// 调换了密文，拒绝发单，避免静默丢上下文或在预留之外增加不可计数的输入。
+	var outgoingReplay []string
+	if strings.HasSuffix(req.URL.Path, "/responses") {
+		outgoingReplay = retailReplayContents(raw)
+	}
+	if !slices.Equal(outgoingReplay, c.GetStringSlice("retail_response_replay")) {
+		return retailprice.ErrConfig
 	}
 	if gjson.GetBytes(raw, "model").String() != upstreamModel || upstreamModel == "" {
 		return retailprice.ErrAccess
@@ -303,25 +332,51 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	return nil
 }
 
-// validateRetailRequest applies the verified image set only to an internally dispatched chat.
-// Both the incoming request and the final provider-specific body must contain those exact images.
-func validateRetailRequest(c *gin.Context, raw []byte, kind string) error {
-	if HasStudioVision(c.Request) && kind != "image" {
-		return validateRetailChat(raw, c.Request.Context().Value(studioVisionKey{}).(map[string]int))
+// retailReplayContents 按顺序提取客户端随 Responses input 数组携带的推理或压缩历史。
+// 比较类型和内容，避免把外观相同但语义不同的输入项视为等价；只在本次请求内使用。
+func retailReplayContents(raw []byte) []string {
+	var contents []string
+	input := gjson.GetBytes(raw, "input")
+	if !input.IsArray() {
+		return nil
+	}
+	input.ForEach(func(_, item gjson.Result) bool {
+		if ciphertext, ok := retailReplayCiphertext(item); ok {
+			contents = append(contents, item.Get("type").String(), ciphertext)
+		}
+		return true
+	})
+	return contents
+}
+
+// retailReplayCiphertext 识别 Responses 支持的自包含密文，不把普通消息或工具字段当成凭据。
+func retailReplayCiphertext(item gjson.Result) (string, bool) {
+	kind := item.Get("type").String()
+	ciphertext := item.Get("encrypted_content")
+	return ciphertext.Str, (kind == "reasoning" || kind == "compaction") && ciphertext.Type == gjson.String && ciphertext.Str != ""
+}
+
+// validateRetailRequest 校验入站和最终出站的实际协议，工作台上传图片的许可仅限本次请求。
+func validateRetailRequest(c *gin.Context, raw []byte, kind, path string) error {
+	if kind != "image" {
+		var vision map[string]int
+		if HasStudioVision(c.Request) {
+			vision = c.Request.Context().Value(studioVisionKey{}).(map[string]int)
+		}
+		return validateRetailChat(raw, vision, strings.HasSuffix(path, "/responses"), c.GetString("retail_previous_response"))
 	}
 	edit := c.GetBool("retail_studio_image_edit")
 	return validateRetailBody(raw, kind, edit, studioReferencePath(c.Request, edit) != "")
 }
 
-// validateRetailTextBody excludes metered tools, alternate tiers and media not priced by the text contract.
-// JSON schemas inside function tools are not recursively treated as message content.
+// validateRetailTextBody 按普通文本协议校验消息，不开放 Responses 专用的回放输入。
 func validateRetailTextBody(raw []byte) error {
-	return validateRetailChat(raw, nil)
+	return validateRetailChat(raw, nil, false, "")
 }
 
-// validateRetailChat preserves the text contract and admits only the exact uploaded raster
-// payloads, including when OpenAI Chat is converted to Responses or Anthropic Messages.
-func validateRetailChat(raw []byte, vision map[string]int) error {
+// validateRetailChat 校验文本计费契约。原生 Responses 只在 input 数组的直接元素中
+// 接受携带密文的历史，其嵌套消息仍须遵守媒体和工具限制。
+func validateRetailChat(raw []byte, vision map[string]int, responses bool, previous string) error {
 	root := gjson.ParseBytes(raw)
 	if !gjson.ValidBytes(raw) || !root.IsObject() {
 		return retailprice.ErrConfig
@@ -351,7 +406,11 @@ func validateRetailChat(raw []byte, vision map[string]int) error {
 			return retailprice.ErrConfig
 		}
 	}
-	for _, field := range []string{"audio", "modalities", "background", "previous_response_id", "conversation", "prompt", "service_tier", "speed", "parameters"} {
+	// 引用必须是中间件已经按本地用户和 Key 验证过的同一个回复 ID。
+	if ref := root.Get("previous_response_id"); ref.Type != gjson.Null && (!responses || ref.Type != gjson.String || ref.Str != previous) {
+		return retailprice.ErrConfig
+	}
+	for _, field := range []string{"audio", "modalities", "background", "conversation", "prompt", "service_tier", "speed", "parameters"} {
 		v := root.Get(field)
 		if !v.Exists() || v.Type == gjson.Null {
 			continue
@@ -379,7 +438,23 @@ func validateRetailChat(raw []byte, vision map[string]int) error {
 		return retailprice.ErrConfig
 	}
 	remaining := maps.Clone(vision)
-	queue := []gjson.Result{root.Get("messages"), root.Get("input"), root.Get("system")}
+	queue := []gjson.Result{root.Get("messages"), root.Get("system")}
+	input := root.Get("input")
+	if responses && input.IsArray() {
+		for _, item := range input.Array() {
+			if _, ok := retailReplayCiphertext(item); ok {
+				// 仅密文豁免普通文本检查，同一个输入项不能借此携带未报价的媒体。
+				if item.Get("image_url").Exists() || item.Get("audio").Exists() {
+					return retailprice.ErrConfig
+				}
+				queue = append(queue, item.Get("content"), item.Get("output"))
+				continue
+			}
+			queue = append(queue, item)
+		}
+	} else {
+		queue = append(queue, input)
+	}
 	for len(queue) > 0 {
 		item := queue[len(queue)-1]
 		queue = queue[:len(queue)-1]

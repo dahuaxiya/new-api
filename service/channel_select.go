@@ -288,6 +288,10 @@ type ChannelSelectError struct {
 func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam) (*model.Channel, string, *ChannelSelectError) {
 	constraints := GetChannelConstraints(c)
 	if err := ApplyRetailRouting(c, retry); err != nil {
+		// 分组变化时，客户端可以用完整输入重试，不应把丢失的续聊路线报告为全组停售。
+		if errors.Is(err, errRetailPreviousUnavailable) {
+			return nil, "", &ChannelSelectError{StatusCode: http.StatusBadRequest, Code: "previous_response_not_found", Message: i18n.T(c, i18n.MsgRetailStateUnsupported, map[string]any{"Field": "previous_response_id"})}
+		}
 		for _, known := range []error{retailprice.ErrCap, retailprice.ErrBudget, retailprice.ErrExpired, retailprice.ErrAccess, retailprice.ErrConfig} {
 			if errors.Is(err, known) {
 				return nil, "", &ChannelSelectError{StatusCode: http.StatusForbidden, Code: types.ErrorCode(known.Error()), Message: known.Error()}

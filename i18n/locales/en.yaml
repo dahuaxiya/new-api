@@ -2,7 +2,7 @@
 retail.unavailable: "Retail API is unavailable"
 retail.endpoint_unsupported: "This endpoint is not available for retail API keys"
 retail.invalid_request: "Invalid retail request"
-retail.state_unsupported: "Retail requests require full conversation input without upstream account state"
+retail.state_unsupported: "Cannot verify ownership of the upstream reference {{.Field}}. Resend the conversation as Responses input."
 retail.supply_unavailable: "Retail supply is unavailable"
 retail.insufficient_quota: "Retail balance or API key quota is insufficient"
 

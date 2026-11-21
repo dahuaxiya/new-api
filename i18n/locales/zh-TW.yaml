@@ -2,7 +2,7 @@
 retail.unavailable: "餘額計費 API 暫不可用"
 retail.endpoint_unsupported: "此介面暫不支援餘額計費 API 金鑰"
 retail.invalid_request: "餘額計費 API 請求格式無效"
-retail.state_unsupported: "請提交完整對話，不要攜帶上游帳號的會話狀態"
+retail.state_unsupported: "無法確認上游引用 {{.Field}} 的歸屬，請在 input 中重新傳送完整對話。"
 retail.supply_unavailable: "商業供貨管道暫不可用"
 retail.insufficient_quota: "錢包餘額或 API 金鑰額度不足"
 # 中文（繁體）翻譯檔案

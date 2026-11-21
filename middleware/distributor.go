@@ -58,28 +58,37 @@ func Distribute() func(c *gin.Context) {
 			return
 		}
 		if c.GetBool("retail_request") {
-			// 当前公共供货允许跨账号选择，不能转发仅原账号可解密或可续接的状态。
-			var body map[string]any
+			// 工具参数是用户定义的 JSON Schema。同名属性不会让上游读取会话，
+			// 只检查协议真正用作服务端引用的位置，并告知客户端应重放完整输入。
+			var body struct {
+				Previous     common.RawMessage `json:"previous_response_id"`
+				Conversation common.RawMessage `json:"conversation"`
+				Input        common.RawMessage `json:"input"`
+			}
 			if err := common.UnmarshalBodyReusable(c, &body); err != nil {
 				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgRetailInvalidRequest))
 				return
 			}
-			pending := []any{body}
-			for len(pending) > 0 {
-				item := pending[len(pending)-1]
-				pending = pending[:len(pending)-1]
-				switch value := item.(type) {
-				case map[string]any:
-					for key, child := range value {
-						if (key == "previous_response_id" || key == "encrypted_content" || key == "conversation") && child != nil && child != "" {
-							abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgRetailStateUnsupported))
-							return
-						}
-						pending = append(pending, child)
-					}
-				case []any:
-					pending = append(pending, value...)
+			field := ""
+			if id := gjson.ParseBytes(body.Previous); id.String() != "" {
+				if c.Request.URL.Path != "/v1/responses" || id.Type != gjson.String || !service.BindRetailPreviousResponse(c, id.Str) {
+					field = "previous_response_id"
 				}
+			}
+			switch {
+			case gjson.ParseBytes(body.Conversation).String() != "":
+				field = "conversation"
+			case gjson.GetBytes(body.Input, `#(type=="item_reference")`).Exists():
+				field = "input.item_reference"
+			}
+			if field != "" {
+				// 只报告协议字段名。未知引用和属于其他客户的引用返回相同错误。
+				code := types.ErrorCode("retail_state_unsupported")
+				if field == "previous_response_id" {
+					code = "previous_response_not_found"
+				}
+				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgRetailStateUnsupported, map[string]any{"Field": field}), code)
+				return
 			}
 		}
 		if hostingChannel != 0 {
