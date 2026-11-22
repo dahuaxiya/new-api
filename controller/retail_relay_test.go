@@ -203,7 +203,16 @@ func TestRetailHTTPRelay(t *testing.T) {
 					if strings.Contains(scenario.body, `"stream":true`) {
 						w.Header().Set("Content-Type", "text/event-stream")
 					}
-					_, _ = fmt.Fprint(w, scenario.response)
+					response := scenario.response
+					if priced && hit >= 4 {
+						// 模拟高速上游接受 store:true 却明确返回 store:false，且后续只处理完整 input。
+						if scenario.name == "responses_stream" && (hit == 4 || hit == 5 || hit == 6) {
+							// 有些 SSE 终包只有 usage；只有含完整输出的终包能登记为可回放。
+							response = strings.Replace(response, `"usage":`, `"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"OK"}]}],"usage":`, 1)
+						}
+						response = strings.ReplaceAll(response, `"id":"resp-1"`, fmt.Sprintf(`"store":false,"id":"resp-local-%d"`, hit))
+					}
+					_, _ = fmt.Fprint(w, response)
 				}))
 				t.Cleanup(upstream.Close)
 				channel := model.Channel{Name: "retail-upstream", Key: "test-upstream-key", Status: 1, Type: scenario.channelType, Group: "retail", Models: "gpt-4o", BaseURL: &upstream.URL, Priority: common.GetPointer(int64(10))}
@@ -399,6 +408,39 @@ func TestRetailHTTPRelay(t *testing.T) {
 						require.Equal(t, 400, w.Code, w.Body.String())
 						require.Contains(t, w.Body.String(), "previous_response_not_found")
 						require.EqualValues(t, 3, hits.Load())
+						// 用真实 HTTP 入口发送附件，要求第二、第三轮出站均包含同一口令，且不再带远端 ID。
+						ticket := uuid.NewString()
+						submit := func(body, auth string) *httptest.ResponseRecorder {
+							request := httptest.NewRequest(http.MethodPost, scenario.path, strings.NewReader(body))
+							request.Header = refReq.Header.Clone()
+							request.Header.Set("Authorization", auth)
+							result := httptest.NewRecorder()
+							engine.ServeHTTP(result, request)
+							return result
+						}
+						auth := refReq.Header.Get("Authorization")
+						fileBody := fmt.Sprintf(`{"model":"gpt-4o","store":true,"stream":%t,"max_output_tokens":20,"input":[{"role":"user","content":[{"type":"input_file","filename":"ticket.txt","file_data":"data:text/plain;base64,%s"}]}]}`, scenario.name == "responses_stream", base64.StdEncoding.EncodeToString([]byte(ticket)))
+						w = submit(fileBody, auth)
+						require.Equal(t, 200, w.Code, w.Body.String())
+						require.Contains(t, replayBody.Load().(string), ticket)
+						for _, id := range []string{"resp-local-4", "resp-local-5"} {
+							next := strings.Replace(strings.Replace(refBody, "resp-1", id, 1), `"model"`, `"store":true,"model"`, 1)
+							require.Equal(t, 400, submit(next, "Bearer sk-"+other.Key).Code)
+							w = submit(next, auth)
+							require.Equal(t, 200, w.Code, w.Body.String())
+							require.Contains(t, replayBody.Load().(string), ticket)
+							require.False(t, gjson.Get(replayBody.Load().(string), "previous_response_id").Exists())
+						}
+						w = submit(strings.Replace(fileBody, `"store":true`, `"store":false`, 1), auth)
+						require.Equal(t, 200, w.Code, w.Body.String())
+						require.Equal(t, 400, submit(strings.Replace(refBody, "resp-1", "resp-local-7", 1), auth).Code)
+						if scenario.name == "responses_stream" {
+							// 缺失 output 的上游终包不能产生可回放的本地 ID。
+							w = submit(fileBody, auth)
+							require.Equal(t, 200, w.Code, w.Body.String())
+							require.Equal(t, 400, submit(strings.Replace(refBody, "resp-1", "resp-local-8", 1), auth).Code)
+						}
+						hitsBeforeRotation := hits.Load()
 						// 渠道号不变但供货凭据已轮换，旧回复也不能发给更换后的账号。
 						require.NoError(t, model.DB.Model(&channel).Update("key", "rotated-test-key").Error)
 						rotated := httptest.NewRequest("POST", scenario.path, strings.NewReader(refBody))
@@ -407,7 +449,7 @@ func TestRetailHTTPRelay(t *testing.T) {
 						engine.ServeHTTP(w, rotated)
 						require.Equal(t, 400, w.Code, w.Body.String())
 						require.Contains(t, w.Body.String(), "previous_response_not_found")
-						require.EqualValues(t, 3, hits.Load())
+						require.Equal(t, hitsBeforeRotation, hits.Load())
 					}
 				}
 				if priced && scenario.name == "chat" {

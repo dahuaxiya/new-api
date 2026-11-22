@@ -90,6 +90,13 @@ func Distribute() func(c *gin.Context) {
 				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgRetailStateUnsupported, map[string]any{"Field": field}), code)
 				return
 			}
+			if c.Request.URL.Path == "/v1/responses" {
+				// 在 DTO、计费和透传共用的请求缓存中展开附件及需本地回放的历史。
+				if err := service.PrepareRetailResponsesInput(c, body.Input); err != nil {
+					abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgRetailInvalidRequest))
+					return
+				}
+			}
 		}
 		if hostingChannel != 0 {
 			// 强制专属渠道并禁止跨组重试，防止旧令牌缓存、Playground 分组或手动改组访问他人账号。

@@ -55,6 +55,10 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if err != nil || len(raw) > 8<<20 {
 		return true, retailPriceError(retailprice.ErrConfig)
 	}
+	// 保留客户端原始存储决定，渠道改写 store 不能为本地保留内容提供授权。
+	store := gjson.GetBytes(raw, "store")
+	c.Set("retail_client_store", store.Type == gjson.True)
+	c.Set("retail_client_no_store", store.Type == gjson.False)
 	output := uint(1024)
 	switch req := info.Request.(type) {
 	case *dto.GeneralOpenAIRequest:
@@ -415,13 +419,8 @@ func validateRetailTextBody(raw []byte) error {
 	return validateRetailChat(raw, nil, false, "")
 }
 
-// validateRetailChat 校验文本计费契约。原生 Responses 只在 input 数组的直接元素中
-// 接受加密历史和工具回放；工具结果仍须遵守本次请求的媒体许可。
-func validateRetailChat(raw []byte, vision map[string]int, responses bool, previous string) error {
-	root := gjson.ParseBytes(raw)
-	if !gjson.ValidBytes(raw) || !root.IsObject() {
-		return retailprice.ErrConfig
-	}
+// uniqueRetailKeys 在解析、改写或计量之前检查重复字段，确保各阶段看到同一份输入。
+func uniqueRetailKeys(root gjson.Result) bool {
 	// Reject duplicate keys at every depth: inspectors and upstream JSON parsers
 	// may otherwise disagree about which model, quantity or content type wins.
 	objects := []gjson.Result{root}
@@ -444,8 +443,21 @@ func validateRetailChat(raw []byte, vision map[string]int, responses bool, previ
 			return true
 		})
 		if duplicate {
-			return retailprice.ErrConfig
+			return false
 		}
+	}
+	return true
+}
+
+// validateRetailChat 校验文本计费契约。原生 Responses 只在 input 数组的直接元素中
+// 接受加密历史和工具回放；工具结果仍须遵守本次请求的媒体许可。
+func validateRetailChat(raw []byte, vision map[string]int, responses bool, previous string) error {
+	root := gjson.ParseBytes(raw)
+	if !gjson.ValidBytes(raw) || !root.IsObject() {
+		return retailprice.ErrConfig
+	}
+	if !uniqueRetailKeys(root) {
+		return retailprice.ErrConfig
 	}
 	// 引用必须是中间件已经按本地用户和 Key 验证过的同一个回复 ID。
 	if ref := root.Get("previous_response_id"); ref.Type != gjson.Null && (!responses || ref.Type != gjson.String || ref.Str != previous) {

@@ -41,8 +41,9 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	responseBody = rewriteSGLangResponsesCreatedAt(info, responseBody, "created_at", responsesResponse.CreatedAt)
 
 	// 写入前记录归属，客户端收到回复即可用该 ID 续接。
+	// 上游明确返回 store:false 时不能只凭成功状态登记可续接的 ID。
 	if gjson.ParseBytes(responsesResponse.Status).String() == "completed" {
-		service.RememberRetailResponse(c, responsesResponse.ID)
+		service.RememberRetailResponse(c, responsesResponse.ID, gjson.ParseBytes(responseBody))
 	}
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
@@ -98,7 +99,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		if streamResponse.Response != nil {
 			// 只绑定已完成的回复；断流或创建事件不能授权后续引用。
 			if streamResponse.Type == "response.completed" {
-				service.RememberRetailResponse(c, streamResponse.Response.ID)
+				service.RememberRetailResponse(c, streamResponse.Response.ID, gjson.Get(data, "response"))
 			}
 			data = string(rewriteSGLangResponsesCreatedAt(info, []byte(data), "response.created_at", streamResponse.Response.CreatedAt))
 			if c.GetBool("retail_request") && streamResponse.Response.Usage != nil {
