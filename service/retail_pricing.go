@@ -101,6 +101,16 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if imageRequest != (quote.Model.Kind == "image") {
 		return true, retailPriceError(retailprice.ErrConfig)
 	}
+	// 在入站阶段登记经过检查的内嵌图片。出站只消费这份清单，不重新信任转换后的数据。
+	if !imageRequest && c.Request.URL.Path == "/v1/responses" && !HasStudioVision(c.Request) {
+		pictures, err := retailResponsesPictures(raw)
+		if err != nil {
+			return true, retailPriceError(err)
+		}
+		if len(pictures) > 0 {
+			c.Request = c.Request.WithContext(WithStudioVision(c.Request.Context(), pictures))
+		}
+	}
 	if err := validateRetailRequest(c, raw, quote.Model.Kind, c.Request.URL.Path); err != nil {
 		return true, retailPriceError(err)
 	}
@@ -460,9 +470,18 @@ func validateRetailChat(raw []byte, vision map[string]int, responses bool, previ
 	valid := true
 	root.Get("tools").ForEach(func(_, tool gjson.Result) bool {
 		typ := tool.Get("type").String()
-		// custom 声明交给客户端执行；服务端提供的搜索等工具仍须独立报价。
-		if typ != "function" && !(responses && typ == "custom") && !(typ == "" && tool.Get("input_schema").Exists()) {
-			valid = false
+		if responses && typ == "namespace" {
+			// 命名空间仅组织客户端工具，逐项核对子工具以保留服务端工具的计费限制。
+			members := tool.Get("tools")
+			valid = tool.Get("name").Str != "" && members.IsArray() && len(members.Array()) > 0
+			if valid {
+				members.ForEach(func(_, member gjson.Result) bool {
+					valid = member.Get("name").Str != "" && slices.Contains([]string{"function", "custom"}, member.Get("type").Str)
+					return valid
+				})
+			}
+		} else {
+			valid = typ == "function" || (responses && typ == "custom") || (typ == "" && tool.Get("input_schema").Exists())
 		}
 		return valid
 	})

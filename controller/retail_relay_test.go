@@ -345,8 +345,8 @@ func TestRetailHTTPRelay(t *testing.T) {
 							{"type":"custom_tool_call","id":"ctc_1","namespace":"functions","call_id":"call_1","name":"ticket_tool","input":"ticket","status":"completed"},
 							{"type":"custom_tool_call_output","call_id":"call_1","output":[{"type":"input_text","text":%q}]},
 							{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"open_page","url":"https://example.com/"}},
-							{"role":"user","content":"Repeat the ticket from the tool result."}],
-						"tools":[{"type":"custom","name":"ticket_tool"},{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"conversation":{"type":"string"}}}}]}`, scenario.name == "responses_stream", kind, uuid.NewString())
+							{"role":"user","content":[{"type":"input_text","text":"Repeat the ticket from the tool result."},{"type":"input_image","detail":"low","image_url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="}]}],
+						"tools":[{"type":"namespace","name":"functions","tools":[{"type":"custom","name":"ticket_tool"}]},{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"conversation":{"type":"string"}}}}]}`, scenario.name == "responses_stream", kind, uuid.NewString())
 					req = httptest.NewRequest("POST", scenario.path, strings.NewReader(replay))
 					req.Header.Set("Authorization", "Bearer sk-"+token.Key)
 					req.Header.Set("Content-Type", "application/json")

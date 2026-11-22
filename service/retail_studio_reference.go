@@ -14,6 +14,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
+	"github.com/tidwall/gjson"
 )
 
 // StudioReferenceLimit bounds the raw bytes independently of multipart headers.
@@ -137,6 +138,46 @@ func writeStudioJSONReference(writer *io.PipeWriter, file *os.File, size int64, 
 	writer.CloseWithError(err)
 }
 
+// retailResponsesPictures 登记用户消息中自带的栅格图片，返回可供出站逐张核对的原始 data URL。
+// 只读取内嵌字节，不解引用 URL 或文件 ID；价格校验会拒绝未登记的媒体。
+func retailResponsesPictures(raw []byte) (map[int]string, error) {
+	var pictures map[int]string
+	total := 0
+	for _, msg := range gjson.GetBytes(raw, "input").Array() {
+		if msg.Get("role").Str != "user" || (msg.Get("type").Exists() && msg.Get("type").Str != "message") {
+			continue
+		}
+		for _, part := range msg.Get("content").Array() {
+			if part.Get("type").Str != "input_image" {
+				continue
+			}
+			uri := part.Get("image_url").Str
+			prefix, payload, ok := strings.Cut(uri, ",")
+			if !ok || part.Get("file_id").Exists() || (prefix != "data:image/png;base64" && prefix != "data:image/jpeg;base64" && prefix != "data:image/webp;base64") {
+				return nil, retailprice.ErrConfig
+			}
+			// 与工作台共享 4 MiB 原图预算和 4000 万像素上限；估算前先限制解码分配。
+			if len(payload) > base64.StdEncoding.EncodedLen((4<<20)-total) {
+				return nil, retailprice.ErrConfig
+			}
+			data, err := base64.StdEncoding.DecodeString(payload)
+			if err != nil || len(data) == 0 || len(data) > (4<<20)-total {
+				return nil, retailprice.ErrConfig
+			}
+			cfg, format, err := decodeImageConfig(data)
+			if err != nil || prefix != "data:image/"+format+";base64" || cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width) > 40_000_000/int64(cfg.Height) {
+				return nil, retailprice.ErrConfig
+			}
+			total += len(data)
+			if pictures == nil {
+				pictures = make(map[int]string)
+			}
+			pictures[len(pictures)] = uri
+		}
+	}
+	return pictures, nil
+}
+
 type studioVisionKey struct{}
 
 // WithStudioVision binds validated inline images to the internal chat request. A counted
@@ -149,7 +190,7 @@ func WithStudioVision(ctx context.Context, pictures map[int]string) context.Cont
 	return context.WithValue(ctx, studioVisionKey{}, allowed)
 }
 
-// HasStudioVision reports whether this server-generated request contains verified chat images.
+// HasStudioVision reports whether the server validated the inline chat images bound to this request.
 func HasStudioVision(req *http.Request) bool {
 	if req == nil {
 		return false
