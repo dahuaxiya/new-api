@@ -204,7 +204,8 @@ func (c *ImageGenerationCallCounter) Commit(info *RelayInfo) {
 	if c != nil {
 		count = c.count
 	}
-	if count > dto.MaxImageN {
+	// 商业报价需要核对真实完成数；普通计费仍使用原有单次上限。
+	if info.RetailQuote == nil && count > dto.MaxImageN {
 		count = dto.MaxImageN
 	}
 

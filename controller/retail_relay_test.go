@@ -104,6 +104,11 @@ func TestRetailHTTPRelay(t *testing.T) {
 	constant.StreamingTimeout = 10
 	common.RetryTimes = 3
 	t.Cleanup(func() { constant.StreamingTimeout, common.RetryTimes = oldTimeout, oldRetry })
+	const reference = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+	const imageBody = `{"model":"gpt-4o","input":[{"role":"user","content":[{"type":"input_image","detail":"low","image_url":"` + reference + `"}]}],"tools":[{"type":"image_generation"}],"tool_choice":{"type":"image_generation"},"max_output_tokens":20`
+	const item = `{"type":"image_generation_call","id":"ig-1","status":"completed","result":"iVBORw0KGgo="}`
+	const usage = `"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}`
+	const imageResponse = `{"id":"resp-image","model":"gpt-4o","status":"completed","output":[` + item + `],` + usage + `}`
 	for _, priced := range []bool{false, true} {
 		for _, scenario := range []struct {
 			name, path, body, response string
@@ -116,6 +121,12 @@ func TestRetailHTTPRelay(t *testing.T) {
 			{"image_media_input", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":9,"image_tokens":1}}}`, types.RelayFormatOpenAIImage, 1, false},
 			{"image_no_payload", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"revised_prompt":"tree"}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":10,"image_tokens":0}}}`, types.RelayFormatOpenAIImage, 1, false},
 			{"chat", "/v1/chat/completions", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20}`, `{"id":"chat-1","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`, types.RelayFormatOpenAI, 1, true},
+			{"tool_image", "/v1/responses", imageBody + "}", imageResponse, types.RelayFormatOpenAIResponses, 1, true},
+			{"tool_image_tokens", "/v1/responses", imageBody + "}", strings.Replace(imageResponse, `"output_tokens":2`, `"output_tokens":3,"output_tokens_details":{"image_tokens":1}`, 1), types.RelayFormatOpenAIResponses, 1, true},
+			{"tool_image_empty", "/v1/responses", imageBody + "}", strings.Replace(imageResponse, item, "", 1), types.RelayFormatOpenAIResponses, 1, true},
+			{"tool_image_over", "/v1/responses", imageBody + "}", strings.Replace(imageResponse, item, item+`,{"type":"image_generation_call","id":"ig-2","result":"Ag==","status":"completed"}`, 1), types.RelayFormatOpenAIResponses, 1, false},
+			{"tool_image_missing_usage", "/v1/responses", imageBody + "}", strings.Replace(imageResponse, ","+usage, "", 1), types.RelayFormatOpenAIResponses, 1, false},
+			{"tool_image_stream", "/v1/responses", imageBody + `,"stream":true,"max_tool_calls":2}`, "data: " + `{"type":"response.output_item.done","output_index":0,"item":` + item + "}\n\ndata: " + `{"type":"response.completed","response":` + imageResponse + "}\n\n", types.RelayFormatOpenAIResponses, 1, true},
 			{"responses", "/v1/responses", `{"model":"gpt-4o","input":"hello","max_output_tokens":20}`, `{"id":"resp-1","object":"response","status":"completed","model":"gpt-4o","output":[{"id":"msg-1","type":"message","role":"assistant","content":[{"type":"output_text","text":"OK"}]}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}`, types.RelayFormatOpenAIResponses, 1, true},
 			{"claude", "/v1/messages", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20}`, `{"id":"msg-1","type":"message","role":"assistant","model":"gpt-4o","content":[{"type":"text","text":"OK"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":2}}`, types.RelayFormatClaude, 14, true},
 			{"missing_usage", "/v1/chat/completions", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20}`, `{"id":"chat-1","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}]}`, types.RelayFormatOpenAI, 1, false},
@@ -131,7 +142,8 @@ func TestRetailHTTPRelay(t *testing.T) {
 			{"claude_stream", "/v1/messages", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20,"stream":true}`, "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"gpt-4o\",\"content\":[],\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"OK\"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\ndata: {\"type\":\"message_stop\"}\n\n", types.RelayFormatClaude, 14, true},
 		} {
 			t.Run(fmt.Sprintf("%s/guarded_%t", scenario.name, priced), func(t *testing.T) {
-				if scenario.format == types.RelayFormatOpenAIImage && !priced {
+				imageTool := strings.HasPrefix(scenario.name, "tool_image")
+				if (scenario.format == types.RelayFormatOpenAIImage || imageTool) && !priced {
 					t.Skip("image calls require a published price contract")
 				}
 				i18n.Init()
@@ -173,6 +185,21 @@ func TestRetailHTTPRelay(t *testing.T) {
 				var publishDuringCall func() error
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					hit := hits.Add(1)
+					if imageTool {
+						raw, err := io.ReadAll(r.Body)
+						if err != nil || gjson.GetBytes(raw, "input.0.content.0.image_url").String() != reference || gjson.GetBytes(raw, "tool_choice.type").String() != "image_generation" {
+							http.Error(w, "reference image or forced tool lost", 500)
+							return
+						}
+						limit := int64(1)
+						if scenario.name == "tool_image_stream" {
+							limit = 2
+						}
+						if gjson.GetBytes(raw, "max_tool_calls").Int() != limit {
+							http.Error(w, "tool limit differs from reservation", 500)
+							return
+						}
+					}
 					if hit >= 2 && (scenario.name == "responses" || scenario.name == "responses_stream") {
 						body, readErr := io.ReadAll(r.Body)
 						if readErr != nil {
@@ -285,6 +312,10 @@ func TestRetailHTTPRelay(t *testing.T) {
 					expected := 18
 					if priced {
 						expected = 21
+					}
+					if imageTool && scenario.name != "tool_image_empty" {
+						// 测试价每千张 150，倍率 0.3；单张 0.045 元，对应 22500 额度。
+						expected += 22500
 					}
 					require.Equal(t, expected, charge.Actual, "10 输入和 2 输出按冻结测试售价只结算一次")
 				} else {

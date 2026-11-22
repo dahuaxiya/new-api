@@ -144,17 +144,21 @@ type KeyPolicy struct {
 
 // Quote freezes customer prices and the wallet conversion before procurement.
 type Quote struct {
-	Version             int64  `json:"version"`
-	ProductID           string `json:"product_id"`
-	Model               Model  `json:"model"`
-	Sale                []Tier `json:"sale"`
-	WalletCNYPerUnit    string `json:"wallet_cny_per_unit"`
-	ValidUntil          int64  `json:"valid_until"`
-	OutputLimit         int    `json:"output_limit"`
-	ReservedInputTokens int    `json:"reserved_input_tokens,omitempty"`
-	ReservedCNY         string `json:"reserved_cny"`
-	InputLimit          int    `json:"input_limit,omitempty"`
-	Channels            []int  `json:"channels"`
+	// SaleFactor retains the unrounded group multiplier until optional tool fees are frozen.
+	SaleFactor          decimal.Decimal `json:"-"`
+	ImageToolUnitCNY    string          `json:"image_tool_unit_cny,omitempty"`
+	ImageToolLimit      int             `json:"image_tool_limit,omitempty"`
+	Version             int64           `json:"version"`
+	ProductID           string          `json:"product_id"`
+	Model               Model           `json:"model"`
+	Sale                []Tier          `json:"sale"`
+	WalletCNYPerUnit    string          `json:"wallet_cny_per_unit"`
+	ValidUntil          int64           `json:"valid_until"`
+	OutputLimit         int             `json:"output_limit"`
+	ReservedInputTokens int             `json:"reserved_input_tokens,omitempty"`
+	ReservedCNY         string          `json:"reserved_cny"`
+	InputLimit          int             `json:"input_limit,omitempty"`
+	Channels            []int           `json:"channels"`
 }
 
 // Amount parses bounded decimal money without accepting exponents or silently rounding invalid inputs.
@@ -446,7 +450,7 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 	if len(channels) == 0 {
 		return nil, ErrExpired
 	}
-	quote := &Quote{Version: version, ProductID: product.ID, Model: *official, WalletCNYPerUnit: b.WalletCNYPerUnit, ValidUntil: expires, OutputLimit: outputLimit, Channels: channels}
+	quote := &Quote{SaleFactor: saleFactor, Version: version, ProductID: product.ID, Model: *official, WalletCNYPerUnit: b.WalletCNYPerUnit, ValidUntil: expires, OutputLimit: outputLimit, Channels: channels}
 	maxInput, maxOutput := decimal.Zero, decimal.Zero
 	for _, tier := range official.Tiers {
 		values := make([]string, 5)

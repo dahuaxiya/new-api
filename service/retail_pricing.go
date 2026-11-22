@@ -20,6 +20,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -150,6 +151,16 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		return true, retailPriceError(retailprice.ErrBudget)
 	}
 	info.SetEstimatePromptTokens(tokens)
+	imageLimit, err := retailImageToolLimit(raw, c.Request.URL.Path)
+	if err != nil {
+		return true, retailPriceError(err)
+	}
+	if imageLimit > 0 {
+		basePrice := operation_setting.GetToolPriceForModel(dto.BuildInToolImageGeneration, info.OriginModelName)
+		if err := freezeRetailImageTool(quote, basePrice, imageLimit); err != nil {
+			return true, retailPriceError(err)
+		}
+	}
 	quota, err := model.ReservePricedRetailCharge(info.RequestId, info.UserId, info.TokenId, quote)
 	if err != nil {
 		return true, retailPriceError(err)
@@ -297,12 +308,27 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 				return retailprice.ErrBudget
 			}
 		}
-		if !gjson.GetBytes(raw, limitField).Exists() {
+		// 出站参数可能经过渠道覆盖。图片预算只授权原请求中的工具与调用次数。
+		outgoingLimit, err := retailImageToolLimit(raw, req.URL.Path)
+		if err != nil || outgoingLimit != quote.ImageToolLimit {
+			return retailprice.ErrConfig
+		}
+		setOutput := !gjson.GetBytes(raw, limitField).Exists()
+		setTool := outgoingLimit > 0 && !gjson.GetBytes(raw, "max_tool_calls").Exists()
+		if setOutput || setTool {
 			var body map[string]common.RawMessage
 			if common.Unmarshal(raw, &body) != nil {
 				return retailprice.ErrConfig
 			}
-			body[limitField], err = common.Marshal(quote.OutputLimit)
+			if setTool {
+				body["max_tool_calls"], err = common.Marshal(outgoingLimit)
+				if err != nil {
+					return err
+				}
+			}
+			if setOutput {
+				body[limitField], err = common.Marshal(quote.OutputLimit)
+			}
 			if err != nil {
 				return err
 			}
@@ -493,7 +519,7 @@ func validateRetailChat(raw []byte, vision map[string]int, responses bool, previ
 				})
 			}
 		} else {
-			valid = typ == "function" || (responses && typ == "custom") || (typ == "" && tool.Get("input_schema").Exists())
+			valid = typ == "function" || (responses && (typ == "custom" || typ == dto.BuildInToolImageGeneration)) || (typ == "" && tool.Get("input_schema").Exists())
 		}
 		return valid
 	})
@@ -599,6 +625,10 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 	}
 	// Validate raw aliases and the frozen provider snapshot before normalization:
 	// positive-only fallback rules can otherwise hide malformed negative counters.
+	imageFee, err := retailImageToolCharge(info)
+	if err != nil {
+		return 0, err
+	}
 	sources := []*dto.Usage{usage}
 	if snapshot := usage.BillingUsage; snapshot != nil {
 		if snapshot.GeminiUsageMetadata != nil {
@@ -645,12 +675,17 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 			}
 		}
 		for _, output := range []*dto.OutputTokenDetails{&source.CompletionTokenDetails, source.OutputTokensDetails} {
-			if output != nil && (output.AudioTokens != 0 || output.ImageTokens != 0) {
+			if output == nil {
+				continue
+			}
+			// 上游若把生成图片 token 算进总输出，只有已交付且按张报价的图片可以扣除这部分。
+			if output.AudioTokens != 0 || output.ImageTokens < 0 || output.ImageTokens > max(source.CompletionTokens, source.OutputTokens) || (output.ImageTokens > 0 && !imageFee.IsPositive()) {
 				return 0, retailprice.ErrUsage
 			}
 		}
 	}
-	params := BuildTieredTokenParams(usage, claude, map[string]bool{"cr": true, "cc": true, "cc1h": true})
+	// 按张收取的图片不再按文本输出 token 重复计费。
+	params := BuildTieredTokenParams(usage, claude, map[string]bool{"cr": true, "cc": true, "cc1h": true, "img_o": imageFee.IsPositive()})
 	values := []float64{params.P, params.C, params.CR, params.CC, params.CC1h, params.Len}
 	for _, v := range values {
 		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 2000000 || math.Trunc(v) != v {
@@ -661,7 +696,7 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 	if err != nil {
 		return 0, err
 	}
-	quota, charged, err := model.RetailCNYQuota(amount, info.RetailQuote.WalletCNYPerUnit)
+	quota, charged, err := model.RetailCNYQuota(amount.Add(imageFee), info.RetailQuote.WalletCNYPerUnit)
 	if err != nil {
 		return 0, err
 	}
@@ -671,4 +706,77 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 	}
 	c.Set("retail_actual_cny", charged.String())
 	return quota, nil
+}
+
+// retailImageToolLimit 确定本次可采购的生图次数，仅原生 Responses 使用上游内置工具。
+// 未指定次数的请求按一次报价，最终出站时写入同一上限。显式多次调用按请求上限预留。
+func retailImageToolLimit(raw []byte, path string) (int, error) {
+	tools := gjson.GetBytes(raw, "tools")
+	found := false
+	for _, tool := range tools.Array() {
+		if tool.Get("type").Str != dto.BuildInToolImageGeneration {
+			continue
+		}
+		if found || !strings.HasSuffix(path, "/responses") {
+			return 0, retailprice.ErrConfig
+		}
+		found = true
+	}
+	if !found {
+		return 0, nil
+	}
+	cap := gjson.GetBytes(raw, "max_tool_calls")
+	if !cap.Exists() {
+		return 1, nil
+	}
+	if cap.Type != gjson.Number || cap.Float() != math.Trunc(cap.Float()) || cap.Float() < 1 || cap.Float() > dto.MaxImageN {
+		return 0, retailprice.ErrBudget
+	}
+	return int(cap.Int()), nil
+}
+
+// freezeRetailImageTool 在钱包预留前冻结每张人民币售价；站内工具价以每千次为单位。
+// 复用同一分组的售价倍率，结算时不再读取可热更新的工具价和分组配置。
+func freezeRetailImageTool(q *retailprice.Quote, perThousand float64, limit int) error {
+	if limit < 1 || limit > dto.MaxImageN || perThousand <= 0 || math.IsNaN(perThousand) || math.IsInf(perThousand, 0) {
+		return retailprice.ErrConfig
+	}
+	unit := decimal.NewFromFloat(perThousand).Shift(-3).Mul(q.SaleFactor).RoundCeil(8)
+	if !unit.IsPositive() {
+		return retailprice.ErrConfig
+	}
+	if _, err := retailprice.Amount(unit.String()); err != nil {
+		return err
+	}
+	held, err := retailprice.Amount(q.ReservedCNY)
+	if err != nil {
+		return err
+	}
+	q.ImageToolUnitCNY = unit.String()
+	q.ImageToolLimit = limit
+	q.ReservedCNY = held.Add(unit.Mul(decimal.NewFromInt(int64(limit)))).String()
+	return nil
+}
+
+// retailImageToolCharge 使用流式与非流式适配器去重后的完成数。上游超出授权上限时进入用量复核。
+func retailImageToolCharge(info *relaycommon.RelayInfo) (decimal.Decimal, error) {
+	quote := info.RetailQuote
+	if info.ResponsesUsageInfo == nil || info.BuiltInTools[dto.BuildInToolImageGeneration] == nil {
+		if quote.ImageToolLimit > 0 {
+			return decimal.Zero, retailprice.ErrUsage
+		}
+		return decimal.Zero, nil
+	}
+	count := info.BuiltInTools[dto.BuildInToolImageGeneration].CallCount
+	if count < 0 || count > quote.ImageToolLimit {
+		return decimal.Zero, retailprice.ErrUsage
+	}
+	if count == 0 {
+		return decimal.Zero, nil
+	}
+	unit, err := retailprice.Amount(quote.ImageToolUnitCNY)
+	if err != nil || !unit.IsPositive() {
+		return decimal.Zero, retailprice.ErrUsage
+	}
+	return unit.Mul(decimal.NewFromInt(int64(count))), nil
 }
