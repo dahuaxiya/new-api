@@ -36,10 +36,15 @@ export const Route = createFileRoute('/_authenticated/wallet/')({
 /** 只接受固定账单分区和名额标识；URL 参数不携带价格、付款状态或授权凭据。 */
 function RouteComponent() {
   const { show_history, tab, seat_id } = Route.useSearch()
+  const navigate = Route.useNavigate()
   return (
     <Wallet
       initialShowHistory={show_history}
       initialTab={tab}
+      onRetailTabChange={(nextTab) => {
+        // 让地址反映当前分区，否则从推荐奖励再次点击顶栏充值会落到同一 URL，无法返回表单。
+        void navigate({ search: { tab: nextTab }, replace: true })
+      }}
       hostingSeatId={seat_id}
     />
   )

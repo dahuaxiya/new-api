@@ -16,14 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
+
 import { ConfigDrawer } from '@/components/config-drawer'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Search } from '@/components/search'
 import { ThemeSwitch } from '@/components/theme-switch'
-import { SiteSwitcher } from '@/features/auth/components/unified-account'
+import { Button } from '@/components/ui/button'
 import { useNotifications } from '@/hooks/use-notifications'
+import { useStatus } from '@/hooks/use-status'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 
 import { defaultTopNavLinks } from '../config/top-nav.config'
@@ -106,6 +110,8 @@ export function AppHeader({
   showConfigDrawer = false,
   showProfileDropdown = true,
 }: AppHeaderProps) {
+  const { t } = useTranslation()
+  const { status } = useStatus()
   // Prioritize dynamically generated links from backend
   const dynamicLinks = useTopNavLinks()
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
@@ -125,11 +131,25 @@ export function AppHeader({
 
       {rightContent ?? (
         <div className='ms-auto flex shrink-0 items-center gap-1 sm:gap-2'>
-          <SiteSwitcher />
           {showTopNav && (
             <div className='me-1 hidden lg:block'>
               <TopNav links={links} />
             </div>
+          )}
+          {status?.site_mode === 'retail' && (
+            <Button
+              size='sm'
+              className='h-9 shrink-0 rounded-full bg-[#bf4819] px-4 text-sm font-semibold text-white shadow-none hover:bg-[#a73c12] focus-visible:ring-[#bf4819]/55 active:bg-[#91330f]'
+              render={
+                <Link
+                  to='/wallet'
+                  search={{ tab: 'balance' }}
+                  hash='wallet-add-funds'
+                />
+              }
+            >
+              {t('Recharge')}
+            </Button>
           )}
           {showSearch && (
             <Search className='w-8 flex-none [&>span]:hidden sm:[&>span]:inline' />

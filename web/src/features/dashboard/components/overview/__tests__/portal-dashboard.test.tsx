@@ -223,7 +223,7 @@ it('shows wallet usage without fetching hosted quota on retail', async () => {
     '/keys'
   )
   expect(
-    actions.getByRole('button', { name: 'Billing and redemption' })
+    actions.getByRole('button', { name: 'Wallet' })
   ).toHaveAttribute('href', '/wallet')
   expect(actions.getByRole('button', { name: 'Model Square' })).toHaveAttribute(
     'href',
@@ -246,7 +246,7 @@ it('offers hosted account and plan actions on the shared hosting dashboard', asy
     actions.getByRole('button', { name: 'Hosting plans' })
   ).toHaveAttribute('href', '/wallet')
   expect(
-    actions.queryByRole('button', { name: 'Billing and redemption' })
+    actions.queryByRole('button', { name: 'Wallet' })
   ).toBeNull()
   expect(actions.queryByRole('button', { name: 'Model Square' })).toBeNull()
 })
@@ -278,7 +278,7 @@ it('respects administrator and user menu settings in dashboard quick access', as
   )
   expect(actions.queryByRole('button', { name: 'API Keys' })).toBeNull()
   expect(
-    actions.queryByRole('button', { name: 'Billing and redemption' })
+    actions.queryByRole('button', { name: 'Wallet' })
   ).toBeNull()
   expect(actions.getByRole('button', { name: 'Model Square' })).toHaveAttribute(
     'href',

@@ -23,6 +23,7 @@ import { useState } from 'react'
 import { SignOutDialog } from '@/components/sign-out-dialog'
 import { Sidebar, SidebarContent, SidebarRail } from '@/components/ui/sidebar'
 import { useLayout } from '@/context/layout-provider'
+import { SiteSwitcher } from '@/features/auth/components/unified-account'
 import { useSidebarView } from '@/hooks/use-sidebar-view'
 import { MOTION_TRANSITION, MOTION_VARIANTS } from '@/lib/motion'
 
@@ -71,6 +72,7 @@ export function AppSidebar() {
                 ))}
               </motion.div>
             </AnimatePresence>
+            <SiteSwitcher placement='sidebar' />
           </SidebarContent>
           <SidebarPersonalSettings onSignOut={() => setSignOutOpen(true)} />
         </div>

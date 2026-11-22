@@ -122,8 +122,8 @@ it('keeps retail navigation and old hosting bookmarks separate', async () => {
   await mount('/dashboard/overview', 100, undefined, 'retail')
   expect(screen.getByText('API overview')).toBeInTheDocument()
   expect(screen.queryByText('Hosting overview')).toBeNull()
-  expect(screen.getByText('Model Square')).toBeInTheDocument()
-  expect(screen.getByText('Billing and redemption')).toBeInTheDocument()
+  expect(screen.queryByText('Model Square')).toBeNull()
+  expect(screen.getByText('Wallet')).toBeInTheDocument()
   expect(screen.queryByText('Hosted accounts')).toBeNull()
   for (const path of ['/account/gpt', '/users/hosting', '/users/onboarding']) {
     expect(isRetiredPortalPage(path, 100, 'retail')).toBe(true)

@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Balance top-up": "Пополнение баланса",
+    "Top-up history": "История пополнений",
+    "Payment details": "Детали оплаты",
+    "Amount credited": "К зачислению",
+    "Balance after top-up": "Баланс после пополнения",
+    "Pay with Alipay": "Оплатить через Alipay",
     "Edit Key": "Изменить ключ",
     "Saved Keys": "Сохранённые ключи",
     "Import Key": "Импортировать",

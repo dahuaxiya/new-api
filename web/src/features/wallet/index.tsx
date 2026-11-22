@@ -1,3 +1,4 @@
+import { ChevronRight } from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,14 +18,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+
+import './retail-wallet.css'
 import { useTranslation } from 'react-i18next'
 
-import { SectionPageLayout } from '@/components/layout'
+import { Main, SectionPageLayout } from '@/components/layout'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { HostingBilling } from '@/features/gpt-hosting/billing'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
+import { getCurrencyDisplay } from '@/lib/currency'
 
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
@@ -32,7 +37,6 @@ import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
 import { RechargeFormCard } from './components/recharge-form-card'
-import { WalletStatsCard } from './components/wallet-stats-card'
 import { DEFAULT_DISCOUNT_RATE, PAYMENT_TYPES } from './constants'
 import {
   useTopupInfo,
@@ -59,6 +63,7 @@ import type {
 interface WalletProps {
   initialShowHistory?: boolean
   initialTab?: 'balance' | 'hosting' | 'referral'
+  onRetailTabChange?: (tab: 'balance' | 'referral') => void
   hostingSeatId?: string
 }
 
@@ -102,7 +107,6 @@ function RetailWallet(props: WalletProps) {
   const [selectedCreemProduct, setSelectedCreemProduct] =
     useState<CreemProduct | null>(null)
 
-  const { status } = useStatus()
   const { currency } = useSystemConfig()
   const { topupInfo, presetAmounts, loading: topupLoading } = useTopupInfo()
 
@@ -169,11 +173,18 @@ function RetailWallet(props: WalletProps) {
     if (topupInfo && !topupAmountInitializedRef.current) {
       topupAmountInitializedRef.current = true
       const minTopup = getMinTopupAmount(topupInfo)
-      setTopupAmount(minTopup)
+      const initialAmount =
+        topupInfo.amount_options.includes(20) && minTopup <= 20 ? 20 : minTopup
+      setTopupAmount(initialAmount)
 
       // Calculate initial payment amount with default payment type
       const defaultPaymentType = getDefaultPaymentType(topupInfo)
-      calculatePaymentAmount(minTopup, defaultPaymentType)
+      setSelectedPaymentMethod(
+        topupInfo.pay_methods.find(
+          (method) => method.type === defaultPaymentType
+        )
+      )
+      calculatePaymentAmount(initialAmount, defaultPaymentType)
     }
   }, [topupInfo, calculatePaymentAmount])
 
@@ -210,8 +221,8 @@ function RetailWallet(props: WalletProps) {
       }
 
       // Calculate payment amount and show confirmation dialog
-      await calculatePaymentAmount(topupAmount, method.type)
-      setConfirmDialogOpen(true)
+      const quote = await calculatePaymentAmount(topupAmount, method.type)
+      if (quote > 0) setConfirmDialogOpen(true)
     } finally {
       setPaymentLoading(null)
     }
@@ -304,80 +315,93 @@ function RetailWallet(props: WalletProps) {
 
   return (
     <>
-      <SectionPageLayout>
-        <SectionPageLayout.Title>
-          {t('Billing and redemption')}
-        </SectionPageLayout.Title>
-        <SectionPageLayout.Content>
-          <div className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-5'>
-            <WalletStatsCard user={user} loading={userLoading} />
-
-            <Tabs
-              value={tab}
-              onValueChange={(value) => {
-                if (value === 'balance' || value === 'referral') {
-                  setTab(value)
-                }
-              }}
-            >
-              <TabsList className='mb-4 max-w-full overflow-x-auto'>
-                <TabsTrigger value='balance'>
-                  {t('Balance and redemption')}
-                </TabsTrigger>
-                <TabsTrigger value='referral'>
-                  {t('Referral rewards')}
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value='balance'>
-                <div id='wallet-add-funds' className='scroll-mt-4'>
-                  <RechargeFormCard
-                    topupInfo={topupInfo}
-                    presetAmounts={presetAmounts}
-                    selectedPreset={selectedPreset}
-                    onSelectPreset={handleSelectPreset}
-                    topupAmount={topupAmount}
-                    onTopupAmountChange={handleTopupAmountChange}
-                    paymentAmount={paymentAmount}
-                    calculating={calculating}
-                    onPaymentMethodSelect={handlePaymentMethodSelect}
-                    paymentLoading={paymentLoading}
-                    redemptionCode={redemptionCode}
-                    onRedemptionCodeChange={setRedemptionCode}
-                    onRedeem={handleRedeem}
-                    redeeming={redeeming}
-                    topupLink={topupInfo?.topup_link}
-                    loading={topupLoading}
-                    priceRatio={(status?.price as number) || 1}
-                    usdExchangeRate={effectiveUsdExchangeRate}
-                    onOpenBilling={() => setBillingDialogOpen(true)}
-                    creemProducts={topupInfo?.creem_products}
-                    enableCreemTopup={topupInfo?.enable_creem_topup}
-                    onCreemProductSelect={handleCreemProductSelect}
-                    enableWaffoTopup={topupInfo?.enable_waffo_topup}
-                    waffoPayMethods={topupInfo?.waffo_pay_methods}
-                    waffoMinTopup={topupInfo?.waffo_min_topup}
-                    onWaffoMethodSelect={handleWaffoMethodSelect}
-                    enableWaffoPancakeTopup={
-                      topupInfo?.enable_waffo_pancake_topup
-                    }
-                  />
-                </div>
-              </TabsContent>
-              <TabsContent value='referral'>
-                <AffiliateRewardsCard
-                  user={user}
-                  affiliateLink={affiliateLink}
-                  onTransfer={() => setTransferDialogOpen(true)}
-                  complianceConfirmed={
-                    topupInfo?.payment_compliance_confirmed !== false
-                  }
-                  loading={affiliateLoading}
-                />
-              </TabsContent>
-            </Tabs>
+      <Main className='retail-wallet'>
+        <div className='wallet-wrap'>
+          <div className='wallet-heading-row'>
+            <span>
+              {t('Wallet')} /{' '}
+              {t(tab === 'balance' ? 'Balance top-up' : 'Referral rewards')}
+            </span>
+            <Button variant='ghost' onClick={() => setBillingDialogOpen(true)}>
+              {t('Top-up history')}
+              <ChevronRight aria-hidden='true' className='size-4' />
+            </Button>
           </div>
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
+          <h1>
+            {t(tab === 'balance' ? 'Balance top-up' : 'Referral rewards')}
+          </h1>
+          <Tabs
+            value={tab}
+            onValueChange={(value) => {
+              if (value === 'balance' || value === 'referral') {
+                setTab(value)
+                props.onRetailTabChange?.(value)
+              }
+            }}
+          >
+            <TabsContent value='balance'>
+              <div id='wallet-add-funds' className='scroll-mt-4'>
+                <RechargeFormCard
+                  topupInfo={topupInfo}
+                  presetAmounts={presetAmounts}
+                  selectedPreset={selectedPreset}
+                  onSelectPreset={handleSelectPreset}
+                  topupAmount={topupAmount}
+                  onTopupAmountChange={handleTopupAmountChange}
+                  paymentAmount={paymentAmount}
+                  calculating={calculating}
+                  onPaymentMethodSelect={handlePaymentMethodSelect}
+                  paymentLoading={paymentLoading}
+                  redemptionCode={redemptionCode}
+                  onRedemptionCodeChange={setRedemptionCode}
+                  onRedeem={handleRedeem}
+                  redeeming={redeeming}
+                  topupLink={topupInfo?.topup_link}
+                  loading={topupLoading}
+                  balance={
+                    userLoading || !user
+                      ? null
+                      : user.quota / getCurrencyDisplay().config.quotaPerUnit
+                  }
+                  method={selectedPaymentMethod}
+                  onChooseMethod={(method) => {
+                    setSelectedPaymentMethod(method)
+                    setSelectedWaffoMethodIndex(null)
+                    void calculatePaymentAmount(topupAmount, method.type)
+                  }}
+                  creemProducts={topupInfo?.creem_products}
+                  enableCreemTopup={topupInfo?.enable_creem_topup}
+                  onCreemProductSelect={handleCreemProductSelect}
+                  enableWaffoTopup={topupInfo?.enable_waffo_topup}
+                  waffoPayMethods={topupInfo?.waffo_pay_methods}
+                  waffoMinTopup={topupInfo?.waffo_min_topup}
+                  onWaffoMethodSelect={handleWaffoMethodSelect}
+                  enableWaffoPancakeTopup={
+                    topupInfo?.enable_waffo_pancake_topup
+                  }
+                />
+              </div>
+            </TabsContent>
+            <TabsContent value='referral'>
+              <AffiliateRewardsCard
+                user={user}
+                affiliateLink={affiliateLink}
+                onTransfer={() => setTransferDialogOpen(true)}
+                complianceConfirmed={
+                  topupInfo?.payment_compliance_confirmed !== false
+                }
+                loading={affiliateLoading}
+              />
+            </TabsContent>
+            <TabsList className='mt-5 max-w-full'>
+              <TabsTrigger value='balance'>{t('Balance top-up')}</TabsTrigger>
+              <TabsTrigger value='referral'>
+                {t('Referral rewards')}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      </Main>
 
       <PaymentConfirmDialog
         open={confirmDialogOpen}

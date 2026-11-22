@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Balance top-up": "残高チャージ",
+    "Top-up history": "チャージ履歴",
+    "Payment details": "支払い明細",
+    "Amount credited": "入金額",
+    "Balance after top-up": "チャージ後の残高",
+    "Pay with Alipay": "Alipayで支払う",
     "Edit Key": "キーを編集",
     "Saved Keys": "登録済みのキー",
     "Import Key": "登録",

@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Balance top-up": "餘額儲值",
+    "Top-up history": "儲值紀錄",
+    "Payment details": "付款明細",
+    "Amount credited": "本次入帳",
+    "Balance after top-up": "儲值後餘額",
+    "Pay with Alipay": "支付寶付款",
     "Edit Key": "編輯 Key",
     "Saved Keys": "已入庫",
     "Import Key": "入庫",

@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Balance top-up": "Nạp số dư",
+    "Top-up history": "Lịch sử nạp tiền",
+    "Payment details": "Chi tiết thanh toán",
+    "Amount credited": "Số tiền ghi có",
+    "Balance after top-up": "Số dư sau khi nạp",
+    "Pay with Alipay": "Thanh toán bằng Alipay",
     "Edit Key": "Chỉnh sửa Key",
     "Saved Keys": "Key đã lưu",
     "Import Key": "Nhập Key",

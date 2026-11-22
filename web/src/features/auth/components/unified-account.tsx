@@ -16,7 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowLeftRight, Loader2, ShieldCheck } from 'lucide-react'
+import {
+  ArrowLeftRight,
+  ChevronRight,
+  Loader2,
+  ShieldCheck,
+  UserRound,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -26,6 +32,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import {
+  SidebarGroup,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from '@/components/ui/sidebar'
 import { TitledCard } from '@/components/ui/titled-card'
 import { useStatus } from '@/hooks/use-status'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -189,41 +201,70 @@ export function UnifiedAccountNotice({
   )
 }
 
-/** 两站入口由服务端配置提供，公共页和控制台共用；切站不传递会话 Token 或 API Key。 */
-export function SiteSwitcher() {
+/**
+ * 共用站点配置和登录交接逻辑，保留浏览器新标签页行为。
+ * @param props 控制台使用侧栏菜单，公共页面使用紧凑文字入口。
+ * @return 可访问的切站链接；未配置双站时不占位置。
+ */
+export function SiteSwitcher(props: { placement?: 'sidebar' } = {}) {
   const { t } = useTranslation()
   const { status } = useStatus()
   const sso = status?.site_sso
   const user = useAuthStore((store) => store.auth.user)
   if (!sso) return null
+  const label = t(sso.consumer ? 'Account hosting' : 'API site')
+  const Icon = sso.consumer ? UserRound : ArrowLeftRight
+  const link = (
+    <a
+      aria-label={label}
+      href={`${sso.consumer ? sso.issuer_url : sso.client_url}/dashboard`}
+      onClick={(event) => {
+        // 新标签页没有当前页的切站意图，保留链接原生行为。
+        if (
+          sso.consumer ||
+          !user ||
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.shiftKey ||
+          event.altKey
+        )
+          return
+        event.preventDefault()
+        window.location.assign(hostingSwitchTarget(sso.client_url, user.id))
+      }}
+    />
+  )
+  if (props.placement === 'sidebar') {
+    return (
+      <SidebarGroup className='mt-auto'>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton tooltip={label} render={link}>
+              <Icon aria-hidden='true' />
+              <span className='group-data-[collapsible=icon]:hidden'>
+                {label}
+              </span>
+              <ChevronRight
+                aria-hidden='true'
+                className='ms-auto opacity-60 group-data-[collapsible=icon]:hidden'
+              />
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroup>
+    )
+  }
   return (
     <Button
-      variant='outline'
+      variant='ghost'
       size='sm'
-      render={
-        <a
-          href={`${sso.consumer ? sso.issuer_url : sso.client_url}/dashboard`}
-          onClick={(event) => {
-            // 新标签页没有当前页的切站意图，保留链接原生行为。
-            if (
-              sso.consumer ||
-              !user ||
-              event.defaultPrevented ||
-              event.button !== 0 ||
-              event.ctrlKey ||
-              event.metaKey ||
-              event.shiftKey ||
-              event.altKey
-            )
-              return
-            event.preventDefault()
-            window.location.assign(hostingSwitchTarget(sso.client_url, user.id))
-          }}
-        />
-      }
+      className='text-muted-foreground gap-1.5 rounded-lg'
+      render={link}
     >
-      <ArrowLeftRight className='size-4' />
-      <span>{t(sso.consumer ? 'Account hosting' : 'API site')}</span>
+      <Icon className='size-4' aria-hidden='true' />
+      <span>{label}</span>
     </Button>
   )
 }

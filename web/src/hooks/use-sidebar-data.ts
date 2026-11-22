@@ -40,11 +40,13 @@ export function useSidebarData(): SidebarData {
             url: '/dashboard/overview',
             icon: LayoutDashboard,
           },
-          ...profile.navigation.map((item) => ({
-            title: t(item.titleKey),
-            url: item.url,
-            icon: item.icon,
-          })),
+          ...profile.navigation
+            .filter((item) => item.url !== '/pricing')
+            .map((item) => ({
+              title: t(item.titleKey),
+              url: item.url,
+              icon: item.icon,
+            })),
           { title: t('Usage Logs'), url: '/usage-logs/common', icon: FileText },
         ],
       },

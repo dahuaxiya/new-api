@@ -58,7 +58,7 @@ const plans: SiteLink = {
   icon: Wallet,
 }
 const billing: SiteLink = {
-  titleKey: 'Billing and redemption',
+  titleKey: 'Wallet',
   url: '/wallet',
   icon: Wallet,
 }

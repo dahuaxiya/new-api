@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 
 import { handleServerError } from '@/lib/handle-server-error'
@@ -86,22 +86,35 @@ export function usePayment() {
   const [calculating, setCalculating] = useState(false)
   const [processing, setProcessing] = useState(false)
 
-  // Calculate payment amount
+  const quoteVersion = useRef(0)
+
+  // 连续切换金额或渠道时，较早的报价不能覆盖最新选择或提前结束加载。
   const calculatePaymentAmount = useCallback(
     async (topupAmount: number, paymentType: string) => {
+      const version = ++quoteVersion.current
+      setAmount(0)
+      if (!Number.isSafeInteger(topupAmount) || topupAmount <= 0) {
+        setCalculating(false)
+        return 0
+      }
       try {
         setCalculating(true)
         const calculatedAmount = await requestPaymentAmount(
           topupAmount,
           paymentType
         )
+        if (
+          version !== quoteVersion.current ||
+          !Number.isFinite(calculatedAmount)
+        )
+          return 0
         setAmount(calculatedAmount)
         return calculatedAmount
       } catch {
-        setAmount(0)
+        if (version === quoteVersion.current) setAmount(0)
         return 0
       } finally {
-        setCalculating(false)
+        if (version === quoteVersion.current) setCalculating(false)
       }
     },
     []

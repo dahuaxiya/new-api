@@ -443,7 +443,7 @@ export function UserDocs() {
                   {' · '}
                   <a href='/usage-logs/common'>{t('View usage logs')}</a>
                   {' · '}
-                  <a href='/wallet'>{t('Billing and redemption')}</a>
+                  <a href='/wallet'>{t('Wallet')}</a>
                 </Step>
               )}
               {active === 'quota' && !retail && (
