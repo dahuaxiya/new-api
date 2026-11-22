@@ -315,7 +315,7 @@ https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html
 
 确认模型和授权分组后，打开「接收新计价请求」，点击「发布价表」，在自动打开的人民币售价预览中确认发布。空模型/空方案不能通过发布接口；保存停用价表会明确提示调用仍暂停。管理员当前账号的真实分组与草稿授权范围不一致时，界面会提示去用户管理调整指定账号，或明确修改供货绑定。不能因为管理员能编辑价表，就默认该账号拥有所有模型调用权限。
 
-已内置 2026-11-17 核实的 Standard API 价格快照：gpt-6.1-sol、gpt-6-sol、gpt-6-astra、gpt-5.6-sol、gpt-5.6-terra，以及 gpt-image-2、gpt-image-2.5/2.6 的 sunburst/flare 官方型号。文本含 272K 上下文分档；站点文本输出上限 32768，低于官方 128K。生图限单张 PNG 和纯文本提示，采用文本输入/图片输出 Token 价格，输入/输出运营上限均为 32000/32768；不开放图片编辑或图片输入。来源为 [OpenAI 官方价格页](https://developers.openai.com/api/docs/pricing) 和各精确型号的官方模型页，例如 [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)。
+已内置 2026-11-17 核实的 Standard API 价格快照：gpt-6.1-sol、gpt-6-sol、gpt-6-astra、gpt-5.6-sol、gpt-5.6-terra，以及 gpt-image-2、gpt-image-2.5/2.6 的 sunburst/flare 官方型号。文本含 272K 上下文分档；站点文本输出上限 32768，低于官方 128K。同步图片接口每次输出一张，按已发布的分组价格与上游实际用量结算。来源为 [OpenAI 官方价格页](https://developers.openai.com/api/docs/pricing) 和各精确型号的官方模型页，例如 [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)。
 
 快照有效期至 2026-12-17 UTC；gpt-5.6-sol 因促销截止日期，保守设为 2026-11-30 UTC 开始时到期。重复生成不会延长核验日期，更新快照需要重新核实官方价格。美元基价仍按供应商约定数值 1:1 作为人民币基价，人民币模型不换汇；自动生成不引入人民币模型猜测映射。上游倍率继续每分钟同步并沿用保存的毛利、手续费与缓冲。
 
@@ -363,3 +363,21 @@ https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html
 零售站开放销售后每六小时读取 OpenAI 和 Anthropic 官方标准价。系统只更新已有的、型号和计费维度能准确匹配的美元价格。旧价首次与官网吻合后进入跟随；不同的历史定价继续保留。管理员手动修改已保存的价格会将该模型标为 `price_mode: manual`，也可以在导入时显式设置。自动任务记录核对结果，金额变化生成新版本。读不到或无法识别的价格不会续期，已核实的价格在有效期内继续使用，过期后暂停新报价。GPT-5.6 Sol 保留已核实的促销截止时间。已经受理的请求沿用受理时的价格。
 
 渠道的「自动定价」页显示正在跟随官网的模型数量和例外。本站分组仍按绑定的上游分组读取倍率，并沿用本站毛利、手续费等设置。全站手工价表导入和停售开关保留在「手动维护价表」。
+
+
+### 用普通零售 Key 生成和编辑图片
+
+两个接口使用同一套 Bearer Key 鉴权。选择该 Key 所绑定分组中已上架的图片模型，返回图片在 `data[0].b64_json`。
+
+```sh
+curl --fail-with-body https://luobo.world/v1/images/generations \
+  -H "Authorization: Bearer $LUOBO_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-image-2.6-sunburst","prompt":"画一只熊猫","n":1,"response_format":"b64_json"}'
+
+curl --fail-with-body https://luobo.world/v1/images/edits \
+  -H "Authorization: Bearer $LUOBO_API_KEY" \
+  -F 'model=gpt-image-2.6-sunburst' -F 'prompt=参照桌面和手机布局设计充值页面' \
+  -F 'image[]=@desktop.png' -F 'image[]=@mobile.png'
+```
+
+编辑也接受 JSON，通过 `images` 数组按顺序提交 `{"image_url":"data:image/png;base64,..."}`。接受 PNG、JPEG、WebP，最多 16 张，解码后的总大小最多 5 MiB，每张最多 4000 万像素。生成和编辑均为同步单张输出，默认 PNG。

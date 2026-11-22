@@ -1309,14 +1309,32 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 				require.NoError(t, r.ParseMultipartForm(1<<20))
 				defer r.MultipartForm.RemoveAll()
 				require.Equal(t, "gpt-image-2", r.FormValue("model"))
-				require.Equal(t, "high", r.FormValue("quality"))
-				require.Equal(t, "1920x1088", r.FormValue("size"))
-				file, _, err := r.FormFile("image[]")
-				require.NoError(t, err)
-				defer file.Close()
-				data, err := io.ReadAll(file)
-				require.NoError(t, err)
-				require.True(t, bytes.Equal(original, data), "supplier must receive the original file")
+				if r.FormValue("prompt") == "public edit" {
+					// Public edits may include both reference layouts; preserve bytes and request order at the supplier.
+					uploads := r.MultipartForm.File["image[]"]
+					require.Len(t, uploads, 2)
+					for i, part := range uploads {
+						f, err := part.Open()
+						require.NoError(t, err)
+						data, err := io.ReadAll(f)
+						f.Close()
+						require.NoError(t, err)
+						want := referencePNG
+						if i == 1 {
+							want = append(bytes.Clone(referencePNG), 1)
+						}
+						require.Equal(t, want, data)
+					}
+				} else {
+					require.Equal(t, "high", r.FormValue("quality"))
+					require.Equal(t, "1920x1088", r.FormValue("size"))
+					file, _, err := r.FormFile("image[]")
+					require.NoError(t, err)
+					defer file.Close()
+					data, err := io.ReadAll(file)
+					require.NoError(t, err)
+					require.True(t, bytes.Equal(original, data), "supplier must receive the original file")
+				}
 			} else {
 				var body struct {
 					Size              string `json:"size"`
@@ -1578,6 +1596,71 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	ordinary := model.Token{UserId: user.Id, ServiceMode: model.TokenServiceRetail, Key: "test-ordinary", Status: 1, ExpiredTime: -1}
 	require.NoError(t, model.DB.Create(&ordinary).Error)
 	require.Error(t, model.PutRetailKeyPolicy(user.Id, ordinary.Id, 0, policy), "API keys cannot opt into studio-only pricing")
+	// Use a separately owned bearer Key and the public middleware stack, without any studio session or group header.
+	publicKey := model.Token{UserId: user.Id, Key: strings.Repeat("j", 48), ServiceMode: model.TokenServiceRetail, Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true}
+	require.NoError(t, model.InsertRetailTokenWithPolicy(&publicKey, retailprice.KeyPolicy{ProductID: "standard", GroupCurrent: true}))
+	public := engine.Group("/v1/images", middleware.TokenAuth(), middleware.ModelRequestRateLimit(), middleware.RetailImageInput(), middleware.PinTaskPluginEndpoint(), middleware.PrepareTaskPluginEndpoint(), middleware.Distribute())
+	for _, endpoint := range []string{"/generations", "/edits"} {
+		public.POST(endpoint, func(c *gin.Context) {
+			c.Set(common.RequestIdKey, common.NewRequestId())
+			common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
+			RelayTaskPluginEndpoint(c, func(c *gin.Context) { Relay(c, types.RelayFormatOpenAIImage) })
+		})
+	}
+	api := func(path, contentType string, body io.Reader) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest("POST", "/v1/images/"+path, body)
+		req.Header.Set("Authorization", "Bearer sk-"+publicKey.Key)
+		req.Header.Set("Content-Type", contentType)
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, req)
+		return w
+	}
+	generate := map[string]any{"model": "gpt-image-2", "prompt": "public generation"}
+	payload, err := common.Marshal(generate)
+	require.NoError(t, err)
+	w = api("generations", "application/json", bytes.NewReader(payload))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.NotEmpty(t, gjson.Get(w.Body.String(), "data.0.b64_json").Str)
+	images := [][]byte{referencePNG, append(bytes.Clone(referencePNG), 1)}
+	var uploadBody bytes.Buffer
+	writer := multipart.NewWriter(&uploadBody)
+	require.NoError(t, writer.WriteField("model", "gpt-image-2"))
+	require.NoError(t, writer.WriteField("prompt", "public edit"))
+	var refs []map[string]string
+	for _, data := range images {
+		part, err := writer.CreateFormFile("image[]", "reference.png")
+		require.NoError(t, err)
+		_, err = part.Write(data)
+		require.NoError(t, err)
+		refs = append(refs, map[string]string{"image_url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)})
+	}
+	require.NoError(t, writer.Close())
+	w = api("edits", writer.FormDataContentType(), &uploadBody)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	generate["prompt"] = "public edit"
+	generate["images"] = refs
+	payload, err = common.Marshal(generate)
+	require.NoError(t, err)
+	w = api("edits", "application/json", bytes.NewReader(payload))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	before := hits.Load()
+	w = api("generations", "application/json", bytes.NewReader(payload))
+	require.GreaterOrEqual(t, w.Code, 400)
+	refs[0]["image_url"] = "https://example.invalid/image.png"
+	payload, err = common.Marshal(generate)
+	require.NoError(t, err)
+	w = api("edits", "application/json", bytes.NewReader(payload))
+	require.GreaterOrEqual(t, w.Code, 400)
+	require.Equal(t, before, hits.Load())
+	var publicCharges []model.RetailCharge
+	require.NoError(t, model.DB.Find(&publicCharges, "token_id = ?", publicKey.Id).Error)
+	require.Len(t, publicCharges, 3)
+	for _, charge := range publicCharges {
+		require.Equal(t, "settled", charge.Status)
+		require.Positive(t, charge.Actual)
+	}
+
 }
 
 // TestRetailSiteRateFeedIdentity 校验不同站点不能冒充同名分组，金额保留原始小数精度。

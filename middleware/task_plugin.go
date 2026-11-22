@@ -326,6 +326,11 @@ func PrepareTaskPluginRoute() gin.HandlerFunc {
 // through so the existing endpoint remains responsible for its validation.
 func PinTaskPluginEndpoint() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 零售图片必须进入同步人民币账本；插件任务有独立的报价和结算流程。
+		if c.GetBool("retail_request") && (c.Request.URL.Path == "/v1/images/edits" || c.Request.URL.Path == "/v1/images/generations") {
+			c.Next()
+			return
+		}
 		generation := pluginruntime.DefaultRegistry.Generation()
 		if generation == nil {
 			c.Next()

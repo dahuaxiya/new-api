@@ -60,7 +60,6 @@ func RetailStudioRelay(path string) gin.HandlerFunc {
 			return
 		}
 		c.Set("retail_request", true)
-		c.Set("retail_studio_image_edit", path == "/v1/images/edits")
 		c.Set("retail_studio_product", productID)
 		c.Request.Header.Del("X-Retail-Product")
 		common.SetContextKey(c, constant.ContextKeyUserGroup, group)

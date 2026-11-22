@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"io"
 	"maps"
@@ -38,7 +39,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		return true, retailPriceError(err)
 	}
 	if !book.Enabled {
-		if version > 0 || strings.HasSuffix(c.Request.URL.Path, "/images/generations") {
+		if version > 0 || c.Request.URL.Path == "/v1/images/generations" || c.Request.URL.Path == "/v1/images/edits" {
 			return true, retailPriceError(retailprice.ErrExpired)
 		}
 		return false, nil
@@ -119,6 +120,10 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if err := validateRetailRequest(c, raw, quote.Model.Kind, c.Request.URL.Path); err != nil {
 		return true, retailPriceError(err)
 	}
+	// 内嵌参考图经过协议转换与渠道参数覆盖，必须在出站前核对原顺序及内容。
+	if c.Request.URL.Path == "/v1/images/edits" && studioReferencePath(c.Request, true) == "" {
+		c.Set("retail_edit_references", retailEditDigests(raw))
+	}
 	// Counting is mandatory for a guarded request, even when the legacy global estimate switch is off.
 	meta := info.Request.GetTokenCountMeta()
 	tokens, err := CountRequestToken(c, meta, info)
@@ -134,7 +139,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if len(replay) > 0 {
 		c.Set("retail_response_replay", replay)
 	}
-	if c.GetBool("retail_studio_image_edit") || len(replay) > 0 || c.GetString("retail_previous_response") != "" {
+	if c.Request.URL.Path == "/v1/images/edits" || len(replay) > 0 || c.GetString("retail_previous_response") != "" {
 		tokens = quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo
 		if quote.InputLimit > 0 {
 			tokens = min(tokens, quote.InputLimit)
@@ -279,9 +284,12 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		}
 		return retailprice.ErrAccess
 	}
-	reference := studioReferencePath(c.Request, c.GetBool("retail_studio_image_edit"))
+	reference := studioReferencePath(c.Request, c.Request.URL.Path == "/v1/images/edits")
 	if err := validateRetailRequest(c, raw, quote.Model.Kind, req.URL.Path); err != nil {
 		return err
+	}
+	if original, ok := c.Get("retail_edit_references"); ok && !slices.Equal(original.([][sha256.Size]byte), retailEditDigests(raw)) {
+		return retailprice.ErrConfig
 	}
 	// 只有原生 Responses 能可靠传递这类历史。渠道覆盖参数或跨协议转换若增删、
 	// 调换了密文，拒绝发单，避免静默丢上下文或在预留之外增加不可计数的输入。
@@ -346,7 +354,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	// the original request's estimate does not bound an injected system prompt.
 	var finalRequest dto.Request
 	switch {
-	case quote.Model.Kind == "image" && ((strings.HasSuffix(req.URL.Path, "/images/edits") && c.GetBool("retail_studio_image_edit")) || (strings.HasSuffix(req.URL.Path, "/images/generations") && !c.GetBool("retail_studio_image_edit"))):
+	case quote.Model.Kind == "image" && ((strings.HasSuffix(req.URL.Path, "/images/edits") && c.Request.URL.Path == "/v1/images/edits") || (strings.HasSuffix(req.URL.Path, "/images/generations") && c.Request.URL.Path != "/v1/images/edits")):
 		finalRequest = &dto.ImageRequest{}
 	case strings.HasSuffix(req.URL.Path, "/responses") && quote.Model.Kind != "image":
 		finalRequest = &dto.OpenAIResponsesRequest{}
@@ -400,6 +408,10 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	if reference != "" {
 		return attachStudioReference(req, raw, reference, info.ChannelSetting.StudioImageEditJSON)
 	}
+	// 普通 API 的文件已规范化为内嵌图片。在最终计费校验后按渠道约定编码，只发送一次。
+	if c.Request.URL.Path == "/v1/images/edits" && c.GetBool("retail_public_image") && !info.ChannelSetting.StudioImageEditJSON {
+		return attachRetailEditForm(req, raw)
+	}
 	return nil
 }
 
@@ -436,7 +448,7 @@ func validateRetailRequest(c *gin.Context, raw []byte, kind, path string) error 
 		}
 		return validateRetailChat(raw, vision, strings.HasSuffix(path, "/responses"), c.GetString("retail_previous_response"))
 	}
-	edit := c.GetBool("retail_studio_image_edit")
+	edit := c.Request.URL.Path == "/v1/images/edits"
 	return validateRetailBody(raw, kind, edit, studioReferencePath(c.Request, edit) != "")
 }
 

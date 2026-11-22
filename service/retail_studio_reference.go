@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"io"
 	"mime/multipart"
@@ -197,4 +198,55 @@ func HasStudioVision(req *http.Request) bool {
 	}
 	images, _ := req.Context().Value(studioVisionKey{}).(map[string]int)
 	return len(images) > 0
+}
+
+// retailEditDigests binds each inline reference to its position without keeping another copy of the encoded image.
+func retailEditDigests(raw []byte) [][sha256.Size]byte {
+	var result [][sha256.Size]byte
+	for _, item := range gjson.GetBytes(raw, "images").Array() {
+		result = append(result, sha256.Sum256([]byte(item.Get("image_url").Str)))
+	}
+	return result
+}
+
+// attachRetailEditForm converts validated public input for a multipart supplier. Its memory use is bounded by the aggregate reference limit.
+func attachRetailEditForm(req *http.Request, raw []byte) error {
+	var buf bytes.Buffer
+	form := multipart.NewWriter(&buf)
+	for key, value := range gjson.ParseBytes(raw).Map() {
+		if key != "images" {
+			if err := form.WriteField(key, value.String()); err != nil {
+				return err
+			}
+			continue
+		}
+		// Keep order and generate filenames locally; never dereference a URL from a request.
+		for _, item := range value.Array() {
+			prefix, data, ok := strings.Cut(item.Get("image_url").Str, ",")
+			if !ok {
+				return retailprice.ErrConfig
+			}
+			mime := strings.TrimSuffix(strings.TrimPrefix(prefix, "data:"), ";base64")
+			header := make(textproto.MIMEHeader)
+			header.Set("Content-Disposition", `form-data; name="image[]"; filename="reference.`+strings.TrimPrefix(mime, "image/")+`"`)
+			header.Set("Content-Type", mime)
+			part, err := form.CreatePart(header)
+			if err != nil {
+				return err
+			}
+			if _, err = io.Copy(part, base64.NewDecoder(base64.StdEncoding, strings.NewReader(data))); err != nil {
+				return err
+			}
+		}
+	}
+	if err := form.Close(); err != nil {
+		return err
+	}
+	_ = req.Body.Close()
+	req.Body = io.NopCloser(bytes.NewReader(buf.Bytes()))
+	req.GetBody = nil
+	req.ContentLength = int64(buf.Len())
+	req.Header.Set("Content-Length", strconv.Itoa(buf.Len()))
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	return nil
 }

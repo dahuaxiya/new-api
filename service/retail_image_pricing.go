@@ -27,31 +27,41 @@ func RetailReferenceModel(id string) bool {
 	return false
 }
 
-// validRetailReference accepts one uploaded raster only. Remote URLs and extra object fields never reach procurement.
+const RetailReferenceBytes = 5 << 20
+const RetailMaxReferences = 16
+
+// validRetailReference validates the ordered, bounded set of embedded raster images before procurement.
+// Every image must use its actual media type. Supplier URLs, file IDs and masked edits need different contracts.
 func validRetailReference(images gjson.Result) bool {
-	if !images.IsArray() || len(images.Array()) != 1 {
+	items := images.Array()
+	if !images.IsArray() || len(items) == 0 || len(items) > RetailMaxReferences {
 		return false
 	}
-	item := images.Array()[0]
-	if !item.IsObject() {
-		return false
+	remaining := RetailReferenceBytes
+	for _, item := range items {
+		if !item.IsObject() || len(item.Map()) != 1 {
+			return false
+		}
+		uri := item.Get("image_url")
+		prefix, encoded, found := strings.Cut(uri.Str, ",")
+		if !found || len(encoded) > base64.StdEncoding.EncodedLen(remaining) {
+			return false
+		}
+		data, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil || len(data) == 0 || len(data) > remaining {
+			return false
+		}
+		mime := http.DetectContentType(data)
+		if !slices.Contains([]string{"image/png", "image/jpeg", "image/webp"}, mime) || prefix != "data:"+mime+";base64" {
+			return false
+		}
+		cfg, _, err := decodeImageConfig(data)
+		if err != nil || cfg.Height <= 0 || cfg.Width <= 0 || int64(cfg.Width) > 40_000_000/int64(cfg.Height) {
+			return false
+		}
+		remaining -= len(data)
 	}
-	fields := 0
-	item.ForEach(func(k, v gjson.Result) bool { fields++; return true })
-	url := item.Get("image_url")
-	if fields != 1 || url.Type != gjson.String {
-		return false
-	}
-	header, data, found := strings.Cut(url.String(), ",")
-	if !found || len(data) > base64.StdEncoding.EncodedLen(5<<20) {
-		return false
-	}
-	mime := strings.TrimSuffix(strings.TrimPrefix(header, "data:"), ";base64")
-	if header != "data:"+mime+";base64" || !slices.Contains([]string{"image/png", "image/jpeg", "image/webp"}, mime) {
-		return false
-	}
-	file, err := base64.StdEncoding.DecodeString(data)
-	return err == nil && len(file) <= 5<<20 && http.DetectContentType(file) == mime
+	return true
 }
 
 // ValidRetailImageSize preserves the common presets and permits flexible dimensions for GPT Image models.
@@ -97,7 +107,7 @@ func validateRetailBody(raw []byte, kind string, edit, fileReference bool) error
 		return validateRetailTextBody(raw)
 	}
 	root := gjson.ParseBytes(raw)
-	if !gjson.ValidBytes(raw) || !root.IsObject() {
+	if !gjson.ValidBytes(raw) || !root.IsObject() || !uniqueRetailKeys(root) {
 		return retailprice.ErrConfig
 	}
 	modelID := root.Get("model").String()
@@ -155,7 +165,7 @@ func settleRetailImagePrice(c *gin.Context, info *relaycommon.RelayInfo, usage *
 		return 0, retailprice.ErrUsage
 	}
 	details := usage.InputTokensDetails
-	edit := c.GetBool("retail_studio_image_edit")
+	edit := c.Request.URL.Path == "/v1/images/edits"
 	if details.ImageTokens < 0 || details.ImageTokens > usage.InputTokens || details.TextTokens != usage.InputTokens-details.ImageTokens || details.AudioTokens != 0 || details.CachedTokens < 0 || details.CachedTokens > usage.InputTokens || details.CacheWriteTokens != 0 || details.CachedCreationTokens != 0 || (edit != (details.ImageTokens > 0)) {
 		return 0, retailprice.ErrUsage
 	}
