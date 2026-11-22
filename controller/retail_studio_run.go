@@ -327,21 +327,14 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 		if err == nil && in.Record.Mode == "image" && in.Parent != "" {
 			// Hydrate from the account snapshot after duplicate detection and before retiring
 			// the parent. A stale second tab cannot start a paid request from an obsolete turn.
-			var edit bool
-			edit, err = continueStudioImage(dir, &in, file != nil)
+			err = continueStudioImage(dir, &in)
 			if err == nil {
-				// Images endpoints are stateless. Carry earlier instructions alongside the new
-				// prompt, while the authenticated history retains the original message text.
+				// 生图接口无状态：补入同一会话的历史文字，当前请求的附件和路由只取本轮显式选择。
 				var payload map[string]any
-				err = common.Unmarshal(body, &payload)
-				if err == nil {
+				if err = common.Unmarshal(body, &payload); err == nil {
 					payload["prompt"] = studioImagePrompt(in.Record.Entries)
 					body, err = common.Marshal(payload)
 				}
-			}
-			if err == nil && edit {
-				path = "/api/retail/studio/images/edits"
-				in.uploadedReference = true
 			}
 		}
 		if err == nil {

@@ -88,9 +88,17 @@ export function useStudioRun(
       try {
         if (!accepted) {
           if (!request && intent) {
-            const file = isStudioMedia(reference)
+            let file: Blob | string | undefined = isStudioMedia(reference)
               ? await readStudioMedia(reference, signal)
               : reference
+            // Old transcripts may embed the raster. Chat accepts only multipart attachments on the new turn.
+            if (
+              record.mode === 'text' &&
+              typeof file === 'string' &&
+              /^data:image\/(png|jpeg|webp);base64,/.test(file)
+            ) {
+              file = await (await fetch(file, { signal })).blob()
+            }
             if (file instanceof Blob) {
               const form = new FormData()
               form.append('intent', JSON.stringify(intent))
@@ -246,7 +254,11 @@ export function useStudioRun(
       // A file remains in memory for same-page retries. After navigation, only resume a claimed job.
       writeSession(
         `${key}:intent`,
-        reference instanceof File || isStudioMedia(reference) ? null : intent
+        reference instanceof File ||
+          isStudioMedia(reference) ||
+          (record.mode === 'text' && reference)
+          ? null
+          : intent
       )
     }
     void follow(record, intent, reference)

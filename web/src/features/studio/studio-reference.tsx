@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ImagePlus, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import {
   useEffect,
   useImperativeHandle,
@@ -28,7 +28,9 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 
+import { ImageNotes } from './studio-annotations'
 import { useStudioImage } from './studio-image'
+import type { ImagePin } from './studio-quote'
 
 const sourceBytes = 50 * 1024 * 1024
 
@@ -46,16 +48,24 @@ async function referenceType(file: File) {
 }
 
 /** Read one local reference for the current image request. Changing model or leaving the form cancels an unfinished read. */
-export function StudioReference(props: {
+export function StudioReference({
+  ref,
+  fileInput,
+  ...props
+}: {
+  fileInput: Ref<HTMLInputElement>
   value?: File | string
   onChange: (value?: File | string) => void
   onBlocked: (busy: boolean) => void
+  pins: ImagePin[]
+  onPins: (pins: ImagePin[]) => void
+  note: string
+  onNote: (note: string) => void
   disabled: boolean
   ref?: Ref<(source: File | string) => void>
 }) {
   const { t } = useTranslation()
   const { url } = useStudioImage(props.value)
-  const fileInput = useRef<HTMLInputElement>(null)
   const selection = useRef(0)
   const [invalid, setInvalid] = useState(false)
   const [processing, setProcessing] = useState(false)
@@ -103,9 +113,9 @@ export function StudioReference(props: {
       if (selection.current === current) setProcessing(false)
     }
   }
-  useImperativeHandle(props.ref, () => (source) => void choose(source))
+  useImperativeHandle(ref, () => (source) => void choose(source))
   return (
-    <div className='flex flex-wrap items-center gap-x-1 gap-y-0.5'>
+    <>
       <input
         ref={fileInput}
         className='hidden'
@@ -118,62 +128,46 @@ export function StudioReference(props: {
           event.target.value = ''
         }}
       />
-      {url && (
-        <img
-          className='size-8 rounded-md border object-contain md:size-10'
-          src={url}
-          alt={t('Reference image')}
-        />
-      )}
-      <Button
-        variant='ghost'
-        size='sm'
-        className='min-h-10'
-        type='button'
-        title={t(
-          'Upload or paste a reference image, up to 50 MiB at original quality.'
-        )}
-        disabled={props.disabled}
-        onClick={() => fileInput.current?.click()}
-      >
-        <ImagePlus aria-hidden='true' />
-        {t('Reference image')}
-      </Button>
       {(props.value || invalid || processing) && (
-        <Button
-          variant='ghost'
-          size='icon'
-          type='button'
-          disabled={props.disabled}
-          aria-label={t('Remove reference image')}
-          onClick={() => {
-            selection.current += 1
-            props.onChange(undefined)
-            setInvalid(false)
-            setProcessing(false)
-            props.onBlocked(false)
-          }}
-        >
-          <X aria-hidden='true' />
-        </Button>
-      )}
-      {processing && (
-        <p role='status' className='text-muted-foreground text-xs'>
-          {t('Preparing reference image…')}
-        </p>
-      )}
-      {!invalid && !processing && (
-        <p className='text-muted-foreground hidden text-xs lg:block'>
-          {t(
-            'Upload or paste a reference image, up to 50 MiB at original quality.'
+        <div className='flex flex-wrap items-center gap-1'>
+          {url && (
+            <ImageNotes
+              url={url}
+              pins={props.pins}
+              onPins={props.onPins}
+              note={props.note}
+              onNote={props.onNote}
+              disabled={props.disabled}
+            />
           )}
-        </p>
+          <Button
+            variant='ghost'
+            size='icon'
+            type='button'
+            disabled={props.disabled}
+            aria-label={t('Remove reference image')}
+            onClick={() => {
+              selection.current += 1
+              props.onChange(undefined)
+              setInvalid(false)
+              setProcessing(false)
+              props.onBlocked(false)
+            }}
+          >
+            <X aria-hidden='true' />
+          </Button>
+          {processing && (
+            <p role='status' className='text-muted-foreground text-xs'>
+              {t('Preparing reference image…')}
+            </p>
+          )}
+          {invalid && (
+            <p role='alert' className='text-destructive text-sm'>
+              {t('Choose a readable PNG, JPEG or WebP up to 50 MiB.')}
+            </p>
+          )}
+        </div>
       )}
-      {invalid && (
-        <p role='alert' className='text-destructive text-sm'>
-          {t('Choose a readable PNG, JPEG or WebP up to 50 MiB.')}
-        </p>
-      )}
-    </div>
+    </>
   )
 }

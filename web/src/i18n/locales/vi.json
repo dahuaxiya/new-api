@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Quote": "Trích dẫn",
+    "Upload image": "Tải ảnh lên",
+    "Choose UTF-8 text files, up to 32 files and 32,000 characters in total.": "Chọn tệp văn bản UTF-8, tối đa 32 tệp và tổng cộng 32.000 ký tự.",
+    "Quote selection": "Trích dẫn phần đã chọn",
+    "Annotate image": "Chú thích ảnh",
+    "Mark a point on the image": "Đánh dấu vị trí trên ảnh",
+    "Click a point on the image to add a note.": "Nhấp vào một vị trí trên ảnh để thêm ghi chú.",
+    "Image note": "Ghi chú cho toàn ảnh",
+    "Annotation": "Chú thích",
     "Balance top-up": "Nạp số dư",
     "Top-up history": "Lịch sử nạp tiền",
     "Payment details": "Chi tiết thanh toán",

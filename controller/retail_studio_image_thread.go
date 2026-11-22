@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/service"
 )
 
 var errImageParent = errors.New("image conversation has changed")
@@ -32,34 +31,33 @@ func studioImageRole(role string) bool {
 
 // continueStudioImage appends the new turn to the authenticated account's saved conversation.
 // The caller holds the owner lock and cleans up the child on any failure before retiring the parent.
-func continueStudioImage(dir string, in *studioIntent, explicit bool) (bool, error) {
+func continueStudioImage(dir string, in *studioIntent) error {
 	row := &in.Record
 	parentKey := filepath.Join(dir, in.Parent)
 	f, err := os.Open(parentKey + ".record")
 	if errors.Is(err, os.ErrNotExist) {
-		return false, errImageParent
+		return errImageParent
 	}
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer f.Close()
 	r := bufio.NewReader(f)
 	head, err := readStudioHistoryHead(r)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if head.ID != in.Parent || head.Mode != "image" || head.Product != row.Product || head.expired(time.Now()) {
-		return false, errImageParent
+		return errImageParent
 	}
 	var prior studioHistoryRecord
 	if err = common.DecodeJson(r, &prior); err != nil {
-		return false, err
+		return err
 	}
 	if len(prior.Entries) == 0 {
-		return false, errImageParent
+		return errImageParent
 	}
 	childKey := filepath.Join(dir, row.ID)
-	latest := ""
 	for i := range prior.Entries {
 		entry := &prior.Entries[i]
 		// Older snapshots store media under unsuffixed names or inline. Give every inherited
@@ -81,7 +79,7 @@ func continueStudioImage(dir string, in *studioIntent, explicit bool) (bool, err
 				err = os.Link(parentKey+"."+attachment.kind, dest)
 			default:
 				if !safeStudioRaster(src) {
-					return false, errStudioMedia
+					return errStudioMedia
 				}
 				_, encoded, _ := strings.Cut(src, ",")
 				var data []byte
@@ -91,27 +89,16 @@ func continueStudioImage(dir string, in *studioIntent, explicit bool) (bool, err
 				}
 			}
 			if err != nil {
-				return false, err
+				return err
 			}
 			*attachment.value = studioMediaPrefix + row.ID + "/" + role
-			if attachment.kind == "result" && entry.Complete && entry.Error == "" {
-				latest = dest
-			}
 		}
 	}
 	next := row.Entries[0]
 	next.ID = prior.Entries[len(prior.Entries)-1].ID + 1
-	// A manually supplied reference always wins. Text-to-image-only models can still append
-	// a new result to the transcript, without dispatching an unsupported image edit.
-	autoEdit := !explicit && next.Reference == "" && latest != "" && service.RetailReferenceModel(next.Model)
-	if autoEdit {
-		if err = os.Link(latest, childKey+".reference"); err != nil {
-			return false, err
-		}
-		next.Reference = studioMediaPrefix + row.ID + "/reference"
-	}
+	// 历史文件仅用于回看。本轮是否改图由新消息显式提交的参考图决定。
 	row.Entries = append(prior.Entries, next)
-	return autoEdit, nil
+	return nil
 }
 
 // studioImagePrompt fits the most recent complete instructions and the entire latest prompt

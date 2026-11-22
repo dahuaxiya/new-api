@@ -185,13 +185,19 @@ func TestStudioImageThread(t *testing.T) {
 	engine.Use(func(c *gin.Context) { c.Set("id", 1); c.Next() })
 	engine.POST("/run/:id", StartStudioRun(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := calls.Add(1)
-		if n == 1 {
-			require.Contains(t, r.URL.Path, "/generations")
-		} else {
+		var payload map[string]any
+		require.NoError(t, common.DecodeJson(r.Body, &payload))
+		require.Equal(t, []string{
+			"A red fox",
+			"Previous requests:\nA red fox\n\n\nCurrent request:\nAdd snow",
+			"Previous requests:\nA red fox\nAdd snow\n\n\nCurrent request:\nMake it night",
+		}[n-1], payload["prompt"])
+		if n == 2 {
 			require.Contains(t, r.URL.Path, "/edits")
-			raw, err := io.ReadAll(r.Body)
-			require.NoError(t, err)
-			require.Contains(t, string(raw), "A red fox")
+			require.Contains(t, payload, "images")
+		} else {
+			require.Contains(t, r.URL.Path, "/generations")
+			require.NotContains(t, payload, "images")
 		}
 		io.WriteString(w, `{"data":[{"b64_json":"`+image+`"}]}`)
 	})))
@@ -208,6 +214,10 @@ func TestStudioImageThread(t *testing.T) {
 	for i, prompt := range []string{"A red fox", "Add snow", "Make it night"} {
 		id := uuid.NewString()
 		in := studioIntent{Parent: parent, Size: "auto", Quality: "auto", Record: studioHistoryRecord{ID: id, Mode: "image", Product: "standard", Entries: []studioHistoryEntry{{ID: i + 1, Model: "gpt-image-2", Prompt: prompt}}}}
+		// Only the middle turn selects an image. The third keeps both earlier prompts without replaying the attachment.
+		if i == 1 {
+			in.Record.Entries[0].Reference = "data:image/png;base64," + image
+		}
 		raw, err := common.Marshal(in)
 		require.NoError(t, err)
 		path := "/run/" + id + "?owner=1"
@@ -220,8 +230,10 @@ func TestStudioImageThread(t *testing.T) {
 		for j, e := range out.Record.Entries {
 			require.True(t, e.Complete, e.Error)
 			require.Equal(t, png, call("GET", e.Image, nil).Body.Bytes())
-			if j > 0 {
+			if j == 1 {
 				require.Equal(t, png, call("GET", e.Reference, nil).Body.Bytes())
+			} else {
+				require.Empty(t, e.Reference)
 			}
 		}
 		require.Equal(t, 200, call("POST", path, raw).Code)

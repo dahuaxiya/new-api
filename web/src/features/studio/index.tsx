@@ -21,6 +21,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   ArrowUp,
   CircleDollarSign,
+  FileText,
+  X,
   LoaderCircle,
   ImageIcon,
   MessageSquare,
@@ -35,6 +37,12 @@ import { useTranslation } from 'react-i18next'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -71,6 +79,7 @@ import {
 } from './api'
 import { recoverCloud } from './studio-cloud'
 import { StudioHistory } from './studio-history'
+import { annotatedPrompt, type ImagePin, type TextQuote } from './studio-quote'
 import { StudioReference } from './studio-reference'
 import { StudioResults } from './studio-results'
 import {
@@ -180,7 +189,92 @@ function StudioWorkspace(props: {
   const mobile = useIsMobile()
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [reference, setReference] = useState<File | string>()
+  const [quotes, setQuotes] = useState<TextQuote[]>([])
+  const [pins, setPins] = useState<ImagePin[]>([])
+  const [imageNote, setImageNote] = useState('')
+  /** 替换或删除附件时，旧图上的坐标和文字不能落到新图上。 */
+  function changeReference(source?: File | string) {
+    setReference(source)
+    setPins([])
+    setImageNote('')
+  }
+  /** 每条摘录使用独立 ID，以便分别编辑或移除批注。 */
+  function quoteText(text: string) {
+    setQuotes((previous) => [
+      ...previous,
+      { id: crypto.randomUUID(), text, note: '' },
+    ])
+  }
   const selectReference = useRef<(source: File | string) => void>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const documentInput = useRef<HTMLInputElement>(null)
+  const [documents, setDocuments] = useState<
+    { id: string; name: string; text: string }[]
+  >([])
+  const [readingDocuments, setReadingDocuments] = useState(false)
+  const [documentError, setDocumentError] = useState(false)
+  const documentRead = useRef(0)
+
+  /** 只在当前草稿接收本次选中的文件。切换会话或清空草稿后，丢弃尚未完成的读取。 */
+  function clearDocuments() {
+    documentRead.current++
+    setReadingDocuments(false)
+    setDocumentError(false)
+    setDocuments([])
+  }
+
+  /**
+   * 按选择顺序读取一批 UTF-8 文本，整批成功后才加入草稿，避免发送不完整的附件。
+   * @param files 浏览器文件选择器返回的文件；取消选择时保留当前草稿。
+   */
+  async function attachDocuments(files: File[]) {
+    if (!files.length) return
+    const ticket = ++documentRead.current
+    setReadingDocuments(true)
+    setDocumentError(false)
+    try {
+      // 提示词最多 32,000 个字符。先限制读取字节数，再对解码后的整条消息做表单校验。
+      const bytes = files.reduce((size, file) => size + file.size, 0)
+      if (bytes > 128_000 || documents.length + files.length > 32) {
+        throw new Error('attachment-limit')
+      }
+      const batch = await Promise.all(
+        files.map(async (file) => {
+          if (
+            !file.size ||
+            /[.](?:pdf|docx?|xlsx?|pptx?|zip)$/i.test(file.name)
+          ) {
+            throw new Error('unsupported-format')
+          }
+          const text = new TextDecoder('utf-8', { fatal: true }).decode(
+            await file.arrayBuffer()
+          )
+          // 有些二进制文件也能解成 UTF-8；禁止控制字符进入聊天和生图提示词。
+          if (
+            !text.trim() ||
+            [...text].some((c) => c < ' ' && !['\t', '\n', '\r'].includes(c))
+          ) {
+            throw new Error('non-text')
+          }
+          return { id: crypto.randomUUID(), name: file.name, text }
+        })
+      )
+      if (ticket !== documentRead.current) return
+      if (
+        [...documents, ...batch].reduce(
+          (n, doc) => n + doc.text.length + doc.name.length + 2,
+          0
+        ) > 32_000
+      ) {
+        throw new Error('attachment-limit')
+      }
+      setDocuments((previous) => [...previous, ...batch])
+    } catch {
+      if (ticket === documentRead.current) setDocumentError(true)
+    } finally {
+      if (ticket === documentRead.current) setReadingDocuments(false)
+    }
+  }
   const [referenceBlocked, setReferenceBlocked] = useState(false)
   const [policyOpen, setPolicyOpen] = useState(false)
   const [openedId, setOpenedId] = useState(0)
@@ -190,7 +284,26 @@ function StudioWorkspace(props: {
   const activeId = useRef(initial?.id)
 
   const form = useForm<StudioForm>({
-    resolver: zodResolver(studioFormSchema),
+    // Validate the exact outbound prompt, including note-only turns, without inserting citations into the editor.
+    resolver: (values, context, options) =>
+      zodResolver(studioFormSchema)(
+        {
+          ...values,
+          prompt: annotatedPrompt(
+            [
+              values.prompt,
+              ...documents.map((doc) => [doc.name, doc.text].join('\n')),
+            ]
+              .filter(Boolean)
+              .join('\n\n'),
+            quotes,
+            reference ? pins : [],
+            reference ? imageNote : ''
+          ),
+        },
+        context,
+        options
+      ),
     defaultValues: {
       prompt: '',
       model:
@@ -250,6 +363,7 @@ function StudioWorkspace(props: {
   const model = useWatch({ control: form.control, name: 'model' })
   const selected = models.find((item) => item.id === model)
   const extendedImage = selected?.reference_image === true
+  const canAttachImage = Boolean(selected && (mode === 'text' || extendedImage))
   const selectedModelId = selected?.id
   useEffect(() => {
     if (mode !== 'image' || !selectedModelId || extendedImage) return
@@ -371,7 +485,9 @@ function StudioWorkspace(props: {
   }
   /** 恢复原会话或打开空白编辑区，清除前一会话未发送的附件。 */
   const restore = (item?: Conversation) => {
-    setReference(undefined)
+    setQuotes([])
+    clearDocuments()
+    changeReference(undefined)
     setReferenceBlocked(false)
     activeId.current = item?.id
     run.reset(item?.entries ?? [], item)
@@ -396,7 +512,16 @@ function StudioWorkspace(props: {
   }
   /** Validate both the form and current catalog before sending; the server independently rechecks all limits. */
   const submit = async (input: StudioForm) => {
-    if (!available || !selected || run.busy || referenceBlocked) return
+    if (
+      !available ||
+      !selected ||
+      run.busy ||
+      referenceBlocked ||
+      readingDocuments ||
+      documentError
+    ) {
+      return
+    }
     if (mode === 'text' && input.maxTokens > selected.max_output) {
       setOptionsOpen(true)
       form.setError('maxTokens', {
@@ -452,7 +577,9 @@ function StudioWorkspace(props: {
       reasoning: '',
       complete: false,
       reference:
-        typeof sentReference === 'string' && sentReference.startsWith('data:')
+        mode === 'image' &&
+        typeof sentReference === 'string' &&
+        sentReference.startsWith('data:')
           ? sentReference
           : undefined,
     }
@@ -465,7 +592,9 @@ function StudioWorkspace(props: {
       entries: [...run.entries, entry],
     }
     form.setValue('prompt', '')
-    setReference(undefined)
+    setQuotes([])
+    clearDocuments()
+    changeReference(undefined)
     if (mobile) setOptionsOpen(false)
     activeId.current = record.id
     // 标签页在服务器接收后被回收时，仍可用同一个 ID 恢复生成。
@@ -487,7 +616,9 @@ function StudioWorkspace(props: {
       type='button'
       variant='ghost'
       size='sm'
-      className='text-muted-foreground min-h-10 px-2.5 md:min-h-9'
+      className='text-muted-foreground size-8'
+      title={t('Advanced Settings')}
+      aria-label={t('Advanced Settings')}
       aria-expanded={
         optionsOpen || (!mobile && !!form.formState.errors.maxTokens)
       }
@@ -495,7 +626,6 @@ function StudioWorkspace(props: {
       onClick={mobile ? undefined : () => setOptionsOpen(!optionsOpen)}
     >
       <SlidersHorizontal aria-hidden='true' />
-      {t('Advanced Settings')}
     </Button>
   )
   // 手机端将参数放到浮层中，展开时也能给对话结果保留原有高度。
@@ -689,12 +819,8 @@ function StudioWorkspace(props: {
           </Button>
         </div>
       </header>
-      <div className='bg-background grid shrink-0 grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-center gap-2 border-b px-3 pt-1 pb-2 md:flex md:flex-wrap md:gap-2.5 md:px-6 md:pb-3'>
-        <Tabs
-          className='max-md:col-span-3 md:me-1.5'
-          value={mode}
-          onValueChange={changeMode}
-        >
+      <div className='bg-background shrink-0 border-b px-3 pt-1 pb-2 md:px-6 md:pb-3'>
+        <Tabs value={mode} onValueChange={changeMode}>
           <TabsList className='h-9 max-md:w-full' aria-label={t('Mode')}>
             <TabsTrigger
               className='max-md:min-h-9'
@@ -714,94 +840,6 @@ function StudioWorkspace(props: {
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className='min-w-0 md:max-w-56 md:min-w-40'>
-          <NativeSelect
-            className='w-full [&_select]:h-10 [&_select]:truncate md:[&_select]:h-9'
-            aria-label={t('Call group')}
-            value={selectedProductId}
-            disabled={run.busy || !catalog?.products.length}
-            onChange={(event) => changeProduct(event.target.value)}
-          >
-            <NativeSelectOption value=''>
-              {t('Select a call group')}
-            </NativeSelectOption>
-            {catalog?.products.map((item) => (
-              <NativeSelectOption key={item.id} value={item.id}>
-                {item.name}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        </div>
-        <div className='min-w-0 md:max-w-xs md:min-w-48 md:flex-1'>
-          <NativeSelect
-            className='w-full [&_select]:h-10 [&_select]:truncate md:[&_select]:h-9'
-            aria-label={t('Model')}
-            disabled={run.busy || !models.length}
-            {...form.register('model', {
-              onChange: () => {
-                setReference(undefined)
-                setReferenceBlocked(false)
-              },
-            })}
-            value={selected?.id ?? ''}
-          >
-            <NativeSelectOption value=''>
-              {t('Select a model')}
-            </NativeSelectOption>
-            {models.map((item) => (
-              <NativeSelectOption key={item.id} value={item.id}>
-                {item.id}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        </div>
-        <Popover>
-          <PopoverTrigger
-            render={
-              <Button
-                variant='ghost'
-                size='icon'
-                className='size-10'
-                aria-label={t('Pricing')}
-                disabled={!selected}
-              />
-            }
-          >
-            <CircleDollarSign aria-hidden='true' />
-          </PopoverTrigger>
-          {selected && (
-            <PopoverContent className='w-64 p-3' align='end'>
-              <PopoverTitle>{selected.id}</PopoverTitle>
-              <dl className='grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 tabular-nums'>
-                <dt>{t('Input')}</dt>
-                <dd>¥{selected.tiers[0].prices.input}</dd>
-                {(reference ||
-                  (mode === 'image' &&
-                    run.entries.some(
-                      (entry) => entry.complete && entry.image
-                    ))) &&
-                  selected.reference_image && (
-                    <>
-                      <dt>{t('Image input')}</dt>
-                      <dd>
-                        ¥
-                        {Number(
-                          (
-                            Number(selected.tiers[0].prices.input) * 1.6
-                          ).toFixed(9)
-                        )}
-                      </dd>
-                    </>
-                  )}
-                <dt>{t(mode === 'image' ? 'Image output' : 'Output')}</dt>
-                <dd>¥{selected.tiers[0].prices.output}</dd>
-              </dl>
-              <p className='text-muted-foreground text-end text-xs'>
-                / 1M Tokens
-              </p>
-            </PopoverContent>
-          )}
-        </Popover>
       </div>
       {blockedMessage && (
         <div
@@ -833,47 +871,136 @@ function StudioWorkspace(props: {
         sentReference={run.sentReference}
         busy={run.busy}
         mode={mode}
+        onQuoteText={quoteText}
+        onQuoteImage={
+          canAttachImage
+            ? (source) => selectReference.current?.(source)
+            : undefined
+        }
       />
       <form
         onSubmit={(event) => void form.handleSubmit(submit)(event)}
         className='mx-auto w-full max-w-[52rem] shrink-0 px-2.5 pt-1 pb-2 md:px-6 md:pb-4'
       >
-        <div className='bg-background focus-within:border-ring/55 space-y-1 rounded-2xl border p-1.5 shadow-sm transition-colors md:space-y-1.5 md:p-2'>
+        <div className='bg-background focus-within:border-ring/55 flex flex-col gap-1 rounded-2xl border p-1.5 shadow-sm transition-colors md:gap-1.5 md:p-2'>
           <Label className='sr-only' htmlFor='studio-prompt'>
             {t('Prompt')}
           </Label>
-          <div className='flex flex-wrap items-center gap-x-1'>
-            <StudioHistory
-              storageKey={storageKey}
+          <input
+            ref={documentInput}
+            className='hidden'
+            type='file'
+            multiple
+            accept='text/*,.txt,.md,.csv,.tsv,.json,.jsonl,.yaml,.yml,.toml,.xml,.log,.js,.jsx,.ts,.tsx,.py,.go,.java,.rs,.sql,.sh,.html,.css,.ini,.conf,.diff,.patch'
+            aria-label={t('Upload file')}
+            disabled={run.busy || readingDocuments}
+            onChange={(event) => {
+              const files = [...(event.currentTarget.files ?? [])]
+              event.currentTarget.value = ''
+              void attachDocuments(files)
+            }}
+          />
+          {documents.length > 0 && (
+            <div className='flex max-h-28 flex-wrap gap-1 overflow-auto'>
+              {documents.map((doc) => (
+                <div
+                  key={doc.id}
+                  className='bg-muted flex max-w-full items-center gap-1 rounded-lg ps-2 text-sm'
+                >
+                  <FileText className='size-4 shrink-0' aria-hidden='true' />
+                  <span className='truncate'>{doc.name}</span>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon-sm'
+                    aria-label={[t('Remove'), doc.name].join(' ')}
+                    onClick={() =>
+                      setDocuments((current) =>
+                        current.filter((item) => item.id !== doc.id)
+                      )
+                    }
+                  >
+                    <X aria-hidden='true' />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          {readingDocuments && (
+            <p role='status' className='text-muted-foreground text-xs'>
+              {t('Loading...')}
+            </p>
+          )}
+          {documentError && (
+            <div
+              role='alert'
+              className='text-destructive flex items-center gap-1 text-xs'
+            >
+              {t(
+                'Choose UTF-8 text files, up to 32 files and 32,000 characters in total.'
+              )}
+              <Button
+                type='button'
+                size='icon-sm'
+                variant='ghost'
+                aria-label={t('Close')}
+                onClick={() => setDocumentError(false)}
+              >
+                <X aria-hidden='true' />
+              </Button>
+            </div>
+          )}
+          {canAttachImage && (
+            <StudioReference
+              ref={selectReference}
+              fileInput={fileInput}
+              key={`${selectedProductId}:${model}`}
+              value={reference}
+              onChange={changeReference}
+              pins={pins}
+              onPins={setPins}
+              note={imageNote}
+              onNote={setImageNote}
+              onBlocked={setReferenceBlocked}
               disabled={run.busy}
-              quote={{
-                entries: run.entries,
-                canUseImages: mode === 'image' && extendedImage,
-                onPick: (item) => {
-                  if (item.type === 'image') {
-                    selectReference.current?.(item.value)
-                    return
-                  }
-                  // Keep the user's draft intact and show exactly what will be sent as context.
-                  const quoted = item.value.trim().replaceAll(/^/gm, '> ')
-                  const draft = form.getValues('prompt')
-                  form.setValue('prompt', `${quoted}\n\n${draft}`, {
-                    shouldValidate: true,
-                  })
-                },
-              }}
             />
-            {selected && (mode === 'text' || selected.reference_image) && (
-              <StudioReference
-                ref={selectReference}
-                key={`${selectedProductId}:${model}`}
-                value={reference}
-                onChange={setReference}
-                onBlocked={setReferenceBlocked}
-                disabled={run.busy}
-              />
-            )}
-          </div>
+          )}
+          {quotes.length > 0 && (
+            <div className='max-h-36 space-y-1 overflow-auto'>
+              {quotes.map((q) => (
+                <div key={q.id} className='bg-muted/50 rounded-lg p-2'>
+                  <blockquote className='line-clamp-3 border-s-2 ps-2 text-sm whitespace-pre-wrap'>
+                    {q.text}
+                  </blockquote>
+                  <div className='flex gap-1'>
+                    <Input
+                      aria-label={t('Annotation')}
+                      placeholder={t('Annotation')}
+                      value={q.note}
+                      onChange={(event) =>
+                        setQuotes(
+                          quotes.map((item) =>
+                            item.id === q.id
+                              ? { ...item, note: event.target.value }
+                              : item
+                          )
+                        )
+                      }
+                    />
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      onClick={() =>
+                        setQuotes(quotes.filter((item) => item.id !== q.id))
+                      }
+                    >
+                      {t('Remove')}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <Textarea
             id='studio-prompt'
             onPaste={(event) => {
@@ -922,7 +1049,127 @@ function StudioWorkspace(props: {
               {t('Enter a prompt of up to 32,000 characters.')}
             </p>
           )}
-          <div className='flex flex-wrap items-center justify-between gap-1.5'>
+          <div className='flex min-w-0 flex-wrap items-center gap-0.5 sm:gap-1'>
+            <div className='me-auto flex min-w-0 flex-1 items-center gap-0.5 sm:gap-1'>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon'
+                      className='text-muted-foreground rounded-full'
+                      aria-label={t('Add')}
+                      title={t('Add')}
+                      disabled={run.busy}
+                    />
+                  }
+                >
+                  <Plus aria-hidden='true' />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side='top' align='start' className='w-max'>
+                  <DropdownMenuItem
+                    disabled={!canAttachImage}
+                    onClick={() => fileInput.current?.click()}
+                  >
+                    <ImageIcon aria-hidden='true' />
+                    {t('Upload image')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={readingDocuments}
+                    onClick={() => documentInput.current?.click()}
+                  >
+                    <FileText aria-hidden='true' />
+                    {t('Upload file')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <div className='max-w-36 min-w-0 shrink'>
+                <NativeSelect
+                  className='text-muted-foreground hover:bg-muted w-full rounded-lg [&_select]:h-9 [&_select]:cursor-pointer [&_select]:truncate [&_select]:border-0 [&_select]:ps-1.5 [&_select]:pe-6 [&_select]:text-xs md:[&_select]:text-sm [&_svg]:end-1 [&_svg]:size-3.5'
+                  aria-label={t('Call group')}
+                  value={selectedProductId}
+                  disabled={run.busy || !catalog?.products.length}
+                  onChange={(event) => changeProduct(event.target.value)}
+                >
+                  <NativeSelectOption value=''>
+                    {t('Select a call group')}
+                  </NativeSelectOption>
+                  {catalog?.products.map((item) => (
+                    <NativeSelectOption key={item.id} value={item.id}>
+                      {item.name}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </div>
+              <div className='max-w-64 min-w-0 shrink'>
+                <NativeSelect
+                  className='text-muted-foreground hover:bg-muted w-full rounded-lg [&_select]:h-9 [&_select]:cursor-pointer [&_select]:truncate [&_select]:border-0 [&_select]:ps-1.5 [&_select]:pe-6 [&_select]:text-xs md:[&_select]:text-sm [&_svg]:end-1 [&_svg]:size-3.5'
+                  aria-label={t('Model')}
+                  disabled={run.busy || !models.length}
+                  {...form.register('model', {
+                    onChange: () => {
+                      changeReference(undefined)
+                      setReferenceBlocked(false)
+                    },
+                  })}
+                  value={selected?.id ?? ''}
+                >
+                  <NativeSelectOption value=''>
+                    {t('Select a model')}
+                  </NativeSelectOption>
+                  {models.map((item) => (
+                    <NativeSelectOption key={item.id} value={item.id}>
+                      {item.id}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </div>
+              <Popover>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant='ghost'
+                      size='icon'
+                      type='button'
+                      className='text-muted-foreground size-8'
+                      title={t('Pricing')}
+                      aria-label={t('Pricing')}
+                      disabled={!selected}
+                    />
+                  }
+                >
+                  <CircleDollarSign aria-hidden='true' />
+                </PopoverTrigger>
+                {selected && (
+                  <PopoverContent className='w-64 p-3' align='end'>
+                    <PopoverTitle>{selected.id}</PopoverTitle>
+                    <dl className='grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 tabular-nums'>
+                      <dt>{t('Input')}</dt>
+                      <dd>¥{selected.tiers[0].prices.input}</dd>
+                      {reference && selected.reference_image && (
+                        <>
+                          <dt>{t('Image input')}</dt>
+                          <dd>
+                            ¥
+                            {Number(
+                              (
+                                Number(selected.tiers[0].prices.input) * 1.6
+                              ).toFixed(9)
+                            )}
+                          </dd>
+                        </>
+                      )}
+                      <dt>{t(mode === 'image' ? 'Image output' : 'Output')}</dt>
+                      <dd>¥{selected.tiers[0].prices.output}</dd>
+                    </dl>
+                    <p className='text-muted-foreground text-end text-xs'>
+                      / 1M Tokens
+                    </p>
+                  </PopoverContent>
+                )}
+              </Popover>
+            </div>
             {mobile ? (
               <Sheet open={optionsOpen} onOpenChange={setOptionsOpen}>
                 <SheetTrigger render={settingsButton} />
@@ -955,21 +1202,28 @@ function StudioWorkspace(props: {
             {run.busy ? (
               <Button
                 type='button'
-                className='min-h-11 rounded-xl px-3.5 md:min-h-9'
+                className='size-9 rounded-full'
                 title={t('Stopping may still incur charges.')}
                 onClick={run.stop}
               >
                 <Square aria-hidden='true' />
-                {t('Stop')}
+                <span className='sr-only'>{t('Stop')}</span>
               </Button>
             ) : (
               <Button
                 type='submit'
-                className='min-h-11 rounded-xl px-3.5 md:min-h-9'
-                disabled={!available || referenceBlocked}
+                className='size-9 rounded-full'
+                disabled={
+                  !available ||
+                  referenceBlocked ||
+                  readingDocuments ||
+                  documentError
+                }
               >
                 <ArrowUp aria-hidden='true' />
-                {t(mode === 'image' ? 'Generate image' : 'Send')}
+                <span className='sr-only'>
+                  {t(mode === 'image' ? 'Generate image' : 'Send')}
+                </span>
               </Button>
             )}
           </div>

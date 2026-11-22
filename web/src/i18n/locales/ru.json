@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Quote": "Цитировать",
+    "Upload image": "Загрузить изображение",
+    "Choose UTF-8 text files, up to 32 files and 32,000 characters in total.": "Выберите текстовые файлы UTF-8: до 32 файлов и 32 000 символов в сумме.",
+    "Quote selection": "Цитировать выделенное",
+    "Annotate image": "Аннотировать изображение",
+    "Mark a point on the image": "Отметить точку на изображении",
+    "Click a point on the image to add a note.": "Нажмите на точку изображения, чтобы добавить заметку.",
+    "Image note": "Заметка об изображении",
+    "Annotation": "Аннотация",
     "Balance top-up": "Пополнение баланса",
     "Top-up history": "История пополнений",
     "Payment details": "Детали оплаты",

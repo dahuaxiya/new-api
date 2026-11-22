@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Quote": "Citer",
+    "Upload image": "Importer une image",
+    "Choose UTF-8 text files, up to 32 files and 32,000 characters in total.": "Choisissez des fichiers texte UTF-8, dans la limite de 32 fichiers et de 32 000 caractères au total.",
+    "Quote selection": "Citer la sélection",
+    "Annotate image": "Annoter l’image",
+    "Mark a point on the image": "Marquer un point sur l’image",
+    "Click a point on the image to add a note.": "Cliquez sur un point de l’image pour ajouter une note.",
+    "Image note": "Note sur l’image",
+    "Annotation": "Annotation",
     "Balance top-up": "Recharger le solde",
     "Top-up history": "Historique des recharges",
     "Payment details": "Détail du paiement",

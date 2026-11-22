@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Quote": "引用",
+    "Upload image": "上传图片",
+    "Choose UTF-8 text files, up to 32 files and 32,000 characters in total.": "请选择 UTF-8 文本文件，最多 32 个，共 32,000 字符。",
+    "Quote selection": "引用选中文字",
+    "Annotate image": "标注图片",
+    "Mark a point on the image": "在图上标记位置",
+    "Click a point on the image to add a note.": "点击图片上的位置，添加批注。",
+    "Image note": "整图批注",
+    "Annotation": "批注",
     "Balance top-up": "余额充值",
     "Top-up history": "充值记录",
     "Payment details": "付款明细",

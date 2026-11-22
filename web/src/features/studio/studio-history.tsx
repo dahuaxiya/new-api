@@ -16,14 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  History,
-  ImageIcon,
-  MessageSquare,
-  Quote,
-  Search,
-  Trash2,
-} from 'lucide-react'
+import { History, ImageIcon, MessageSquare, Search, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -46,7 +39,6 @@ import {
   writeCloud,
   type HistoryRow,
 } from './studio-cloud'
-import { isStudioMedia, useStudioImage } from './studio-image'
 import {
   readHistory,
   removeLocalHistory,
@@ -54,69 +46,13 @@ import {
 } from './studio-session'
 
 type Row = HistoryRow & { local?: Conversation }
-type Entry = Conversation['entries'][number]
-type Citation = { type: 'text' | 'image'; value: string }
-
-/** Only completed results and raster images accepted by the existing reference flow can be reused. */
-function canQuoteImage(entry: Entry) {
-  return (
-    entry.complete &&
-    !entry.error &&
-    Boolean(
-      isStudioMedia(entry.image) ||
-      /^data:image\/(png|jpeg|webp);base64,/.test(entry.image ?? '')
-    )
-  )
-}
-
-/** Choosing an image uses the original stored media link, while the preview stays private. */
-function ImageQuote(props: { entry: Entry; onPick: (value: string) => void }) {
-  const { t } = useTranslation()
-  const source = props.entry.image
-  const { url } = useStudioImage(source)
-  if (!source) return null
-  return (
-    <Button
-      type='button'
-      variant='outline'
-      className='h-auto w-full justify-start gap-3 py-2 text-start whitespace-normal'
-      disabled={!url}
-      onClick={() => props.onPick(source)}
-    >
-      {url && (
-        <img
-          className='size-12 shrink-0 rounded object-cover'
-          src={url}
-          alt=''
-        />
-      )}
-      <span className='line-clamp-2'>
-        {t('Quote image')} · {props.entry.prompt}
-      </span>
-    </Button>
-  )
-}
-
 /** 列表只取摘要。打开某条记录时才下载正文和图片，旧版聊天由用户选择是否同步。 */
-export function StudioHistory(
-  props: {
-    storageKey: string | null
-    disabled: boolean
-  } & (
-    | {
-        onSelect: (item: Conversation) => void
-        onDelete: (item: HistoryRow) => void
-        quote?: never
-      }
-    | {
-        quote: {
-          entries: Entry[]
-          canUseImages: boolean
-          onPick: (item: Citation) => void
-        }
-      }
-  )
-) {
+export function StudioHistory(props: {
+  storageKey: string | null
+  disabled: boolean
+  onSelect: (item: Conversation) => void
+  onDelete: (item: HistoryRow) => void
+}) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState<'all' | 'text' | 'image'>('all')
@@ -125,11 +61,9 @@ export function StudioHistory(
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const [deleting, setDeleting] = useState<Row>()
-  const [quoteEntries, setQuoteEntries] = useState<Entry[]>()
   const epoch = useRef(0)
   const key = props.storageKey
-  const quote = props.quote
-  const title = t(quote ? 'Quote from history' : 'Studio history')
+  const title = t('Studio history')
   useEffect(
     () => () => {
       epoch.current++
@@ -186,117 +120,50 @@ export function StudioHistory(
   const visibleRows = rows.filter((row) => {
     const mode = row.mode ?? 'text'
     return (
-      (!quote || quote.canUseImages || mode === 'text') &&
       (filter === 'all' || filter === mode) &&
       (row.title.toLowerCase().includes(term) ||
         row.product.toLowerCase().includes(term))
     )
   })
 
-  /** Quoting only changes the draft. Opening the source conversation would replace it. */
-  function pick(item: Citation) {
-    quote?.onPick(item)
-    setOpen(false)
+  /** 打开抽屉时重新加载历史记录。
+   * @param next 是否打开抽屉。关闭时作废当前加载，防止旧结果覆盖下一次选择。
+   */
+  function changeOpen(next: boolean) {
+    setOpen(next)
+    if (next) {
+      setRows([])
+      setSearch('')
+      setFilter('all')
+      void perform(load)
+    } else {
+      epoch.current++
+      setDeleting(undefined)
+    }
   }
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (next) {
-          setQuoteEntries(undefined)
-          setRows([])
-          setSearch('')
-          setFilter('all')
-          void perform(load)
-        } else {
-          epoch.current++
-          setDeleting(undefined)
-        }
-      }}
-    >
+    <Sheet open={open} onOpenChange={changeOpen}>
       <SheetTrigger
         render={
           <Button
             type='button'
             variant='ghost'
             size='sm'
-            className={
-              quote
-                ? 'text-muted-foreground min-h-10'
-                : 'max-md:size-11 max-md:rounded-xl'
-            }
+            className='max-md:size-11 max-md:rounded-xl'
             title={title}
             disabled={props.disabled || !key}
           />
         }
       >
-        {quote ? <Quote aria-hidden='true' /> : <History aria-hidden='true' />}
-        <span className={quote ? undefined : 'max-md:sr-only'}>{title}</span>
+        <History aria-hidden='true' />
+        <span className='max-md:sr-only'>{title}</span>
       </SheetTrigger>
       <SheetContent className='w-full gap-0 sm:max-w-md'>
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
         </SheetHeader>
-        {quote && quoteEntries && (
-          <div className='min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4'>
-            <Button
-              type='button'
-              variant='ghost'
-              onClick={() => setQuoteEntries(undefined)}
-            >
-              {t('Back')}
-            </Button>
-            {[...quoteEntries].reverse().map((entry) => {
-              if (quote.canUseImages && canQuoteImage(entry)) {
-                return (
-                  <ImageQuote
-                    key={entry.id}
-                    entry={entry}
-                    onPick={(value) => pick({ type: 'image', value })}
-                  />
-                )
-              }
-              if (entry.image || entry.reference) return null
-              return (
-                <div key={entry.id} className='space-y-2'>
-                  {(
-                    [
-                      [entry.prompt, t('Quote message')],
-                      [entry.complete ? entry.content : '', t('Quote reply')],
-                    ] as const
-                  ).map(
-                    ([value, label]) =>
-                      value.trim() && (
-                        <Button
-                          key={label}
-                          type='button'
-                          variant='outline'
-                          className='h-auto w-full justify-start py-2 text-start whitespace-normal'
-                          onClick={() => pick({ type: 'text', value })}
-                        >
-                          <span className='line-clamp-3'>
-                            {label} · {value}
-                          </span>
-                        </Button>
-                      )
-                  )}
-                </div>
-              )
-            })}
-            {!quoteEntries.some(
-              (entry) =>
-                (quote.canUseImages && canQuoteImage(entry)) ||
-                (!entry.image && !entry.reference && entry.prompt.trim())
-            ) && (
-              <p className='text-muted-foreground px-2'>
-                {t('No quotable content.')}
-              </p>
-            )}
-          </div>
-        )}
-        <div hidden={!!quoteEntries} className='space-y-2.5 border-b px-4 pb-3'>
+        <div className='space-y-2.5 border-b px-4 pb-3'>
           <div className='relative'>
             <Search
               className='text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2'
@@ -322,29 +189,22 @@ export function StudioHistory(
                 ['text', t('Chat')],
                 ['image', t('Image generation')],
               ] as const
-            )
-              .filter(
-                ([value]) => value !== 'image' || !quote || quote.canUseImages
-              )
-              .map(([value, label]) => (
-                <Button
-                  key={value}
-                  type='button'
-                  size='sm'
-                  className='min-h-10 rounded-full px-3'
-                  variant={filter === value ? 'secondary' : 'ghost'}
-                  aria-pressed={filter === value}
-                  onClick={() => setFilter(value)}
-                >
-                  {label}
-                </Button>
-              ))}
+            ).map(([value, label]) => (
+              <Button
+                key={value}
+                type='button'
+                size='sm'
+                className='min-h-10 rounded-full px-3'
+                variant={filter === value ? 'secondary' : 'ghost'}
+                aria-pressed={filter === value}
+                onClick={() => setFilter(value)}
+              >
+                {label}
+              </Button>
+            ))}
           </div>
         </div>
-        <div
-          hidden={!!quoteEntries}
-          className='min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]'
-        >
+        <div className='min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]'>
           {failed && (
             <div role='alert'>
               {t('Could not access history.')}{' '}
@@ -362,20 +222,6 @@ export function StudioHistory(
               {t('Loading...')}
             </p>
           )}
-          {quote && quote.entries.length > 0 && (
-            <Button
-              type='button'
-              variant='ghost'
-              onClick={() => {
-                // Prefer current in-memory turns so quoting works before the next history refresh.
-                epoch.current++
-                setBusy(false)
-                setQuoteEntries(quote.entries)
-              }}
-            >
-              {t('Current conversation')}
-            </Button>
-          )}
           {!busy && !failed && !rows.length && (
             <p className='text-muted-foreground px-2'>{t('No history yet.')}</p>
           )}
@@ -384,7 +230,7 @@ export function StudioHistory(
               {t('No results found.')}
             </p>
           )}
-          {!quote && rows.some((row) => row.local) && (
+          {rows.some((row) => row.local) && (
             <Button
               variant='outline'
               disabled={busy || failed}
@@ -418,14 +264,6 @@ export function StudioHistory(
                   void perform(async (ticket) => {
                     const item = row.local ?? (await readCloud(row.id))
                     if (ticket !== epoch.current) return
-                    if (props.quote) {
-                      setQuoteEntries(
-                        item.mode === 'image'
-                          ? item.entries.filter(canQuoteImage)
-                          : item.entries
-                      )
-                      return
-                    }
                     props.onSelect(item)
                     setOpen(false)
                   })
@@ -446,47 +284,43 @@ export function StudioHistory(
                   </span>
                 </span>
               </Button>
-              {!quote && (
-                <Button
-                  variant='ghost'
-                  size='icon'
-                  className='size-11 shrink-0'
-                  disabled={busy}
-                  aria-label={`${t('Delete')} ${row.title}`}
-                  onClick={() => setDeleting(row)}
-                >
-                  <Trash2 />
-                </Button>
-              )}
+              <Button
+                variant='ghost'
+                size='icon'
+                className='size-11 shrink-0'
+                disabled={busy}
+                aria-label={`${t('Delete')} ${row.title}`}
+                onClick={() => setDeleting(row)}
+              >
+                <Trash2 />
+              </Button>
             </div>
           ))}
         </div>
-        {!props.quote && (
-          <ConfirmDialog
-            open={!!deleting}
-            onOpenChange={(next) => {
-              if (!next) setDeleting(undefined)
-            }}
-            title={t('Delete history entry?')}
-            desc={deleting?.title ?? ''}
-            destructive
-            confirmText={t('Delete')}
-            isLoading={busy}
-            handleConfirm={() =>
-              void perform(async (ticket) => {
-                if (!key || !deleting) return
-                const row = deleting
-                setDeleting(undefined)
-                // Only remove the local copy after the server has acknowledged deletion.
-                await deleteCloud(key, row.id)
-                await removeLocalHistory(key, row.id)
-                if (ticket !== epoch.current) return
-                props.onDelete(row)
-                await load(ticket)
-              })
-            }
-          />
-        )}
+        <ConfirmDialog
+          open={!!deleting}
+          onOpenChange={(next) => {
+            if (!next) setDeleting(undefined)
+          }}
+          title={t('Delete history entry?')}
+          desc={deleting?.title ?? ''}
+          destructive
+          confirmText={t('Delete')}
+          isLoading={busy}
+          handleConfirm={() =>
+            void perform(async (ticket) => {
+              if (!key || !deleting) return
+              const row = deleting
+              setDeleting(undefined)
+              // Only remove the local copy after the server has acknowledged deletion.
+              await deleteCloud(key, row.id)
+              await removeLocalHistory(key, row.id)
+              if (ticket !== epoch.current) return
+              props.onDelete(row)
+              await load(ticket)
+            })
+          }
+        />
       </SheetContent>
     </Sheet>
   )

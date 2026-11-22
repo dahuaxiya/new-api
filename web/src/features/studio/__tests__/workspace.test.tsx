@@ -154,7 +154,8 @@ function mount(
     const row: Conversation = JSON.parse(
       new TextDecoder().decode(body as ArrayBuffer)
     )
-    if (config?.params.parent) server.delete(prefix + config.params.parent)
+    const parent = (config?.params as { parent?: string } | undefined)?.parent
+    if (parent) server.delete(prefix + parent)
     server.set(prefix + row.id, row)
     return { data: { success: true } }
   })
@@ -813,13 +814,37 @@ it('previews and removes a reference before sending a single edit', async () => 
     target: { value: 'image-model' },
   })
   const upload = screen.getByLabelText('Reference image')
+  const prompt = screen.getByLabelText('Prompt')
+  const composer = prompt.closest('form')
+  for (const label of ['Call group', 'Model']) {
+    const selector = screen.getByLabelText(label)
+    expect(composer).toContainElement(selector)
+    expect(
+      prompt.compareDocumentPosition(selector) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  }
+  expect(
+    screen.queryByRole('button', { name: 'Quote from history' })
+  ).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Reference image' })).toBeNull()
+  expect(screen.queryByRole('img', { name: 'Reference image' })).toBeNull()
+  const picker = vi.spyOn(upload, 'click')
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Upload image' }))
+  expect(picker).toHaveBeenCalledOnce()
   const file = new File(
     [Uint8Array.from(atob(png), (c) => c.charCodeAt(0))],
     'ref.png',
     { type: 'image/png' }
   )
   fireEvent.change(upload, { target: { files: [file] } })
-  await screen.findByRole('img', { name: 'Reference image' })
+  const draftImage = await screen.findByRole('img', { name: 'Reference image' })
+  expect(composer).toContainElement(draftImage)
+  expect(
+    draftImage.compareDocumentPosition(prompt) &
+      Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy()
   fireEvent.click(
     screen.getByRole('button', { name: 'Remove reference image' })
   )
@@ -833,7 +858,7 @@ it('previews and removes a reference before sending a single edit', async () => 
   fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
   const results = within(screen.getByRole('log', { name: 'Results' }))
   const preview = await results.findByRole('img', { name: 'Reference image' })
-  expect(results.getByText('Draw in blue').parentElement).toContainElement(
+  expect(results.getByText('Draw in blue').closest('article')).toContainElement(
     preview
   )
   expect(preview).toHaveAttribute('src', 'blob:studio-preview')
@@ -1025,74 +1050,104 @@ it('uploads original file bytes as multipart and blocks files over 50 MiB', asyn
   expect(await outgoing.arrayBuffer()).toEqual(await file.arrayBuffer())
 })
 
-/** A prior chat reply can be inserted without opening its session or losing the current draft. */
-it('quotes an archived chat reply into the current prompt', async () => {
-  const id = 'aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb'
-  server.set(`1/${id}`, {
-    id,
-    product: 'standard',
-    mode: 'text',
-    updatedAt: Date.now(),
-    entries: [
-      {
-        id: 1,
-        prompt: 'Archived question',
-        model: 'text-model',
-        content: 'Archived answer',
-        reasoning: 'Internal notes',
-        complete: true,
-      },
-    ],
-  })
+/** 选区按钮浮在正文之外，只有确认后才把选区和批注加入草稿。 */
+it('quotes a selection from the current conversation without changing the draft', async () => {
   mount(true)
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'New conversation' })
-  )
-  fireEvent.change(screen.getByLabelText('Prompt'), {
-    target: { value: 'Summarize that' },
+  const prompt = await screen.findByLabelText('Prompt')
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'text-model' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Quote from history' }))
-  fireEvent.click(
-    await screen.findByRole('button', { name: /Archived question/ })
-  )
-  fireEvent.click(
-    await screen.findByRole('button', { name: /Quote reply.*Archived answer/ })
-  )
-  expect(screen.getByLabelText('Prompt')).toHaveValue(
-    '> Archived answer\n\nSummarize that'
-  )
-  expect(streamSend).not.toHaveBeenCalled()
+  fireEvent.change(prompt, { target: { value: 'Archived answer' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(1))
-  expect(streamSend.mock.calls[0][0]).toMatchObject({
-    messages: [
-      { role: 'user', content: '> Archived answer\n\nSummarize that' },
-    ],
+  await screen.findByRole('button', { name: 'Send' })
+  fireEvent.change(prompt, { target: { value: 'Summarize that' } })
+  // 选取末尾一个词，避免整条回复被带进模型请求。
+  const source = await screen.findByText('Archived answer', { selector: 'p' })
+  const range = document.createRange()
+  const node = source.firstChild
+  const selection = window.getSelection()
+  if (!node || !selection) throw new Error('A selectable text node is required')
+  range.setStart(node, 9)
+  range.setEnd(node, 15)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  const rect = new DOMRect(40, 80, 55, 16)
+  vi.spyOn(
+    screen.getByRole('log', { name: 'Results' }).parentElement!,
+    'getBoundingClientRect'
+  ).mockReturnValue(new DOMRect(0, 0, 800, 600))
+  Object.defineProperty(range, 'getClientRects', { value: () => [rect] })
+  fireEvent(document, new Event('selectionchange'))
+  const action = await screen.findByRole('button', { name: 'Quote' })
+  expect(source.closest('article')).not.toContainElement(action)
+  fireEvent.click(action)
+  expect(screen.getByLabelText('Prompt')).toHaveValue('Summarize that')
+  const quote = screen.getByRole('blockquote')
+  expect(quote).toHaveTextContent(/^answer$/)
+  expect(
+    quote.compareDocumentPosition(screen.getByLabelText('Prompt')) &
+      Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Annotation'), {
+    target: { value: 'Use the second sentence' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(2))
+  expect(streamSend.mock.calls[1][0]).toMatchObject({
+    messages: expect.arrayContaining([
+      {
+        role: 'user',
+        content: '> answer\nUse the second sentence\n\nSummarize that',
+      },
+    ]),
   })
 })
 
-/** An archived result is read as authenticated media and submitted as an edit attachment. */
-it('uses a saved result as the next image reference', async () => {
-  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:saved-result')
-  const id = 'aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb'
-  const media = `/api/retail/studio/media/${id}/result`
-  server.set(`1/${id}`, {
-    id,
-    product: 'standard',
-    mode: 'image',
-    updatedAt: Date.now(),
-    entries: [
-      {
-        id: 1,
-        prompt: 'A city at noon',
-        model: 'image-model',
-        content: '',
-        reasoning: '',
-        complete: true,
-        image: media,
-      },
-    ],
+/** 文件内容随当轮消息发送，删除附件后也不会误发其正文。 */
+it('offers only uploads and sends only retained file contents', async () => {
+  mount(true)
+  const prompt = await screen.findByLabelText('Prompt')
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'text-model' },
   })
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+  const menu = await screen.findByRole('menu')
+  expect(
+    within(menu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent)
+  ).toEqual(['Upload image', 'Upload file'])
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Upload file' }))
+  const input = screen.getByLabelText('Upload file')
+  fireEvent.change(input, {
+    target: {
+      files: [
+        new File(['# Plan\nOne'], 'brief.md'),
+        new File(['skip'], 'unused.txt'),
+      ],
+    },
+  })
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Remove unused.txt' })
+  )
+  fireEvent.change(prompt, { target: { value: 'Summarize' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(streamSend).toHaveBeenCalledOnce())
+  expect(streamSend.mock.calls[0][0]).toMatchObject({
+    messages: expect.arrayContaining([
+      {
+        role: 'user',
+        content: 'Summarize\n\nbrief.md\n# Plan\nOne',
+      },
+    ]),
+  })
+  expect(screen.queryByRole('button', { name: 'Remove brief.md' })).toBeNull()
+})
+
+/** 上传后的图片仍可按位置批注，并随当轮请求发送原图。 */
+it('annotates an uploaded image before sending it', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:uploaded-result')
   mount(true)
   fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
   fireEvent.change(screen.getByLabelText('Model'), {
@@ -1101,20 +1156,40 @@ it('uses a saved result as the next image reference', async () => {
   fireEvent.change(screen.getByLabelText('Prompt'), {
     target: { value: 'Change it to dusk' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Quote from history' }))
-  fireEvent.click(await screen.findByRole('button', { name: /A city at noon/ }))
-  const option = await screen.findByRole('button', { name: /Quote image/ })
-  await waitFor(() => expect(option).toBeEnabled())
-  fireEvent.click(option)
+  fireEvent.change(screen.getByLabelText('Reference image'), {
+    target: {
+      files: [
+        new File(
+          [Uint8Array.from(atob(png), (c) => c.charCodeAt(0))],
+          'scene.png',
+          { type: 'image/png' }
+        ),
+      ],
+    },
+  })
   expect(screen.getByLabelText('Prompt')).toHaveValue('Change it to dusk')
   await screen.findByRole('img', { name: 'Reference image' })
+  fireEvent.click(screen.getByRole('button', { name: 'Annotate image' }))
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Mark a point on the image' })
+  )
+  fireEvent.change(screen.getByLabelText('Annotation 1'), {
+    target: { value: 'Move the button right' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }))
   expect(imageSend).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
-  await screen.findByRole('img', { name: 'Change it to dusk' })
+  await screen.findByRole('img', {
+    name: /Point #1.*Move the button right.*Change it to dusk/s,
+  })
   const payload = vi
     .mocked(api.post)
     .mock.calls.find(([url]) => url.includes('/runs/'))?.[1]
   expect(payload).toBeInstanceOf(FormData)
+  const intent = JSON.parse(String((payload as FormData).get('intent')))
+  expect(intent.record.entries[0].prompt).toBe(
+    'Point #1 (x=50%, y=50%, origin: top-left): Move the button right\n\nChange it to dusk'
+  )
   const photo = (payload as FormData).get('image') as File
   expect(new Uint8Array(await photo.arrayBuffer())).toEqual(
     Uint8Array.from(atob(png), (char) => char.charCodeAt(0))

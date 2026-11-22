@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Quote": "引用",
+    "Upload image": "画像をアップロード",
+    "Choose UTF-8 text files, up to 32 files and 32,000 characters in total.": "UTF-8 のテキストファイルを選択してください。最大 32 ファイル、合計 32,000 文字までです。",
+    "Quote selection": "選択範囲を引用",
+    "Annotate image": "画像に注釈を付ける",
+    "Mark a point on the image": "画像に位置を指定",
+    "Click a point on the image to add a note.": "画像内の位置をクリックして注釈を追加します。",
+    "Image note": "画像全体の注釈",
+    "Annotation": "注釈",
     "Balance top-up": "残高チャージ",
     "Top-up history": "チャージ履歴",
     "Payment details": "支払い明細",
