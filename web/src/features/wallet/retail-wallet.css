@@ -36,7 +36,6 @@
 }
 .wallet-heading-row {
   margin-bottom: 16px;
-  font-size: 14px;
   color: var(--sub);
 }
 .wallet-heading-row button {
@@ -44,11 +43,7 @@
 }
 .wallet-wrap h1 {
   color: var(--ink);
-  font-size: clamp(24px, 2vw, 30px);
-  font-weight: 700;
-  letter-spacing: -0.035em;
   margin: 0;
-  line-height: 1.2;
 }
 .wallet-grid {
   display: grid;
@@ -79,19 +74,10 @@
     var(--apricot)
   );
 }
-.wallet-balance h2,
-.wallet-form legend,
-.wallet-summary h2 {
-  font-size: 16px;
-  font-weight: 650;
-}
+
 .wallet-balance strong {
   display: block;
   margin-top: 4px;
-  font-size: clamp(28px, 2.3vw, 34px);
-  line-height: 1.12;
-  letter-spacing: -0.035em;
-  font-variant-numeric: tabular-nums;
 }
 .wallet-balance > svg {
   width: 48px;
@@ -116,14 +102,12 @@
   gap: 7px;
 }
 .wallet-presets button {
-  position: relative;
   background: var(--surface);
   border: 1px solid var(--line);
   color: var(--ink);
   min-width: 0;
   height: 40px;
   padding-inline: 4px;
-  font-size: 16px;
   box-shadow: none;
   border-radius: 9px;
 }
@@ -132,18 +116,10 @@
   background: color-mix(in srgb, var(--surface), var(--apricot) 55%);
   color: var(--accent-ink);
 }
-.wallet-presets button svg {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  right: 4px;
-  top: 3px;
-}
 .wallet-field-label {
   margin-bottom: 6px;
 }
 .wallet-field-label span {
-  font-size: 12px;
   color: var(--sub);
 }
 .wallet-amount {
@@ -161,7 +137,6 @@
   height: 40px;
   border: 1px solid var(--line);
   background: var(--surface);
-  font-size: 16px;
 }
 .wallet-methods {
   border-top: 1px solid var(--line);
@@ -171,7 +146,6 @@
   height: 40px;
   justify-content: flex-start;
   gap: 12px;
-  font-size: 16px;
 }
 .wallet-methods button svg:first-child {
   width: 22px;
@@ -187,8 +161,6 @@
   color: var(--sub);
 }
 .wallet-summary dd {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 .wallet-summary .wallet-due {
@@ -196,17 +168,12 @@
   padding-top: 12px;
   border-top: 1px dashed var(--line);
 }
-.wallet-due dd {
-  font-size: clamp(26px, 2vw, 30px);
-  letter-spacing: -0.04em;
-}
+
 .wallet-pay {
   width: 100%;
   min-height: 42px;
   background: var(--brand);
   color: white;
-  font-weight: 650;
-  font-size: 16px;
 }
 .wallet-pay:hover {
   background: color-mix(in srgb, var(--brand), black 12%);
@@ -214,7 +181,6 @@
 .wallet-code {
   margin-top: 6px;
   color: var(--sub);
-  font-size: 14px;
 }
 .wallet-code summary {
   cursor: pointer;
@@ -276,7 +242,7 @@
   .wallet-form {
     gap: 12px;
   }
-  /* 三列可装下六个常用金额，也给选中标记和手指留出空间。 */
+  /* 三列可装下六个常用金额，并保留足够的触控面积。 */
   .wallet-presets {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;

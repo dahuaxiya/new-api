@@ -131,8 +131,8 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
         <section className='wallet-panel'>
           <div className='wallet-balance'>
             <div>
-              <h2>{t('Current Balance')}</h2>
-              <strong>
+              <h2 className='text-sm font-medium'>{t('Current Balance')}</h2>
+              <strong className='text-2xl font-medium tracking-tight tabular-nums sm:text-3xl'>
                 {props.balance === null ? '—' : yuan.format(props.balance)}
               </strong>
             </div>
@@ -144,7 +144,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
             ) : hasOnline ? (
               <>
                 <fieldset>
-                  <legend>{t('Topup Amount')}</legend>
+                  <legend className='text-sm font-medium'>{t('Topup Amount')}</legend>
                   <div className='wallet-presets'>
                     {props.presetAmounts.map((preset) => (
                       <Button
@@ -157,9 +157,6 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                         onClick={() => props.onSelectPreset(preset)}
                       >
                         ¥ {preset.value}
-                        {topupAmount === preset.value && (
-                          <Check aria-hidden='true' />
-                        )}
                       </Button>
                     ))}
                   </div>
@@ -167,7 +164,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                 <div>
                   <div className='wallet-field-label'>
                     <Label htmlFor='topup-amount'>{t('Custom Amount')}</Label>
-                    <span>
+                    <span className='text-xs'>
                       {t('Minimum {{amount}}', { amount: minimum })} ·{' '}
                       {t('Enter a whole number')}
                     </span>
@@ -190,7 +187,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                   </div>
                 </div>
                 <fieldset>
-                  <legend>{t('Payment Method')}</legend>
+                  <legend className='text-sm font-medium'>{t('Payment Method')}</legend>
                   <div className='wallet-methods'>
                     {methods.map((method) => (
                       <Button
@@ -319,15 +316,15 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
           </div>
         </section>
         <section className='wallet-panel wallet-summary'>
-          <h2>{t('Payment details')}</h2>
-          <dl>
+          <h2 className='text-sm font-semibold'>{t('Payment details')}</h2>
+          <dl className='text-sm'>
             <div>
               <dt>{t('Amount credited')}</dt>
-              <dd>{valid ? yuan.format(topupAmount) : '—'}</dd>
+              <dd className='font-medium tabular-nums'>{valid ? yuan.format(topupAmount) : '—'}</dd>
             </div>
             <div>
               <dt>{t('Balance after top-up')}</dt>
-              <dd>
+              <dd className='font-medium tabular-nums'>
                 {props.balance !== null && valid
                   ? yuan.format(props.balance + topupAmount)
                   : '—'}
@@ -335,7 +332,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
             </div>
             <div className='wallet-due'>
               <dt>{t('Amount Due')}</dt>
-              <dd aria-live='polite'>
+              <dd className='text-xl font-medium tracking-tight tabular-nums sm:text-2xl' aria-live='polite'>
                 {ready ? yuan.format(props.paymentAmount) : '—'}
               </dd>
             </div>
@@ -369,7 +366,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
 
       {/* Redemption Code Section */}
       {redemptionEnabled ? (
-        <details className='wallet-code'>
+        <details className='wallet-code text-sm'>
           <summary>{t('Redemption Code')}</summary>
           <div className='space-y-2.5 border-t pt-4 sm:space-y-3 sm:pt-6'>
             <div className='flex items-center gap-2'>

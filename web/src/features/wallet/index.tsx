@@ -318,7 +318,7 @@ function RetailWallet(props: WalletProps) {
       <Main className='retail-wallet'>
         <div className='wallet-wrap'>
           <div className='wallet-heading-row'>
-            <h1>
+            <h1 className='text-base font-bold tracking-tight sm:text-lg'>
               {t(tab === 'balance' ? 'Balance top-up' : 'Referral rewards')}
             </h1>
             <Button variant='ghost' onClick={() => setBillingDialogOpen(true)}>
