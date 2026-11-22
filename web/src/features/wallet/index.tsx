@@ -318,18 +318,14 @@ function RetailWallet(props: WalletProps) {
       <Main className='retail-wallet'>
         <div className='wallet-wrap'>
           <div className='wallet-heading-row'>
-            <span>
-              {t('Wallet')} /{' '}
+            <h1>
               {t(tab === 'balance' ? 'Balance top-up' : 'Referral rewards')}
-            </span>
+            </h1>
             <Button variant='ghost' onClick={() => setBillingDialogOpen(true)}>
               {t('Top-up history')}
               <ChevronRight aria-hidden='true' className='size-4' />
             </Button>
           </div>
-          <h1>
-            {t(tab === 'balance' ? 'Balance top-up' : 'Referral rewards')}
-          </h1>
           <Tabs
             value={tab}
             onValueChange={(value) => {
@@ -393,7 +389,7 @@ function RetailWallet(props: WalletProps) {
                 loading={affiliateLoading}
               />
             </TabsContent>
-            <TabsList className='mt-5 max-w-full'>
+            <TabsList className='max-w-full'>
               <TabsTrigger value='balance'>{t('Balance top-up')}</TabsTrigger>
               <TabsTrigger value='referral'>
                 {t('Referral rewards')}
