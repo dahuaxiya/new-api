@@ -336,13 +336,39 @@ func TestRetailPricingDatabases(t *testing.T) {
 			// wallet must fail before a charge or reservation ledger can commit.
 			groupPolicy := retailprice.KeyPolicy{ProductID: policy.ProductID, GroupCurrent: true}
 			require.NoError(t, PutRetailKeyPolicy(user.Id, token.Id, 3, groupPolicy))
-			groupQuote, err := RetailQuote(user.Id, token.Id, "gpt-4o", 20, []int{101})
+			groupQuote, err := RetailQuoteWithInput(user.Id, token.Id, "gpt-4o", 20, 10, []int{101})
 			require.NoError(t, err)
-			_, err = ReservePricedRetailCharge("group-current", user.Id, token.Id, groupQuote)
+			held, err := ReservePricedRetailCharge("group-current", user.Id, token.Id, groupQuote)
 			require.NoError(t, err)
-			require.NoError(t, ChangeRetailCharge("group-current", user.Id, token.Id, quota, "settled"))
+			require.Less(t, held, quota)
+			// 两个请求共享仅够一次补扣的余额。失败者保留原预扣，胜者重复回调不能再扣。
+			_, err = ReservePricedRetailCharge("group-peer", user.Id, token.Id, groupQuote)
+			require.NoError(t, err)
+			require.NoError(t, db.Model(&user).Update("quota", quota-held).Error)
+			type result struct {
+				id  string
+				err error
+			}
+			outcomes := make(chan result, 2)
+			for _, id := range []string{"group-peer", "group-current"} {
+				go func() { outcomes <- result{id, ChangeRetailCharge(id, user.Id, token.Id, quota, "settled")} }()
+			}
+			one, two := <-outcomes, <-outcomes
+			if one.err != nil {
+				one, two = two, one
+			}
+			require.NoError(t, one.err)
+			require.Error(t, two.err)
+			require.NoError(t, ChangeRetailCharge(one.id, user.Id, token.Id, quota, "settled"))
+			var failed RetailCharge
+			require.NoError(t, db.First(&failed, "id = ?", two.id).Error)
+			require.Equal(t, "reserved", failed.Status)
+			require.Zero(t, failed.Actual)
+			var balance int
+			require.NoError(t, db.Model(&User{}).Select("quota").Where("id = ?", user.Id).Scan(&balance).Error)
+			require.Zero(t, balance)
 			var groupCharge RetailCharge
-			require.NoError(t, db.First(&groupCharge, "id = ?", "group-current").Error)
+			require.NoError(t, db.First(&groupCharge, "id = ?", one.id).Error)
 			require.Equal(t, "0.00036", groupCharge.ActualCNY)
 			require.NoError(t, db.Model(&user).Update("quota", 0).Error)
 			_, err = ReservePricedRetailCharge("group-empty-wallet", user.Id, token.Id, groupQuote)

@@ -377,13 +377,15 @@ func TestManagedGroupSyncKeepsCustomID(t *testing.T) {
 	require.Equal(t, 2, book.Products[0].Routes[0].ChannelID)
 }
 
-// TestGroupTextHoldCoversOverlappingUsage 验证四类输入同时达到上限时预留恰好覆盖结算。
-func TestGroupTextHoldCoversOverlappingUsage(t *testing.T) {
+// TestGroupTextDeposit 验证暂扣只使用本次输入估算，实际结算仍计输出和缓存。
+func TestGroupTextDeposit(t *testing.T) {
 	book, _ := fixture(t)
 	key := retailprice.KeyPolicy{ProductID: "standard", GroupCurrent: true}
-	quote, err := book.MakeQuote(1, "default", key, "gpt-4o", 20, []int{101}, 2, 1000)
+	quote, err := book.MakeQuote(1, "default", key, "gpt-4o", 20, []int{101}, 2, 100)
 	require.NoError(t, err)
-	worst, err := quote.Charge(1000, [5]int{1000, 20, 1000, 1000, 1000})
+	require.True(t, quote.EstimatedTextHold)
+	require.Equal(t, "0.0003", quote.ReservedCNY)
+	actual, err := quote.Charge(100, [5]int{100, 20, 0, 0, 0})
 	require.NoError(t, err)
-	require.Equal(t, worst.String(), quote.ReservedCNY)
+	require.Equal(t, "0.00042", actual.String())
 }

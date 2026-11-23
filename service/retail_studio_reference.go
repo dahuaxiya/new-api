@@ -139,16 +139,21 @@ func writeStudioJSONReference(writer *io.PipeWriter, file *os.File, size int64, 
 	writer.CloseWithError(err)
 }
 
-// retailResponsesPictures 登记用户消息中自带的栅格图片，返回可供出站逐张核对的原始 data URL。
+// retailResponsesPictures 登记用户消息和工具输出中自带的栅格图片，返回可供出站逐张核对的原始 data URL。
 // 只读取内嵌字节，不解引用 URL 或文件 ID；价格校验会拒绝未登记的媒体。
 func retailResponsesPictures(raw []byte) (map[int]string, error) {
 	var pictures map[int]string
 	total := 0
 	for _, msg := range gjson.GetBytes(raw, "input").Array() {
-		if msg.Get("role").Str != "user" || (msg.Get("type").Exists() && msg.Get("type").Str != "message") {
+		parts := msg.Get("content")
+		kind := msg.Get("type").Str
+		if kind == "function_call_output" || kind == "custom_tool_call_output" {
+			// Codex 把工具截图放在 output 数组，与用户上传共用字节、像素与来源限制。
+			parts = msg.Get("output")
+		} else if msg.Get("role").Str != "user" || (msg.Get("type").Exists() && kind != "message") {
 			continue
 		}
-		for _, part := range msg.Get("content").Array() {
+		for _, part := range parts.Array() {
 			if part.Get("type").Str != "input_image" {
 				continue
 			}

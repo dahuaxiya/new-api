@@ -157,6 +157,7 @@ type Quote struct {
 	WalletCNYPerUnit    string          `json:"wallet_cny_per_unit"`
 	ValidUntil          int64           `json:"valid_until"`
 	OutputLimit         int             `json:"output_limit"`
+	EstimatedTextHold   bool            `json:"estimated_text_hold,omitempty"` // 冻结结算方式，旧账单默认按原预留上限结算。
 	ReservedInputTokens int             `json:"reserved_input_tokens,omitempty"`
 	ReservedCNY         string          `json:"reserved_cny"`
 	InputLimit          int             `json:"input_limit,omitempty"`
@@ -453,9 +454,8 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		return nil, ErrExpired
 	}
 	quote := &Quote{SaleFactor: saleFactor, Version: version, ProductID: product.ID, Model: *official, WalletCNYPerUnit: b.WalletCNYPerUnit, ValidUntil: expires, OutputLimit: outputLimit, Channels: channels}
-	maxInput, maxOutput, maxTierInputSum := decimal.Zero, decimal.Zero, decimal.Zero
+	maxInput, maxOutput := decimal.Zero, decimal.Zero
 	for _, tier := range official.Tiers {
-		tierInputSum := decimal.Zero
 		values := make([]string, 5)
 		for i, raw := range tier.Prices.Values() {
 			base, _ := Amount(raw)
@@ -469,10 +469,8 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 				maxOutput = decimal.Max(maxOutput, price)
 			} else {
 				maxInput = decimal.Max(maxInput, price)
-				tierInputSum = tierInputSum.Add(price)
 			}
 		}
-		maxTierInputSum = decimal.Max(maxTierInputSum, tierInputSum)
 		quote.Sale = append(quote.Sale, Tier{UpTo: tier.UpTo, Prices: pricesFromValues(values)})
 	}
 	// Runtime callers pass the token count for this request. Preview and legacy callers
@@ -489,14 +487,24 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		reservedInputTokens = inputTokens[0]
 	}
 	inputBound := int64(reservedInputTokens)
-	// 每个文本输入用量都受同一个 context 上限约束。即使四类全部重叠，
-	// 单价之和仍覆盖实际费用；长历史不能把四类都按最贵的缓存写入价预扣。
-	// 图像另有权重，旧预算策略也有独立的输入上限推导，仅对分组文本报价收紧上界。
-	inputRateBound := maxInput.Mul(decimal.NewFromInt(4))
-	if key.GroupCurrent && official.Kind != "image" {
-		inputRateBound = maxTierInputSum
+	// 分组文本按本次可估输入所在档位暂扣，输出与缓存由上游实际用量结算。
+	// 保存模型输出上限用于验证 usage；模型允许的最大输出不等于本次预计费用。
+	quote.EstimatedTextHold = key.GroupCurrent && official.Kind != "image"
+	if quote.EstimatedTextHold {
+		for _, tier := range quote.Sale {
+			if reservedInputTokens <= tier.UpTo {
+				unit, err := Amount(tier.Prices.Input)
+				if err != nil {
+					return nil, err
+				}
+				quote.ReservedInputTokens = reservedInputTokens
+				quote.ReservedCNY = unit.Mul(decimal.NewFromInt(inputBound)).Shift(-6).RoundCeil(8).String()
+				return quote, nil
+			}
+		}
+		return nil, ErrBudget
 	}
-	reserve := inputRateBound.Mul(decimal.NewFromInt(inputBound)).Add(maxOutput.Mul(decimal.NewFromInt(int64(outputLimit)))).Div(decimal.NewFromInt(1000000)).RoundCeil(8)
+	reserve := maxInput.Mul(decimal.NewFromInt(inputBound * 4)).Add(maxOutput.Mul(decimal.NewFromInt(int64(outputLimit)))).Div(decimal.NewFromInt(1000000)).RoundCeil(8)
 	limit, _ := Amount(key.MaxRequestCNY)
 	if !key.GroupCurrent && reserve.GreaterThan(limit) {
 		if !key.StudioCurrent || !maxInput.IsPositive() {

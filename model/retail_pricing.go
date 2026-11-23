@@ -406,7 +406,7 @@ func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailpric
 		if !slices.Equal(fresh.Channels, quote.Channels) {
 			return ErrRetailPriceConflict
 		}
-		if fresh.ProductID != quote.ProductID {
+		if fresh.ProductID != quote.ProductID || fresh.EstimatedTextHold != quote.EstimatedTextHold {
 			return retailprice.ErrAccess
 		}
 		limit, _ := retailprice.Amount(policy.MaxRequestCNY)
@@ -460,7 +460,11 @@ func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailpric
 // Caller holds the publication lock and the charge lock; retries cannot double-refund a budget.
 func settleRetailPriceBudget(tx *gorm.DB, charge RetailCharge, target int) (string, error) {
 	if target > charge.Reserved {
-		return "", retailprice.ErrBudget
+		// 仅对入账时已选择按实结算的文本请求补扣。余额和 Key 的条件更新与日账本共用事务。
+		var frozen retailprice.Quote
+		if common.UnmarshalJsonStr(charge.PriceSnapshot, &frozen) != nil || !frozen.EstimatedTextHold {
+			return "", retailprice.ErrBudget
+		}
 	}
 	rate, err := retailprice.Amount(charge.WalletCNYPerUnit)
 	if err != nil {

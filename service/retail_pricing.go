@@ -110,8 +110,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 			return true, apiErr
 		}
 		if limited {
-			// The supplier ignores token limits. With no explicit client cap, reserve the published
-			// model maximum, then settle on actual usage. A wallet or per-request budget can veto it.
+			// 无法约束输出的线路以模型上限校验实报用量；输出上限不参与分组文本的输入预扣。
 			output = uint(quote.Model.MaxOutput)
 		}
 		c.Set("retail_limited_responses", limited)
@@ -147,12 +146,14 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if c.Request.URL.Path == "/v1/responses" {
 		replay = retailReplayContents(raw)
 	}
-	// 本地分词器无法读出密文的上下文长度。与图片编辑相同，先预留可接受的上限，
-	// 再按上游返回的真实 usage 结算。保留本次输入，出站前核对协议转换没有丢掉历史。
+	// 出站时核对密文历史是否完整。密文校验独立于计费方式。
 	if len(replay) > 0 {
 		c.Set("retail_response_replay", replay)
 	}
-	if c.Request.URL.Path == "/v1/images/edits" || len(replay) > 0 || c.GetString("retail_previous_response") != "" {
+	if quote.EstimatedTextHold {
+		// 仅有历史引用时可能没有明文 token，以一个输入 token 作为最小估算。
+		tokens = max(1, tokens)
+	} else if c.Request.URL.Path == "/v1/images/edits" || len(replay) > 0 || c.GetString("retail_previous_response") != "" {
 		tokens = quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo
 		if quote.InputLimit > 0 {
 			tokens = min(tokens, quote.InputLimit)
@@ -167,6 +168,18 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	}
 	if imageRequest != (quote.Model.Kind == "image") || (quote.InputLimit > 0 && tokens > quote.InputLimit) {
 		return true, retailPriceError(retailprice.ErrBudget)
+	}
+	if quote.EstimatedTextHold {
+		// 与普通 New API 相同，倍率只调整输入预扣，最终的官方单价和工具费不变。
+		multiplier, err := operation_setting.InputPreConsumeMultiplier()
+		if err != nil {
+			return true, retailPriceError(retailprice.ErrConfig)
+		}
+		base, err := retailprice.Amount(quote.ReservedCNY)
+		if err != nil {
+			return true, retailPriceError(err)
+		}
+		quote.ReservedCNY = base.Mul(decimal.NewFromFloat(multiplier)).RoundCeil(8).String()
 	}
 	info.SetEstimatePromptTokens(tokens)
 	// 渠道覆盖发生在预留之后；不能把客户端明确指定的一次误认为可省略的默认值。
@@ -773,7 +786,7 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 		return 0, err
 	}
 	reserve, _ := decimal.NewFromString(info.RetailQuote.ReservedCNY)
-	if charged.GreaterThan(reserve) {
+	if !info.RetailQuote.EstimatedTextHold && charged.GreaterThan(reserve) {
 		return 0, retailprice.ErrBudget
 	}
 	c.Set("retail_actual_cny", charged.String())
