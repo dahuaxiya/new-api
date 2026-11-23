@@ -571,6 +571,28 @@ func TestRetailHTTPRelay(t *testing.T) {
 						require.Equal(t, wantQuota, user.Quota, step)
 					}
 				}
+				if priced && scenario.name == "responses_stream" {
+					// 模拟 Magpie 从目录补入比零售价表更大的上限。客户端收到可识别的 400，余额与出站次数保持原样。
+					badBody := strings.TrimSuffix(scenario.body, "}") + `,"max_output_tokens":128000}`
+					bad := httptest.NewRequest(http.MethodPost, scenario.path, strings.NewReader(badBody))
+					bad.Header = req.Header.Clone()
+					denied := httptest.NewRecorder()
+					require.NoError(t, model.DB.First(user, user.Id).Error)
+					quotaBefore, hitsBefore := user.Quota, hits.Load()
+					requestID := fmt.Sprintf("retail-http-%s-%d", scenario.name, acceptedRequests.Load()+1)
+					engine.ServeHTTP(denied, bad)
+					require.Equal(t, http.StatusBadRequest, denied.Code, denied.Body.String())
+					require.Equal(t, "max_output_tokens", gjson.Get(denied.Body.String(), "error.param").Str)
+					require.Contains(t, gjson.Get(denied.Body.String(), "error.message").Str, "4096")
+					require.Equal(t, hitsBefore, hits.Load())
+					var count int64
+					require.NoError(t, model.DB.Model(&model.RetailCharge{}).Where("id = ?", requestID).Count(&count).Error)
+					require.Zero(t, count)
+					require.NoError(t, model.DB.Model(&model.RetailAttempt{}).Where("request_id = ?", requestID).Count(&count).Error)
+					require.Zero(t, count)
+					require.NoError(t, model.DB.First(user, user.Id).Error)
+					require.Equal(t, quotaBefore, user.Quota)
+				}
 			})
 		}
 	}

@@ -25,6 +25,18 @@ var (
 	idPattern     = regexp.MustCompile(`^[A-Za-z0-9_.:/-]{1,100}$`)
 )
 
+// OutputLimitError 表示报价因请求的输出 token 超过模型上限而拒绝。
+// 调用方可保留既有预算错误语义，或按请求协议提示对应字段。
+type OutputLimitError struct {
+	MaxOutput int
+}
+
+// Error 返回预算错误码，供沿用既有错误文案的调用方使用。
+func (e *OutputLimitError) Error() string { return ErrBudget.Error() }
+
+// Unwrap 保留既有预算错误分类，供尚未区分具体字段的调用方匹配。
+func (e *OutputLimitError) Unwrap() error { return ErrBudget }
+
 // Prices contains all supported text billing categories, in currency / 1M tokens.
 // Explicit zero is different from an omitted price; empty values are rejected.
 type Prices struct {
@@ -375,8 +387,11 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 	if !ok && !key.StudioCurrent && !key.GroupCurrent {
 		return nil, ErrAccess
 	}
-	if outputLimit <= 0 || outputLimit > official.MaxOutput {
+	if outputLimit <= 0 {
 		return nil, ErrBudget
+	}
+	if outputLimit > official.MaxOutput {
+		return nil, &OutputLimitError{MaxOutput: official.MaxOutput}
 	}
 	// Only the selected product overrides the margin. Book is a value copy, so other quotes retain their policy.
 	if product.MarginBPS != nil {

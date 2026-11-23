@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"math"
@@ -99,6 +100,14 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	}
 	quote, err := model.RetailQuote(info.UserId, info.TokenId, info.OriginModelName, int(output), ids, c.GetString("retail_studio_product"))
 	if err != nil || quote == nil {
+		var limit *retailprice.OutputLimitError
+		if req, ok := info.Request.(*dto.OpenAIResponsesRequest); ok && req.MaxOutputTokens != nil && errors.As(err, &limit) {
+			// Magpie 收到字段明确的 400 才会省略自己补入的上限重试。原请求仍在预留与出站前拒绝。
+			return true, types.WithOpenAIError(types.OpenAIError{
+				Type: "invalid_request_error", Code: "invalid_value", Param: "max_output_tokens",
+				Message: fmt.Sprintf("max_output_tokens: 不能超过该模型的输出上限 %d。", limit.MaxOutput),
+			}, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
 		if err == nil {
 			err = retailprice.ErrConfig
 		}
