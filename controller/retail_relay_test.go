@@ -420,15 +420,25 @@ func TestRetailHTTPRelay(t *testing.T) {
 							{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"open_page","url":"https://example.com/"}},
 							{"role":"user","content":[{"type":"input_text","text":"Repeat the ticket from the tool result."},{"type":"input_image","detail":"low","image_url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="}]}],
 						"tools":[{"type":"namespace","name":"functions","tools":[{"type":"custom","name":"ticket_tool"}]},{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"conversation":{"type":"string"}}}}]}`, scenario.name == "responses_stream", kind, uuid.NewString())
-					req = httptest.NewRequest("POST", scenario.path, strings.NewReader(replay))
+					// 同一请求重放两种旧事件。模拟供应商只应收到可计量的普通消息，本轮工具声明保持原样。
+					history := `{"type":"additional_tools","role":"developer","tools":[{"type":"image_generation"}]},{"type":"image_generation_call","status":"completed","result":"PHN2Zy8+","revised_prompt":"square"},`
+					wireReplay := strings.Replace(replay, `"input":[`, `"input":[`+history, 1)
+					req = httptest.NewRequest("POST", scenario.path, strings.NewReader(wireReplay))
 					req.Header.Set("Authorization", "Bearer sk-"+token.Key)
 					req.Header.Set("Content-Type", "application/json")
 					w := httptest.NewRecorder()
 					engine.ServeHTTP(w, req)
 					require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 					require.EqualValues(t, 2, hits.Load())
-					for _, path := range []string{"input", "tools"} {
-						require.JSONEq(t, gjson.Get(replay, path).Raw, gjson.Get(replayBody.Load().(string), path).Raw, path)
+					upstream := replayBody.Load().(string)
+					require.JSONEq(t, gjson.Get(replay, "tools").Raw, gjson.Get(upstream, "tools").Raw)
+					forwarded := gjson.Get(upstream, "input").Array()
+					original := gjson.Get(replay, "input").Array()
+					require.Len(t, forwarded, len(original)+2)
+					require.Contains(t, forwarded[0].Get("content").Str, "image_generation")
+					require.Contains(t, forwarded[1].Get("content").Str, "<svg/>")
+					for i, item := range original {
+						require.JSONEq(t, item.Raw, forwarded[i+2].Raw)
 					}
 					var follow model.RetailCharge
 					require.NoError(t, model.DB.First(&follow, "id = ?", "retail-http-"+scenario.name+"-2").Error)

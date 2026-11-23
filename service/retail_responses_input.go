@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"io"
 	"path/filepath"
-
 	"strings"
 	"unicode/utf8"
 
@@ -16,16 +15,36 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// PrepareRetailResponsesInput 把用户显式附带的纯文本文件解码为有序文本块；
-// 对仅在本地保存的回复先展开完整历史，使 DTO、透传和预留费用看到相同的输入。
+// PrepareRetailResponsesInput 在报价前统一处理客户端和本地保存的 Responses 历史，使计量、重试与实际出站使用同一份内容。
 func PrepareRetailResponsesInput(c *gin.Context, input common.RawMessage) error {
 	history := c.GetString("retail_previous_history")
 	if len(input) > 8<<20 {
 		return retailprice.ErrConfig
 	}
+	var err error
+	if history != "" {
+		// 先拼接，旧版本保存的记录也需要经过与本次输入相同的转换。
+		input, err = joinRetailInputs(history, input)
+		if err != nil || len(input) > 8<<20 {
+			return retailprice.ErrConfig
+		}
+	}
 	root := gjson.ParseBytes(input)
 	var items []common.RawMessage
 	for i, item := range root.Array() {
+		replacement, err := retailCodexHistoryMessage(item)
+		if err != nil {
+			return err
+		}
+		if replacement != nil {
+			if items == nil {
+				if err := common.Unmarshal(input, &items); err != nil {
+					return err
+				}
+			}
+			items[i] = replacement
+			continue
+		}
 		if item.Get("role").Str != "user" || !item.Get("content").IsArray() || (item.Get("type").Exists() && item.Get("type").Str != "message") {
 			continue
 		}
@@ -89,10 +108,6 @@ func PrepareRetailResponsesInput(c *gin.Context, input common.RawMessage) error 
 	}
 	if history != "" {
 		// 历史已经包含上一轮输入和输出。删除远端引用，避免上游重复加载同一段历史。
-		input, err = joinRetailInputs(history, input)
-		if err != nil {
-			return err
-		}
 		raw, err = sjson.DeleteBytes(raw, "previous_response_id")
 		if err != nil {
 			return err
@@ -135,4 +150,40 @@ func joinRetailInputs(history string, input common.RawMessage) ([]byte, error) {
 		return nil, retailprice.ErrConfig
 	}
 	return common.Marshal(items)
+}
+
+// retailCodexHistoryMessage 将 Codex 私有的历史事件转换成可计量的上下文；返回 nil 表示保留原条目。
+func retailCodexHistoryMessage(item gjson.Result) (common.RawMessage, error) {
+	switch item.Get("type").Str {
+	case "additional_tools":
+		tools := item.Get("tools")
+		if item.Get("role").Str != "developer" || !tools.IsArray() {
+			return nil, retailprice.ErrConfig
+		}
+		// 旧工具定义是历史资料。能否调用工具只取决于本轮顶层 tools，不能从历史恢复权限。
+		return common.Marshal(map[string]string{"role": "assistant", "content": "Previously available tool definitions:\n" + tools.Raw})
+	case "image_generation_call":
+		result, prompt := item.Get("result"), item.Get("revised_prompt")
+		if item.Get("status").Str != "completed" || result.Type != gjson.String || (prompt.Exists() && prompt.Type != gjson.String) || len(result.Str) > base64.StdEncoding.EncodedLen(4<<20) {
+			return nil, retailprice.ErrConfig
+		}
+		data, err := base64.StdEncoding.DecodeString(result.Str)
+		if err != nil || len(data) == 0 || len(data) > 4<<20 {
+			return nil, retailprice.ErrConfig
+		}
+		text := "Previous image generation result.\n" + prompt.Str
+		// Codex 的结果也可能是 SVG。把源码当普通文本保留，不执行 XML，也不加载外部资源。
+		if utf8.Valid(data) && bytes.HasPrefix(bytes.TrimSpace(data), []byte("<svg")) {
+			return common.Marshal(map[string]string{"role": "assistant", "content": text + "\n" + string(data)})
+		}
+		_, format, err := decodeImageConfig(data)
+		if err != nil || (format != "png" && format != "jpeg" && format != "webp") {
+			return nil, retailprice.ErrConfig
+		}
+		// Responses 用 user/input_image 承载输入图片。原字节仍经过同一组总大小、像素和出站一致性检查。
+		parts := []map[string]string{{"type": "input_text", "text": text}, {"type": "input_image", "image_url": "data:image/" + format + ";base64," + result.Str}}
+		return common.Marshal(map[string]any{"role": "user", "content": parts})
+	default:
+		return nil, nil
+	}
 }
