@@ -26,12 +26,14 @@ var (
 // Config 仅由服务器文件提供；浏览器不能选择网关、商户或密钥路径。
 // Enabled 只控制新付款，关闭销售后仍接受已付款订单的通知与查询。
 type Config struct {
-	Enabled        bool   `json:"enabled"`
-	Environment    string `json:"environment"`
-	AppID          string `json:"app_id"`
-	SellerID       string `json:"seller_id"`
-	PrivateKeyFile string `json:"app_private_key_file"`
-	PublicKeyFile  string `json:"alipay_public_key_file"`
+	Enabled bool `json:"enabled"`
+	// 钱包商户签约手机网站支付后才开启；旧配置继续使用已签约的电脑收银台。
+	WalletWAPEnabled bool   `json:"wallet_wap_enabled"`
+	Environment      string `json:"environment"`
+	AppID            string `json:"app_id"`
+	SellerID         string `json:"seller_id"`
+	PrivateKeyFile   string `json:"app_private_key_file"`
+	PublicKeyFile    string `json:"alipay_public_key_file"`
 }
 
 // Client 固定绑定一个环境、应用和收款人，初始化后不再修改配置。
@@ -164,16 +166,16 @@ func (c *Client) PagePay(id string, cents int64, days int, expires int64, notify
 	if days < 1 {
 		return "", nil, ErrPayment
 	}
-	return c.pagePay(id, cents, fmt.Sprintf("luobocode 账号托管 %d 天", days), expires, notifyURL, returnURL)
+	return c.pagePay(id, cents, fmt.Sprintf("luobocode 账号托管 %d 天", days), expires, notifyURL, returnURL, false)
 }
 
-// WalletPagePay 为余额充值签名，独立主题避免把充值显示成托管购买。
-func (c *Client) WalletPagePay(id string, cents, expires int64, notifyURL, returnURL string) (string, map[string]string, error) {
-	return c.pagePay(id, cents, "luobocode API 余额充值", expires, notifyURL, returnURL)
+// WalletPay 用数据库冻结的订单金额和过期时间签名；移动设备只在商户启用 WAP 时切换收银台。
+func (c *Client) WalletPay(id string, cents, expires int64, notifyURL, returnURL string, mobile bool) (string, map[string]string, error) {
+	return c.pagePay(id, cents, "luobocode API 余额充值", expires, notifyURL, returnURL, mobile && c != nil && c.config.WalletWAPEnabled)
 }
 
-// pagePay 只接受服务器构造的商品说明及固定回调地址，共用官方 SDK 的签名和 TLS 约束。
-func (c *Client) pagePay(id string, cents int64, subject string, expires int64, notifyURL, returnURL string) (string, map[string]string, error) {
+// pagePay 仅签署服务端指定的收款人和回调；收银台类型不改变订单的金额、归属或入账规则。
+func (c *Client) pagePay(id string, cents int64, subject string, expires int64, notifyURL, returnURL string, wap bool) (string, map[string]string, error) {
 	if !c.Enabled() || id == "" || len(id) > 40 || cents < 1 || cents > 10000000 || expires <= time.Now().Unix() {
 		return "", nil, ErrPayment
 	}
@@ -183,12 +185,23 @@ func (c *Client) pagePay(id string, cents int64, subject string, expires int64, 
 			return "", nil, ErrPayment
 		}
 	}
-	u, err := c.sdk.TradePagePay(alipay.TradePagePay{Trade: alipay.Trade{
+	trade := alipay.Trade{
 		Subject: subject, OutTradeNo: id,
-		TotalAmount: fmt.Sprintf("%d.%02d", cents/100, cents%100), ProductCode: "FAST_INSTANT_TRADE_PAY",
-		SellerId: c.config.SellerID, TimeExpire: time.Unix(expires, 0).In(time.FixedZone("Asia/Shanghai", 8*3600)).Format("2006-01-02 15:04:05"),
+		TotalAmount: fmt.Sprintf("%d.%02d", cents/100, cents%100),
+		SellerId:    c.config.SellerID, TimeExpire: time.Unix(expires, 0).In(time.FixedZone("Asia/Shanghai", 8*3600)).Format("2006-01-02 15:04:05"),
 		NotifyURL: notifyURL, ReturnURL: returnURL,
-	}})
+	}
+	var u *url.URL
+	var err error
+	if wap {
+		trade.ProductCode = "QUICK_WAP_WAY"
+		// SDK 的 WAP 类型自带同名字段，必须显式传递到外层，否则序列化会丢掉订单有效期。
+		// 取消付款与成功回跳都只回钱包展示，不能据此给用户入账。
+		u, err = c.sdk.TradeWapPay(alipay.TradeWapPay{Trade: trade, QuitURL: returnURL, TimeExpire: trade.TimeExpire})
+	} else {
+		trade.ProductCode = "FAST_INSTANT_TRADE_PAY"
+		u, err = c.sdk.TradePagePay(alipay.TradePagePay{Trade: trade})
+	}
 	if err != nil {
 		return "", nil, ErrPayment
 	}

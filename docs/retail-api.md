@@ -146,6 +146,7 @@ ALIPAY_WALLET_CONFIG=/run/new-api/alipay-wallet.json
 ```json
 {
   "enabled": false,
+  "wallet_wap_enabled": false,
   "environment": "production",
   "app_id": "REPLACE_WITH_MERCHANT_APP_ID",
   "seller_id": "REPLACE_WITH_SELLER_ID",
@@ -155,6 +156,8 @@ ALIPAY_WALLET_CONFIG=/run/new-api/alipay-wallet.json
 ```
 
 商户 ID 占位符必须替换为真实数字 ID。私钥、配置权限限定为 `0600` / `0400`，不提交到 Git。网关由官方 SDK 固定，不能由浏览器输入；回调和回跳必须使用 HTTPS。应用启动时读取一次支付宝配置，变更后需要按发布流程重启服务。新订单还要求站点已有支付声明确认生效。
+
+确认同一正式应用已签约「手机网站支付」后，将钱包配置的 `wallet_wap_enabled` 设为 `true` 并重启服务。手机浏览器使用 `alipay.trade.wap.pay`（当前页打开），电脑仍使用 `alipay.trade.page.pay`。未设置或关闭此开关时沿用原电脑收银台。支付完成或取消都会回到钱包，回跳本身不代表已到账。上线验收时用真机付 ¥1，核对订单已支付、余额只增加 ¥1；另起一单取消，确认余额不变。
 
 充值入口沿用钱包页，提交 `POST /api/user/pay`：
 

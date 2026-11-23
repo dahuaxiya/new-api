@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
@@ -26,6 +27,16 @@ var walletAlipayClient = sync.OnceValues(func() (*hostingpay.Client, error) { re
 func walletAlipayEnabled() bool {
 	client, err := walletAlipayClient()
 	return err == nil && client != nil && client.Enabled() && client.Production() && operation_setting.IsPaymentComplianceConfirmed()
+}
+
+// walletMobileBrowser 根据设备提示选择收银台；该信息不能用于鉴权、报价或结算。
+func walletMobileBrowser(r *http.Request) bool {
+	// Chromium 可能精简 UA；Safari 等未发送 Client Hints 的浏览器使用常见移动端标记。
+	if r.Header.Get("Sec-CH-UA-Mobile") == "?1" {
+		return true
+	}
+	ua := strings.ToLower(r.UserAgent())
+	return strings.Contains(ua, "mobile") || strings.Contains(ua, "android") || strings.Contains(ua, "iphone") || strings.Contains(ua, "ipad") || strings.Contains(ua, "ipod")
 }
 
 // requestWalletAlipay 在服务器计算并冻结充值金额，使用已有钱包表单返回格式。
@@ -65,7 +76,7 @@ func requestWalletAlipay(c *gin.Context, amount int64) {
 		paymentError(c, err)
 		return
 	}
-	uri, params, err := client.WalletPagePay(order.OrderID, cents, order.ExpiresAt, service.GetCallbackAddress()+"/api/wallet/alipay/notify", paymentReturnPath("/wallet"))
+	uri, params, err := client.WalletPay(order.OrderID, order.PriceCents, order.ExpiresAt, service.GetCallbackAddress()+"/api/wallet/alipay/notify", paymentReturnPath("/wallet"), walletMobileBrowser(c.Request))
 	if err != nil {
 		paymentError(c, model.ErrWalletPayment)
 		return

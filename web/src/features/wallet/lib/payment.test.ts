@@ -16,12 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import { PAYMENT_TYPES } from '../constants'
 import {
   dispatchSelectedPayment,
   isStripePayment,
+  submitPaymentForm,
   isWaffoPayment,
   isWaffoPancakePayment,
 } from './payment'
@@ -81,5 +82,21 @@ describe('payment dispatch', () => {
 
     expect(success).toBe(false)
     expect(called).toBe(false)
+  })
+})
+
+
+describe('Alipay form submission', () => {
+  test('opens WAP in this tab and posts the original signed fields', () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Android Chrome/123')
+    const submit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(function (this: HTMLFormElement) {
+      expect(this.target).toBe('_self')
+      expect(this.method).toBe('post')
+      expect(this.action).toBe('https://openapi.alipay.com/gateway.do?charset=utf-8')
+      expect(Object.fromEntries(new FormData(this))).toEqual(fields)
+    })
+    const fields = { method: 'alipay.trade.wap.pay', biz_content: '{"total_amount":"1.01"}', sign: 'A+B/C=' }
+    submitPaymentForm('https://openapi.alipay.com/gateway.do?charset=utf-8', fields)
+    expect(submit).toHaveBeenCalledOnce()
   })
 })

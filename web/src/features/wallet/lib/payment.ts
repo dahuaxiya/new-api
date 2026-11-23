@@ -57,7 +57,8 @@ function isSafariBrowser(): boolean {
 }
 
 /**
- * Submit payment form (for non-Stripe payments)
+ * POST the signed checkout fields unchanged. WAP must navigate the current tab
+ * because the order is created asynchronously and mobile browsers can block popups.
  */
 export function submitPaymentForm(
   url: string,
@@ -67,8 +68,10 @@ export function submitPaymentForm(
   form.action = url
   form.method = 'POST'
 
-  // Don't open in new tab for Safari
-  if (!isSafariBrowser()) {
+  // The signed method also tells us which cashier the merchant actually enabled.
+  if (params.method === 'alipay.trade.wap.pay') {
+    form.target = '_self'
+  } else if (!isSafariBrowser()) {
     form.target = '_blank'
   }
 

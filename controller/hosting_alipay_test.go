@@ -379,9 +379,69 @@ func TestWalletAlipayNotification(t *testing.T) {
 	}
 	require.NoError(t, model.DB.First(&user, user.Id).Error)
 	require.Equal(t, 600, user.Quota)
-	_, params, err := f.client.WalletPagePay(order.OrderID, 4000, time.Now().Unix()+600, "https://portal.test/api/wallet/alipay/notify", "https://portal.test/wallet")
+	_, params, err := f.client.WalletPay(order.OrderID, 4000, time.Now().Unix()+600, "https://portal.test/api/wallet/alipay/notify", "https://portal.test/wallet", false)
 	require.NoError(t, err)
 	var biz map[string]any
 	require.NoError(t, common.UnmarshalJsonStr(params["biz_content"], &biz))
 	require.Equal(t, "luobocode API 余额充值", biz["subject"])
+}
+
+// TestWalletAlipayCashier 用真正的 SDK 和临时 RSA2 密钥验证设备分流、旧配置兼容，以及手机订单的签名字段。
+func TestWalletAlipayCashier(t *testing.T) {
+	f := newAlipayFixture(t)
+	const notifyURL = "https://portal.test/api/wallet/alipay/notify"
+	const returnURL = "https://portal.test/wallet"
+	expires := time.Now().Add(30 * time.Minute).Unix()
+	for _, tc := range []struct {
+		name, ua, hint string
+		enabled, wap   bool
+	}{
+		{"iPhone Safari", "Mozilla/5.0 (iPhone) Mobile Safari", "", true, true},
+		{"Android WebView", "Mozilla/5.0 (Linux; Android 13; wv)", "", true, true},
+		{"mobile client hint", "Mozilla/5.0", "?1", true, true},
+		{"desktop", "Mozilla/5.0 (Windows NT 10.0)", "?0", true, false},
+		{"merchant without WAP", "iPhone Mobile", "", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f.config.WalletWAPEnabled = tc.enabled
+			raw, err := common.Marshal(f.config)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(f.configPath, raw, 0600))
+			client, err := hostingpay.Load(f.configPath)
+			require.NoError(t, err)
+			req := httptest.NewRequest("POST", "/pay", nil)
+			req.Header.Set("User-Agent", tc.ua)
+			req.Header.Set("Sec-CH-UA-Mobile", tc.hint)
+			endpoint, params, err := client.WalletPay("WPtest", 101, expires, notifyURL, returnURL, walletMobileBrowser(req))
+			require.NoError(t, err)
+			var biz map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(params["biz_content"], &biz))
+			if tc.wap {
+				require.Equal(t, "alipay.trade.wap.pay", params["method"])
+				require.Equal(t, "QUICK_WAP_WAY", biz["product_code"])
+				require.Equal(t, returnURL, biz["quit_url"])
+			} else {
+				require.Equal(t, "alipay.trade.page.pay", params["method"])
+				require.Equal(t, "FAST_INSTANT_TRADE_PAY", biz["product_code"])
+				require.NotContains(t, biz, "quit_url")
+			}
+			require.Equal(t, "1.01", biz["total_amount"])
+			require.Equal(t, "WPtest", biz["out_trade_no"])
+			require.Equal(t, f.config.SellerID, biz["seller_id"])
+			require.Equal(t, notifyURL, params["notify_url"])
+			require.Equal(t, returnURL, params["return_url"])
+			require.Equal(t, time.Unix(expires, 0).In(time.FixedZone("CST", 8*3600)).Format("2006-01-02 15:04:05"), biz["time_expire"])
+			// 独立验签，确认从 SDK URL 拆出的表单仍覆盖渠道、金额和回跳地址。
+			u, err := url.Parse(endpoint)
+			require.NoError(t, err)
+			values := u.Query()
+			for k, v := range params {
+				values.Set(k, v)
+			}
+			sig, err := base64.StdEncoding.DecodeString(params["sign"])
+			require.NoError(t, err)
+			digest := sha256.Sum256(alipayTestCanonical(values, false))
+			require.NoError(t, rsa.VerifyPKCS1v15(&f.appKey.PublicKey, crypto.SHA256, digest[:], sig))
+		})
+	}
 }
