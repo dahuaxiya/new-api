@@ -51,6 +51,23 @@ export async function startSiteLogin(
     target.searchParams.get('verify') !== 'login'
   )
     throw new Error('Verification flow expired')
+  // The issuer checks this exact challenge through a consumer-origin frame before automatic login.
+  // Keep the return URL separate so consuming the intent cannot erase the eventual destination.
+  if (!nonce) {
+    try {
+      sessionStorage.setItem(
+        'luobo.login.intent.v1',
+        JSON.stringify({
+          issuer,
+          state,
+          challenge: target.searchParams.get('challenge'),
+          until: Date.now() + 600_000,
+        })
+      )
+    } catch {
+      /* 存储不可用时由身份站提示重新登录。 */
+    }
+  }
   rememberOAuthLoginRedirect(state, redirect)
   target.hash = nonce ? `switch=${nonce}` : ''
   return target.href
