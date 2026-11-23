@@ -16,7 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Link, useSearch } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
+import { Link, useRouteContext, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
@@ -31,6 +32,21 @@ export function SignIn() {
   const { t } = useTranslation()
   const { redirect, recovery } = useSearch({ from: '/(auth)/sign-in' })
   const { status } = useStatus()
+  const routeContext = useRouteContext({ from: '/(auth)/sign-in' })
+  const signInFailure = 'signInFailure' in routeContext ? routeContext.signInFailure : undefined
+  const retryAt = signInFailure?.retryAt ?? 0
+  const [now, setNow] = useState(Date.now)
+  const waiting = Math.max(0, Math.ceil((retryAt - now) / 1000))
+  useEffect(() => {
+    if (!retryAt || retryAt <= Date.now()) return
+    // 后台标签页可能暂停计时；按绝对时间计算，回来时仍显示正确的剩余时间。
+    const timer = window.setInterval(() => {
+      const current = Date.now()
+      setNow(current)
+      if (current >= retryAt) window.clearInterval(timer)
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [retryAt])
 
   return (
     <AuthLayout retailEntrance={status?.site_mode === 'retail'}>
@@ -56,7 +72,23 @@ export function SignIn() {
         </div>
 
         {status?.site_sso?.consumer && recovery !== 'operator' ? (
-          <Button onClick={() => window.location.reload()}>{t('Retry')}</Button>
+          <div className='space-y-3'>
+            <p role='status' className='text-muted-foreground text-sm'>
+              {signInFailure?.limited
+                ? t('Too many sign-in attempts. Please try again later.')
+                : t('Could not start sign-in. Please try again.')}
+            </p>
+            <Button
+              disabled={waiting > 0}
+              onClick={() => window.location.reload()}
+            >
+              {waiting > 0
+                ? t('Retry in {{time}}', {
+                    time: `${Math.floor(waiting / 60)}:${String(waiting % 60).padStart(2, '0')}`,
+                  })
+                : t('Retry')}
+            </Button>
+          </div>
         ) : (
           <UserAuthForm redirectTo={redirect} />
         )}

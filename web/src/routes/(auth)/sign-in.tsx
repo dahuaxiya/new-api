@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import axios from 'axios'
 import { z } from 'zod'
 
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
@@ -24,7 +25,6 @@ import { startSiteLogin, switchNonce } from '@/features/auth/lib/site-switch'
 import { SignIn } from '@/features/auth/sign-in'
 import type { SystemStatus } from '@/features/auth/types'
 import { resolveAuthentication } from '@/lib/auth-session'
-import { handleServerError } from '@/lib/handle-server-error'
 import { statusQueryOptions } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -33,12 +33,30 @@ const searchSchema = z.object({
   recovery: z.literal('operator').optional(),
 })
 
+/** 只把可公开的失败类别和服务端等待时间交给界面，避免直接展示身份服务的响应。 */
+function signInFailure(error: unknown) {
+  const response = axios.isAxiosError(error) ? error.response : undefined
+  const seconds = Number(response?.headers?.['retry-after'])
+  const limited = response?.status === 429
+  return {
+    signInFailure: {
+      limited,
+      retryAt:
+        limited && Number.isFinite(seconds) && seconds > 0
+          ? Date.now() + seconds * 1000
+          : 0,
+    },
+  }
+}
+
 export const Route = createFileRoute('/(auth)/sign-in')({
   component: SignIn,
   validateSearch: searchSchema,
   beforeLoad: async ({ search, context, preload }) => {
+    // 鼠标悬停预取不能消耗登录接口限额，也不应发起会话刷新。
+    if (preload) return
     const nonce = switchNonce()
-    if (nonce && !preload) {
+    if (nonce) {
       const status = (await context.queryClient.fetchQuery(
         statusQueryOptions
       )) as SystemStatus | null
@@ -52,15 +70,23 @@ export const Route = createFileRoute('/(auth)/sign-in')({
             nonce
           )
         } catch (error) {
-          handleServerError(error)
-          return
+          return signInFailure(error)
         }
         throw redirect({ href: url, replace: true, reloadDocument: true })
       }
     }
     // 根 guard 可能因为没有会话提示而跳过了 refresh。此处必须回源确认，
     // 否则持有有效 Refresh Cookie 的用户会被要求重新输入密码。
-    await resolveAuthentication()
+    const session = await resolveAuthentication()
+    // 刷新已被限流时再创建登录事务只会重复消耗同一配额。应急入口仍可手动登录。
+    if (
+      session.kind === 'transient_error' &&
+      search.recovery !== 'operator' &&
+      axios.isAxiosError(session.error) &&
+      session.error.response?.status === 429
+    ) {
+      return signInFailure(session.error)
+    }
 
     const { auth } = useAuthStore.getState()
 
@@ -73,7 +99,7 @@ export const Route = createFileRoute('/(auth)/sign-in')({
     }
 
     // 路由预加载不是登录意图；管理员的本机应急入口也不依赖身份站。
-    if (preload || search.recovery === 'operator') return
+    if (search.recovery === 'operator') return
     const status = (await context.queryClient.fetchQuery(
       statusQueryOptions
     )) as SystemStatus | null
@@ -86,8 +112,7 @@ export const Route = createFileRoute('/(auth)/sign-in')({
       href = await startSiteLogin(status.site_sso.issuer_url, target)
     } catch (error) {
       // 无法建立事务时才展示手动重试入口，避免自动刷新造成循环。
-      handleServerError(error)
-      return
+      return signInFailure(error)
     }
     throw redirect({ href, replace: true, reloadDocument: true })
   },
