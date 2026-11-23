@@ -28,8 +28,9 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// PrepareRetailPricing creates a CNY contract before legacy pricing can reserve any money.
-// Only an unpublished book keeps legacy mode. Pausing a published book cannot bypass its safeguards.
+// PrepareRetailPricing 在旧计费流程预扣前为零售请求创建人民币报价和预留。
+// 只有从未发布过的价表才允许回退到旧计费，已发布价表暂停后继续拦截。
+// 返回值依次表示是否接管请求计费和是否因价格、线路或请求参数而拒绝。
 func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *types.NewAPIError) {
 	if !c.GetBool("retail_request") {
 		return false, nil
@@ -106,8 +107,13 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	if c.Request.URL.Path == "/v1/responses" {
 		// Read the selected route before reserving: rejecting only after dispatch leaves a wallet hold.
 		limited := limitedResponsesRoute(book, common.GetContextKeyInt(c, constant.ContextKeyChannelId), quote.ProductID, info.OriginModelName)
-		if apiErr := validateResponsesContract(raw, limited); apiErr != nil {
+		magpieProbe := limited && isMagpieResponsesProbe(raw)
+		if apiErr := validateResponsesContract(raw, limited, magpieProbe); apiErr != nil {
 			return true, apiErr
+		}
+		if magpieProbe {
+			// 告知客户端 16 是探测目标，上游可能报告更多用量。用正常报价与出站校验完成真实调用。
+			c.Header("X-Luobo-Output-Limit", "best-effort")
 		}
 		if limited {
 			// 无法约束输出的线路以模型上限校验实报用量；输出上限不参与分组文本的输入预扣。

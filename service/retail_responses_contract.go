@@ -1,6 +1,8 @@
 package service
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"slices"
 
@@ -41,9 +43,29 @@ func responsesParameterError(field, why string) *types.NewAPIError {
 	return types.WithOpenAIError(types.OpenAIError{Type: "invalid_request_error", Code: "unsupported_parameter", Param: field, Message: field + ": " + why}, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 }
 
-// validateResponsesContract rejects known unsupported semantics on the selected route, not other suppliers.
+// isMagpieResponsesProbe 识别 Magpie 0.1.4725 固定生成的单条 hi 协议探测。
+// 仅允许客户端原样发出的请求形状和可选的流式开关。任何其他字段或消息都按正式请求校验。
+func isMagpieResponsesProbe(raw []byte) bool {
+	// 原客户端使用固定字段顺序。保留这一约束，重复字段也无法匹配，避免宽松解析扩张兼容范围。
+	if len(raw) > 512 {
+		return false
+	}
+	var compact bytes.Buffer
+	if json.Compact(&compact, raw) != nil {
+		return false
+	}
+	model := gjson.GetBytes(compact.Bytes(), "model")
+	if model.Type != gjson.String || model.Str == "" {
+		return false
+	}
+	probe := `{"model":` + model.Raw + `,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],"max_output_tokens":16`
+	return compact.String() == probe+`}` || compact.String() == probe+`,"stream":true}`
+}
+
+// validateResponsesContract 校验请求与选中供应线路的参数约定。
+// magpieProbe 仅由入口按请求原文识别，允许固定探测以尽力限制输出的方式交给上游。
 // Null optional fields mean omitted. Fixed defaults remain usable for SDKs that send them explicitly.
-func validateResponsesContract(raw []byte, limited bool) *types.NewAPIError {
+func validateResponsesContract(raw []byte, limited, magpieProbe bool) *types.NewAPIError {
 	root := gjson.ParseBytes(raw)
 	for _, field := range []string{"background", "service_tier", "prompt"} {
 		v := root.Get(field)
@@ -69,6 +91,11 @@ func validateResponsesContract(raw []byte, limited bool) *types.NewAPIError {
 			continue
 		}
 		switch field {
+		case "max_output_tokens":
+			// 探测仍把原值发给上游，并按实报用量结算。只对固定探测放宽硬上限校验。
+			if magpieProbe {
+				continue
+			}
 		case "temperature", "top_p":
 			if v.Type == gjson.Number && v.Float() == 1 {
 				continue
