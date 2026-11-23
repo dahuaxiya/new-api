@@ -156,14 +156,16 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		return true, retailPriceError(retailprice.ErrBudget)
 	}
 	info.SetEstimatePromptTokens(tokens)
-	imageLimit, err := retailImageToolLimit(raw, c.Request.URL.Path)
-	if err != nil {
-		return true, retailPriceError(err)
-	}
-	if imageLimit > 0 {
-		basePrice := operation_setting.GetToolPriceForModel(dto.BuildInToolImageGeneration, info.OriginModelName)
-		if err := freezeRetailImageTool(quote, basePrice, imageLimit); err != nil {
+	for _, tool := range []string{dto.BuildInToolImageGeneration, dto.BuildInToolWebSearch} {
+		limit, err := retailToolLimit(raw, c.Request.URL.Path, tool)
+		if err != nil {
 			return true, retailPriceError(err)
+		}
+		if limit > 0 {
+			price := operation_setting.GetToolPriceForModel(tool, info.OriginModelName)
+			if err := freezeRetailTool(quote, tool, price, limit); err != nil {
+				return true, retailPriceError(err)
+			}
 		}
 	}
 	quota, err := model.ReservePricedRetailCharge(info.RequestId, info.UserId, info.TokenId, quote)
@@ -317,10 +319,19 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 			}
 		}
 		// 出站参数可能经过渠道覆盖。图片预算只授权原请求中的工具与调用次数。
-		outgoingLimit, err := retailImageToolLimit(raw, req.URL.Path)
+		outgoingLimit, err := retailToolLimit(raw, req.URL.Path, dto.BuildInToolImageGeneration)
 		if err != nil || outgoingLimit != quote.ImageToolLimit {
 			return retailprice.ErrConfig
 		}
+		// 只把已报价的原生搜索转给有同一种调用计数语义的渠道；不能在协议转换时丢掉工具。
+		searchLimit, err := retailToolLimit(raw, req.URL.Path, dto.BuildInToolWebSearch)
+		if err != nil || searchLimit != quote.SearchLimit {
+			return retailprice.ErrConfig
+		}
+		if searchLimit > 0 && (info.ChannelMeta == nil || (info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeCodex)) {
+			return retailprice.ErrAccess
+		}
+		outgoingLimit = max(outgoingLimit, searchLimit)
 		setOutput := !gjson.GetBytes(raw, limitField).Exists()
 		setTool := outgoingLimit > 0 && !gjson.GetBytes(raw, "max_tool_calls").Exists()
 		if setOutput || setTool {
@@ -531,7 +542,7 @@ func validateRetailChat(raw []byte, vision map[string]int, responses bool, previ
 				})
 			}
 		} else {
-			valid = typ == "function" || (responses && (typ == "custom" || typ == dto.BuildInToolImageGeneration)) || (typ == "" && tool.Get("input_schema").Exists())
+			valid = typ == "function" || (responses && (typ == "custom" || typ == dto.BuildInToolImageGeneration || typ == dto.BuildInToolWebSearch)) || (typ == "" && tool.Get("input_schema").Exists())
 		}
 		return valid
 	})
@@ -641,6 +652,19 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 	if err != nil {
 		return 0, err
 	}
+	searchFee := decimal.Zero
+	if q := info.RetailQuote; q.SearchLimit > 0 {
+		// 声明工具只预留余额；有真实调用才收费。上游用量异常时保留预授权交给原有复核流程。
+		if info.ResponsesUsageInfo == nil || info.BuiltInTools[dto.BuildInToolWebSearch] == nil {
+			return 0, retailprice.ErrUsage
+		}
+		count := info.BuiltInTools[dto.BuildInToolWebSearch].CallCount
+		price, err := retailprice.Amount(q.SearchUnitCNY)
+		if err != nil || !price.IsPositive() || count < 0 || count > q.SearchLimit {
+			return 0, retailprice.ErrUsage
+		}
+		searchFee = price.Mul(decimal.NewFromInt(int64(count)))
+	}
 	sources := []*dto.Usage{usage}
 	if snapshot := usage.BillingUsage; snapshot != nil {
 		if snapshot.GeminiUsageMetadata != nil {
@@ -708,7 +732,7 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 	if err != nil {
 		return 0, err
 	}
-	quota, charged, err := model.RetailCNYQuota(amount.Add(imageFee), info.RetailQuote.WalletCNYPerUnit)
+	quota, charged, err := model.RetailCNYQuota(amount.Add(imageFee).Add(searchFee), info.RetailQuote.WalletCNYPerUnit)
 	if err != nil {
 		return 0, err
 	}
@@ -720,13 +744,13 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 	return quota, nil
 }
 
-// retailImageToolLimit 确定本次可采购的生图次数，仅原生 Responses 使用上游内置工具。
+// retailToolLimit 确定指定内置工具可采购的最大次数，仅原生 Responses 使用上游内置工具。
 // 未指定次数的请求按一次报价，最终出站时写入同一上限。显式多次调用按请求上限预留。
-func retailImageToolLimit(raw []byte, path string) (int, error) {
+func retailToolLimit(raw []byte, path, kind string) (int, error) {
 	tools := gjson.GetBytes(raw, "tools")
 	found := false
 	for _, tool := range tools.Array() {
-		if tool.Get("type").Str != dto.BuildInToolImageGeneration {
+		if tool.Get("type").Str != kind {
 			continue
 		}
 		if found || !strings.HasSuffix(path, "/responses") {
@@ -747,9 +771,9 @@ func retailImageToolLimit(raw []byte, path string) (int, error) {
 	return int(cap.Int()), nil
 }
 
-// freezeRetailImageTool 在钱包预留前冻结每张人民币售价；站内工具价以每千次为单位。
+// freezeRetailTool 在钱包预留前冻结工具的人民币单价；站内工具价以每千次为单位。
 // 复用同一分组的售价倍率，结算时不再读取可热更新的工具价和分组配置。
-func freezeRetailImageTool(q *retailprice.Quote, perThousand float64, limit int) error {
+func freezeRetailTool(q *retailprice.Quote, tool string, perThousand float64, limit int) error {
 	if limit < 1 || limit > dto.MaxImageN || perThousand <= 0 || math.IsNaN(perThousand) || math.IsInf(perThousand, 0) {
 		return retailprice.ErrConfig
 	}
@@ -764,8 +788,14 @@ func freezeRetailImageTool(q *retailprice.Quote, perThousand float64, limit int)
 	if err != nil {
 		return err
 	}
-	q.ImageToolUnitCNY = unit.String()
-	q.ImageToolLimit = limit
+	switch tool {
+	case dto.BuildInToolImageGeneration:
+		q.ImageToolUnitCNY, q.ImageToolLimit = unit.String(), limit
+	case dto.BuildInToolWebSearch:
+		q.SearchUnitCNY, q.SearchLimit = unit.String(), limit
+	default:
+		return retailprice.ErrConfig
+	}
 	q.ReservedCNY = held.Add(unit.Mul(decimal.NewFromInt(int64(limit)))).String()
 	return nil
 }

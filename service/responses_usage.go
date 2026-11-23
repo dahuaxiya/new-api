@@ -16,13 +16,14 @@ import (
 // Finish's usage through the normal text billing path, including interrupted
 // streams. Observe and Finish must be called by the same stream owner.
 type ResponsesUsageAccumulator struct {
-	info           *relaycommon.RelayInfo
-	usage          *dto.Usage
-	outputText     strings.Builder
-	imageCounter   relaycommon.ImageGenerationCallCounter
-	imageCommitted bool
-	started        bool
-	finished       bool
+	info            *relaycommon.RelayInfo
+	usage           *dto.Usage
+	outputText      strings.Builder
+	imageCounter    relaycommon.ImageGenerationCallCounter
+	imageCommitted  bool
+	retailSearchIDs map[string]struct{}
+	started         bool
+	finished        bool
 }
 
 func NewResponsesUsageAccumulator(info *relaycommon.RelayInfo) *ResponsesUsageAccumulator {
@@ -51,6 +52,12 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse, 
 		}
 		// Vendor counts are cumulative on the terminal event and replace the
 		// web_search_call items counted from output_item.done.
+		if event.Response != nil && a.info.RetailQuote != nil && a.info.RetailQuote.SearchLimit > 0 {
+			// 部分渠道只在终帧报告工具调用；按调用 ID 与增量事件去重。
+			for i := range event.Response.Output {
+				a.observeRetailSearch(&event.Response.Output[i])
+			}
+		}
 		a.info.ApplyVendorToolUsage(raw)
 		if a.imageCommitted {
 			return
@@ -74,6 +81,9 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse, 
 		if event.Item == nil {
 			return
 		}
+		if a.observeRetailSearch(event.Item) {
+			return
+		}
 		switch event.Item.Type {
 		case dto.BuildInCallWebSearchCall, dto.BuildInCallFileSearchCall, dto.BuildInCallFunctionCall:
 			a.info.CountBillableToolCall(event.Item.Type, event.Item.Name)
@@ -83,6 +93,28 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse, 
 			}
 		}
 	}
+}
+
+// observeRetailSearch 记录原生零售搜索的真实调用；重复事件不重复收费，缺少身份凭据时留待复核。
+func (a *ResponsesUsageAccumulator) observeRetailSearch(item *dto.ResponsesOutput) bool {
+	if item.Type != dto.BuildInCallWebSearchCall || a.info.RetailQuote == nil || a.info.RetailQuote.SearchLimit == 0 {
+		return false
+	}
+	if item.ID == "" {
+		a.info.SetBillableToolCount(dto.BuildInToolWebSearch, a.info.RetailQuote.SearchLimit+1)
+		return true
+	}
+	if _, seen := a.retailSearchIDs[item.ID]; !seen {
+		if a.retailSearchIDs == nil {
+			a.retailSearchIDs = make(map[string]struct{})
+		}
+		// 超过报价上限后计数已足以拒绝自动结算，不再为后续事件扩充集合。
+		if len(a.retailSearchIDs) <= a.info.RetailQuote.SearchLimit {
+			a.retailSearchIDs[item.ID] = struct{}{}
+			a.info.CountBillableToolCall(item.Type, "")
+		}
+	}
+	return true
 }
 
 func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {

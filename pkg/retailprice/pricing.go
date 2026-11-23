@@ -146,6 +146,8 @@ type KeyPolicy struct {
 type Quote struct {
 	// SaleFactor retains the unrounded group multiplier until optional tool fees are frozen.
 	SaleFactor          decimal.Decimal `json:"-"`
+	SearchUnitCNY       string          `json:"search_unit_cny,omitempty"`
+	SearchLimit         int             `json:"search_limit,omitempty"`
 	ImageToolUnitCNY    string          `json:"image_tool_unit_cny,omitempty"`
 	ImageToolLimit      int             `json:"image_tool_limit,omitempty"`
 	Version             int64           `json:"version"`

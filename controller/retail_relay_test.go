@@ -121,6 +121,9 @@ func TestRetailHTTPRelay(t *testing.T) {
 			{"image_media_input", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":9,"image_tokens":1}}}`, types.RelayFormatOpenAIImage, 1, false},
 			{"image_no_payload", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"revised_prompt":"tree"}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":10,"image_tokens":0}}}`, types.RelayFormatOpenAIImage, 1, false},
 			{"chat", "/v1/chat/completions", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20}`, `{"id":"chat-1","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`, types.RelayFormatOpenAI, 1, true},
+			{"tool_search_idle", "/v1/responses", `{"model":"gpt-4o","input":"hello","tools":[{"type":"web_search","external_web_access":false}],"max_output_tokens":20}`, strings.Replace(imageResponse, item, "", 1), types.RelayFormatOpenAIResponses, 1, true},
+			{"tool_search_stream", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true,"tools":[{"type":"web_search"}],"max_output_tokens":20}`, "data: " + `{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_1","status":"completed"}}` + "\n\ndata: " + `{"type":"response.completed","response":` + strings.Replace(imageResponse, item, `{"type":"web_search_call","id":"ws_1","status":"completed"}`, 1) + "}\n\n", types.RelayFormatOpenAIResponses, 1, true},
+			{"tool_search_used", "/v1/responses", `{"model":"gpt-4o","input":"hello","tools":[{"type":"web_search"}],"max_output_tokens":20}`, strings.Replace(imageResponse, item, `{"type":"web_search_call","id":"ws_1","status":"completed"}`, 1), types.RelayFormatOpenAIResponses, 1, true},
 			{"tool_image", "/v1/responses", imageBody + "}", imageResponse, types.RelayFormatOpenAIResponses, 1, true},
 			{"tool_image_tokens", "/v1/responses", imageBody + "}", strings.Replace(imageResponse, `"output_tokens":2`, `"output_tokens":3,"output_tokens_details":{"image_tokens":1}`, 1), types.RelayFormatOpenAIResponses, 1, true},
 			{"tool_image_empty", "/v1/responses", imageBody + "}", strings.Replace(imageResponse, item, "", 1), types.RelayFormatOpenAIResponses, 1, true},
@@ -143,6 +146,9 @@ func TestRetailHTTPRelay(t *testing.T) {
 		} {
 			t.Run(fmt.Sprintf("%s/guarded_%t", scenario.name, priced), func(t *testing.T) {
 				imageTool := strings.HasPrefix(scenario.name, "tool_image")
+				if strings.HasPrefix(scenario.name, "tool_search_") && !priced {
+					t.Skip("search fee requires published retail tariff")
+				}
 				if (scenario.format == types.RelayFormatOpenAIImage || imageTool) && !priced {
 					t.Skip("image calls require a published price contract")
 				}
@@ -313,6 +319,9 @@ func TestRetailHTTPRelay(t *testing.T) {
 					if priced {
 						expected = 21
 					}
+					if scenario.name == "tool_search_used" || scenario.name == "tool_search_stream" {
+						expected += 1500
+					} // 每千次 10，测试倍率 0.3；只结算实际调用。
 					if imageTool && scenario.name != "tool_image_empty" {
 						// 测试价每千张 150，倍率 0.3；单张 0.045 元，对应 22500 额度。
 						expected += 22500
@@ -412,9 +421,9 @@ func TestRetailHTTPRelay(t *testing.T) {
 						require.EqualValues(t, 3, hits.Load())
 						require.Equal(t, "resp-1", gjson.Get(replayBody.Load().(string), "previous_response_id").String())
 
-						// 历史搜索只作为上下文。声明新搜索、未完成的动作及无报价媒体必须在触达上游前拒绝。
+						// 历史搜索只作为上下文。未报价的文件搜索、未完成的动作及无报价媒体必须在触达上游前拒绝。
 						for _, rejected := range []string{
-							strings.Replace(replay, `"type":"custom","name":"ticket_tool"`, `"type":"web_search"`, 1),
+							strings.Replace(replay, `"type":"custom","name":"ticket_tool"`, `"type":"file_search"`, 1),
 							strings.Replace(replay, `"ws_1","status":"completed"`, `"ws_1","status":"in_progress"`, 1),
 							strings.Replace(replay, `"type":"open_page"`, `"type":"unknown"`, 1),
 							strings.Replace(replay, `"type":"input_text","text"`, `"type":"input_audio","audio"`, 1),
