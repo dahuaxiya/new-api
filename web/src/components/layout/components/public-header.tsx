@@ -28,6 +28,7 @@ import { ThemeSwitch } from '@/components/theme-switch'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SiteSwitcher } from '@/features/auth/components/unified-account'
+import { useHomeLogin } from '@/features/home/lib/use-home-login'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
@@ -69,6 +70,7 @@ export interface PublicHeaderProps {
  * @return 可随窗口宽度切换导航布局的公共页头。
  */
 export function PublicHeader(props: PublicHeaderProps) {
+  const startLogin = useHomeLogin()
   const {
     navLinks = defaultTopNavLinks,
     showThemeSwitch = true,
@@ -120,15 +122,7 @@ export function PublicHeader(props: PublicHeaderProps) {
     <Button
       size='sm'
       className='h-8 rounded-lg px-3.5 text-xs font-medium'
-      render={
-        <Link
-          to='/sign-in'
-          viewTransition={
-            window.location.pathname === '/' &&
-            !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-          }
-        />
-      }
+      render={<Link to='/sign-in' onClick={startLogin} />}
     >
       {t('Sign in')}
     </Button>

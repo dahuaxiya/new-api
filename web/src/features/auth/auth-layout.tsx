@@ -63,6 +63,15 @@ export function AuthLayout({
           </h1>
         )}
       </Link>
+      {branded && retailEntrance && (
+        <Link
+          to='/'
+          className='text-muted-foreground absolute top-4 right-5 z-10 inline-flex min-h-11 items-center gap-2 text-sm sm:top-6 sm:right-10'
+        >
+          <span aria-hidden='true'>←</span>
+          {t('Back to Home')}
+        </Link>
+      )}
       <div
         className={cn(
           'container flex items-center pt-20 pb-8 sm:pt-24',

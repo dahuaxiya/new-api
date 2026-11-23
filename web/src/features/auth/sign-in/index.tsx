@@ -55,29 +55,14 @@ export function SignIn() {
   }, [retryAt])
 
   return (
-    <AuthLayout
-      retailEntrance={status?.site_mode === 'retail' || retailHandoff}
-      retailHandoff={retailHandoff}
-    >
+    <AuthLayout retailEntrance retailHandoff={retailHandoff}>
       <div className='w-full space-y-8'>
         <div className='space-y-2'>
           <h2 className='text-center text-2xl font-semibold tracking-tight sm:text-left'>
-            {t('Sign in')}
+            {retailHandoff || status?.site_mode === 'retail'
+              ? t('Sign in to the relay')
+              : t('Sign in')}
           </h2>
-          {!status?.site_sso?.consumer &&
-            !status?.self_use_mode_enabled &&
-            status?.register_enabled !== false && (
-              <p className='text-muted-foreground text-left text-sm sm:text-base'>
-                {t("Don't have an account?")}{' '}
-                <Link
-                  to='/sign-up'
-                  className='hover:text-primary font-medium underline underline-offset-4'
-                >
-                  {t('Sign up')}
-                </Link>
-                .
-              </p>
-            )}
         </div>
 
         {status?.site_sso?.consumer && recovery !== 'operator' ? (
@@ -101,6 +86,20 @@ export function SignIn() {
         ) : (
           <UserAuthForm redirectTo={redirect} />
         )}
+
+        {!status?.site_sso?.consumer &&
+          !status?.self_use_mode_enabled &&
+          status?.register_enabled !== false && (
+            <p className='text-muted-foreground border-t pt-5 text-center text-sm'>
+              {t("Don't have an account?")}{' '}
+              <Link
+                to='/sign-up'
+                className='text-primary inline-flex min-h-11 items-center font-medium hover:underline'
+              >
+                {t('Sign up')}
+              </Link>
+            </p>
+          )}
 
         <TermsFooter
           variant='sign-in'

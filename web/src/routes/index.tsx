@@ -16,10 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { Home } from '@/features/home'
 
 export const Route = createFileRoute('/')({
+  beforeLoad: ({ preload }) => {
+    // 只有这对生产域名共用公共首页。身份回调、找回密码及托管控制台都有独立路由。
+    if (!preload && window.location.hostname === 'host.luobo.world') {
+      throw redirect({
+        href: 'https://luobo.world/',
+        reloadDocument: true,
+        replace: true,
+      })
+    }
+  },
   component: Home,
 })

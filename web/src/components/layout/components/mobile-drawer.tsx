@@ -25,6 +25,7 @@ import { SignOutDialog } from '@/components/sign-out-dialog'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useHomeLogin } from '@/features/home/lib/use-home-login'
 import useDialogState from '@/hooks/use-dialog'
 import { useIsSidebarModuleVisible } from '@/hooks/use-sidebar-config'
 import { useUserDisplay } from '@/hooks/use-user-display'
@@ -168,6 +169,7 @@ interface MobileSignInButtonProps {
 }
 
 function MobileSignInButton({ onNavigate }: MobileSignInButtonProps) {
+  const startLogin = useHomeLogin()
   const { t } = useTranslation()
   return (
     <Button
@@ -177,11 +179,10 @@ function MobileSignInButton({ onNavigate }: MobileSignInButtonProps) {
       render={
         <Link
           to='/sign-in'
-          viewTransition={
-            window.location.pathname === '/' &&
-            !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-          }
-          onClick={onNavigate}
+          onClick={(event) => {
+            onNavigate?.()
+            void startLogin(event)
+          }}
         />
       }
     >

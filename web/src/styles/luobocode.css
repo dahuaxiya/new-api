@@ -348,18 +348,88 @@ For commercial licensing, please contact support@quantumnous.com
 .luobo-entry-layout .luobo-gateway-sculpture {
   mix-blend-mode: normal;
 }
-@media (max-width: 1023px) {
+/* 左侧插画和首页动画使用相同落点。增高右侧表单时，只向下扩展页面。 */
+.luobo-entry-layout {
+  --entry-gap: clamp(48px, 8vw, 120px);
+  width: min(calc(100% - 96px), 1040px);
+  max-width: none;
+  margin-inline: auto;
+  padding: 0 0 40px;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  column-gap: var(--entry-gap);
+  align-items: start;
+  align-content: start;
+  container-type: inline-size;
+}
+.luobo-entry-layout .luobo-auth-art {
+  /* 桌面插画中心和首屏纵向中心重合，短视口仍为导航预留空间。 */
+  display: block;
+  margin-top: max(100px, calc(50vh - (100cqw - var(--entry-gap)) * 0.181818));
+  border-radius: 0;
+}
+.luobo-entry-layout .luobo-auth-art > :is(div, p) {
+  display: none;
+}
+.luobo-entry-layout .luobo-auth-form {
+  width: 100%;
+  max-width: 380px;
+  margin: max(100px, calc(50vh - 205px)) 0 0;
+  padding: 0;
+}
+.luobo-entry-layout .luobo-auth-form h2 {
+  font-family: var(--font-serif);
+  font-size: clamp(32px, 3.3vw, 44px);
+  line-height: 1.3;
+  font-weight: 600;
+  text-align: left;
+  letter-spacing: -0.045em;
+}
+.luobo-entry-layout .luobo-auth-form input,
+.luobo-entry-layout .luobo-auth-form button[type='submit'] {
+  height: 48px;
+  border-radius: 9px;
+}
+.luobo-entry-layout .luobo-auth-form button[type='submit'] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.luobo-login-suggestions {
+  max-height: min(var(--available-height), 210px);
+  overflow-y: auto;
+  transition:
+    opacity 120ms ease,
+    transform 140ms ease;
+  transform-origin: var(--transform-origin);
+}
+.luobo-login-suggestions:is([data-starting-style], [data-ending-style]) {
+  opacity: 0;
+  transform: scale(0.985);
+}
+@media (prefers-reduced-motion: reduce) {
+  .luobo-login-suggestions {
+    transition: none;
+  }
+}
+@media (max-width: 720px) {
   .luobo-entry-layout {
-    flex-direction: column;
-    justify-content: center;
+    width: min(calc(100% - 44px), 404px);
+    display: block;
+    padding-top: calc(68px + clamp(14px, 4vh, 40px));
   }
   .luobo-entry-layout .luobo-auth-art {
-    display: block;
+    margin: 0 0 18px;
     width: clamp(112px, 36vw, 148px);
     background: none;
   }
   .luobo-entry-layout .luobo-auth-art > :is(div, p) {
     display: none;
+  }
+  .luobo-entry-layout .luobo-auth-form {
+    margin: 0;
+  }
+  .luobo-entry-layout .luobo-auth-form h2 {
+    font-size: 32px;
   }
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -449,34 +519,10 @@ For commercial licensing, please contact support@quantumnous.com
   will-change: transform, opacity;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .luobo-entry-arrival .luobo-auth-art {
-    animation: luobo-arrival-art 460ms cubic-bezier(0.2, 0.68, 0.24, 1) both;
-  }
-  .luobo-entry-arrival .luobo-gateway-sculpture {
-    animation: luobo-arrival-sculpture 500ms cubic-bezier(0.2, 0.68, 0.24, 1)
-      both;
-  }
+  /* 跨域前插画已落位，再淡入或缩放一次会让它看起来闪了一下。 */
   .luobo-entry-arrival .luobo-auth-form {
-    animation: luobo-arrival-form 360ms cubic-bezier(0.22, 0.8, 0.24, 1) 70ms
+    animation: luobo-arrival-form 295ms cubic-bezier(0.22, 0.8, 0.24, 1) 80ms
       both;
-  }
-}
-@keyframes luobo-arrival-art {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes luobo-arrival-sculpture {
-  from {
-    opacity: 0;
-    scale: 0.975;
-  }
-  to {
-    opacity: 1;
-    scale: 1;
   }
 }
 @keyframes luobo-arrival-form {

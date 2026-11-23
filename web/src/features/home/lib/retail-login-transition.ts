@@ -28,7 +28,7 @@ export type RetailLoginTransitionHandle = {
   cleanup: () => void
 }
 
-const transitionDuration = 620
+const transitionDuration = 490
 
 /**
  * 计算首页小猫在登录页的落点。桌面端对齐身份页左侧插画列，移动端缩成
@@ -45,21 +45,23 @@ export function getRetailLoginTargetRect(
 ): RetailLoginTargetRect {
   const aspectRatio = source.width > 0 ? source.height / source.width : 2 / 3
 
-  if (viewportWidth < 1024) {
+  // 与身份页的 .luobo-entry-layout 共用原稿的 720px 断点及 404px 表单宽。
+  if (viewportWidth <= 720) {
     const width = Math.max(112, Math.min(148, viewportWidth * 0.36))
     return {
-      left: (viewportWidth - width) / 2,
-      top: Math.max(84, Math.min(112, viewportHeight * 0.12)),
+      left: (viewportWidth - Math.min(viewportWidth - 44, 404)) / 2,
+      top: 68 + Math.max(14, Math.min(40, viewportHeight * 0.04)),
       width,
       height: width * aspectRatio,
     }
   }
 
-  const shellWidth = Math.min(1152, viewportWidth - 64)
-  const width = Math.min((shellWidth - 80) / 2, viewportWidth * 0.42)
+  const shellWidth = Math.min(1040, viewportWidth - 96)
+  const gap = Math.max(48, Math.min(120, viewportWidth * 0.08))
+  const width = ((shellWidth - gap) * 1.2) / 2.2
   return {
     left: (viewportWidth - shellWidth) / 2,
-    top: Math.max(250, Math.min(viewportHeight * 0.38, viewportHeight * 0.46)),
+    top: Math.max(100, (viewportHeight - width * aspectRatio) / 2),
     width,
     height: width * aspectRatio,
   }
@@ -89,7 +91,7 @@ export function startRetailLoginTransition(
 
   const target = getRetailLoginTargetRect(
     sourceRect,
-    window.innerWidth,
+    document.documentElement.clientWidth,
     window.innerHeight
   )
   const overlay = document.createElement('div')
@@ -113,57 +115,46 @@ export function startRetailLoginTransition(
   const sourceElement = source as HTMLElement
   const sourceVisibility = sourceElement.style.visibility
   sourceElement.style.visibility = 'hidden'
-  positionLoginAura(aura, sourceRect, target)
+  positionLoginAura(aura, target)
   overlay.append(wash, aura, art)
   document.body.append(overlay)
 
   const deltaX = target.left - sourceRect.left
   const deltaY = target.top - sourceRect.top
   const scale = target.width / sourceRect.width
-  const lift = Math.max(8, Math.min(14, Math.abs(deltaX) * 0.025))
+  // 位移和尺寸走原稿的同一条曲线，单独的 translate 只负责九像素的浅弧。
   const artAnimation = art.animate(
     [
       {
-        transform: 'translate3d(0, 0, 0) scale(1) rotate(0deg)',
-        opacity: 1,
-        offset: 0,
+        transform: 'translate3d(0, 0, 0) scale(1)',
       },
       {
-        transform: `translate3d(${deltaX * 0.44}px, ${deltaY * 0.3 - lift}px, 0) scale(${1 + (scale - 1) * 0.18}) rotate(-1deg)`,
-        opacity: 1,
-        offset: 0.4,
-        easing: 'cubic-bezier(0.31, 0.32, 0.25, 1)',
-      },
-      {
-        transform: `translate3d(${deltaX}px, ${deltaY}px, 0) scale(${scale}) rotate(-0.25deg)`,
-        opacity: 1,
-        offset: 0.82,
-        easing: 'cubic-bezier(0.22, 0.68, 0.2, 1)',
-      },
-      {
-        transform: `translate3d(${deltaX}px, ${deltaY}px, 0) scale(${scale * 0.985}) rotate(0deg)`,
-        opacity: 0.94,
-        offset: 1,
+        transform: `translate3d(${deltaX}px, ${deltaY}px, 0) scale(${scale})`,
       },
     ],
     {
       duration: transitionDuration,
       fill: 'both',
-      easing: 'linear',
+      easing: 'cubic-bezier(.27,.12,.16,1)',
     }
   )
-  const auraAnimation = aura.animate(
+  const arcAnimation = art.animate(
     [
-      { opacity: 0, scale: '0.72' },
-      { opacity: 0.78, scale: '1', offset: 0.38 },
-      { opacity: 0.3, scale: '1.16' },
+      { translate: '0 0', easing: 'cubic-bezier(.3,0,.5,1)' },
+      {
+        translate: '0 -9px',
+        offset: 0.38,
+        easing: 'cubic-bezier(.45,0,.35,1)',
+      },
+      { translate: '0 0' },
     ],
-    {
-      duration: transitionDuration,
-      fill: 'both',
-      easing: 'cubic-bezier(0.22, 0.7, 0.2, 1)',
-    }
+    { duration: transitionDuration }
   )
+  const auraAnimation = aura.animate([{ opacity: 0 }, { opacity: 0.3 }], {
+    duration: transitionDuration,
+    fill: 'both',
+    easing: 'cubic-bezier(0.22, 0.7, 0.2, 1)',
+  })
   const washAnimation = wash.animate(
     [
       { opacity: 0 },
@@ -184,6 +175,7 @@ export function startRetailLoginTransition(
     if (cleaned) return
     cleaned = true
     artAnimation.cancel()
+    arcAnimation.cancel()
     auraAnimation.cancel()
     washAnimation.cancel()
     overlay.remove()
@@ -202,22 +194,18 @@ export function startRetailLoginTransition(
   }
 }
 
-/** 光晕沿小猫中心移动，提前在目标位置铺出品牌暖光。 */
+/** 光晕固定在登录页插画中心，透明插画经过时只改变光晕亮度。 */
 function positionLoginAura(
   aura: HTMLDivElement,
-  source: DOMRect,
   target: RetailLoginTargetRect
 ) {
   const diameter = Math.max(260, Math.min(620, target.width * 1.42))
-  const sourceCenterX = source.left + source.width / 2
-  const sourceCenterY = source.top + source.height / 2
   const targetCenterX = target.left + target.width / 2
   const targetCenterY = target.top + target.height / 2
   Object.assign(aura.style, {
-    left: `${sourceCenterX - diameter / 2}px`,
-    top: `${sourceCenterY - diameter / 2}px`,
+    left: `${targetCenterX - diameter / 2}px`,
+    top: `${targetCenterY - diameter / 2}px`,
     width: `${diameter}px`,
     height: `${diameter}px`,
-    translate: `${targetCenterX - sourceCenterX}px ${targetCenterY - sourceCenterY}px`,
   })
 }

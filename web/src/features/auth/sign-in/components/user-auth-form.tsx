@@ -16,9 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Autocomplete } from '@base-ui/react/autocomplete'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
-import { Loader2, LogIn, KeyRound } from 'lucide-react'
+import { Loader2, ArrowRight, KeyRound } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -52,6 +53,7 @@ import {
   type PasskeyDomains,
 } from '@/features/auth/passkey/assertion'
 import { PasskeyDomainSelector } from '@/features/auth/passkey/components/passkey-domain-selector'
+import { getEmailSuggestions } from '@/features/auth/sign-up/lib/email-suggestions'
 import type { AuthFormProps } from '@/features/auth/types'
 import { useStatus } from '@/hooks/use-status'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -60,6 +62,7 @@ import { AuthOperationError } from '@/lib/secure-verification'
 import { createServerError } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
+/** 密码在现有认证流程提交；账号字段允许原样输入，只有 @ 后才提供本地域名建议。 */
 export function UserAuthForm({
   className,
   redirectTo,
@@ -112,17 +115,6 @@ export function UserAuthForm({
     !passkeySupported ||
     (requiresLegalConsent && !agreedToLegal)
   const hasWeChatLogin = Boolean(status?.wechat_login)
-  const hasOAuthLogin = Boolean(
-    status?.github_oauth ||
-    status?.discord_oauth ||
-    status?.oidc_enabled ||
-    status?.linuxdo_oauth ||
-    status?.telegram_oauth ||
-    (status?.custom_oauth_providers?.length ?? 0) > 0
-  )
-  const hasAlternativeLogin =
-    passkeyLoginEnabled || hasWeChatLogin || hasOAuthLogin
-
   useEffect(() => {
     if (requiresLegalConsent) {
       setAgreedToLegal(false)
@@ -144,6 +136,14 @@ export function UserAuthForm({
       password: '',
     },
   })
+
+  const identifier = form.watch('username')
+  const [menuOpen, setMenuOpen] = useState(false)
+  // 不把普通用户名猜成邮箱，拼错时只给候选，不修改表单原值。
+  const suggestions = useMemo(
+    () => (identifier.includes('@') ? getEmailSuggestions(identifier) : []),
+    [identifier]
+  )
 
   const wechatQrCodeUrl = useMemo(() => {
     return (
@@ -349,8 +349,6 @@ export function UserAuthForm({
         className={cn('grid gap-4', className)}
         {...props}
       >
-        {hasAlternativeLogin && alternativeLoginMethods}
-
         {passwordLoginEnabled && (
           <>
             {/* Username Field */}
@@ -360,12 +358,53 @@ export function UserAuthForm({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t('Username or Email')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder={t('Enter your username or email')}
-                      {...field}
-                    />
-                  </FormControl>
+                  <Autocomplete.Root
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    items={suggestions.map((item) => item.address)}
+                    filter={null}
+                    open={menuOpen && suggestions.length > 0}
+                    onOpenChange={setMenuOpen}
+                  >
+                    <FormControl>
+                      <Autocomplete.Input
+                        render={<Input />}
+                        ref={field.ref}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        autoComplete='username'
+                        autoCapitalize='none'
+                        spellCheck={false}
+                        placeholder={t('Enter your username or email')}
+                      />
+                    </FormControl>
+                    <Autocomplete.Portal>
+                      <Autocomplete.Positioner
+                        side='top'
+                        sideOffset={6}
+                        className='z-50 w-[var(--anchor-width)]'
+                      >
+                        <Autocomplete.Popup className='luobo-login-suggestions bg-popover rounded-lg border p-1 shadow-md'>
+                          <Autocomplete.List>
+                            {suggestions.map((item) => (
+                              <Autocomplete.Item
+                                key={item.address}
+                                value={item.address}
+                                className='data-highlighted:bg-accent flex cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm'
+                              >
+                                <span className='truncate'>{item.address}</span>
+                                {item.kind === 'correction' && (
+                                  <small className='shrink-0'>
+                                    {t('Suggested correction')}
+                                  </small>
+                                )}
+                              </Autocomplete.Item>
+                            ))}
+                          </Autocomplete.List>
+                        </Autocomplete.Popup>
+                      </Autocomplete.Positioner>
+                    </Autocomplete.Portal>
+                  </Autocomplete.Root>
                   <FormMessage />
                 </FormItem>
               )}
@@ -380,6 +419,7 @@ export function UserAuthForm({
                   <FormLabel>{t('Password')}</FormLabel>
                   <FormControl>
                     <PasswordInput
+                      autoComplete='current-password'
                       placeholder={t('Enter password')}
                       {...field}
                     />
@@ -398,11 +438,15 @@ export function UserAuthForm({
             {/* Submit Button */}
             <Button
               type='submit'
-              className='mt-2 w-full justify-center gap-2'
+              className='relative mt-2 w-full justify-center gap-2'
               disabled={isLoading}
             >
-              {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
               {t('Sign in')}
+              {isLoading ? (
+                <Loader2 className='absolute right-4 animate-spin' />
+              ) : (
+                <ArrowRight aria-hidden='true' className='absolute right-4' />
+              )}
             </Button>
 
             {/* Turnstile */}
@@ -426,7 +470,7 @@ export function UserAuthForm({
           className='mt-1'
         />
 
-        {!hasAlternativeLogin && alternativeLoginMethods}
+        {alternativeLoginMethods}
       </form>
 
       {hasWeChatLogin && (

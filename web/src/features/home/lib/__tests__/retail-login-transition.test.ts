@@ -38,7 +38,7 @@ describe('retail login transition', () => {
     expect(target.width).toBeLessThanOrEqual(560)
   })
 
-  it('keeps the mobile sculpture centered and compact', () => {
+  it('aligns the mobile sculpture with the left edge of the email field', () => {
     const mobileSource = {
       left: 20,
       top: 210,
@@ -49,7 +49,7 @@ describe('retail login transition', () => {
 
     expect(target.width).toBeGreaterThanOrEqual(112)
     expect(target.width).toBeLessThanOrEqual(148)
-    expect(target.left + target.width / 2).toBeCloseTo(195, 4)
+    expect(target.left).toBe(22)
     expect(target.top).toBeLessThan(mobileSource.top)
   })
 })

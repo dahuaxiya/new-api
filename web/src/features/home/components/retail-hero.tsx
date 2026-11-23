@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import {
   ArrowDown,
   ArrowRight,
@@ -25,15 +25,13 @@ import {
   Fingerprint,
   ReceiptText,
 } from 'lucide-react'
-import { useRef, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { SiteSwitcher } from '@/features/auth/components/unified-account'
-import { startSiteLogin } from '@/features/auth/lib/site-switch'
 import { useStatus } from '@/hooks/use-status'
 
-import { startRetailLoginTransition } from '../lib/retail-login-transition'
+import { useHomeLogin } from '../lib/use-home-login'
 import { ApiExample } from './api-example'
 import { RetailPricing } from './retail-pricing'
 
@@ -45,61 +43,7 @@ import { RetailPricing } from './retail-pricing'
 export function RetailHero(props: { isAuthenticated: boolean }) {
   const { t } = useTranslation()
   const { status } = useStatus()
-  const navigate = useNavigate()
-  const loginTransitioning = useRef(false)
-
-  const startLogin = async (event: MouseEvent<HTMLAnchorElement>) => {
-    if (
-      props.isAuthenticated ||
-      event.defaultPrevented ||
-      event.button !== 0 ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.shiftKey ||
-      event.altKey
-    ) {
-      return
-    }
-    event.preventDefault()
-    if (loginTransitioning.current) return
-    loginTransitioning.current = true
-
-    const shouldAnimate = !window.matchMedia('(prefers-reduced-motion: reduce)')
-      .matches
-    const transition = startRetailLoginTransition(
-      shouldAnimate
-        ? document.querySelector(
-            '.luobo-hero-sculpture .luobo-gateway-sculpture'
-          )
-        : null
-    )
-    const externalLogin = Boolean(status?.site_sso?.consumer)
-
-    try {
-      // 建立统一登录事务与播放首页动画并行，避免先停在空白中转地址。
-      const destination = externalLogin
-        ? startSiteLogin(
-            status?.site_sso?.issuer_url ?? '',
-            '/dashboard/overview'
-          )
-        : Promise.resolve('/sign-in')
-      const [href] = await Promise.all([destination, transition.finished])
-
-      if (externalLogin) {
-        window.location.replace(href)
-        return
-      }
-
-      await navigate({ to: '/sign-in' })
-      transition.cleanup()
-    } catch {
-      // 登录事务可能先于动画失败；仍等动画收束后再切换页面，避免用户只看到半个转场。
-      await transition.finished
-      transition.cleanup()
-      loginTransitioning.current = false
-      await navigate({ to: '/sign-in' })
-    }
-  }
+  const startLogin = useHomeLogin()
 
   return (
     <main className='luobo-home mx-auto w-full max-w-[1240px] px-5 sm:px-10'>
