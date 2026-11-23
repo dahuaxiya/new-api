@@ -8401,6 +8401,17 @@
     "Select upstream group": "Chọn nhóm thượng nguồn",
     "Customer group": "Nhóm khách hàng",
     "Credential label": "Tên gợi nhớ của khóa",
-    "Supply credential": "Khóa nhà cung cấp"
+    "Supply credential": "Khóa nhà cung cấp",
+    "Suggested correction": "Gợi ý sửa",
+    "Send verification code": "Gửi mã xác minh",
+    "Enter the 6-digit code sent to": "Nhập mã 6 chữ số đã gửi đến",
+    "6-digit email verification code": "Mã xác minh email 6 chữ số",
+    "The form continues automatically after the sixth digit.": "Biểu mẫu tự tiếp tục sau chữ số thứ sáu.",
+    "Change email": "Đổi email",
+    "Verified email": "Email đã xác minh",
+    "Choose the credentials you will use to sign in.": "Chọn tên người dùng và mật khẩu bạn sẽ dùng để đăng nhập.",
+    "Your address is only used for verification and account recovery.": "Địa chỉ này chỉ dùng để xác minh và khôi phục tài khoản.",
+    "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "Chúng tôi sẽ gửi mã 6 chữ số để xác minh địa chỉ này. Bạn sẽ đặt tên người dùng và mật khẩu ở bước tiếp theo.",
+    "Suggestions appear as you type after the @ symbol.": "Gợi ý xuất hiện khi bạn nhập sau ký tự @."
   }
 }

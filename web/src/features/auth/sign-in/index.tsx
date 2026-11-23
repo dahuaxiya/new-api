@@ -16,15 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
 import { Link, useRouteContext, useSearch } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import { useStatus } from '@/hooks/use-status'
 
 import { AuthLayout } from '../auth-layout'
 import { TermsFooter } from '../components/terms-footer'
-import { Button } from '@/components/ui/button'
 import { UserAuthForm } from './components/user-auth-form'
 
 /** 身份站展示真实表单。中转站仅在自动登录交接失败后才显示重试按钮。 */
@@ -33,10 +33,16 @@ export function SignIn() {
   const { redirect, recovery } = useSearch({ from: '/(auth)/sign-in' })
   const { status } = useStatus()
   const routeContext = useRouteContext({ from: '/(auth)/sign-in' })
-  const signInFailure = 'signInFailure' in routeContext ? routeContext.signInFailure : undefined
+  const signInFailure =
+    'signInFailure' in routeContext ? routeContext.signInFailure : undefined
   const retryAt = signInFailure?.retryAt ?? 0
   const [now, setNow] = useState(Date.now)
   const waiting = Math.max(0, Math.ceil((retryAt - now) / 1000))
+  const callback = new URL(redirect ?? '/', window.location.origin)
+  const retailHandoff =
+    status?.site_mode !== 'retail' &&
+    callback.pathname === '/sso' &&
+    callback.searchParams.get('client_id') === 'retail'
   useEffect(() => {
     if (!retryAt || retryAt <= Date.now()) return
     // 后台标签页可能暂停计时；按绝对时间计算，回来时仍显示正确的剩余时间。
@@ -49,7 +55,10 @@ export function SignIn() {
   }, [retryAt])
 
   return (
-    <AuthLayout retailEntrance={status?.site_mode === 'retail'}>
+    <AuthLayout
+      retailEntrance={status?.site_mode === 'retail' || retailHandoff}
+      retailHandoff={retailHandoff}
+    >
       <div className='w-full space-y-8'>
         <div className='space-y-2'>
           <h2 className='text-center text-2xl font-semibold tracking-tight sm:text-left'>

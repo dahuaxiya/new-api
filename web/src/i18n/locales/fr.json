@@ -8401,6 +8401,17 @@
     "Select upstream group": "Choisir un groupe fournisseur",
     "Customer group": "Groupe client",
     "Credential label": "Libellé de la clé",
-    "Supply credential": "Clé fournisseur"
+    "Supply credential": "Clé fournisseur",
+    "Suggested correction": "Correction suggérée",
+    "Send verification code": "Envoyer le code de vérification",
+    "Enter the 6-digit code sent to": "Saisissez le code à 6 chiffres envoyé à",
+    "6-digit email verification code": "Code de vérification e-mail à 6 chiffres",
+    "The form continues automatically after the sixth digit.": "Le formulaire continue automatiquement après le sixième chiffre.",
+    "Change email": "Modifier l'adresse e-mail",
+    "Verified email": "Adresse e-mail vérifiée",
+    "Choose the credentials you will use to sign in.": "Choisissez les identifiants que vous utiliserez pour vous connecter.",
+    "Your address is only used for verification and account recovery.": "Cette adresse sert uniquement à la vérification et à la récupération du compte.",
+    "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "Nous vous enverrons un code à 6 chiffres pour vérifier cette adresse. Vous choisirez ensuite votre nom d'utilisateur et votre mot de passe.",
+    "Suggestions appear as you type after the @ symbol.": "Les suggestions apparaissent au fil de la saisie après le symbole @."
   }
 }

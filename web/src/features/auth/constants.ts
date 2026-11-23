@@ -30,7 +30,13 @@ export const loginFormSchema = z.object({
 export const registerFormSchema = z
   .object({
     username: z.string().min(1, 'Please enter your username'),
-    email: z.string().optional(),
+    // 邮箱是否必填由服务端注册策略决定；一旦填写就先在前端拦截明显格式错误。
+    email: z
+      .union([
+        z.literal(''),
+        z.string().email('Please enter a valid email address'),
+      ])
+      .optional(),
     // Public registration has no MFA yet, so match the server's stronger new-account policy.
     password: z.string().refine((password) => {
       const length = [...password].length

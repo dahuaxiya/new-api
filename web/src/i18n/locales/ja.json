@@ -8401,6 +8401,17 @@
     "Select upstream group": "上流グループを選択",
     "Customer group": "利用者向けグループ",
     "Credential label": "キーの表示名",
-    "Supply credential": "供給元の認証情報"
+    "Supply credential": "供給元の認証情報",
+    "Suggested correction": "修正候補",
+    "Send verification code": "認証コードを送信",
+    "Enter the 6-digit code sent to": "次のアドレスに送信された6桁のコードを入力してください",
+    "6-digit email verification code": "6桁のメール認証コード",
+    "The form continues automatically after the sixth digit.": "6桁目を入力すると自動的に続行します。",
+    "Change email": "メールアドレスを変更",
+    "Verified email": "確認済みメールアドレス",
+    "Choose the credentials you will use to sign in.": "ログインに使用するユーザー名とパスワードを設定してください。",
+    "Your address is only used for verification and account recovery.": "このメールアドレスは本人確認とアカウント復旧にのみ使用します。",
+    "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "このメールアドレスに6桁の認証コードを送信します。ユーザー名とパスワードは次の画面で設定します。",
+    "Suggestions appear as you type after the @ symbol.": "@ の後にドメインを入力すると候補が表示されます。"
   }
 }

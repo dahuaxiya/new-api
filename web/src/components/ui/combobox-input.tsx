@@ -36,17 +36,28 @@ interface ComboboxInputProps {
   options: readonly ComboboxInputOption[]
   value?: string
   onValueChange: (value: string) => void
+  onBlur?: React.FocusEventHandler<HTMLInputElement>
   placeholder?: string
   emptyText?: string
   className?: string
   popupClassName?: string
   id?: string
+  name?: string
+  type?: React.HTMLInputTypeAttribute
   allowCustomValue?: boolean
+  showEmptyCustomValue?: boolean
+  filterOptions?: boolean
   openOnFocus?: boolean
   disabled?: boolean
+  autoComplete?: string
+  autoCapitalize?: string
+  spellCheck?: boolean
+  autoFocus?: boolean
+  inputMode?: React.InputHTMLAttributes<HTMLInputElement>['inputMode']
   onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>
   'aria-label'?: string
   'aria-labelledby'?: string
+  'aria-describedby'?: string
   'aria-invalid'?: React.AriaAttributes['aria-invalid']
 }
 
@@ -54,17 +65,28 @@ export function ComboboxInput({
   options,
   value = '',
   onValueChange,
+  onBlur,
   placeholder = 'Select or type...',
   emptyText = 'No option found.',
   className,
   popupClassName,
   id,
+  name,
+  type = 'text',
   allowCustomValue = false,
+  showEmptyCustomValue = true,
+  filterOptions = true,
   openOnFocus = true,
   disabled = false,
+  autoComplete = 'off',
+  autoCapitalize,
+  spellCheck = true,
+  autoFocus = false,
+  inputMode,
   onKeyDown,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
+  'aria-describedby': ariaDescribedBy,
   'aria-invalid': ariaInvalid,
 }: ComboboxInputProps) {
   const { t } = useTranslation()
@@ -94,14 +116,14 @@ export function ComboboxInput({
   const displayValue = open ? searchValue : (selectedOption?.label ?? value)
 
   const filteredOptions = React.useMemo(() => {
-    if (!searchChanged || !searchValue.trim()) return options
+    if (!filterOptions || !searchChanged || !searchValue.trim()) return options
     const search = searchValue.toLowerCase().trim()
     return options.filter(
       (option) =>
         option.label.toLowerCase().includes(search) ||
         option.value.toLowerCase().includes(search)
     )
-  }, [options, searchValue, searchChanged])
+  }, [filterOptions, options, searchValue, searchChanged])
 
   // Reset highlight when filtered options change
   React.useEffect(() => {
@@ -220,18 +242,21 @@ export function ComboboxInput({
   const showDropdown =
     open &&
     !disabled &&
-    (filteredOptions.length > 0 || (allowCustomValue && searchValue.trim()))
+    (filteredOptions.length > 0 ||
+      (allowCustomValue && showEmptyCustomValue && Boolean(searchValue.trim())))
 
   return (
     <div ref={containerRef} className='relative'>
       <Input
         ref={inputRef}
         id={id}
-        type='text'
+        name={name}
+        type={type}
         role='combobox'
         disabled={disabled}
         aria-label={ariaLabel}
         aria-labelledby={ariaLabelledBy}
+        aria-describedby={ariaDescribedBy}
         aria-invalid={ariaInvalid}
         aria-expanded={!!showDropdown}
         aria-controls={
@@ -244,7 +269,11 @@ export function ComboboxInput({
         }
         aria-haspopup='listbox'
         aria-autocomplete='list'
-        autoComplete='off'
+        autoComplete={autoComplete}
+        autoCapitalize={autoCapitalize}
+        spellCheck={spellCheck}
+        autoFocus={autoFocus}
+        inputMode={inputMode}
         placeholder={placeholder}
         value={displayValue}
         onChange={(e) => {
@@ -272,9 +301,10 @@ export function ComboboxInput({
           }
           pointerFocusRef.current = false
         }}
-        onBlur={() => {
+        onBlur={(event) => {
           setOpen(false)
           setSearchValue('')
+          onBlur?.(event)
         }}
         onKeyDown={(event) => {
           handleKeyDown(event)
@@ -333,7 +363,14 @@ export function ComboboxInput({
                       )}
                     />
                     {option.icon && <span aria-hidden>{option.icon}</span>}
-                    <span className='truncate'>{option.label}</span>
+                    <span className='min-w-0'>
+                      <span className='block truncate'>{option.label}</span>
+                      {option.description && (
+                        <span className='text-muted-foreground block truncate text-xs'>
+                          {option.description}
+                        </span>
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>

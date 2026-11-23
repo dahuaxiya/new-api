@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 /* A shared paper-and-ink palette for the two luobocode portals. The class is
    enabled only for the built-in brand, so custom installations keep their theme. */
 .luobo-shell:not([data-theme-preset]) {
@@ -392,5 +410,104 @@
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* 跨站登录先在本页完成小猫位移和纸张色收束，跨域后由登录页继续表单入场。 */
+.luobo-login-transition {
+  position: fixed;
+  z-index: 2147483647;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  isolation: isolate;
+}
+.luobo-login-transition-wash {
+  position: absolute;
+  inset: 0;
+  background: var(--background, #faf8f4);
+  opacity: 0;
+}
+.luobo-login-transition-aura {
+  position: absolute;
+  border-radius: 999px;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--luobo-orange, #ad4825) 24%, transparent) 0%,
+    transparent 68%
+  );
+  filter: blur(14px);
+  opacity: 0;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+.luobo-login-transition-art {
+  position: absolute;
+  object-fit: contain;
+  transform-origin: top left;
+  mix-blend-mode: normal;
+  will-change: transform, opacity;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .luobo-entry-arrival .luobo-auth-art {
+    animation: luobo-arrival-art 460ms cubic-bezier(0.2, 0.68, 0.24, 1) both;
+  }
+  .luobo-entry-arrival .luobo-gateway-sculpture {
+    animation: luobo-arrival-sculpture 500ms cubic-bezier(0.2, 0.68, 0.24, 1)
+      both;
+  }
+  .luobo-entry-arrival .luobo-auth-form {
+    animation: luobo-arrival-form 360ms cubic-bezier(0.22, 0.8, 0.24, 1) 70ms
+      both;
+  }
+}
+@keyframes luobo-arrival-art {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes luobo-arrival-sculpture {
+  from {
+    opacity: 0;
+    scale: 0.975;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@keyframes luobo-arrival-form {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 注册步骤只让当前内容淡入，不带动整页位移；菜单高度变化也不会挤动页面其它区域。 */
+@media (prefers-reduced-motion: no-preference) {
+  .luobo-signup-step {
+    animation: luobo-signup-step-in 220ms cubic-bezier(0.22, 0.8, 0.24, 1) both;
+  }
+}
+@keyframes luobo-signup-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .luobo-signup-step {
+    animation: none;
   }
 }

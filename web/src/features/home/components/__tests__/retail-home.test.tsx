@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,
@@ -6,6 +24,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router'
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -19,6 +38,31 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/api'
 
 import { RetailHero } from '../retail-hero'
+
+const loginTransition = vi.hoisted(() => ({
+  startSiteLogin: vi.fn(),
+  startRetailLoginTransition: vi.fn(),
+}))
+
+vi.mock('@/features/auth/lib/site-switch', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/features/auth/lib/site-switch')>()
+  return {
+    ...actual,
+    startSiteLogin: loginTransition.startSiteLogin,
+  }
+})
+
+vi.mock('../../lib/retail-login-transition', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('@/features/home/lib/retail-login-transition')
+    >()
+  return {
+    ...actual,
+    startRetailLoginTransition: loginTransition.startRetailLoginTransition,
+  }
+})
 
 let client: QueryClient
 let failed = false
@@ -38,6 +82,15 @@ beforeEach(() => {
     },
   ]
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  loginTransition.startSiteLogin.mockReset()
+  loginTransition.startSiteLogin.mockResolvedValue(
+    'https://host.example.test/sso?state=login-state'
+  )
+  loginTransition.startRetailLoginTransition.mockReset()
+  loginTransition.startRetailLoginTransition.mockReturnValue({
+    finished: Promise.resolve(),
+    cleanup: vi.fn(),
+  })
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
     if (url === '/api/status') {
       return {
@@ -91,26 +144,53 @@ async function mount(authenticated = false) {
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
   await router.load()
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />
     </QueryClientProvider>
   )
+  return { router, view }
 }
 
-/** 访客入口保留注册和托管跳转，价格取自后台倍率而不是宣传占位。 */
-it('shows catalog prices with register and hosting destinations for a visitor', async () => {
+/** 访客入口保留登录和托管跳转，价格取自后台倍率而不是宣传占位。 */
+it('shows catalog prices with login and hosting destinations for a visitor', async () => {
   await mount()
   await screen.findByText('catalog-model')
   expect(screen.getByRole('button', { name: 'Get started' })).toHaveAttribute(
     'href',
-    '/sign-up'
+    '/sign-in'
   )
   expect(
     screen.getByRole('button', { name: 'Account hosting' })
   ).toHaveAttribute('href', 'https://host.example.test/dashboard')
   expect(screen.getByText('$2')).toBeVisible()
   expect(screen.getByText('$6')).toBeVisible()
+})
+
+/** 登录事务先失败时仍要等小猫动画收束，不能把转场截断成一次生硬跳页。 */
+it('keeps the login transition visible when the handoff fails early', async () => {
+  let finishTransition: () => void = () => undefined
+  const finished = new Promise<void>((resolve) => {
+    finishTransition = resolve
+  })
+  loginTransition.startSiteLogin.mockRejectedValueOnce(
+    new Error('handoff unavailable')
+  )
+  loginTransition.startRetailLoginTransition.mockReturnValueOnce({
+    finished,
+    cleanup: vi.fn(),
+  })
+  const { router } = await mount()
+  await screen.findByRole('button', { name: 'Account hosting' })
+
+  await userEvent.click(screen.getByRole('button', { name: 'Get started' }))
+
+  expect(loginTransition.startSiteLogin).toHaveBeenCalledOnce()
+  expect(router.state.location.pathname).toBe('/')
+  await act(async () => {
+    finishTransition()
+  })
+  await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'))
 })
 
 /** 首页省略无描述和未采集的性能项，价格和可操作的详情入口仍然存在。 */

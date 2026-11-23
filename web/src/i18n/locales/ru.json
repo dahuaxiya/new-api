@@ -8401,6 +8401,17 @@
     "Select upstream group": "Выберите группу поставщика",
     "Customer group": "Группа клиента",
     "Credential label": "Название ключа",
-    "Supply credential": "Ключ поставщика"
+    "Supply credential": "Ключ поставщика",
+    "Suggested correction": "Предлагаемое исправление",
+    "Send verification code": "Отправить код подтверждения",
+    "Enter the 6-digit code sent to": "Введите 6-значный код, отправленный на",
+    "6-digit email verification code": "6-значный код подтверждения электронной почты",
+    "The form continues automatically after the sixth digit.": "После ввода шестой цифры форма продолжит работу автоматически.",
+    "Change email": "Изменить адрес электронной почты",
+    "Verified email": "Подтвержденная электронная почта",
+    "Choose the credentials you will use to sign in.": "Укажите имя пользователя и пароль для входа.",
+    "Your address is only used for verification and account recovery.": "Адрес используется только для подтверждения и восстановления аккаунта.",
+    "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "Мы отправим 6-значный код для подтверждения этого адреса. Имя пользователя и пароль вы укажете на следующем шаге.",
+    "Suggestions appear as you type after the @ symbol.": "Подсказки появляются по мере ввода после символа @."
   }
 }

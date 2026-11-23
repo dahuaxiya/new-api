@@ -8434,6 +8434,17 @@
     "Select upstream group": "選擇上游分組",
     "Customer group": "本站使用者可選分組",
     "Credential label": "憑據備註",
-    "Supply credential": "上游供貨憑據"
+    "Supply credential": "上游供貨憑據",
+    "Suggested correction": "建議修正",
+    "Send verification code": "傳送驗證碼",
+    "Enter the 6-digit code sent to": "請輸入傳送至",
+    "6-digit email verification code": "6 位數電子郵件驗證碼",
+    "The form continues automatically after the sixth digit.": "填滿 6 位數後會自動繼續。",
+    "Change email": "更換電子郵件",
+    "Verified email": "已驗證電子郵件",
+    "Choose the credentials you will use to sign in.": "設定用於登入的使用者名稱和密碼。",
+    "Your address is only used for verification and account recovery.": "電子郵件僅用於驗證身分和找回帳戶。",
+    "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "我們會寄送 6 位數驗證碼來驗證這個電子郵件，下一步再設定使用者名稱和密碼。",
+    "Suggestions appear as you type after the @ symbol.": "輸入 @ 後的網域時會顯示電子郵件建議。"
   }
 }

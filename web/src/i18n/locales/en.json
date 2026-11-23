@@ -8401,6 +8401,17 @@
     "Select upstream group": "Select upstream group",
     "Customer group": "Customer group",
     "Credential label": "Credential label",
-    "Supply credential": "Supply credential"
+    "Supply credential": "Supply credential",
+    "Suggested correction": "Suggested correction",
+    "Send verification code": "Send verification code",
+    "Enter the 6-digit code sent to": "Enter the 6-digit code sent to",
+    "6-digit email verification code": "6-digit email verification code",
+    "The form continues automatically after the sixth digit.": "The form continues automatically after the sixth digit.",
+    "Change email": "Change email",
+    "Verified email": "Verified email",
+    "Choose the credentials you will use to sign in.": "Choose the credentials you will use to sign in.",
+    "Your address is only used for verification and account recovery.": "Your address is only used for verification and account recovery.",
+    "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "We'll email you a 6-digit code to verify this address. You'll set your username and password next.",
+    "Suggestions appear as you type after the @ symbol.": "Suggestions appear as you type after the @ symbol."
   }
 }

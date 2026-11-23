@@ -1,4 +1,22 @@
-import { Link } from '@tanstack/react-router'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { Link, useNavigate } from '@tanstack/react-router'
 import {
   ArrowDown,
   ArrowRight,
@@ -7,12 +25,15 @@ import {
   Fingerprint,
   ReceiptText,
 } from 'lucide-react'
+import { useRef, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { SiteSwitcher } from '@/features/auth/components/unified-account'
+import { startSiteLogin } from '@/features/auth/lib/site-switch'
 import { useStatus } from '@/hooks/use-status'
 
+import { startRetailLoginTransition } from '../lib/retail-login-transition'
 import { ApiExample } from './api-example'
 import { RetailPricing } from './retail-pricing'
 
@@ -24,6 +45,62 @@ import { RetailPricing } from './retail-pricing'
 export function RetailHero(props: { isAuthenticated: boolean }) {
   const { t } = useTranslation()
   const { status } = useStatus()
+  const navigate = useNavigate()
+  const loginTransitioning = useRef(false)
+
+  const startLogin = async (event: MouseEvent<HTMLAnchorElement>) => {
+    if (
+      props.isAuthenticated ||
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return
+    }
+    event.preventDefault()
+    if (loginTransitioning.current) return
+    loginTransitioning.current = true
+
+    const shouldAnimate = !window.matchMedia('(prefers-reduced-motion: reduce)')
+      .matches
+    const transition = startRetailLoginTransition(
+      shouldAnimate
+        ? document.querySelector(
+            '.luobo-hero-sculpture .luobo-gateway-sculpture'
+          )
+        : null
+    )
+    const externalLogin = Boolean(status?.site_sso?.consumer)
+
+    try {
+      // 建立统一登录事务与播放首页动画并行，避免先停在空白中转地址。
+      const destination = externalLogin
+        ? startSiteLogin(
+            status?.site_sso?.issuer_url ?? '',
+            '/dashboard/overview'
+          )
+        : Promise.resolve('/sign-in')
+      const [href] = await Promise.all([destination, transition.finished])
+
+      if (externalLogin) {
+        window.location.replace(href)
+        return
+      }
+
+      await navigate({ to: '/sign-in' })
+      transition.cleanup()
+    } catch {
+      // 登录事务可能先于动画失败；仍等动画收束后再切换页面，避免用户只看到半个转场。
+      await transition.finished
+      transition.cleanup()
+      loginTransitioning.current = false
+      await navigate({ to: '/sign-in' })
+    }
+  }
+
   return (
     <main className='luobo-home mx-auto w-full max-w-[1240px] px-5 sm:px-10'>
       <section className='luobo-hero grid items-center gap-10 pt-28 pb-14 lg:grid-cols-[1fr_1.08fr] lg:gap-12 lg:pt-40 lg:pb-20'>
@@ -45,11 +122,7 @@ export function RetailHero(props: { isAuthenticated: boolean }) {
               render={
                 <Link
                   to={props.isAuthenticated ? '/dashboard' : '/sign-in'}
-                  viewTransition={
-                    !props.isAuthenticated &&
-                    !window.matchMedia('(prefers-reduced-motion: reduce)')
-                      .matches
-                  }
+                  onClick={props.isAuthenticated ? undefined : startLogin}
                 />
               }
             >

@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils'
 
 type AuthLayoutProps = {
   retailEntrance?: boolean
+  retailHandoff?: boolean
   children: React.ReactNode
 }
 
@@ -35,11 +36,14 @@ type AuthLayoutProps = {
  * 两站登录页复用品牌插画与表单容器，窄屏优先展示原有登录操作。
  * 仅调整布局，不改变登录、找回及跨站身份流程。
  * @param children 登录或找回账号的表单内容。
+ * @param retailEntrance 是否使用中转站首页同一套透明小猫入口布局。
+ * @param retailHandoff 当前页面是否承接中转站首页的跨站转场；只控制入场动效。
  * @return 正文可自然增高、页脚不覆盖表单操作的登录页面。
  */
 export function AuthLayout({
   children,
   retailEntrance = false,
+  retailHandoff = false,
 }: AuthLayoutProps) {
   const { systemName, logo, loading } = useSystemConfig()
   const { t } = useTranslation()
@@ -63,7 +67,8 @@ export function AuthLayout({
         className={cn(
           'container flex items-center pt-20 pb-8 sm:pt-24',
           branded && 'max-w-6xl lg:grid lg:grid-cols-2 lg:gap-20',
-          branded && retailEntrance && 'luobo-entry-layout'
+          branded && retailEntrance && 'luobo-entry-layout',
+          branded && retailHandoff && 'luobo-entry-arrival'
         )}
       >
         {branded && (

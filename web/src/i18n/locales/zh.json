@@ -8434,6 +8434,17 @@
     "Select upstream group": "选择上游分组",
     "Customer group": "本站用户可选分组",
     "Credential label": "凭据备注",
-    "Supply credential": "上游供货凭据"
+    "Supply credential": "上游供货凭据",
+    "Suggested correction": "建议修正",
+    "Send verification code": "发送验证码",
+    "Enter the 6-digit code sent to": "请输入发送至",
+    "6-digit email verification code": "6 位邮箱验证码",
+    "The form continues automatically after the sixth digit.": "填满 6 位后自动继续。",
+    "Change email": "更换邮箱",
+    "Verified email": "已验证邮箱",
+    "Choose the credentials you will use to sign in.": "设置用于登录的用户名和密码。",
+    "Your address is only used for verification and account recovery.": "邮箱仅用于验证身份和找回账户。",
+    "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "我们会发送 6 位验证码验证这个邮箱，下一步再设置用户名和密码。",
+    "Suggestions appear as you type after the @ symbol.": "输入 @ 后的域名时会显示邮箱建议。"
   }
 }
