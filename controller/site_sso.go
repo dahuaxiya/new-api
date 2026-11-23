@@ -160,6 +160,17 @@ func SiteSSOBackchannel(c *gin.Context) {
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
+	if c.Param("action") == "logout" {
+		// Only the authenticated consumer can address a previously exchanged login grant.
+		// The issuer resolves its owner; the caller cannot supply a session ID or user ID.
+		if err := model.LogoutSiteSSOGrant(cfg.ClientID, request.GrantID); err != nil {
+			writeAuthSessionError(c, err)
+			return
+		}
+		setAuthNoStore(c)
+		c.Status(http.StatusNoContent)
+		return
+	}
 	var grant *model.SiteSSOGrant
 	var flow *model.AuthFlow
 	var err error

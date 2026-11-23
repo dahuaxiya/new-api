@@ -194,6 +194,14 @@ func CriticalRateLimit() func(c *gin.Context) {
 	return defNext
 }
 
+// SessionRefreshRateLimit keeps background tab refreshes out of the credential-attempt budget.
+func SessionRefreshRateLimit() func(c *gin.Context) {
+	if !common.CriticalRateLimitEnable {
+		return defNext
+	}
+	return rateLimitFactory(common.GlobalApiRateLimitNum, common.GlobalApiRateLimitDuration, "auth-refresh")
+}
+
 func UserCriticalRateLimit(scope string) func(c *gin.Context) {
 	if !common.CriticalRateLimitEnable {
 		return defNext

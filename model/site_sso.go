@@ -16,6 +16,25 @@ import (
 const SiteSSOProvider = "site-sso"
 const SiteSSOCodePurpose = "site_sso_code"
 
+// LogoutSiteSSOGrant ends only the issuer session recorded at code exchange. Retrying after
+// a lost response must succeed even though that session is no longer valid for login.
+func LogoutSiteSSOGrant(clientID string, grantID int64) error {
+	if clientID == "" || grantID <= 0 {
+		return ErrAuthFlowInvalid
+	}
+	var flow AuthFlow
+	err := DB.Where("id = ? AND purpose = ? AND provider = ? AND intent IN ? AND consumed_at IS NOT NULL", grantID, SiteSSOCodePurpose, clientID, []string{AuthFlowIntentLogin, "revoked"}).First(&flow).Error
+	if err != nil {
+		return err
+	}
+	var grant SiteSSOGrant
+	if common.UnmarshalJsonStr(flow.Payload, &grant) != nil || grant.Verified || grant.Identity.UserID <= 0 || grant.Identity.SessionID == "" {
+		return ErrAuthFlowInvalid
+	}
+	_, err = RevokeUserSession(grant.Identity.UserID, grant.Identity.SessionID, "federated_logout")
+	return err
+}
+
 // SiteSSOGrant 不携带角色和余额。身份源只证明是谁，消费站独立决定权限。
 type SiteSSOGrant struct {
 	Identity      AuthSessionIdentity `json:"identity"`

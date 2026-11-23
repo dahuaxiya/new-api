@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"crypto/hmac"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 const RefreshCookieName = "new_api_refresh"
@@ -361,6 +364,39 @@ func RevokeByRefreshToken(rawRefreshToken, expectedSID, reason string) error {
 	}
 	_, err := model.RevokeUserSessionByRefreshHash(sid, hashRefreshSecret(secret), reason)
 	return err
+}
+
+// LogoutOrigin validates ownership before asking the issuer to end this browser's session.
+// An untrusted SID or a stale cookie alone must never terminate someone else's login.
+func LogoutOrigin(ctx context.Context, identity *AuthIdentity, rawCookie string) error {
+	sid, secret, ok := splitRefreshToken(rawCookie)
+	if identity != nil {
+		sid = identity.SessionID
+	} else if !ok {
+		return nil
+	}
+	s, err := model.GetUserSessionBySID(sid)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// A session revoked by an administrator cannot later be used to trigger cross-site actions.
+	if s.Status != model.UserSessionStatusActive || s.RevokedAt != 0 || s.ExpiresAt <= time.Now().Unix() {
+		return nil
+	}
+	if identity != nil {
+		if s.UserID != identity.UserID || s.Version != identity.SessionVersion || s.UserAuthVersion != identity.UserAuthVersion {
+			return ErrLoginSessionMismatch
+		}
+	} else {
+		hash := []byte(hashRefreshSecret(secret))
+		if !hmac.Equal(hash, []byte(s.RefreshHash)) && !(s.PreviousRefreshHash != "" && time.Now().Unix() <= s.PreviousValidUntil && hmac.Equal(hash, []byte(s.PreviousRefreshHash))) {
+			return ErrRefreshTokenInvalid
+		}
+	}
+	return logoutIssuerSession(ctx, s)
 }
 
 func RefreshTokenSID(rawRefreshToken string) (string, bool) {

@@ -62,6 +62,10 @@ func AuthLogout(c *gin.Context) {
 				writeAuthSessionError(c, service.ErrLoginSessionMismatch)
 				return
 			}
+			if err := service.LogoutOrigin(c.Request.Context(), &identity, rawRefreshToken); err != nil {
+				writeAuthSessionError(c, err)
+				return
+			}
 			if _, err := model.RevokeUserSession(identity.UserID, identity.SessionID, "logout"); err != nil {
 				writeAuthSessionError(c, err)
 				return
@@ -86,6 +90,10 @@ func AuthLogout(c *gin.Context) {
 	if cookieErr != nil || rawRefreshToken == "" {
 		service.ClearRefreshCookie(c)
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
+		return
+	}
+	if err := service.LogoutOrigin(c.Request.Context(), nil, rawRefreshToken); err != nil {
+		writeAuthSessionError(c, err)
 		return
 	}
 	if err := service.RevokeByRefreshToken(rawRefreshToken, expectedSID, "logout"); err != nil {

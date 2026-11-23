@@ -35,6 +35,26 @@ func RequestSiteSSO(ctx context.Context, action string, payload any) (*SiteSSOAs
 	if cfg == nil || !cfg.Consumer || (action != "exchange" && action != "session") {
 		return nil, ErrAuthTokenInvalid
 	}
+	response, err := postSiteSSO(ctx, cfg, action, payload)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, ErrLoginSessionRevoked
+	}
+	var assertion SiteSSOAssertion
+	if err = common.DecodeJson(io.LimitReader(response.Body, 8192), &assertion); err != nil {
+		return nil, ErrAuthTokenInvalid
+	}
+	if assertion.Issuer != cfg.IssuerID || assertion.Audience != cfg.ClientID || assertion.GrantID <= 0 || assertion.Subject <= 0 || assertion.ExpiresAt <= time.Now().Unix() {
+		return nil, ErrAuthTokenInvalid
+	}
+	return &assertion, nil
+}
+
+// postSiteSSO sends a server-selected operation to the configured issuer; callers own the response body.
+func postSiteSSO(ctx context.Context, cfg *common.SiteSSOConfig, action string, payload any) (*http.Response, error) {
 	body, err := common.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -49,18 +69,29 @@ func RequestSiteSSO(ctx context.Context, action string, payload any) (*SiteSSOAs
 	if err != nil {
 		return nil, errors.New("unified account service is unavailable")
 	}
+	return response, nil
+}
+
+// logoutIssuerSession ends the originating session before local credentials are discarded.
+// A missing acknowledgement leaves the browser able to retry the same idempotent request.
+func logoutIssuerSession(ctx context.Context, s *model.UserSession) error {
+	if s.LoginMethod != model.SiteSSOProvider && s.FederatedIdentity == "" {
+		return nil
+	}
+	cfg := common.SiteSSO()
+	var grant SiteSSOAssertion
+	if cfg == nil || !cfg.Consumer || common.UnmarshalJsonStr(s.FederatedIdentity, &grant) != nil || grant.Issuer != cfg.IssuerID || grant.Audience != cfg.ClientID || grant.GrantID <= 0 {
+		return ErrAuthTokenInvalid
+	}
+	response, err := postSiteSSO(ctx, cfg, "logout", map[string]int64{"grant_id": grant.GrantID})
+	if err != nil {
+		return err
+	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil, ErrLoginSessionRevoked
+	if response.StatusCode != http.StatusNoContent {
+		return errors.New("unified logout was not acknowledged")
 	}
-	var assertion SiteSSOAssertion
-	if err = common.DecodeJson(io.LimitReader(response.Body, 8192), &assertion); err != nil {
-		return nil, ErrAuthTokenInvalid
-	}
-	if assertion.Issuer != cfg.IssuerID || assertion.Audience != cfg.ClientID || assertion.GrantID <= 0 || assertion.Subject <= 0 || assertion.ExpiresAt <= time.Now().Unix() {
-		return nil, ErrAuthTokenInvalid
-	}
-	return &assertion, nil
+	return nil
 }
 
 // ValidateFederatedSession 对统一登录的每次管理请求和续期重新校验源会话，普通本地会话不受影响。

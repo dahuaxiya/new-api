@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,6 +22,46 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+// TestFederatedLogoutAcknowledgement checks that a UI logout may succeed only after
+// the configured issuer acknowledges the grant associated with a proven local session.
+func TestFederatedLogoutAcknowledgement(t *testing.T) {
+	useTestSessionSecret(t)
+	u := setupAuthSessionTestDB(t)
+	status := http.StatusServiceUnavailable
+	calls := 0
+	issuer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client, secret, ok := r.BasicAuth()
+		assert.True(t, ok)
+		assert.Equal(t, "retail", client)
+		assert.Equal(t, "fixture", secret)
+		assert.Equal(t, "/api/site-sso/logout", r.URL.Path)
+		var grant map[string]int64
+		assert.NoError(t, common.DecodeJson(r.Body, &grant))
+		assert.Equal(t, map[string]int64{"grant_id": 42}, grant)
+		calls++
+		w.WriteHeader(status)
+	}))
+	defer issuer.Close()
+	t.Setenv("SITE_MODE", "retail")
+	t.Setenv("SITE_SSO_ISSUER_URL", issuer.URL)
+	t.Setenv("SITE_SSO_ISSUER_ID", "test")
+	t.Setenv("SITE_SSO_CLIENT_ID", "retail")
+	t.Setenv("SITE_SSO_CLIENT_SECRET", "fixture")
+	b, err := CreateFederatedLoginSession(u.Id, &SiteSSOAssertion{Issuer: "test", Audience: "retail", Subject: 1, GrantID: 42, ExpiresAt: time.Now().Add(time.Hour).Unix()}, "127.0.0.1", "test")
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.Error(t, LogoutOrigin(ctx, nil, b.Session.SID+".wrong"))
+	require.Zero(t, calls)
+	require.Error(t, LogoutOrigin(ctx, nil, b.RefreshToken))
+	require.Equal(t, 1, calls)
+	status = http.StatusNoContent
+	id, err := ParseAccessToken(b.AccessToken)
+	require.NoError(t, err)
+	require.NoError(t, LogoutOrigin(ctx, &id, ""))
+	require.NoError(t, LogoutOrigin(ctx, nil, b.RefreshToken))
+	require.Equal(t, 3, calls)
+}
 
 func setupAuthSessionTestDB(t *testing.T) *model.User {
 	t.Helper()
