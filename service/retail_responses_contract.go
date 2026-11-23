@@ -74,7 +74,10 @@ func validateResponsesContract(raw []byte, limited bool) *types.NewAPIError {
 				continue
 			}
 		case "parallel_tool_calls":
-			if v.Type == gjson.True {
+			// 压缩对话时客户端显式禁用并行；空工具列表下没有工具可并行。
+			tools := root.Get("tools")
+			noTools := tools.Type == gjson.Null || (tools.IsArray() && len(tools.Array()) == 0)
+			if v.Type == gjson.True || (v.Type == gjson.False && noTools) {
 				continue
 			}
 		case "metadata":

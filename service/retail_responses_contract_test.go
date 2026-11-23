@@ -20,13 +20,16 @@ func TestRetailResponsesContract(t *testing.T) {
 	require.False(t, limitedResponsesRoute(b, 4, "sale", "alias"))
 	for field, value := range map[string]string{"max_output_tokens": "16", "max_tool_calls": "1", "temperature": "0.3", "top_p": "0.4", "metadata": `{"tag":"a"}`, "top_logprobs": "2", "parallel_tool_calls": "false", "truncation": `"auto"`} {
 		for _, stream := range []string{"true", "false"} {
-			body := []byte(`{"stream":` + stream + `,"` + field + `":` + value + `}`)
+			body := []byte(`{"tools":[{"type":"function","name":"lookup"}],"stream":` + stream + `,"` + field + `":` + value + `}`)
 			e := validateResponsesContract(body, true)
 			require.NotNil(t, e, field)
 			require.Equal(t, 400, e.StatusCode)
 			require.Equal(t, field, e.ToOpenAIError().Param)
 			require.Nil(t, validateResponsesContract(body, false))
 		}
+	}
+	for _, raw := range []string{`{"parallel_tool_calls":false}`, `{"tools":[],"parallel_tool_calls":false}`} {
+		require.Nil(t, validateResponsesContract([]byte(raw), true))
 	}
 	require.Nil(t, validateResponsesContract([]byte(`{"reasoning":{"effort":"low"},"tools":[{"type":"web_search"}],"temperature":1,"metadata":{},"parallel_tool_calls":true}`), true))
 }

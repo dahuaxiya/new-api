@@ -201,6 +201,10 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 
 // retailPriceError exposes stable non-retryable codes without exposing supplier costs or database errors.
 func retailPriceError(err error) *types.NewAPIError {
+	// 钱包或 Key 额度不足是可预期的预扣失败，不能误报成价表不可用。
+	if errors.Is(err, model.ErrRetailQuota) {
+		return types.WithOpenAIError(types.OpenAIError{Type: "insufficient_quota", Code: "insufficient_quota", Message: "可用余额或 Key 额度不足以预留本次请求的费用。"}, http.StatusPaymentRequired, types.ErrOptionWithSkipRetry())
+	}
 	code := "retail_price_unavailable"
 	for _, known := range []error{retailprice.ErrAccess, retailprice.ErrCap, retailprice.ErrBudget, retailprice.ErrExpired, retailprice.ErrConfig, model.ErrRetailPriceConflict} {
 		if errors.Is(err, known) {

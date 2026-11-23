@@ -453,8 +453,9 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		return nil, ErrExpired
 	}
 	quote := &Quote{SaleFactor: saleFactor, Version: version, ProductID: product.ID, Model: *official, WalletCNYPerUnit: b.WalletCNYPerUnit, ValidUntil: expires, OutputLimit: outputLimit, Channels: channels}
-	maxInput, maxOutput := decimal.Zero, decimal.Zero
+	maxInput, maxOutput, maxTierInputSum := decimal.Zero, decimal.Zero, decimal.Zero
 	for _, tier := range official.Tiers {
+		tierInputSum := decimal.Zero
 		values := make([]string, 5)
 		for i, raw := range tier.Prices.Values() {
 			base, _ := Amount(raw)
@@ -468,8 +469,10 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 				maxOutput = decimal.Max(maxOutput, price)
 			} else {
 				maxInput = decimal.Max(maxInput, price)
+				tierInputSum = tierInputSum.Add(price)
 			}
 		}
+		maxTierInputSum = decimal.Max(maxTierInputSum, tierInputSum)
 		quote.Sale = append(quote.Sale, Tier{UpTo: tier.UpTo, Prices: pricesFromValues(values)})
 	}
 	// Runtime callers pass the token count for this request. Preview and legacy callers
@@ -486,7 +489,14 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		reservedInputTokens = inputTokens[0]
 	}
 	inputBound := int64(reservedInputTokens)
-	reserve := maxInput.Mul(decimal.NewFromInt(inputBound * 4)).Add(maxOutput.Mul(decimal.NewFromInt(int64(outputLimit)))).Div(decimal.NewFromInt(1000000)).RoundCeil(8)
+	// 每个文本输入用量都受同一个 context 上限约束。即使四类全部重叠，
+	// 单价之和仍覆盖实际费用；长历史不能把四类都按最贵的缓存写入价预扣。
+	// 图像另有权重，旧预算策略也有独立的输入上限推导，仅对分组文本报价收紧上界。
+	inputRateBound := maxInput.Mul(decimal.NewFromInt(4))
+	if key.GroupCurrent && official.Kind != "image" {
+		inputRateBound = maxTierInputSum
+	}
+	reserve := inputRateBound.Mul(decimal.NewFromInt(inputBound)).Add(maxOutput.Mul(decimal.NewFromInt(int64(outputLimit)))).Div(decimal.NewFromInt(1000000)).RoundCeil(8)
 	limit, _ := Amount(key.MaxRequestCNY)
 	if !key.GroupCurrent && reserve.GreaterThan(limit) {
 		if !key.StudioCurrent || !maxInput.IsPositive() {
