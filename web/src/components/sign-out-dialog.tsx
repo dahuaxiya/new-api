@@ -26,6 +26,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { logout } from '@/features/auth/api'
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import { clearAuthenticatedClientState } from '@/lib/auth-session'
+import { signedOutRoute } from '@/lib/signed-out-route'
 import { handleServerError } from '@/lib/handle-server-error'
 
 interface SignOutDialogProps {
@@ -51,8 +52,14 @@ export function SignOutDialog(props: SignOutDialogProps) {
         return
       }
 
+      const destination = signedOutRoute(queryClient)
       clearAuthenticatedClientState(queryClient)
       toast.success(t('Signed out'))
+      if (destination === '/') {
+        void navigate({ to: '/', replace: true })
+        return
+      }
+      // 身份站主动换号时仍需保留原授权地址。
       const redirect = sanitizeAuthRedirect(
         props.redirectTo,
         window.location.origin

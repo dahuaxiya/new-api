@@ -41,6 +41,7 @@ import {
   clearAuthenticatedClientState,
   clearAuthentication,
 } from '@/lib/auth-session'
+import { signedOutRoute } from '@/lib/signed-out-route'
 import { subscribeAuthSessionEvents } from '@/lib/auth-session-sync'
 import { resolveLegacyRoute } from '@/lib/legacy-route'
 import { useAuthStore } from '@/stores/auth-store'
@@ -90,8 +91,9 @@ function RootComponent() {
         }
 
         if (currentSID && event.sid === currentSID) {
+          const destination = signedOutRoute(queryClient)
           clearAuthenticatedClientState(queryClient, false)
-          void navigate({ to: '/sign-in', replace: true })
+          void navigate({ to: destination, replace: true })
         }
       }),
     [navigate, queryClient]

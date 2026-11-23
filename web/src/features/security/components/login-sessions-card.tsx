@@ -48,6 +48,7 @@ import {
   revokeOtherLoginSessions,
 } from '@/features/profile/api'
 import { clearAuthenticatedClientState } from '@/lib/api'
+import { signedOutRoute } from '@/lib/signed-out-route'
 import { handleServerError } from '@/lib/handle-server-error'
 import { createServerError } from '@/lib/server-error-message'
 import type { LoginSession } from '@/stores/auth-store'
@@ -89,8 +90,9 @@ export function LoginSessionsCard() {
       )
       setRevokeTarget(null)
       if (revokedCurrent) {
+        const destination = signedOutRoute(queryClient)
         clearAuthenticatedClientState(queryClient)
-        void navigate({ to: '/sign-in', replace: true })
+        void navigate({ to: destination, replace: true })
         return
       }
       toast.success(t('Session signed out'))
