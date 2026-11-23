@@ -43,7 +43,14 @@ export function RetailHero(props: { isAuthenticated: boolean }) {
               size='lg'
               className='luobo-primary h-12 rounded-full px-6'
               render={
-                <Link to={props.isAuthenticated ? '/dashboard' : '/sign-up'} />
+                <Link
+                  to={props.isAuthenticated ? '/dashboard' : '/sign-in'}
+                  viewTransition={
+                    !props.isAuthenticated &&
+                    !window.matchMedia('(prefers-reduced-motion: reduce)')
+                      .matches
+                  }
+                />
               }
             >
               {props.isAuthenticated
@@ -69,18 +76,16 @@ export function RetailHero(props: { isAuthenticated: boolean }) {
             {t('See how to connect')}
           </a>
         </div>
-        <figure className='luobo-art luobo-reveal overflow-hidden rounded-[24px]'>
+        <figure className='luobo-hero-sculpture'>
           <img
-            src='/brand/luobocode-connection-1536.webp'
-            srcSet='/brand/luobocode-connection-768.webp 768w, /brand/luobocode-connection-1536.webp 1536w'
-            sizes='(min-width: 1024px) 580px, 100vw'
+            src='/brand/gateway-sculpture.webp'
             width={1536}
             height={1024}
             fetchPriority='high'
             alt={t(
               'A ceramic cat and carrot beside an orange arch connecting several modules.'
             )}
-            className='aspect-[3/2] w-full object-cover'
+            className='luobo-gateway-sculpture aspect-[3/2] w-full'
           />
         </figure>
       </section>

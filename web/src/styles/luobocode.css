@@ -316,3 +316,81 @@
     animation: copy-confirm 150ms ease-out;
   }
 }
+
+/* Only the transparent sculpture travels. Warm light belongs to the landing surface. */
+.luobo-entry-layout .luobo-auth-art {
+  border: 0;
+  color: inherit;
+  background: radial-gradient(
+    ellipse closest-side at 52% 60%,
+    #dea85b24,
+    transparent
+  );
+}
+.luobo-entry-layout .luobo-gateway-sculpture {
+  mix-blend-mode: normal;
+}
+@media (max-width: 1023px) {
+  .luobo-entry-layout {
+    flex-direction: column;
+    justify-content: center;
+  }
+  .luobo-entry-layout .luobo-auth-art {
+    display: block;
+    width: clamp(112px, 36vw, 148px);
+    background: none;
+  }
+  .luobo-entry-layout .luobo-auth-art > :is(div, p) {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .luobo-gateway-sculpture {
+    view-transition-name: gateway-art;
+  }
+  ::view-transition-group(gateway-art) {
+    animation-duration: 490ms;
+    animation-timing-function: cubic-bezier(0.27, 0.12, 0.16, 1);
+    z-index: 2;
+  }
+  ::view-transition-image-pair(gateway-art) {
+    animation: luobo-carry 490ms linear both;
+  }
+  ::view-transition-old(gateway-art) {
+    display: none;
+  }
+  ::view-transition-new(gateway-art) {
+    animation: none;
+    height: 100%;
+    mix-blend-mode: normal;
+  }
+  .luobo-entry-layout .luobo-auth-form {
+    view-transition-name: gateway-form;
+  }
+  ::view-transition-new(gateway-form) {
+    animation: luobo-entry-form 295ms cubic-bezier(0.22, 0.8, 0.24, 1) 80ms both;
+  }
+}
+@keyframes luobo-carry {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  0% {
+    animation-timing-function: cubic-bezier(0.3, 0, 0.5, 1);
+  }
+  38% {
+    transform: translateY(-9px);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.35, 1);
+  }
+}
+@keyframes luobo-entry-form {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

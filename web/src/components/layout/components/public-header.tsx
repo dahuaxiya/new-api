@@ -120,7 +120,15 @@ export function PublicHeader(props: PublicHeaderProps) {
     <Button
       size='sm'
       className='h-8 rounded-lg px-3.5 text-xs font-medium'
-      render={<Link to='/sign-in' />}
+      render={
+        <Link
+          to='/sign-in'
+          viewTransition={
+            window.location.pathname === '/' &&
+            !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          }
+        />
+      }
     >
       {t('Sign in')}
     </Button>

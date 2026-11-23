@@ -27,6 +27,7 @@ import { isLuobocodeBrand } from '@/lib/luobocode-brand'
 import { cn } from '@/lib/utils'
 
 type AuthLayoutProps = {
+  retailEntrance?: boolean
   children: React.ReactNode
 }
 
@@ -36,7 +37,10 @@ type AuthLayoutProps = {
  * @param children 登录或找回账号的表单内容。
  * @return 正文可自然增高、页脚不覆盖表单操作的登录页面。
  */
-export function AuthLayout({ children }: AuthLayoutProps) {
+export function AuthLayout({
+  children,
+  retailEntrance = false,
+}: AuthLayoutProps) {
   const { systemName, logo, loading } = useSystemConfig()
   const { t } = useTranslation()
   const branded = isLuobocodeBrand(systemName)
@@ -58,7 +62,8 @@ export function AuthLayout({ children }: AuthLayoutProps) {
       <div
         className={cn(
           'container flex items-center pt-20 pb-8 sm:pt-24',
-          branded && 'max-w-6xl lg:grid lg:grid-cols-2 lg:gap-20'
+          branded && 'max-w-6xl lg:grid lg:grid-cols-2 lg:gap-20',
+          branded && retailEntrance && 'luobo-entry-layout'
         )}
       >
         {branded && (
@@ -74,11 +79,18 @@ export function AuthLayout({ children }: AuthLayoutProps) {
               </p>
             </div>
             <img
-              src='/brand/luobocode-connection-768.webp'
+              src={
+                retailEntrance
+                  ? '/brand/gateway-sculpture.webp'
+                  : '/brand/luobocode-connection-768.webp'
+              }
               width={768}
               height={512}
               alt=''
-              className='w-full'
+              className={cn(
+                'w-full',
+                retailEntrance && 'luobo-gateway-sculpture'
+              )}
             />
             <p className='px-9 pb-8 text-sm leading-6'>
               {t('Use one sign-in for API access and account hosting.')}
