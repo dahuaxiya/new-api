@@ -27,10 +27,17 @@ export function switchNonce(): string | undefined {
   return switchHash.exec(window.location.hash)?.[1]
 }
 
-/** 中转站在自己的域名创建带浏览器 Cookie 的登录事务，回跳目标固定为控制台。 */
-export async function startSiteSwitch(
+/**
+ * 在中转站域名建立登录事务；密码只在身份站输入。
+ * @param issuer 本站配置的身份站来源。
+ * @param redirect 已校验的本站返回路径。
+ * @param nonce 仅显式切站时携带的账号选择标记，普通登录必须省略。
+ * @return 与本次事务对应的身份站授权地址。
+ */
+export async function startSiteLogin(
   issuer: string,
-  nonce: string
+  redirect: string,
+  nonce?: string
 ): Promise<string> {
   const { authorizationUrl, state } = await createOAuthAuthorization(
     'site-sso',
@@ -44,8 +51,8 @@ export async function startSiteSwitch(
     target.searchParams.get('verify') !== 'login'
   )
     throw new Error('Verification flow expired')
-  rememberOAuthLoginRedirect(state, '/dashboard')
-  target.hash = `switch=${nonce}`
+  rememberOAuthLoginRedirect(state, redirect)
+  target.hash = nonce ? `switch=${nonce}` : ''
   return target.href
 }
 

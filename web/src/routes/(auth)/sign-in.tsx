@@ -20,7 +20,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
-import { startSiteSwitch, switchNonce } from '@/features/auth/lib/site-switch'
+import { startSiteLogin, switchNonce } from '@/features/auth/lib/site-switch'
 import { SignIn } from '@/features/auth/sign-in'
 import type { SystemStatus } from '@/features/auth/types'
 import { resolveAuthentication } from '@/lib/auth-session'
@@ -30,6 +30,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 const searchSchema = z.object({
   redirect: z.string().optional(),
+  recovery: z.literal('operator').optional(),
 })
 
 export const Route = createFileRoute('/(auth)/sign-in')({
@@ -45,7 +46,11 @@ export const Route = createFileRoute('/(auth)/sign-in')({
         let url: string
         try {
           // 托管站可能刚刚换过账号，不能直接复用中转站残留的另一份登录态。
-          url = await startSiteSwitch(status.site_sso.issuer_url, nonce)
+          url = await startSiteLogin(
+            status.site_sso.issuer_url,
+            '/dashboard/overview',
+            nonce
+          )
         } catch (error) {
           handleServerError(error)
           return
@@ -63,8 +68,27 @@ export const Route = createFileRoute('/(auth)/sign-in')({
     if (auth.user) {
       const target =
         sanitizeAuthRedirect(search?.redirect, window.location.origin) ??
-        '/dashboard'
+        '/dashboard/overview'
       throw redirect({ href: target, replace: true })
     }
+
+    // 路由预加载不是登录意图；管理员的本机应急入口也不依赖身份站。
+    if (preload || search.recovery === 'operator') return
+    const status = (await context.queryClient.fetchQuery(
+      statusQueryOptions
+    )) as SystemStatus | null
+    if (!status?.site_sso?.consumer) return
+    const target =
+      sanitizeAuthRedirect(search.redirect, window.location.origin) ??
+      '/dashboard/overview'
+    let href: string
+    try {
+      href = await startSiteLogin(status.site_sso.issuer_url, target)
+    } catch (error) {
+      // 无法建立事务时才展示手动重试入口，避免自动刷新造成循环。
+      handleServerError(error)
+      return
+    }
+    throw redirect({ href, replace: true, reloadDocument: true })
   },
 })

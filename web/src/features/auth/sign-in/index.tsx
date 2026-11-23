@@ -23,12 +23,13 @@ import { useStatus } from '@/hooks/use-status'
 
 import { AuthLayout } from '../auth-layout'
 import { TermsFooter } from '../components/terms-footer'
-import { UnifiedAccountSignIn } from '../components/unified-account'
+import { Button } from '@/components/ui/button'
 import { UserAuthForm } from './components/user-auth-form'
 
+/** 身份站展示真实表单。中转站仅在自动登录交接失败后才显示重试按钮。 */
 export function SignIn() {
   const { t } = useTranslation()
-  const { redirect } = useSearch({ from: '/(auth)/sign-in' })
+  const { redirect, recovery } = useSearch({ from: '/(auth)/sign-in' })
   const { status } = useStatus()
 
   return (
@@ -54,8 +55,8 @@ export function SignIn() {
             )}
         </div>
 
-        {status?.site_sso?.consumer ? (
-          <UnifiedAccountSignIn redirectTo={redirect} />
+        {status?.site_sso?.consumer && recovery !== 'operator' ? (
+          <Button onClick={() => window.location.reload()}>{t('Retry')}</Button>
         ) : (
           <UserAuthForm redirectTo={redirect} />
         )}
