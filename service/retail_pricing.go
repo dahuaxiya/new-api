@@ -103,6 +103,19 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		}
 		return true, retailPriceError(err)
 	}
+	if c.Request.URL.Path == "/v1/responses" {
+		// Read the selected route before reserving: rejecting only after dispatch leaves a wallet hold.
+		limited := limitedResponsesRoute(book, common.GetContextKeyInt(c, constant.ContextKeyChannelId), quote.ProductID, info.OriginModelName)
+		if apiErr := validateResponsesContract(raw, limited); apiErr != nil {
+			return true, apiErr
+		}
+		if limited {
+			// The supplier ignores token limits. With no explicit client cap, reserve the published
+			// model maximum, then settle on actual usage. A wallet or per-request budget can veto it.
+			output = uint(quote.Model.MaxOutput)
+		}
+		c.Set("retail_limited_responses", limited)
+	}
 	_, imageRequest := info.Request.(*dto.ImageRequest)
 	if imageRequest != (quote.Model.Kind == "image") {
 		return true, retailPriceError(retailprice.ErrConfig)
@@ -341,6 +354,12 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		// 只允许已配置的原生 HTTP 流走本地次数检查。非流式和生图仍要求上游硬上限。
 		if explicit := c.GetString("retail_explicit_tool_cap"); explicit != "" && outgoingLimit > 0 && gjson.GetBytes(raw, "max_tool_calls").Raw != explicit {
 			return retailprice.ErrConfig
+		}
+		if setTool && quote.ImageToolLimit == 0 && searchLimit > 0 && c.GetBool("retail_limited_responses") && info.RelayFormat == types.RelayFormatOpenAIResponses && strings.HasSuffix(req.URL.Path, "/responses") {
+			// The supplier rejects or ignores the injected cap. Inspect only a complete JSON result
+			// or each native SSE event; the client has not requested a provider-side hard limit.
+			c.Set("retail_search_stream_limit", searchLimit)
+			setTool = false
 		}
 		if setTool && quote.ImageToolLimit == 0 && searchLimit > 0 && info.ChannelSetting.RetailSearchStreamLimit && info.IsStream && info.RelayFormat == types.RelayFormatOpenAIResponses && gjson.GetBytes(raw, "stream").Type == gjson.True {
 			// 普通线路不接收站点补写的参数；响应处理器在转发每个事件前检查预算。

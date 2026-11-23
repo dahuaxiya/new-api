@@ -30,6 +30,18 @@ func NewResponsesUsageAccumulator(info *relaycommon.RelayInfo) *ResponsesUsageAc
 	return &ResponsesUsageAccumulator{info: info, usage: &dto.Usage{}}
 }
 
+// ObserveResponsesEffort records only an explicit provider value. Unknown or missing values
+// must not overwrite a request-side setting or put arbitrary upstream strings into log metadata.
+func ObserveResponsesEffort(info *relaycommon.RelayInfo, response *dto.OpenAIResponsesResponse) {
+	if info == nil || response == nil || response.Reasoning == nil {
+		return
+	}
+	switch value := response.Reasoning.Effort; value {
+	case "none", "minimal", "low", "medium", "high", "xhigh", "max":
+		info.ReportedReasoningEffort = value
+	}
+}
+
 // Observe feeds one decoded stream event. raw is the same event's wire bytes;
 // the vendor tool-usage reader runs on it once, at the terminal event.
 func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse, raw []byte) {
@@ -44,6 +56,7 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse, 
 	switch event.Type {
 	case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
 		if event.Response != nil {
+			ObserveResponsesEffort(a.info, event.Response)
 			ApplyResponsesUsage(a.usage, event.Response.Usage)
 			if a.outputText.Len() == 0 {
 				// Some upstreams carry the output only on the terminal event.

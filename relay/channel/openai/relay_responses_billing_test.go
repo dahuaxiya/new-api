@@ -452,3 +452,26 @@ func TestAzureHostedWebSearch(t *testing.T) {
 		})
 	}
 }
+
+// TestRetailBufferedSearchChecksBeforeWrite ensures an over-budget tool response never exposes
+// a successful status/body or continuation ID. One documented execution remains deliverable.
+func TestRetailBufferedSearchChecksBeforeWrite(t *testing.T) {
+	for _, items := range []string{`{"type":"web_search_call","id":"one"}`, `{"type":"web_search_call","id":"one"},{"type":"web_search_call","id":"two"}`, `{"type":"web_search_call"}`} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+		c.Set("retail_search_stream_limit", 1)
+		info := &relaycommon.RelayInfo{}
+		body := `{"id":"resp_test","status":"completed","reasoning":{"effort":"medium"},"usage":{"input_tokens":1,"output_tokens":1},"output":[` + items + `]}`
+		_, e := OaiResponsesHandler(c, info, &http.Response{Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, StatusCode: 200})
+		if items == `{"type":"web_search_call","id":"one"}` {
+			require.Nil(t, e)
+			require.Contains(t, w.Body.String(), "resp_test")
+			require.Equal(t, "medium", info.ReportedReasoningEffort)
+		} else {
+			require.NotNil(t, e)
+			require.False(t, c.Writer.Written())
+			require.Empty(t, w.Body.String())
+		}
+	}
+}

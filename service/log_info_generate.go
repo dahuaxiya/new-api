@@ -96,6 +96,8 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 	}
 }
 
+// GenerateTextOtherInfo builds user-visible usage fields and scoped diagnostics. Reported effort
+// takes precedence over request intent, which is retained separately when the values differ.
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
 	cacheTokens int, cacheRatio float64, modelPrice float64, userGroupRatio float64) *model.LogOther {
 	MarkRequestPolicySuccess(ctx, relayInfo.StreamStatus)
@@ -108,7 +110,14 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other.SetPublic("model_price", modelPrice)
 	other.SetPublic("user_group_ratio", userGroupRatio)
 	other.SetPublic("frt", float64(relayInfo.FirstResponseTime.UnixMilli()-relayInfo.StartTime.UnixMilli()))
-	if relayInfo.ReasoningEffort != "" {
+	if relayInfo.ReportedReasoningEffort != "" {
+		other.SetPublic("reasoning_effort", relayInfo.ReportedReasoningEffort)
+		other.SetPublic("reasoning_effort_source", "upstream")
+		if sent := relayInfo.ReasoningEffort; sent != "" && sent != relayInfo.ReportedReasoningEffort {
+			other.SetPublic("reasoning_effort_sent", sent)
+		}
+	} else if relayInfo.ReasoningEffort != "" {
+		other.SetPublic("reasoning_effort_source", "request")
 		other.SetPublic("reasoning_effort", relayInfo.ReasoningEffort)
 	}
 	if relayInfo.IsModelMapped {

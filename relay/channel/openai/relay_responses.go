@@ -38,6 +38,21 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
+	service.ObserveResponsesEffort(info, &responsesResponse)
+	if limit := c.GetInt("retail_search_stream_limit"); limit > 0 {
+		// A buffered result must pass the same identity/count check before exposing output or storing its ID.
+		seen := make(map[string]struct{})
+		event := dto.ResponsesStreamResponse{Response: &responsesResponse}
+		searchItems := 0
+		for _, item := range responsesResponse.Output {
+			if item.Type == dto.BuildInCallWebSearchCall {
+				searchItems++
+			}
+		}
+		if !retailSearchEventWithinLimit(&event, seen, limit) || searchItems != len(seen) {
+			return nil, types.NewOpenAIError(fmt.Errorf("search usage exceeded the quoted limit or lacks a call ID"), "retail_search_usage_unverified", http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
+	}
 	info.ObserveResponseModel(responsesResponse.Model)
 	responseBody = rewriteSGLangResponsesCreatedAt(info, responseBody, "created_at", responsesResponse.CreatedAt)
 
