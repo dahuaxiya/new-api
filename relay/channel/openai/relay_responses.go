@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -86,6 +87,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	defer service.CloseResponseBodyGracefully(resp)
 
 	accumulator := service.NewResponsesUsageAccumulator(info)
+	limit := c.GetInt("retail_search_stream_limit")
+	seenSearch := make(map[string]struct{})
+	var rejected bool
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -93,7 +97,22 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		var streamResponse dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
 			logger.LogError(c, common.LogText("failed to unmarshal stream response: %s", err.Error()))
+			if limit > 0 {
+				// 本地计量依赖逐帧识别；无法解析时不能跳过本帧后继续按较低次数收费。
+				rejected = true
+				_ = resp.Body.Close()
+				sr.Stop(err)
+				return
+			}
 			sr.Error(err)
+			return
+		}
+		if limit > 0 && !retailSearchEventWithinLimit(&streamResponse, seenSearch, limit) {
+			// 不把超限事件或成功终帧交给客户端。中止上游读取；已执行的超额采购不能按一次自动结算。
+			rejected = true
+			_ = resp.Body.Close()
+			sendResponsesStreamData(c, dto.ResponsesStreamResponse{Type: "error"}, `{"type":"error","code":"retail_search_usage_unverified","message":"Search call limit exceeded or usage could not be verified."}`)
+			sr.Stop(fmt.Errorf("retail search usage exceeds reservation or lacks call identity"))
 			return
 		}
 		if streamResponse.Response != nil {
@@ -114,7 +133,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
 	info.StreamStatus.RequireTerminal()
 	usage := accumulator.Finish()
-	if c.GetBool("retail_request") && (usage.BillingUsage == nil || usage.BillingUsage.Estimated) {
+	// 若上游只报告开始、未报告搜索结果，无法区分已计费和取消；保留预授权等待核对。
+	if limit > 0 && info.ResponsesUsageInfo != nil {
+		tool := info.BuiltInTools[dto.BuildInToolWebSearch]
+		rejected = rejected || tool == nil || tool.CallCount != len(seenSearch)
+	}
+	if rejected || c.GetBool("retail_request") && (usage.BillingUsage == nil || usage.BillingUsage.Estimated) {
 		// Finish 为旧计费补算 token，但商业钱包只能依据上游明确返回的用量结算。
 		common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
 	}
@@ -133,4 +157,37 @@ func rewriteSGLangResponsesCreatedAt(info *relaycommon.RelayInfo, payload []byte
 		return payload
 	}
 	return patched
+}
+
+// retailSearchEventWithinLimit counts distinct native search executions from their earliest observable event.
+// The caller closes the upstream stream and keeps the reservation for reconciliation on an unverifiable ID or excess call.
+func retailSearchEventWithinLimit(event *dto.ResponsesStreamResponse, seen map[string]struct{}, limit int) bool {
+	accept := func(id string) bool {
+		if id == "" {
+			return false
+		}
+		if _, ok := seen[id]; ok {
+			return true
+		}
+		if len(seen) >= limit {
+			return false
+		}
+		seen[id] = struct{}{}
+		return true
+	}
+	if event.Item != nil && event.Item.Type == dto.BuildInCallWebSearchCall && !accept(event.Item.ID) {
+		return false
+	}
+	if strings.HasPrefix(event.Type, "response.web_search_call.") && !accept(event.ItemID) {
+		return false
+	}
+	// 部分渠道不发送增量工具事件，终帧的所有工具也须在转发和登记回复 ID 之前核对。
+	if event.Response != nil {
+		for _, item := range event.Response.Output {
+			if item.Type == dto.BuildInCallWebSearchCall && !accept(item.ID) {
+				return false
+			}
+		}
+	}
+	return true
 }

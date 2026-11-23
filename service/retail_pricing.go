@@ -156,6 +156,10 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		return true, retailPriceError(retailprice.ErrBudget)
 	}
 	info.SetEstimatePromptTokens(tokens)
+	// 渠道覆盖发生在预留之后；不能把客户端明确指定的一次误认为可省略的默认值。
+	if cap := gjson.GetBytes(raw, "max_tool_calls"); cap.Exists() {
+		c.Set("retail_explicit_tool_cap", cap.Raw)
+	}
 	for _, tool := range []string{dto.BuildInToolImageGeneration, dto.BuildInToolWebSearch} {
 		limit, err := retailToolLimit(raw, c.Request.URL.Path, tool)
 		if err != nil {
@@ -334,6 +338,15 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		outgoingLimit = max(outgoingLimit, searchLimit)
 		setOutput := !gjson.GetBytes(raw, limitField).Exists()
 		setTool := outgoingLimit > 0 && !gjson.GetBytes(raw, "max_tool_calls").Exists()
+		// 只允许已配置的原生 HTTP 流走本地次数检查。非流式和生图仍要求上游硬上限。
+		if explicit := c.GetString("retail_explicit_tool_cap"); explicit != "" && outgoingLimit > 0 && gjson.GetBytes(raw, "max_tool_calls").Raw != explicit {
+			return retailprice.ErrConfig
+		}
+		if setTool && quote.ImageToolLimit == 0 && searchLimit > 0 && info.ChannelSetting.RetailSearchStreamLimit && info.IsStream && info.RelayFormat == types.RelayFormatOpenAIResponses && gjson.GetBytes(raw, "stream").Type == gjson.True {
+			// 普通线路不接收站点补写的参数；响应处理器在转发每个事件前检查预算。
+			c.Set("retail_search_stream_limit", searchLimit)
+			setTool = false
+		}
 		if setOutput || setTool {
 			var body map[string]common.RawMessage
 			if common.Unmarshal(raw, &body) != nil {
@@ -745,7 +758,7 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 }
 
 // retailToolLimit 确定指定内置工具可采购的最大次数，仅原生 Responses 使用上游内置工具。
-// 未指定次数的请求按一次报价，最终出站时写入同一上限。显式多次调用按请求上限预留。
+// 未指定次数按一次报价，出站按渠道能力选择原生上限或流式检查。显式多次调用按请求上限预留。
 func retailToolLimit(raw []byte, path, kind string) (int, error) {
 	tools := gjson.GetBytes(raw, "tools")
 	found := false

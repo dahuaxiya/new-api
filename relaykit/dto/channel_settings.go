@@ -12,6 +12,8 @@ import (
 )
 
 type ChannelSettings struct {
+	// RetailSearchStreamLimit enables a metered SSE fallback for suppliers rejecting max_tool_calls.
+	RetailSearchStreamLimit bool `json:"retail_search_stream_limit,omitempty"`
 	// StudioImageEditJSON selects JSON only for a supplier that cannot accept multipart image edits.
 	StudioImageEditJSON       bool   `json:"studio_image_edit_json,omitempty"`
 	TaskPluginKey             string `json:"task_plugin_key,omitempty"`

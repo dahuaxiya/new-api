@@ -109,6 +109,9 @@ func TestRetailHTTPRelay(t *testing.T) {
 	const item = `{"type":"image_generation_call","id":"ig-1","status":"completed","result":"iVBORw0KGgo="}`
 	const usage = `"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}`
 	const imageResponse = `{"id":"resp-image","model":"gpt-4o","status":"completed","output":[` + item + `],` + usage + `}`
+	const compatBody = `{"model":"gpt-4o","input":"hello","stream":true,"tools":[{"type":"web_search","external_web_access":false}],"max_output_tokens":20}`
+	const startedSearch = "data: " + `{"type":"response.output_item.added","item":{"type":"web_search_call","id":"ws_1"}}` + "\n\n"
+	compatDone := "data: " + `{"type":"response.completed","response":` + strings.Replace(imageResponse, item, "", 1) + "}\n\n"
 	for _, priced := range []bool{false, true} {
 		for _, scenario := range []struct {
 			name, path, body, response string
@@ -121,6 +124,10 @@ func TestRetailHTTPRelay(t *testing.T) {
 			{"image_media_input", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":9,"image_tokens":1}}}`, types.RelayFormatOpenAIImage, 1, false},
 			{"image_no_payload", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"revised_prompt":"tree"}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":10,"image_tokens":0}}}`, types.RelayFormatOpenAIImage, 1, false},
 			{"chat", "/v1/chat/completions", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20}`, `{"id":"chat-1","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`, types.RelayFormatOpenAI, 1, true},
+			{"tool_search_compat_idle", "/v1/responses", compatBody, compatDone, types.RelayFormatOpenAIResponses, 1, true},
+			{"tool_search_compat_used", "/v1/responses", compatBody, startedSearch + strings.Replace(compatDone, `"output":[]`, `"output":[{"type":"web_search_call","id":"ws_1","status":"completed"}]`, 1), types.RelayFormatOpenAIResponses, 1, true},
+			{"tool_search_compat_explicit", "/v1/responses", strings.Replace(compatBody, `"stream":true`, `"stream":true,"max_tool_calls":1`, 1), compatDone, types.RelayFormatOpenAIResponses, 1, true},
+			{"tool_search_compat_interrupted", "/v1/responses", compatBody, startedSearch + strings.Replace(startedSearch, "ws_1", "ws_2", 1) + compatDone, types.RelayFormatOpenAIResponses, 1, false},
 			{"tool_search_idle", "/v1/responses", `{"model":"gpt-4o","input":"hello","tools":[{"type":"web_search","external_web_access":false}],"max_output_tokens":20}`, strings.Replace(imageResponse, item, "", 1), types.RelayFormatOpenAIResponses, 1, true},
 			{"tool_search_stream", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true,"tools":[{"type":"web_search"}],"max_output_tokens":20}`, "data: " + `{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_1","status":"completed"}}` + "\n\ndata: " + `{"type":"response.completed","response":` + strings.Replace(imageResponse, item, `{"type":"web_search_call","id":"ws_1","status":"completed"}`, 1) + "}\n\n", types.RelayFormatOpenAIResponses, 1, true},
 			{"tool_search_used", "/v1/responses", `{"model":"gpt-4o","input":"hello","tools":[{"type":"web_search"}],"max_output_tokens":20}`, strings.Replace(imageResponse, item, `{"type":"web_search_call","id":"ws_1","status":"completed"}`, 1), types.RelayFormatOpenAIResponses, 1, true},
@@ -191,6 +198,14 @@ func TestRetailHTTPRelay(t *testing.T) {
 				var publishDuringCall func() error
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					hit := hits.Add(1)
+					if strings.HasPrefix(scenario.name, "tool_search_compat_") {
+						raw, err := io.ReadAll(r.Body)
+						cap := gjson.GetBytes(raw, "max_tool_calls")
+						if err != nil || gjson.GetBytes(raw, "tools.0.type").Str != "web_search" || cap.Exists() != (scenario.name == "tool_search_compat_explicit") || cap.Exists() && cap.Int() != 1 {
+							http.Error(w, "unexpected tool contract", 400)
+							return
+						}
+					}
 					if imageTool {
 						raw, err := io.ReadAll(r.Body)
 						if err != nil || gjson.GetBytes(raw, "input.0.content.0.image_url").String() != reference || gjson.GetBytes(raw, "tool_choice.type").String() != "image_generation" {
@@ -249,6 +264,11 @@ func TestRetailHTTPRelay(t *testing.T) {
 				}))
 				t.Cleanup(upstream.Close)
 				channel := model.Channel{Name: "retail-upstream", Key: "test-upstream-key", Status: 1, Type: scenario.channelType, Group: "retail", Models: "gpt-4o", BaseURL: &upstream.URL, Priority: common.GetPointer(int64(10))}
+				if strings.HasPrefix(scenario.name, "tool_search_compat_") {
+					setting := channel.GetSetting()
+					setting.RetailSearchStreamLimit = true
+					channel.SetSetting(setting)
+				}
 				require.NoError(t, model.DB.Create(&channel).Error)
 				require.NoError(t, model.DB.Create(&model.Ability{ChannelId: channel.Id, Model: "gpt-4o", Group: "retail", Enabled: true, Priority: channel.Priority}).Error)
 				backup := channel
@@ -311,6 +331,10 @@ func TestRetailHTTPRelay(t *testing.T) {
 				engine.ServeHTTP(recorder, req)
 				require.Equal(t, wantStatus, recorder.Code, recorder.Body.String())
 				require.Equal(t, wantHits, hits.Load())
+				if scenario.name == "tool_search_compat_interrupted" {
+					require.Contains(t, recorder.Body.String(), "retail_search_usage_unverified")
+					require.NotContains(t, recorder.Body.String(), "response.completed")
+				}
 				var charge model.RetailCharge
 				require.NoError(t, model.DB.First(&charge, "id = ?", "retail-http-"+scenario.name).Error)
 				require.Equal(t, wantChargeState, charge.Status)
@@ -319,7 +343,7 @@ func TestRetailHTTPRelay(t *testing.T) {
 					if priced {
 						expected = 21
 					}
-					if scenario.name == "tool_search_used" || scenario.name == "tool_search_stream" {
+					if scenario.name == "tool_search_compat_used" || scenario.name == "tool_search_used" || scenario.name == "tool_search_stream" {
 						expected += 1500
 					} // 每千次 10，测试倍率 0.3；只结算实际调用。
 					if imageTool && scenario.name != "tool_image_empty" {
