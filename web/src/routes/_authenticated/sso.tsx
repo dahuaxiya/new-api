@@ -17,8 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
+import { Button } from '@/components/ui/button'
+import { useStatus } from '@/hooks/use-status'
 import { z } from 'zod'
 
+import {
+  consumeIssuerLogin,
+  mayRestartIssuerLogin,
+} from '@/features/auth/lib/issuer-login-intent'
 import { SiteSSOAuthorize } from '@/features/auth/components/site-sso-authorize'
 import {
   approveSiteSwitch,
@@ -39,7 +46,22 @@ const schema = z.object({
 
 /** Keep route validation ahead of the authorization UI; only validated state/challenge reach the issuer. */
 function SiteSSOPage() {
-  return <SiteSSOAuthorize search={Route.useSearch()} />
+  const search = Route.useSearch()
+  const { t } = useTranslation()
+  const { status } = useStatus()
+  if (search.verify === 'verify') return <SiteSSOAuthorize search={search} />
+  // 普通登录成功时路由已跳转。若浏览器存储或授权失败，只允许从配置的消费站重建事务。
+  const client = status?.site_sso?.client_url
+  return (
+    <div role='alert' className='mx-auto max-w-md space-y-4 p-6'>
+      <p>{t('Verification flow expired')}</p>
+      {client && (
+        <Button render={<a href={new URL('/sign-in', client).href} />}>
+          {t('Sign in')}
+        </Button>
+      )}
+    </div>
+  )
 }
 
 export const Route = createFileRoute('/_authenticated/sso')({
@@ -47,12 +69,25 @@ export const Route = createFileRoute('/_authenticated/sso')({
   beforeLoad: async ({ search, context, preload }) => {
     const nonce = switchNonce()
     const user = useAuthStore.getState().auth.user
-    if (preload || search.verify !== 'login' || !nonce || !user) return
+    if (preload || search.verify !== 'login' || !user) return
     const status = (await context.queryClient.fetchQuery(
       statusQueryOptions
     )) as SystemStatus | null
     const sso = status?.site_sso
-    if (!sso || sso.consumer || !consumeSiteSwitch(nonce, user.id)) return
+    if (!sso || sso.consumer) return
+    const intended = nonce
+      ? consumeSiteSwitch(nonce, user.id)
+      : await consumeIssuerLogin(sso.client_url, search.state, search.challenge)
+    if (!intended) {
+      // 遗留页面或书签重新建立浏览器绑定，不能自动签发外来 URL 指定的事务。
+      if (!nonce && mayRestartIssuerLogin())
+        throw redirect({
+          href: new URL('/sign-in', sso.client_url).href,
+          replace: true,
+          reloadDocument: true,
+        })
+      return
+    }
     let url: string
     try {
       url = await approveSiteSwitch(
@@ -60,7 +95,7 @@ export const Route = createFileRoute('/_authenticated/sso')({
         sso.client_url
       )
     } catch (error) {
-      // 自动步骤只执行一次，失败后显示原有手动授权与换号入口。
+      // 自动步骤只执行一次，失败后从消费站重新发起事务。
       handleServerError(error)
       return
     }
