@@ -111,6 +111,7 @@ func newResponsesWSRequestRunner(c *gin.Context) relay.ResponsesWSRequestRunner 
 	}
 }
 
+// ResponsesWebSocket 为响应流升级长连接。零售轮次通过完整的 HTTP 响应流路径。
 func ResponsesWebSocket(c *gin.Context) {
 	requestID := c.GetString(common.RequestIdKey)
 	runner := newResponsesWSRequestRunner(c)
@@ -120,9 +121,17 @@ func ResponsesWebSocket(c *gin.Context) {
 	}
 	defer ws.Close()
 
-	if apiError := relay.ResponsesWebSocketHelper(c, ws, runner); apiError != nil {
+	if apiError := relay.ResponsesWebSocketHelper(c, ws, runner, relayRetailResponsesWS); apiError != nil {
 		logger.LogError(c, common.LogText("responses websocket relay error: %s", common.LocalLogPreview(apiError.Error())))
 		apiError.SetMessage(common.MessageWithRequestId(apiError.Error(), requestID))
 		helper.WssError(c, ws, apiError.ToOpenAIError(common.UpstreamAddresses(c)...))
+	}
+}
+
+// relayRetailResponsesWS 在已重新鉴权并限流的轮次内执行和 HTTP 一致的选路、用量与退款流程。
+func relayRetailResponsesWS(c *gin.Context) {
+	middleware.Distribute()(c)
+	if !c.IsAborted() {
+		Relay(c, types.RelayFormatOpenAIResponses)
 	}
 }

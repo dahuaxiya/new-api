@@ -234,7 +234,8 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 	}, nil
 }
 
-// ListModels 返回当前账号可调用且满足令牌模型限制的模型；托管不可用时拒绝发现，避免回退至旧组。
+// ListModels 返回当前凭据可用的模型。零售文本模型的输出上限来自该凭据实际可用的报价。
+// modelType 选择目录格式。托管不可用时拒绝发现，避免回退至旧组。
 func ListModels(c *gin.Context, modelType int) {
 	acceptUnsetRatioModel := operation_setting.SelfUseModeEnabled
 	if !acceptUnsetRatioModel {
@@ -276,6 +277,7 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 	models := service.GetGroupsEnabledModels(ownerGroups)
+	retailMaxOutput := make(map[string]int)
 	retailIDs := []int(nil)
 	if c.GetBool("retail_request") {
 		var err error
@@ -308,6 +310,10 @@ func ListModels(c *gin.Context, modelType int) {
 			if !allowed {
 				continue
 			}
+			if quote != nil && quote.Model.Kind == "text" {
+				// 客户端用这个值构造请求。图片的输出数量与文本 token 上限无关。
+				retailMaxOutput[modelName] = quote.Model.MaxOutput
+			}
 		}
 		if modelLimitEnable {
 			matchingName := ratio_setting.RoutingMatchModelName(modelName)
@@ -327,7 +333,9 @@ func ListModels(c *gin.Context, modelType int) {
 	}
 	userOpenAiModels := make([]dto.OpenAIModels, 0, len(userModelNames))
 	for _, modelName := range userModelNames {
-		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel))
+		entry := buildOpenAIModel(modelName, ownerByModel)
+		entry.MaxOutputTokens = retailMaxOutput[modelName]
+		userOpenAiModels = append(userOpenAiModels, entry)
 	}
 
 	switch modelType {

@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
 
@@ -531,6 +532,23 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 	}
 }
 
+// retailEndpointAllowed 只开放经过零售计费校验的协议入口和无需上游的模型目录与计数。
+func retailEndpointAllowed(method, path string) bool {
+	if method == http.MethodGet {
+		return path == "/v1/models" || strings.HasPrefix(path, "/v1/models/") || path == "/v1beta/models"
+	}
+	if method != http.MethodPost {
+		return false
+	}
+	switch path {
+	case "/v1/responses", "/v1/responses/compact", "/v1/alpha/search", "/v1/messages", "/v1/messages/count_tokens", "/v1/chat/completions", "/v1/images/generations", "/v1/images/edits":
+		return true
+	}
+	modelAction, ok := strings.CutPrefix(path, "/v1beta/models/")
+	modelName, action, split := strings.Cut(modelAction, ":")
+	return ok && split && modelName != "" && !strings.Contains(modelName, "/") && (action == "generateContent" || action == "streamGenerateContent")
+}
+
 // TokenAuth 校验 API Key、用户与当前服务授权；商业 Key 的协议范围由服务端固定，不能切换为托管计费。
 func TokenAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
@@ -644,9 +662,9 @@ func TokenAuth() func(c *gin.Context) {
 
 		userGroup := userCache.Group
 		if retailGroup != "" {
-			// 商业账本只开放已验收的文本与同步生图协议；图片仍须通过已发布价表的严格校验。
-			path := c.Request.URL.Path
-			if !(c.Request.Method == http.MethodPost && (path == "/v1/responses" || path == "/v1/messages" || path == "/v1/chat/completions" || path == "/v1/images/generations" || path == "/v1/images/edits")) && !(c.Request.Method == http.MethodGet && (path == "/v1/models" || strings.HasPrefix(path, "/v1/models/"))) {
+			// WebSocket 握手只建立连接，每轮仍按普通 Responses 请求重新鉴权和计费。
+			responsesUpgrade := c.Request.Method == http.MethodGet && c.Request.URL.Path == "/v1/responses" && websocket.IsWebSocketUpgrade(c.Request)
+			if !responsesUpgrade && !retailEndpointAllowed(c.Request.Method, c.Request.URL.Path) {
 				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgRetailEndpointUnsupported))
 				return
 			}

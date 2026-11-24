@@ -89,6 +89,14 @@ func SetRelayRouter(router *gin.Engine) {
 		relayV1Router.GET("/responses", controller.ResponsesWebSocket)
 	}
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
+	// token 统计在本机运行，只需校验凭据与限流，不选择供货渠道。
+	relayV1Router.POST("/messages/count_tokens", func(c *gin.Context) {
+		if !c.GetBool("retail_request") {
+			controller.RelayNotFound(c)
+			return
+		}
+		controller.CountClaudeTokens(c)
+	})
 	{
 		// WebSocket 路由（统一到 Relay）
 		wsRouter := relayV1Router.Group("")
@@ -97,14 +105,20 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAIRealtime)
 		})
 	}
+	// 两个独立工具先规范化零售请求，再复用同一套选路及账本中间件。
+	relayV1Router.POST("/responses/compact", controller.RetailResponsesUtility, middleware.Distribute(), func(c *gin.Context) {
+		controller.Relay(c, controller.ResponsesUtilityFormat(c, types.RelayFormatOpenAIResponsesCompaction))
+	})
+	relayV1Router.POST("/alpha/search", controller.RetailResponsesUtility, middleware.Distribute(), func(c *gin.Context) {
+		controller.Relay(c, controller.ResponsesUtilityFormat(c, types.RelayFormatOpenAIAlphaSearch))
+	})
+
 	{
 		//http router
 		httpRouter := relayV1Router.Group("")
 		httpRouter.Use(middleware.Distribute())
 
 		// claude related routes
-		// TODO: /messages/count_tokens is disabled. The current controller.CountClaudeTokens
-		// httpRouter.POST("/messages/count_tokens", controller.CountClaudeTokens)
 		httpRouter.POST("/messages", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatClaude)
 		})
@@ -115,16 +129,6 @@ func SetRelayRouter(router *gin.Engine) {
 		})
 		httpRouter.POST("/chat/completions", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAI)
-		})
-
-		// response related routes
-		httpRouter.POST("/responses/compact", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIResponsesCompaction)
-		})
-
-		// alpha search related routes (Codex standalone web search)
-		httpRouter.POST("/alpha/search", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIAlphaSearch)
 		})
 
 		// DeepSeek Search and Fetch API routes

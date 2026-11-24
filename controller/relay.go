@@ -26,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -251,9 +252,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 }
 
-// CountClaudeTokens implements Anthropic's token-counting utility endpoint.
-// It deliberately skips upstream generation and billing; callers use this
-// endpoint to size prompts before creating a Message.
+// CountClaudeTokens 在本地估算 Anthropic 消息的 token 数，供客户端判断上下文余量。
+// 路由先校验凭据并限流；本方法不联网读取附件，也不创建供货调用或账单。
 func CountClaudeTokens(c *gin.Context) {
 	request, err := helper.GetAndValidateClaudeRequest(c)
 	if err != nil {
@@ -267,8 +267,25 @@ func CountClaudeTokens(c *gin.Context) {
 		return
 	}
 
+	if common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled) {
+		v, _ := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
+		allowed, _ := v.(map[string]bool)
+		if !allowed[request.Model] && !allowed[ratio_setting.RoutingMatchModelName(request.Model)] {
+			c.JSON(http.StatusForbidden, gin.H{"type": "error", "error": gin.H{"type": "permission_error", "message": "The API key cannot access this model"}})
+			return
+		}
+	}
+	meta := request.GetTokenCountMeta()
+	for _, file := range meta.Files {
+		// 估算入口不需要联网，避免把媒体地址变成额外的出站访问路径。
+		if file.Source != nil && file.Source.IsURL() {
+			c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": "Remote media is not supported for local token counting"}})
+			return
+		}
+	}
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, request.Model)
 	info := relaycommon.GenRelayInfoClaude(c, request)
-	inputTokens, err := service.CountRequestToken(c, request.GetTokenCountMeta(), info)
+	inputTokens, err := service.CountRequestToken(c, meta, info)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"type": "error",

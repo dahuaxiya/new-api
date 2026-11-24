@@ -97,7 +97,7 @@ func PrepareRetailResponsesInput(c *gin.Context, input common.RawMessage) error 
 		return retailprice.ErrConfig
 	}
 	raw, err := storage.Bytes()
-	if err != nil || !gjson.ValidBytes(raw) || !uniqueRetailKeys(gjson.ParseBytes(raw)) {
+	if err != nil || !gjson.ValidBytes(raw) || !UniqueRetailKeys(gjson.ParseBytes(raw)) {
 		return retailprice.ErrConfig
 	}
 	if items != nil {

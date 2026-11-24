@@ -65,14 +65,14 @@ func isMagpieResponsesProbe(raw []byte) bool {
 // validateResponsesContract 校验请求与选中供应线路的参数约定。
 // magpieProbe 仅由入口按请求原文识别，允许固定探测以尽力限制输出的方式交给上游。
 // Null optional fields mean omitted. Fixed defaults remain usable for SDKs that send them explicitly.
-func validateResponsesContract(raw []byte, limited, magpieProbe bool) *types.NewAPIError {
+func validateResponsesContract(raw []byte, limited, magpieProbe bool, modelOutputLimit int, fasterGroup bool) *types.NewAPIError {
 	root := gjson.ParseBytes(raw)
 	for _, field := range []string{"background", "service_tier", "prompt"} {
 		v := root.Get(field)
 		if v.Type == gjson.Null {
 			continue
 		}
-		if field == "background" && v.Type == gjson.False || field == "service_tier" && v.Str == "default" {
+		if field == "background" && v.Type == gjson.False || field == "service_tier" && retailServiceTierAllowed(v.Str, fasterGroup) {
 			continue
 		}
 		return responsesParameterError(field, "当前零售接口不支持此设置。")
@@ -93,7 +93,8 @@ func validateResponsesContract(raw []byte, limited, magpieProbe bool) *types.New
 		switch field {
 		case "max_output_tokens":
 			// 探测仍把原值发给上游，并按实报用量结算。只对固定探测放宽硬上限校验。
-			if magpieProbe {
+			// 目录公开的上限与该线路的报价上限相同。不把任意较小值承诺为硬限制。
+			if magpieProbe || (modelOutputLimit > 0 && v.Type == gjson.Number && v.Float() == float64(modelOutputLimit)) {
 				continue
 			}
 		case "temperature", "top_p":
@@ -136,4 +137,9 @@ func validateResponsesContract(raw []byte, limited, magpieProbe bool) *types.New
 		return responsesParameterError("tools", "当前线路不能在同一请求中为搜索与生图提供合计次数上限。")
 	}
 	return nil
+}
+
+// retailServiceTierAllowed 允许 SDK 的默认值。付费高速线路的 Key 自带 ultrafast 服务，不改变客户分组。
+func retailServiceTierAllowed(tier string, fasterGroup bool) bool {
+	return tier == "default" || tier == "auto" || fasterGroup && (tier == "priority" || tier == "ultrafast")
 }

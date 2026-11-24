@@ -545,7 +545,7 @@ func TestResponsesWSMessageSizeLimit(t *testing.T) {
 		ResponsesWebSocketHelper(c, server, func(*http.Request, string, func(*gin.Context) *types.NewAPIError) *types.NewAPIError {
 			admitted.Store(true)
 			return nil
-		})
+		}, nil)
 	}()
 	_ = client.WriteMessage(websocket.TextMessage, []byte(strings.Repeat("x", (1<<20)+1)))
 	require.NoError(t, client.SetReadDeadline(time.Now().Add(5*time.Second)))

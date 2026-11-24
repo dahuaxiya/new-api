@@ -41,7 +41,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		return true, retailPriceError(err)
 	}
 	if !book.Enabled {
-		if version > 0 || c.Request.URL.Path == "/v1/images/generations" || c.Request.URL.Path == "/v1/images/edits" {
+		if version > 0 || info.RelayFormat == types.RelayFormatGemini || c.GetString("retail_responses_utility") != "" || c.Request.URL.Path == "/v1/images/generations" || c.Request.URL.Path == "/v1/images/edits" {
 			return true, retailPriceError(retailprice.ErrExpired)
 		}
 		return false, nil
@@ -82,6 +82,10 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		if req.MaxOutputTokens != nil {
 			output = *req.MaxOutputTokens
 		}
+	case *dto.GeminiChatRequest:
+		if req.GenerationConfig.MaxOutputTokens != nil {
+			output = *req.GenerationConfig.MaxOutputTokens
+		}
 	case *dto.ImageRequest:
 		output = 1 // MakeQuote replaces this with the verified image output bound.
 	case *dto.ClaudeRequest:
@@ -113,18 +117,27 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		}
 		return true, retailPriceError(err)
 	}
-	if c.Request.URL.Path == "/v1/responses" {
+	responses := c.Request.URL.Path == "/v1/responses"
+	if responses {
 		// Read the selected route before reserving: rejecting only after dispatch leaves a wallet hold.
-		limited := limitedResponsesRoute(book, common.GetContextKeyInt(c, constant.ContextKeyChannelId), quote.ProductID, info.OriginModelName)
+		channelID := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+		limited := limitedResponsesRoute(book, channelID, quote.ProductID, info.OriginModelName)
+		fastGroup := limited && book.RegisteredGroups()[channelID] == "GPT-UltraFast"
 		magpieProbe := limited && isMagpieResponsesProbe(raw)
-		if apiErr := validateResponsesContract(raw, limited, magpieProbe); apiErr != nil {
+		if apiErr := validateResponsesContract(raw, limited, magpieProbe, quote.Model.MaxOutput, fastGroup); apiErr != nil {
 			return true, apiErr
 		}
-		if magpieProbe {
-			// 告知客户端 16 是探测目标，上游可能报告更多用量。用正常报价与出站校验完成真实调用。
+		tier := gjson.GetBytes(raw, "service_tier").Str
+		if fastGroup && (tier == "priority" || tier == "ultrafast") {
+			// 优先级是供货 Key 的能力，出站必须保持同一高速组，不能降到普通组。
+			c.Set("retail_fast_channel", channelID)
+			c.Header("X-Luobo-Service-Tier", "ultrafast")
+		}
+		if magpieProbe || limited && gjson.GetBytes(raw, "max_output_tokens").Int() == int64(quote.Model.MaxOutput) {
+			// 此线路使用模型上限结算。显式值不代表上游执行了独立的截断。
 			c.Header("X-Luobo-Output-Limit", "best-effort")
 		}
-		if limited {
+		if limited || c.GetString("retail_responses_utility") == "compact" {
 			// 无法约束输出的线路以模型上限校验实报用量；输出上限不参与分组文本的输入预扣。
 			output = uint(quote.Model.MaxOutput)
 		}
@@ -135,7 +148,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		return true, retailPriceError(retailprice.ErrConfig)
 	}
 	// 在入站阶段登记经过检查的内嵌图片。出站只消费这份清单，不重新信任转换后的数据。
-	if !imageRequest && c.Request.URL.Path == "/v1/responses" && !HasStudioVision(c.Request) {
+	if !imageRequest && responses && !HasStudioVision(c.Request) {
 		pictures, err := retailResponsesPictures(raw)
 		if err != nil {
 			return true, retailPriceError(err)
@@ -158,7 +171,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		return true, retailPriceError(retailprice.ErrBudget)
 	}
 	var replay []string
-	if c.Request.URL.Path == "/v1/responses" {
+	if responses {
 		replay = retailReplayContents(raw)
 	}
 	// 出站时核对密文历史是否完整。密文校验独立于计费方式。
@@ -281,6 +294,9 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		return retailprice.ErrAccess
 	}
 	// First release disables automatic retries for guarded calls: failed procurement has unknown cost.
+	if fast := c.GetInt("retail_fast_channel"); fast > 0 && (fast != info.ChannelId || book.RegisteredGroups()[info.ChannelId] != "GPT-UltraFast" || !limitedResponsesRoute(book, info.ChannelId, quote.ProductID, info.OriginModelName)) {
+		return retailprice.ErrAccess
+	}
 	if info.RetryIndex > 0 {
 		return retailprice.ErrUsage
 	}
@@ -334,6 +350,10 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 			return types.NewOpenAIError(errors.New(msg), "previous_response_not_found", http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 		return retailprice.ErrAccess
+	}
+	// Gemini 零售只支持转换成已验证的 Chat 计费路径，原生 Gemini 用量未纳入此账本。
+	if info.RelayFormat == types.RelayFormatGemini && !strings.HasSuffix(req.URL.Path, "/chat/completions") {
+		return retailprice.ErrConfig
 	}
 	reference := studioReferencePath(c.Request, c.Request.URL.Path == "/v1/images/edits")
 	if err := validateRetailRequest(c, raw, quote.Model.Kind, req.URL.Path); err != nil {
@@ -517,11 +537,14 @@ func retailReplayCiphertext(item gjson.Result) (string, bool) {
 // validateRetailRequest 校验入站和最终出站的实际协议，工作台上传图片的许可仅限本次请求。
 func validateRetailRequest(c *gin.Context, raw []byte, kind, path string) error {
 	if kind != "image" {
+		if strings.HasPrefix(path, "/v1beta/models/") {
+			return validateRetailGeminiRequest(raw, extractRetailGeminiModel(path))
+		}
 		var vision map[string]int
 		if HasStudioVision(c.Request) {
 			vision = c.Request.Context().Value(studioVisionKey{}).(map[string]int)
 		}
-		return validateRetailChat(raw, vision, strings.HasSuffix(path, "/responses"), c.GetString("retail_previous_response"))
+		return validateRetailChatWithOptions(raw, vision, strings.HasSuffix(path, "/responses"), c.GetString("retail_previous_response"), c.GetString("retail_responses_utility") == "compact", c.GetInt("retail_fast_channel") > 0)
 	}
 	edit := c.Request.URL.Path == "/v1/images/edits"
 	return validateRetailBody(raw, kind, edit, studioReferencePath(c.Request, edit) != "")
@@ -532,8 +555,8 @@ func validateRetailTextBody(raw []byte) error {
 	return validateRetailChat(raw, nil, false, "")
 }
 
-// uniqueRetailKeys 在解析、改写或计量之前检查重复字段，确保各阶段看到同一份输入。
-func uniqueRetailKeys(root gjson.Result) bool {
+// UniqueRetailKeys 在解析、改写或计量之前检查重复字段，确保各阶段看到同一份输入。
+func UniqueRetailKeys(root gjson.Result) bool {
 	// Reject duplicate keys at every depth: inspectors and upstream JSON parsers
 	// may otherwise disagree about which model, quantity or content type wins.
 	objects := []gjson.Result{root}
@@ -565,11 +588,16 @@ func uniqueRetailKeys(root gjson.Result) bool {
 // validateRetailChat 校验文本计费契约。原生 Responses 只在 input 数组的直接元素中
 // 接受加密历史和工具回放；工具结果仍须遵守本次请求的媒体许可。
 func validateRetailChat(raw []byte, vision map[string]int, responses bool, previous string) error {
+	return validateRetailChatWithOptions(raw, vision, responses, previous, false, false)
+}
+
+// validateRetailChatWithOptions 仅在服务端标记的新协议路径开放压缩触发和已验证的高速服务档位。
+func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses bool, previous string, compact, fastGroup bool) error {
 	root := gjson.ParseBytes(raw)
 	if !gjson.ValidBytes(raw) || !root.IsObject() {
 		return retailprice.ErrConfig
 	}
-	if !uniqueRetailKeys(root) {
+	if !UniqueRetailKeys(root) {
 		return retailprice.ErrConfig
 	}
 	// 引用必须是中间件已经按本地用户和 Key 验证过的同一个回复 ID。
@@ -581,7 +609,7 @@ func validateRetailChat(raw []byte, vision map[string]int, responses bool, previ
 		if !v.Exists() || v.Type == gjson.Null {
 			continue
 		}
-		if field == "service_tier" && v.String() == "default" {
+		if field == "service_tier" && (v.String() == "default" || responses && retailServiceTierAllowed(v.Str, fastGroup)) {
 			continue
 		}
 		if field == "background" && v.Type == gjson.False {
@@ -616,12 +644,25 @@ func validateRetailChat(raw []byte, vision map[string]int, responses bool, previ
 	remaining := maps.Clone(vision)
 	queue := []gjson.Result{root.Get("messages"), root.Get("system")}
 	input := root.Get("input")
+	if compact {
+		items := input.Array()
+		if len(items) < 2 || items[len(items)-1].Get("type").Str != "compaction_trigger" || root.Get("stream").Type != gjson.True {
+			return retailprice.ErrConfig
+		}
+	}
 	if responses && input.IsArray() {
-		for _, item := range input.Array() {
+		items := input.Array()
+		for index, item := range items {
 			// 只有直接位于 Responses input 的条目才是工具历史；工具返回的媒体
 			// 仍须走普通内容检查，不能因为外层调用已完成就放行。
 			_, encrypted := retailReplayCiphertext(item)
 			switch item.Get("type").Str {
+			case "compaction_trigger":
+				// 只允许独立压缩入口追加一个无参数触发项，渠道覆盖也必须保留末尾触发项。
+				if !compact || index != len(items)-1 || len(item.Map()) != 1 {
+					return retailprice.ErrConfig
+				}
+				continue
 			case "custom_tool_call":
 				if item.Get("input").Type != gjson.String {
 					return retailprice.ErrConfig

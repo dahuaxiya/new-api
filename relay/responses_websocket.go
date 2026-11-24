@@ -93,6 +93,7 @@ type responsesWSSession struct {
 	cancel         context.CancelFunc
 	client         *websocket.Conn
 	runner         ResponsesWSRequestRunner
+	retailRelay    func(*gin.Context)
 	request        *http.Request
 	requestID      string
 	nextEventIndex int
@@ -119,9 +120,10 @@ type responsesWSSession struct {
 	lockedRoute     dto.AdvancedCustomRoute
 }
 
-func ResponsesWebSocketHelper(c *gin.Context, client *websocket.Conn, runner ResponsesWSRequestRunner) *types.NewAPIError {
+// ResponsesWebSocketHelper 连接客户端并逐轮处理 response.create。retailRelay 必须执行与 HTTP 一致的零售转发链。
+func ResponsesWebSocketHelper(c *gin.Context, client *websocket.Conn, runner ResponsesWSRequestRunner, retailRelay func(*gin.Context)) *types.NewAPIError {
 	ctx, cancel := context.WithCancel(c.Request.Context())
-	s := &responsesWSSession{ctx: ctx, cancel: cancel, client: client, runner: runner,
+	s := &responsesWSSession{ctx: ctx, cancel: cancel, client: client, runner: runner, retailRelay: retailRelay,
 		request: c.Request.Clone(ctx), requestID: c.GetString(common.RequestIdKey)}
 	if s.requestID == "" {
 		s.requestID = common.NewRequestId()
@@ -178,6 +180,7 @@ func ResponsesWebSocketHelper(c *gin.Context, client *websocket.Conn, runner Res
 	}
 }
 
+// runRequest 执行单个经过串行准入的轮次，归还准入时发送终止事件。
 func (s *responsesWSSession) runRequest(state *responsesWSCallState, message []byte, envelope responsesWSCreateEvent, streamID string, requestID string) {
 	create, parseErr := normalizeResponsesWSCreateEvent(message, envelope, streamID)
 	var apiErr *types.NewAPIError
@@ -225,7 +228,12 @@ func (s *responsesWSSession) runRequest(state *responsesWSCallState, message []b
 		}
 		c.Request.Body = io.NopCloser(bytes.NewReader(create.Body))
 		c.Request.ContentLength = int64(len(create.Body))
-		callErr := s.runCall(c, state, create)
+		var callErr *types.NewAPIError
+		if c.GetBool("retail_request") {
+			callErr = s.runRetailCall(c, state, create)
+		} else {
+			callErr = s.runCall(c, state, create)
+		}
 		upstreamURLs = common.UpstreamAddresses(c)
 		return callErr
 	})

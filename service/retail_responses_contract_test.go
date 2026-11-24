@@ -22,17 +22,17 @@ func TestRetailResponsesContract(t *testing.T) {
 	for field, value := range map[string]string{"max_output_tokens": "16", "max_tool_calls": "1", "temperature": "0.3", "top_p": "0.4", "metadata": `{"tag":"a"}`, "top_logprobs": "2", "parallel_tool_calls": "false", "truncation": `"auto"`} {
 		for _, stream := range []string{"true", "false"} {
 			body := []byte(`{"tools":[{"type":"function","name":"lookup"}],"stream":` + stream + `,"` + field + `":` + value + `}`)
-			e := validateResponsesContract(body, true, false)
+			e := validateResponsesContract(body, true, false, 32768, false)
 			require.NotNil(t, e, field)
 			require.Equal(t, 400, e.StatusCode)
 			require.Equal(t, field, e.ToOpenAIError().Param)
-			require.Nil(t, validateResponsesContract(body, false, false))
+			require.Nil(t, validateResponsesContract(body, false, false, 32768, false))
 		}
 	}
 	for _, raw := range []string{`{"parallel_tool_calls":false}`, `{"tools":[],"parallel_tool_calls":false}`} {
-		require.Nil(t, validateResponsesContract([]byte(raw), true, false))
+		require.Nil(t, validateResponsesContract([]byte(raw), true, false, 32768, false))
 	}
-	require.Nil(t, validateResponsesContract([]byte(`{"reasoning":{"effort":"low"},"tools":[{"type":"web_search"}],"temperature":1,"metadata":{},"parallel_tool_calls":true}`), true, false))
+	require.Nil(t, validateResponsesContract([]byte(`{"reasoning":{"effort":"low"},"tools":[{"type":"web_search"}],"temperature":1,"metadata":{},"parallel_tool_calls":true}`), true, false, 32768, false))
 }
 
 // TestMagpieResponsesProbe 验证固定探测可通过受限线路校验，带业务语义或重复字段的请求仍拒绝硬上限。
@@ -52,7 +52,7 @@ func TestMagpieResponsesProbe(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw := []byte(tc.body)
-			err := validateResponsesContract(raw, true, isMagpieResponsesProbe(raw))
+			err := validateResponsesContract(raw, true, isMagpieResponsesProbe(raw), 32768, false)
 			if tc.accepted {
 				require.Nil(t, err)
 				return
@@ -81,4 +81,13 @@ func TestResponsesEffortInUsageLog(t *testing.T) {
 		require.Equal(t, tc.want, other["reasoning_effort"])
 		require.Equal(t, tc.source, other["reasoning_effort_source"])
 	}
+}
+
+// TestRetailResponsesAdvertisedCapAndServiceTier 允许目录上限与高速 Key 的服务档位，普通组仍须明确拒绝优先档。
+func TestRetailResponsesAdvertisedCapAndServiceTier(t *testing.T) {
+	require.Nil(t, validateResponsesContract([]byte(`{"max_output_tokens":32768,"service_tier":"auto"}`), true, false, 32768, false))
+	require.NotNil(t, validateResponsesContract([]byte(`{"max_output_tokens":64}`), true, false, 32768, true))
+	priority := []byte(`{"service_tier":"priority"}`)
+	require.Nil(t, validateResponsesContract(priority, true, false, 32768, true))
+	require.Equal(t, "service_tier", validateResponsesContract(priority, true, false, 32768, false).ToOpenAIError().Param)
 }

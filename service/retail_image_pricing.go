@@ -107,7 +107,7 @@ func validateRetailBody(raw []byte, kind string, edit, fileReference bool) error
 		return validateRetailTextBody(raw)
 	}
 	root := gjson.ParseBytes(raw)
-	if !gjson.ValidBytes(raw) || !root.IsObject() || !uniqueRetailKeys(root) {
+	if !gjson.ValidBytes(raw) || !root.IsObject() || !UniqueRetailKeys(root) {
 		return retailprice.ErrConfig
 	}
 	modelID := root.Get("model").String()
