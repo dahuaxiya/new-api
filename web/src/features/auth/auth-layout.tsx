@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { BrandArtwork } from '@/components/layout/components/brand-artwork'
@@ -48,6 +49,22 @@ export function AuthLayout({
   const { systemName, logo, loading } = useSystemConfig()
   const { t } = useTranslation()
   const branded = isLuobocodeBrand(systemName)
+
+  const artworkRef = useRef<HTMLImageElement>(null)
+  useEffect(() => {
+    if (!document.getElementById('retail-arrival-frame') || loading) return
+    let active = true
+    // React 已提交并不表示图片已经可画。解码完成才揭开表单，失败也要允许登录。
+    const reveal = () => {
+      if (active) window.dispatchEvent(new Event('retail-arrival-ready'))
+    }
+    const img = artworkRef.current
+    if (img?.decode) void img.decode().then(reveal, reveal)
+    else reveal()
+    return () => {
+      active = false
+    }
+  }, [branded, loading, retailEntrance])
 
   return (
     <div className='relative grid min-h-svh max-w-none grid-rows-[1fr_auto]'>
@@ -93,6 +110,7 @@ export function AuthLayout({
               </p>
             </div>
             <img
+              ref={artworkRef}
               src={
                 retailEntrance
                   ? '/brand/gateway-sculpture.webp'

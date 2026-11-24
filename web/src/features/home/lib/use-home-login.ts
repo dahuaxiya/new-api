@@ -45,8 +45,9 @@ export function useHomeLogin() {
       event.ctrlKey ||
       event.shiftKey ||
       event.altKey
-    )
-      {return}
+    ) {
+      return
+    }
     event.preventDefault()
     if (pending) return
     pending = true
@@ -58,9 +59,13 @@ export function useHomeLogin() {
     const reset = () => {
       pending = false
       transition.cleanup()
-      window.removeEventListener('pagehide', reset)
+      window.removeEventListener('pageshow', restoreHome)
     }
-    window.addEventListener('pagehide', reset, { once: true })
+    /** 仅在往返缓存恢复首页时清理，离站前清理会让最后一帧闪回首页。 */
+    const restoreHome = (event: PageTransitionEvent) => {
+      if (event.persisted) reset()
+    }
+    window.addEventListener('pageshow', restoreHome)
     try {
       // 身份事务与动画并行。两者都完成后才离开当前文档。
       if (status?.site_sso?.consumer) {

@@ -65,6 +65,14 @@ export default defineConfig(({ envMode }) => {
     },
     html: {
       template: './index.html',
+      // 身份站首帧必须在 JS 和跨域图片缓存可用之前画出，直接复用同一张透明资产。
+      templateParameters: {
+        arrivalArt: fs
+          .readFileSync(
+            path.join(__dirname, 'public/brand/gateway-sculpture.webp')
+          )
+          .toString('base64'),
+      },
       favicon: './public/brand/luobocode-favicon-v13.png',
     },
     server: {

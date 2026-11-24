@@ -41,6 +41,45 @@
   </head>
 
   <body>
+    <!-- 跨域导航不能共享 DOM。首页已完成位移，身份页在 React 挂载前原位接住同一帧。
+         分支只画装饰层，不读取凭据或决定身份。普通入口不创建图像或遮罩。 -->
+    <script>
+      if (location.pathname === '/sso' && location.hostname === 'host.luobo.world' &&
+          new URLSearchParams(location.search).get('verify') === 'login' &&
+          new URLSearchParams(location.search).get('client_id') === 'retail' &&
+          document.referrer.startsWith('https://luobo.world/')) {
+        const cover = document.createElement('div')
+        cover.id = 'retail-arrival-frame'
+        cover.setAttribute('aria-hidden', 'true')
+        cover.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;background:' +
+          (document.documentElement.classList.contains('dark') ? '#1d1e1b' : '#faf8f4')
+        const art = new Image()
+        art.alt = ''
+        art.src = 'data:image/webp;base64,<%= arrivalArt %>'
+        /** 与首页结束帧同坐标，旋屏期间仍以当前视口为准。 */
+        function positionFrame() {
+          const vw = document.documentElement.clientWidth, vh = window.innerHeight
+          const narrow = vw <= 720, shell = Math.min(1040, vw - 96)
+          const width = narrow ? Math.max(112,Math.min(148,vw*.36)) : (shell-Math.max(48,Math.min(120,vw*.08)))*1.2/2.2
+          const x = (vw - (narrow ? Math.min(vw-44,404) : shell)) / 2
+          const y = narrow ? 68+Math.max(14,Math.min(40,vh*.04)) : Math.max(100,(vh-width*2/3)/2)
+          art.style.cssText = 'position:absolute;max-width:none;left:'+x+'px;top:'+y+'px;width:'+width+'px;height:'+(width*2/3)+'px'
+        }
+        positionFrame()
+        cover.append(art)
+        document.body.append(cover)
+        window.addEventListener('resize',positionFrame)
+        /** 若应用脚本失败也必须释放遮罩，让错误与重试入口可见。 */
+        function releaseFrame() {
+          clearTimeout(timeout)
+          cover.remove()
+          window.removeEventListener('resize',positionFrame)
+          window.removeEventListener('retail-arrival-ready',releaseFrame)
+        }
+        const timeout = setTimeout(releaseFrame, 15000)
+        window.addEventListener('retail-arrival-ready',releaseFrame,{once:true})
+      }
+    </script>
     <div id="root" translate="no" class="notranslate"></div>
   </body>
 </html>

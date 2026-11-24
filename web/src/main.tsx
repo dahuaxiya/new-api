@@ -55,6 +55,15 @@ const router = createRouter({
   defaultPreloadStaleTime: 0,
 })
 
+// 成功、错误和已登录分支都要释放首帧。密码表单交给布局，在真实插画解码后接管。
+if (document.getElementById('retail-arrival-frame')) {
+  const unsubscribe = router.subscribe('onResolved', ({ toLocation }) => {
+    if (toLocation.pathname === '/sign-in') return
+    window.dispatchEvent(new Event('retail-arrival-ready'))
+    unsubscribe()
+  })
+}
+
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {
   interface Register {
