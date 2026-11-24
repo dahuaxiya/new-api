@@ -46,8 +46,7 @@
     <script>
       if (location.pathname === '/sso' && location.hostname === 'host.luobo.world' &&
           new URLSearchParams(location.search).get('verify') === 'login' &&
-          new URLSearchParams(location.search).get('client_id') === 'retail' &&
-          document.referrer.startsWith('https://luobo.world/')) {
+          new URLSearchParams(location.search).get('client_id') === 'retail') {
         const cover = document.createElement('div')
         cover.id = 'retail-arrival-frame'
         cover.setAttribute('aria-hidden', 'true')
