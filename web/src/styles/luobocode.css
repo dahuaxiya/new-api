@@ -557,3 +557,24 @@ For commercial licensing, please contact support@quantumnous.com
     animation: none;
   }
 }
+
+/* 子窗口只有真实表单。宽度由外层品牌布局决定，避开子视口的桌面/手机断点差异。 */
+.luobo-embedded-form {
+  width: 100%;
+  padding: 3px;
+}
+.luobo-shell .luobo-embedded-form h2 {
+  text-align: left;
+  font-size: 32px;
+  font-family: var(--font-serif);
+  line-height: 1.3;
+}
+.luobo-embedded-form input,
+.luobo-embedded-form button[type='submit'] {
+  height: 48px;
+  border-radius: 9px;
+}
+.luobo-embedded-form button[type='submit'] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}

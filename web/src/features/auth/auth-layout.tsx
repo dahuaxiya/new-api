@@ -27,6 +27,8 @@ import { useSystemConfig } from '@/hooks/use-system-config'
 import { isLuobocodeBrand } from '@/lib/luobocode-brand'
 import { cn } from '@/lib/utils'
 
+import { isIssuerFrame, retailOrigin } from './lib/embedded-login'
+
 type AuthLayoutProps = {
   retailEntrance?: boolean
   retailHandoff?: boolean
@@ -52,7 +54,7 @@ export function AuthLayout({
 
   const artworkRef = useRef<HTMLImageElement>(null)
   useEffect(() => {
-    if (!document.getElementById('retail-arrival-frame') || loading) return
+    if (!document.querySelector('#retail-arrival-frame') || loading) return
     let active = true
     // React 已提交并不表示图片已经可画。解码完成才揭开表单，失败也要允许登录。
     const reveal = () => {
@@ -66,6 +68,32 @@ export function AuthLayout({
     }
   }, [branded, loading, retailEntrance])
 
+  const panel = useRef<HTMLDivElement>(null)
+  const embedded = isIssuerFrame()
+  useEffect(() => {
+    const element = panel.current
+    if (!embedded || !element) return
+    // 量实际内容而不是 viewport；避免 iframe 随父页反复增高。
+    const measure = () =>
+      window.parent.postMessage(
+        {
+          type: 'luobo.form.measure',
+          height: element.getBoundingClientRect().height,
+        },
+        retailOrigin
+      )
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    measure()
+    return () => observer.disconnect()
+  }, [embedded])
+  if (embedded) {
+    return (
+      <div ref={panel} className='luobo-auth-form luobo-embedded-form'>
+        {children}
+      </div>
+    )
+  }
   return (
     <div className='relative grid min-h-svh max-w-none grid-rows-[1fr_auto]'>
       <Link

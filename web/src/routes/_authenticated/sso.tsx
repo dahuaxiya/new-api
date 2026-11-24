@@ -18,21 +18,22 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
-import { useStatus } from '@/hooks/use-status'
 import { z } from 'zod'
 
+import { Button } from '@/components/ui/button'
+import { SiteSSOAuthorize } from '@/features/auth/components/site-sso-authorize'
+import { isIssuerFrame, retailOrigin } from '@/features/auth/lib/embedded-login'
 import {
   consumeIssuerLogin,
   mayRestartIssuerLogin,
 } from '@/features/auth/lib/issuer-login-intent'
-import { SiteSSOAuthorize } from '@/features/auth/components/site-sso-authorize'
 import {
   approveSiteSwitch,
   consumeSiteSwitch,
   switchNonce,
 } from '@/features/auth/lib/site-switch'
 import type { SystemStatus } from '@/features/auth/types'
+import { useStatus } from '@/hooks/use-status'
 import { handleServerError } from '@/lib/handle-server-error'
 import { statusQueryOptions } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
@@ -80,12 +81,17 @@ export const Route = createFileRoute('/_authenticated/sso')({
       : await consumeIssuerLogin(sso.client_url, search.state, search.challenge)
     if (!intended) {
       // 遗留页面或书签重新建立浏览器绑定，不能自动签发外来 URL 指定的事务。
-      if (!nonce && mayRestartIssuerLogin())
+      if (isIssuerFrame()) {
+        window.parent.postMessage({ type: 'luobo.form.error' }, retailOrigin)
+        return
+      }
+      if (!nonce && mayRestartIssuerLogin()) {
         throw redirect({
           href: new URL('/sign-in', sso.client_url).href,
           replace: true,
           reloadDocument: true,
         })
+      }
       return
     }
     let url: string
@@ -96,7 +102,22 @@ export const Route = createFileRoute('/_authenticated/sso')({
       )
     } catch (error) {
       // 自动步骤只执行一次，失败后从消费站重新发起事务。
+      if (isIssuerFrame()) {
+        window.parent.postMessage({ type: 'luobo.form.error' }, retailOrigin)
+      }
       handleServerError(error)
+      return
+    }
+    // 父页以原标签页的 state 兑换授权码；子窗口不执行第二次兑换。
+    if (isIssuerFrame() && sso.client_url === retailOrigin) {
+      window.parent.postMessage(
+        {
+          type: 'luobo.form.complete',
+          state: search.state,
+          code: new URL(url).searchParams.get('code'),
+        },
+        retailOrigin
+      )
       return
     }
     throw redirect({ href: url, replace: true, reloadDocument: true })

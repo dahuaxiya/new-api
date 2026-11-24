@@ -21,6 +21,7 @@ import axios from 'axios'
 import { z } from 'zod'
 
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
+import { issuerOrigin, retailOrigin } from '@/features/auth/lib/embedded-login'
 import { startSiteLogin, switchNonce } from '@/features/auth/lib/site-switch'
 import { SignIn } from '@/features/auth/sign-in'
 import type { SystemStatus } from '@/features/auth/types'
@@ -113,6 +114,13 @@ export const Route = createFileRoute('/(auth)/sign-in')({
     } catch (error) {
       // 无法建立事务时才展示手动重试入口，避免自动刷新造成循环。
       return signInFailure(error)
+    }
+    if (
+      location.origin === retailOrigin &&
+      status.site_sso.issuer_url === issuerOrigin &&
+      window.top === window
+    ) {
+      return { embeddedLoginUrl: href }
     }
     throw redirect({ href, replace: true, reloadDocument: true })
   },

@@ -167,15 +167,12 @@ it('shows catalog prices with login and hosting destinations for a visitor', asy
   expect(screen.getByText('$6')).toBeVisible()
 })
 
-/** 登录事务先失败时仍要等小猫动画收束，不能把转场截断成一次生硬跳页。 */
-it('keeps the login transition visible when the handoff fails early', async () => {
+/** 首页按钮只发起站内导航，由登录路由负责唯一的身份事务。 */
+it('performs an internal sign-in navigation without creating a second SSO transaction', async () => {
   let finishTransition: () => void = () => undefined
   const finished = new Promise<void>((resolve) => {
     finishTransition = resolve
   })
-  loginTransition.startSiteLogin.mockRejectedValueOnce(
-    new Error('handoff unavailable')
-  )
   loginTransition.startRetailLoginTransition.mockReturnValueOnce({
     finished,
     cleanup: vi.fn(),
@@ -185,8 +182,7 @@ it('keeps the login transition visible when the handoff fails early', async () =
 
   await userEvent.click(screen.getByRole('button', { name: 'Get started' }))
 
-  expect(loginTransition.startSiteLogin).toHaveBeenCalledOnce()
-  expect(router.state.location.pathname).toBe('/')
+  expect(loginTransition.startSiteLogin).not.toHaveBeenCalled()
   await act(async () => {
     finishTransition()
   })

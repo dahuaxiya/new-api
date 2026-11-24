@@ -21,10 +21,12 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { isIssuerFrame } from '@/features/auth/lib/embedded-login'
 import { useStatus } from '@/hooks/use-status'
 
 import { AuthLayout } from '../auth-layout'
 import { TermsFooter } from '../components/terms-footer'
+import { EmbeddedLogin } from './components/embedded-login'
 import { UserAuthForm } from './components/user-auth-form'
 
 /** 身份站展示真实表单。中转站仅在自动登录交接失败后才显示重试按钮。 */
@@ -53,6 +55,17 @@ export function SignIn() {
     }, 1000)
     return () => window.clearInterval(timer)
   }, [retryAt])
+
+  if ('embeddedLoginUrl' in routeContext && routeContext.embeddedLoginUrl) {
+    return (
+      <AuthLayout retailEntrance>
+        <EmbeddedLogin
+          key={routeContext.embeddedLoginUrl}
+          url={routeContext.embeddedLoginUrl}
+        />
+      </AuthLayout>
+    )
+  }
 
   return (
     <AuthLayout retailEntrance retailHandoff={retailHandoff}>
@@ -94,6 +107,7 @@ export function SignIn() {
               {t("Don't have an account?")}{' '}
               <Link
                 to='/sign-up'
+                target={isIssuerFrame() ? '_top' : undefined}
                 className='text-primary inline-flex min-h-11 items-center font-medium hover:underline'
               >
                 {t('Sign up')}
