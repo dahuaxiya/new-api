@@ -65,6 +65,7 @@ import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authentic
 import { Route as AuthenticatedUsersHostingRouteImport } from './routes/_authenticated/users/hosting'
 import { Route as AuthenticatedUsersOnboardingRouteImport } from './routes/_authenticated/users/onboarding'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
+import { Route as AuthenticatedWalletRechargeRouteImport } from './routes/_authenticated/wallet/recharge'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
 import { Route as AuthenticatedSystemSettingsAuthSectionRouteImport } from './routes/_authenticated/system-settings/auth/$section'
@@ -386,6 +387,12 @@ const AuthenticatedWalletIndexRoute =
     path: '/wallet/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedWalletRechargeRoute =
+  AuthenticatedWalletRechargeRouteImport.update({
+    id: '/wallet/recharge',
+    path: '/wallet/recharge',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
   id: '/pricing/$modelId/',
   path: '/pricing/$modelId/',
@@ -524,6 +531,7 @@ export interface FileRoutesByFullPath {
   '/usage-logs/audit': typeof AuthenticatedUsageLogsAuditRoute
   '/users/hosting': typeof AuthenticatedUsersHostingRoute
   '/users/onboarding': typeof AuthenticatedUsersOnboardingRoute
+  '/wallet/recharge': typeof AuthenticatedWalletRechargeRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/groups/': typeof AuthenticatedGroupsIndexRoute
@@ -596,6 +604,7 @@ export interface FileRoutesByTo {
   '/usage-logs/audit': typeof AuthenticatedUsageLogsAuditRoute
   '/users/hosting': typeof AuthenticatedUsersHostingRoute
   '/users/onboarding': typeof AuthenticatedUsersOnboardingRoute
+  '/wallet/recharge': typeof AuthenticatedWalletRechargeRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
   '/groups': typeof AuthenticatedGroupsIndexRoute
@@ -672,6 +681,7 @@ export interface FileRoutesById {
   '/_authenticated/usage-logs/audit': typeof AuthenticatedUsageLogsAuditRoute
   '/_authenticated/users/hosting': typeof AuthenticatedUsersHostingRoute
   '/_authenticated/users/onboarding': typeof AuthenticatedUsersOnboardingRoute
+  '/_authenticated/wallet/recharge': typeof AuthenticatedWalletRechargeRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/_authenticated/groups/': typeof AuthenticatedGroupsIndexRoute
@@ -747,6 +757,7 @@ export interface FileRouteTypes {
     | '/usage-logs/audit'
     | '/users/hosting'
     | '/users/onboarding'
+    | '/wallet/recharge'
     | '/channels/'
     | '/dashboard/'
     | '/groups/'
@@ -819,6 +830,7 @@ export interface FileRouteTypes {
     | '/usage-logs/audit'
     | '/users/hosting'
     | '/users/onboarding'
+    | '/wallet/recharge'
     | '/channels'
     | '/dashboard'
     | '/groups'
@@ -894,6 +906,7 @@ export interface FileRouteTypes {
     | '/_authenticated/usage-logs/audit'
     | '/_authenticated/users/hosting'
     | '/_authenticated/users/onboarding'
+    | '/_authenticated/wallet/recharge'
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
     | '/_authenticated/groups/'
@@ -1347,6 +1360,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedWalletIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/wallet/recharge': {
+      id: '/_authenticated/wallet/recharge'
+      path: '/wallet/recharge'
+      fullPath: '/wallet/recharge'
+      preLoaderRoute: typeof AuthenticatedWalletRechargeRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/pricing/$modelId/': {
       id: '/pricing/$modelId/'
       path: '/pricing/$modelId'
@@ -1571,6 +1591,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedUsageLogsAuditRoute: typeof AuthenticatedUsageLogsAuditRoute
   AuthenticatedUsersHostingRoute: typeof AuthenticatedUsersHostingRoute
   AuthenticatedUsersOnboardingRoute: typeof AuthenticatedUsersOnboardingRoute
+  AuthenticatedWalletRechargeRoute: typeof AuthenticatedWalletRechargeRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
   AuthenticatedGroupsIndexRoute: typeof AuthenticatedGroupsIndexRoute
@@ -1605,6 +1626,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedUsageLogsAuditRoute: AuthenticatedUsageLogsAuditRoute,
   AuthenticatedUsersHostingRoute: AuthenticatedUsersHostingRoute,
   AuthenticatedUsersOnboardingRoute: AuthenticatedUsersOnboardingRoute,
+  AuthenticatedWalletRechargeRoute: AuthenticatedWalletRechargeRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
   AuthenticatedGroupsIndexRoute: AuthenticatedGroupsIndexRoute,

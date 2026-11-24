@@ -112,6 +112,47 @@ func TestRetailDatabases(t *testing.T) {
 			require.NoError(t, ApplyWalletPayment(order.OrderID, "merchant-a", "trade-a", 1234, false))
 			require.NoError(t, db.First(&user, user.Id).Error)
 			require.Equal(t, 1200, user.Quota)
+			// 同一支付的并发通知只留下一个到账事件，预留与退款差额按各自发生时的余额展示。
+			now := time.Now()
+			h, err := ReadRetailWalletHistory(t.Context(), user.Id, 7, now, 0, 0, "")
+			require.NoError(t, err)
+			require.Equal(t, 1200, h.Available)
+			require.EqualValues(t, 300, h.Today)
+			require.Zero(t, h.Pending)
+			require.Len(t, h.Events, 7)
+			var paid int
+			for _, row := range h.Events {
+				require.NotNil(t, row.After)
+				if row.Kind == "topup" {
+					paid++
+					require.EqualValues(t, 1200, *row.After)
+				}
+				if row.Kind == "settle" && row.Reference == winning[0] {
+					require.EqualValues(t, 500, row.Delta)
+					require.EqualValues(t, 200, *row.Actual)
+					require.EqualValues(t, 800, *row.After)
+				}
+			}
+			require.Equal(t, 1, paid)
+			// 另一账户看不到该请求；升级前已结算记录可以展示实扣，但绝不推算旧余额。
+			outsider := User{Username: "wallet-isolation", AffCode: "waliso", Quota: 37}
+			require.NoError(t, db.Create(&outsider).Error)
+			isolated, err := ReadRetailWalletHistory(t.Context(), outsider.Id, 1, now, 0, 0, "")
+			require.NoError(t, err)
+			require.Empty(t, isolated.Events)
+			require.Equal(t, 37, isolated.Available)
+			old := RetailCharge{ID: "wallet-before-upgrade", UserID: outsider.Id, Reserved: 10, Actual: 3, Status: "settled", CreatedAt: now.Add(-25 * time.Hour).Unix(), UpdatedAt: now.Unix()}
+			require.NoError(t, db.Create(&old).Error)
+			isolated, err = ReadRetailWalletHistory(t.Context(), outsider.Id, 1, now, 0, 0, "")
+			require.NoError(t, err)
+			require.Len(t, isolated.Events, 1)
+			require.Nil(t, isolated.Events[0].After)
+			require.EqualValues(t, 3, isolated.Today)
+			older, err := ReadRetailWalletHistory(t.Context(), outsider.Id, 7, now, isolated.Events[0].At, isolated.Events[0].Source, isolated.Events[0].EventKey)
+			require.NoError(t, err)
+			require.Len(t, older.Events, 1)
+			require.Equal(t, "hold_total", older.Events[0].Kind)
+
 			other, err := CreateWalletPayment(user.Id, "merchant-a", 1234, 500, 1)
 			require.NoError(t, err)
 			require.Error(t, ApplyWalletPayment(other.OrderID, "merchant-a", "trade-a", 1234, false))

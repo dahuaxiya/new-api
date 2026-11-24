@@ -44,7 +44,11 @@ func RefundStaleRetailCharge(id string, actorID, expectedReserved int, reason st
 			}
 		}
 		userID, tokenID = charge.UserID, charge.TokenID
-		return tx.Model(&charge).Updates(map[string]any{"status": "refunded", "actual": 0, "reviewed_by": actorID, "review_reason": reason, "updated_at": time.Now().Unix()}).Error
+		var owner User
+		if err := lockForUpdate(tx).Select("quota").First(&owner, charge.UserID).Error; err != nil {
+			return err
+		}
+		return tx.Model(&charge).Updates(map[string]any{"status": "refunded", "actual": 0, "final_balance": owner.Quota, "reviewed_by": actorID, "review_reason": reason, "updated_at": time.Now().Unix()}).Error
 	})
 	if userID > 0 {
 		invalidateRetailCaches(userID, tokenID)

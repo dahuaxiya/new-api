@@ -357,6 +357,7 @@ func migrateDB() error {
 		&HostingOrder{},
 		&WalletPayment{},
 		&RetailCharge{},
+		&RetailWalletMovement{},
 		&RetailAttempt{},
 		&RetailCost{},
 		&RetailPriceState{},

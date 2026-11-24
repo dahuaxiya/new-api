@@ -22,6 +22,7 @@ type UserQuotaAdjustment struct {
 	After    int
 }
 
+// AdjustUserQuota 仅在权限与额度边界检查成功时记录已提交的余额差额。
 func AdjustUserQuota(userID, operatorRole int, mode string, value int) (*UserQuotaAdjustment, error) {
 	if userID <= 0 || (mode != "add" && mode != "subtract" && mode != "override") {
 		return nil, ErrInvalidUserQuotaAdjustment
@@ -65,6 +66,11 @@ func AdjustUserQuota(userID, operatorRole int, mode string, value int) (*UserQuo
 			}
 			if result.RowsAffected != 1 {
 				return gorm.ErrRecordNotFound
+			}
+		}
+		if common.IsRetailSite() && after != user.Quota {
+			if err := recordRetailMovement(tx, userID, "adjustment", "", after-user.Quota, after); err != nil {
+				return err
 			}
 		}
 		adjustment = UserQuotaAdjustment{UserID: user.Id, Username: user.Username, Before: user.Quota, After: after}

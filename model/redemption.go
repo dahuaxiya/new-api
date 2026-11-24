@@ -11,6 +11,7 @@ import (
 )
 
 type Redemption struct {
+	BalanceAfter *int64         `json:"-"`
 	Id           int            `json:"id"`
 	UserId       int            `json:"user_id"`
 	Key          string         `json:"key" gorm:"type:char(32);uniqueIndex"`
@@ -174,7 +175,13 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if result.RowsAffected == 0 {
 			return errors.New("redemption code already used")
 		}
-		return creditTopUpQuota(tx, userId, redemption.Quota, nil)
+		if err := creditTopUpQuota(tx, userId, redemption.Quota, nil); err != nil {
+			return err
+		}
+		if common.IsRetailSite() {
+			return saveRetailBalanceSnapshot(tx, redemption, userId, "balance_after")
+		}
+		return nil
 	})
 	if err != nil {
 		common.SysError(common.LogText("redemption failed: %s", err.Error()))

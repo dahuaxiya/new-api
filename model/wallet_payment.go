@@ -15,15 +15,16 @@ var ErrWalletPayment = common.NewMessage("Wallet payment could not be verified")
 // WalletPayment 固定订单金额和入账额度，后续改兑换比例不影响已签发订单。
 // 独立表避免其他支付通道或后台通用补单绕过官方支付宝的核验。
 type WalletPayment struct {
-	OrderID    string  `json:"order_id" gorm:"primaryKey;type:varchar(40)"`
-	UserID     int     `json:"-" gorm:"index"`
-	Merchant   string  `json:"-" gorm:"type:varchar(120);index"`
-	TradeKey   *string `json:"-" gorm:"type:varchar(160);uniqueIndex"`
-	PriceCents int64   `json:"price_cents"`
-	Quota      int     `json:"quota"`
-	Status     string  `json:"status" gorm:"type:varchar(24);index"`
-	CreatedAt  int64   `json:"created_at" gorm:"index"`
-	ExpiresAt  int64   `json:"expires_at"`
+	BalanceAfter *int64  `json:"-"`
+	OrderID      string  `json:"order_id" gorm:"primaryKey;type:varchar(40)"`
+	UserID       int     `json:"-" gorm:"index"`
+	Merchant     string  `json:"-" gorm:"type:varchar(120);index"`
+	TradeKey     *string `json:"-" gorm:"type:varchar(160);uniqueIndex"`
+	PriceCents   int64   `json:"price_cents"`
+	Quota        int     `json:"quota"`
+	Status       string  `json:"status" gorm:"type:varchar(24);index"`
+	CreatedAt    int64   `json:"created_at" gorm:"index"`
+	ExpiresAt    int64   `json:"expires_at"`
 }
 
 // CreateWalletPayment 在同一事务建立核验订单和钱包历史；浏览器只负责跳转，不能入账。
@@ -77,6 +78,9 @@ func ApplyWalletPayment(id, merchant, trade string, cents int64, review bool) er
 			return err
 		}
 		if err := creditTopUpQuota(tx, order.UserID, order.Quota, nil); err != nil {
+			return err
+		}
+		if err := saveRetailBalanceSnapshot(tx, &order, order.UserID, "balance_after"); err != nil {
 			return err
 		}
 		result := tx.Model(&TopUp{}).Where("trade_no = ? AND payment_provider = ? AND status = ?", id, PaymentProviderAlipayOfficial, common.TopUpStatusPending).Updates(map[string]any{"status": common.TopUpStatusSuccess, "complete_time": time.Now().Unix()})

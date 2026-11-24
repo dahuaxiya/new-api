@@ -597,6 +597,7 @@ func inviteUser(inviterId int) error {
 	return nil
 }
 
+// TransferAffQuotaToQuota 将已挣得的返利划入钱包；余额和流水必须一起提交。
 func (user *User) TransferAffQuotaToQuota(quota int) error {
 	// 检查quota是否小于最小额度
 	if float64(quota) < common.QuotaPerUnit {
@@ -630,7 +631,11 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 		return err
 	}
 
-	// 提交事务
+	if common.IsRetailSite() {
+		if err := recordRetailMovement(tx, user.Id, "referral", "", quota, user.Quota); err != nil {
+			return err
+		}
+	}
 	return tx.Commit().Error
 }
 

@@ -450,7 +450,7 @@ func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailpric
 		if err := tx.Create(&charge).Error; err != nil {
 			return err
 		}
-		return applyRetailDelta(tx, userID, tokenID, quota)
+		return reserveRetailWithBalance(tx, &charge)
 	})
 	invalidateRetailCaches(userID, tokenID)
 	return quota, err

@@ -140,13 +140,7 @@ export function AppHeader({
             <Button
               size='sm'
               className='h-9 shrink-0 rounded-full bg-[#bf4819] px-4 text-sm font-semibold text-white shadow-none hover:bg-[#a73c12] focus-visible:ring-[#bf4819]/55 active:bg-[#91330f]'
-              render={
-                <Link
-                  to='/wallet'
-                  search={{ tab: 'balance' }}
-                  hash='wallet-add-funds'
-                />
-              }
+              render={<Link to='/wallet/recharge' />}
             >
               {t('Recharge')}
             </Button>

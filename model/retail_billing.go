@@ -13,6 +13,9 @@ var ErrRetailSettlement = common.NewMessage("Retail settlement requires review")
 // RetailCharge 是钱包和 Key 同事务的持久化凭据；进程退出后保留预留，供管理员核对。
 // 请求 ID 由服务器生成，只用于防重复结算，不承诺客户端请求重放去重。
 type RetailCharge struct {
+	InitialHold      *int   `json:"-"`
+	HeldBalance      *int64 `json:"-"`
+	FinalBalance     *int64 `json:"-"`
 	PricingVersion   int64  `json:"pricing_version"`
 	WalletCNYPerUnit string `json:"wallet_cny_per_unit" gorm:"type:varchar(40)"`
 	ReservedCNY      string `json:"reserved_cny" gorm:"type:varchar(40)"`
@@ -43,7 +46,7 @@ func ReserveRetailCharge(id string, userID, tokenID, quota int, snapshot string)
 		if err := tx.Create(&charge).Error; err != nil {
 			return err
 		}
-		return applyRetailDelta(tx, userID, tokenID, quota)
+		return reserveRetailWithBalance(tx, &charge)
 	})
 	invalidateRetailCaches(userID, tokenID)
 	return err
@@ -126,10 +129,23 @@ func ChangeRetailCharge(id string, userID, tokenID, target int, finalStatus stri
 			return err
 		}
 		updates := map[string]any{"updated_at": time.Now().Unix()}
+		// 余额写入与结算同一事务；后续请求不能改变这笔凭据上的余额。
+		var owner User
+		if err := lockForUpdate(tx).Select("quota").First(&owner, userID).Error; err != nil {
+			return err
+		}
 		if finalStatus == "" {
+			// 升级前的累计预留仍按旧凭据展示；从首次追加起冻结该基数，后续差额各自入账。
+			if charge.InitialHold == nil {
+				updates["initial_hold"] = charge.Reserved
+			}
+			if err := recordRetailMovement(tx, userID, "extra_hold", id, charge.Reserved-target, owner.Quota); err != nil {
+				return err
+			}
 			updates["reserved"] = target
 		} else {
 			updates["status"] = finalStatus
+			updates["final_balance"] = owner.Quota
 			updates["actual"] = target
 			if charge.PricingVersion > 0 {
 				updates["actual_cny"] = actualCNY

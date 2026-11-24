@@ -1,4 +1,7 @@
+import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
+
+import './retail-wallet.css'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -18,8 +21,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-
-import './retail-wallet.css'
 import { useTranslation } from 'react-i18next'
 
 import { Main, SectionPageLayout } from '@/components/layout'
@@ -59,8 +60,10 @@ import type {
   CreemProduct,
   WaffoPayMethod,
 } from './types'
+import { WalletLedger } from './wallet-ledger'
 
 interface WalletProps {
+  rechargePage?: boolean
   initialShowHistory?: boolean
   initialTab?: 'balance' | 'hosting' | 'referral'
   onRetailTabChange?: (tab: 'balance' | 'referral') => void
@@ -72,7 +75,17 @@ export function Wallet(props: WalletProps) {
   const { t } = useTranslation()
   const { status, loading } = useStatus()
   if (loading) return null
-  if (status?.site_mode === 'retail') return <RetailWallet {...props} />
+  if (status?.site_mode === 'retail') {
+    if (
+      props.rechargePage ||
+      props.initialShowHistory ||
+      props.initialTab === 'referral' ||
+      props.initialTab === 'balance'
+    ) {
+      return <RetailWallet {...props} />
+    }
+    return <WalletLedger />
+  }
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Hosting plans')}</SectionPageLayout.Title>
@@ -317,6 +330,9 @@ function RetailWallet(props: WalletProps) {
     <>
       <Main className='retail-wallet'>
         <div className='wallet-wrap'>
+          <Link to='/wallet' className='text-muted-foreground text-sm'>
+            ‹ {t('Wallet')}
+          </Link>
           <div className='wallet-heading-row'>
             <h1 className='text-base font-bold tracking-tight sm:text-lg'>
               {t(tab === 'balance' ? 'Balance top-up' : 'Referral rewards')}
