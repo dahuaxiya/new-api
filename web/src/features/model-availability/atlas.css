@@ -1,0 +1,150 @@
+/* The headings and all strips use one grid so a timestamp always lines up across groups. */
+.atlas-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.atlas-intro h1 {
+  font-weight: 720;
+  font-size: clamp(32px, 4.6vw, 53px);
+  line-height: 1.14;
+  letter-spacing: -0.045em;
+  margin: 10px 0;
+}
+.atlas-intro em {
+  color: #dd652f;
+  font-style: normal;
+}
+.atlas-kicker {
+  font:
+    600 10px/1.2 ui-monospace,
+    monospace;
+  letter-spacing: 0.14em;
+  color: var(--muted-foreground);
+}
+.atlas-intro .atlas-kicker:before {
+  display: inline-block;
+  content: '';
+  width: 18px;
+  height: 3px;
+  margin: 0 8px 3px 0;
+  background: #dd652f;
+}
+.atlas-intro img {
+  width: 32%;
+  height: 160px;
+  object-fit: contain;
+}
+.atlas-intro p,
+.atlas-count {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.atlas-count {
+  margin-top: 13px;
+  font-size: 12px;
+}
+.atlas-line {
+  display: grid;
+  align-items: center;
+  grid-template-columns: minmax(115px, 1fr) minmax(0, 392px) 85px;
+  column-gap: 16px;
+  padding-inline: 20px;
+}
+.atlas-latest,
+.atlas-axis > span:last-child {
+  text-align: right;
+  font-size: 11px;
+}
+.atlas-axis {
+  color: var(--muted-foreground);
+  background: var(--muted);
+  min-height: 30px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.atlas-axis > div {
+  display: flex;
+  justify-content: space-between;
+}
+.atlas-row {
+  padding-block: 4px;
+}
+.atlas-metrics {
+  grid-area: 2/1/3/-1;
+  font-size: 11px;
+}
+.atlas-track {
+  grid-area: 1/2;
+  align-items: center;
+}
+.atlas-latest {
+  grid-area: 1/3;
+  color: var(--muted-foreground);
+}
+.atlas-track button > span {
+  max-width: 18px;
+  height: 10px;
+  inset: 50% 0 auto;
+  transform: translateY(-50%);
+  margin: auto;
+}
+.atlas-filters {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.atlas-filters button {
+  font: inherit;
+  padding: 3px 6px;
+  border-radius: 5px;
+}
+.atlas-filters button[aria-pressed='true'] {
+  background: #f8e9d9;
+  color: #794426;
+}
+.atlas-selection {
+  display: none;
+}
+.atlas-row:focus-within .atlas-selection {
+  display: block;
+  grid-column: 1/-1;
+}
+.availability-atlas > div:last-child {
+  margin-top: 8px;
+}
+@media (max-width: 650px) {
+  .atlas-line {
+    grid-template-columns: 90px minmax(0, 1fr);
+    gap: 0 6px;
+    padding-inline: 10px;
+  }
+  .atlas-latest,
+  .atlas-axis > span:last-child {
+    display: none;
+  }
+  .atlas-row h2 {
+    font-size: 11px;
+  }
+  .atlas-track button > span {
+    max-width: 8px;
+  }
+  .atlas-intro img {
+    height: 108px;
+  }
+  .atlas-metrics {
+    gap: 1px 8px;
+    font-size: 10px;
+  }
+  .atlas-intro p {
+    font-size: 12px;
+  }
+  .atlas-intro {
+    margin-bottom: 14px;
+  }
+  .atlas-filters {
+    flex-basis: 100%;
+  }
+}

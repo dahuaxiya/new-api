@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"slices"
@@ -30,25 +31,77 @@ var retailAvailabilityCache struct {
 
 const retailAvailabilitySlices = 18
 
-// retailAvailabilityCounts 只用于校验上游响应，不能进入公开响应。
-type retailAvailabilityCounts struct {
-	Success uint64
-	Failure uint64
+// 原始分子、分母只在服务端累加；API 只输出比值，不暴露流量和线路信息。
+type retailAvailabilityCounts struct{ Success, Failure uint64 }
+type retailAvailabilityWindow struct {
+	Slices                     [retailAvailabilitySlices]retailAvailabilityCounts
+	Input, Hit, FirstMS, Timed float64
+}
+type retailAvailabilitySeries struct{ Short, Day retailAvailabilityWindow }
+
+// retailMetricWindow 的百分率使用 0–100；nil 表示无有效分母，0 表示实测为零。
+type retailMetricWindow struct {
+	SuccessPct      *float64                           `json:"success_pct"`
+	CacheReadPct    *float64                           `json:"cache_read_pct"`
+	MeanTTFTMS      *float64                           `json:"mean_ttft_ms"`
+	SliceSuccessPct [retailAvailabilitySlices]*float64 `json:"slice_success_pct"`
 }
 
-// 两个位分别表示出现过成功和失败。合并时只保留状态，不能从公开数据还原请求量。
-type retailSliceStatus uint8
+// add 先合并原始统计再求比值，避免小样本模型和大样本模型具有相同权重。
+func (w *retailAvailabilityWindow) add(v retailAvailabilityWindow) {
+	for i, c := range v.Slices {
+		w.Slices[i].Success += c.Success
+		w.Slices[i].Failure += c.Failure
+	}
+	w.Input += v.Input
+	w.Hit += v.Hit
+	w.FirstMS += v.FirstMS
+	w.Timed += v.Timed
+}
 
-const (
-	retailSliceSuccess retailSliceStatus = 1 << iota
-	retailSliceFailure
-)
+// availabilityRatio 不将缺失分母解释为零；在公开边界统一舍入，内部保留原始权重。
+func availabilityRatio(n, d, scale float64) *float64 {
+	if d <= 0 {
+		return nil
+	}
+	v := math.Round(n/d*scale*100) / 100
+	return &v
+}
 
-var retailSliceLabels = [...]string{"empty", "success", "failure", "mixed"}
+// publicMetrics 从同一组样本生成状态和比例，缓存和延迟只属于整个窗口。
+func (w retailAvailabilityWindow) publicMetrics(labels *[retailAvailabilitySlices]string) retailMetricWindow {
+	m := retailMetricWindow{CacheReadPct: availabilityRatio(w.Hit, w.Input, 100), MeanTTFTMS: availabilityRatio(w.FirstMS, w.Timed, 1)}
+	var success, failure uint64
+	for i, c := range w.Slices {
+		switch {
+		case c.Success > 0 && c.Failure > 0:
+			labels[i] = "mixed"
+		case c.Success > 0:
+			labels[i] = "success"
+		case c.Failure > 0:
+			labels[i] = "failure"
+		default:
+			labels[i] = "empty"
+		}
+		m.SliceSuccessPct[i] = availabilityRatio(float64(c.Success), float64(c.Success+c.Failure), 100)
+		success += c.Success
+		failure += c.Failure
+	}
+	m.SuccessPct = availabilityRatio(float64(success), float64(success+failure), 100)
+	return m
+}
 
-type retailAvailabilitySeries struct {
-	Short [retailAvailabilitySlices]retailSliceStatus
-	Day   [retailAvailabilitySlices]retailSliceStatus
+// readAvailabilityPair 只接纳成对、非负的窗口累计量；缺失某个指标不会丢弃同一行可用的成功率。
+func readAvailabilityPair(values []common.RawMessage, pos int, bounded bool) (float64, float64) {
+	var a, b *uint64
+	if common.Unmarshal(values[pos], &a) != nil || common.Unmarshal(values[pos+1], &b) != nil || a == nil || b == nil {
+		return 0, 0
+	}
+	// 缓存读取量不能超过有效输入；没有计时样本时忽略时长，避免污染其他模型的均值。
+	if (bounded && *b > *a) || (!bounded && *b == 0) {
+		return 0, 0
+	}
+	return float64(*a), float64(*b)
 }
 
 // 源站分组与模型名只用于服务端映射。公开响应单独由 retailAvailabilityGroup 定义。
@@ -58,6 +111,7 @@ type retailAvailabilitySnapshot struct {
 }
 
 type retailAvailabilityGroup struct {
+	Metrics  map[string]retailMetricWindow    `json:"metrics"`
 	Group    string                           `json:"group"`
 	Observed bool                             `json:"observed"`
 	Short    [retailAvailabilitySlices]string `json:"90m"`
@@ -153,8 +207,8 @@ func parseRetailAvailability(body []byte, now time.Time) (*retailAvailabilitySna
 			}
 			series := retailAvailabilitySeries{}
 			for _, slot := range []struct {
-				window  string
-				buckets *[retailAvailabilitySlices]retailSliceStatus
+				window string
+				stats  *retailAvailabilityWindow
 			}{{"90m", &series.Short}, {"24h", &series.Day}} {
 				values, sampled := entry.Windows[slot.window][name]
 				if !sampled {
@@ -173,15 +227,13 @@ func parseRetailAvailability(body []byte, now time.Time) (*retailAvailabilitySna
 					if len(pair) != 2 || pair[0] == nil || pair[1] == nil || *pair[0] > 1_000_000_000 || *pair[1] > 1_000_000_000 {
 						return nil, errRetailAvailability
 					}
-					if *pair[0] != 0 {
-						(*slot.buckets)[i] |= retailSliceSuccess
-					}
-					if *pair[1] != 0 {
-						(*slot.buckets)[i] |= retailSliceFailure
-					}
+					slot.stats.Slices[i] = retailAvailabilityCounts{Success: *pair[0], Failure: *pair[1]}
 					sum.Success += *pair[0]
 					sum.Failure += *pair[1]
 				}
+				// 上游第 4–7 项依次是输入 Token、缓存读取 Token、首字总毫秒、计时样本数。
+				slot.stats.Input, slot.stats.Hit = readAvailabilityPair(values, 4, true)
+				slot.stats.FirstMS, slot.stats.Timed = readAvailabilityPair(values, 6, false)
 				if sum.Success != *totalSuccess || sum.Failure != *totalFailure {
 					return nil, errRetailAvailability
 				}
@@ -193,7 +245,7 @@ func parseRetailAvailability(body []byte, now time.Time) (*retailAvailabilitySna
 }
 
 // projectRetailAvailability 只按已公开的本站调用分组输出时间片。channels 必须来自星行白名单，
-// 否则同名的其他上游分组会借用星行的统计。重复绑定的状态按位合并，不会重复计数。
+// 否则同名的其他上游分组会借用星行的统计。同一来源模型只累计一次。
 func projectRetailAvailability(book retailprice.Book, channels []model.RetailBindingChannel, snapshot *retailAvailabilitySnapshot) []retailAvailabilityGroup {
 	registered := book.RegisteredGroups()
 	trusted := map[int]string{}
@@ -204,6 +256,7 @@ func projectRetailAvailability(book retailprice.Book, channels []model.RetailBin
 		}
 	}
 	type groupActivity struct {
+		seen     map[[2]string]bool
 		observed bool
 		series   retailAvailabilitySeries
 	}
@@ -215,7 +268,7 @@ func projectRetailAvailability(book retailprice.Book, channels []model.RetailBin
 		}
 		activity := groups[product.BindingGroup]
 		if activity == nil {
-			activity = &groupActivity{}
+			activity = &groupActivity{seen: make(map[[2]string]bool)}
 			groups[product.BindingGroup] = activity
 		}
 		for _, route := range product.Routes {
@@ -228,21 +281,22 @@ func projectRetailAvailability(book retailprice.Book, channels []model.RetailBin
 				if !present {
 					continue
 				}
-				activity.observed = true
-				for i := range retailAvailabilitySlices {
-					activity.series.Short[i] |= series.Short[i]
-					activity.series.Day[i] |= series.Day[i]
+				// 同一上游组和模型可被别名、产品或多把密钥重复绑定；每个本站分组内只能计数一次。
+				key := [2]string{group, name}
+				if activity.seen[key] {
+					continue
 				}
+				activity.seen[key] = true
+				activity.observed = true
+				activity.series.Short.add(series.Short)
+				activity.series.Day.add(series.Day)
 			}
 		}
 	}
 	out := make([]retailAvailabilityGroup, 0, len(groups))
 	for group, activity := range groups {
 		row := retailAvailabilityGroup{Group: group, Observed: activity.observed}
-		for i := range retailAvailabilitySlices {
-			row.Short[i] = retailSliceLabels[activity.series.Short[i]]
-			row.Day[i] = retailSliceLabels[activity.series.Day[i]]
-		}
+		row.Metrics = map[string]retailMetricWindow{"90m": activity.series.Short.publicMetrics(&row.Short), "24h": activity.series.Day.publicMetrics(&row.Day)}
 		out = append(out, row)
 	}
 	slices.SortFunc(out, func(a, b retailAvailabilityGroup) int { return strings.Compare(a.Group, b.Group) })
