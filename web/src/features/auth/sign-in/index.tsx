@@ -16,15 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Link, useRouteContext, useSearch } from '@tanstack/react-router'
+import { useRouteContext, useSearch } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import { isIssuerFrame } from '@/features/auth/lib/embedded-login'
 import { useStatus } from '@/hooks/use-status'
 
 import { AuthLayout } from '../auth-layout'
+import { AuthRouteLink } from '../components/auth-route-link'
 import { TermsFooter } from '../components/terms-footer'
 import { EmbeddedLogin } from './components/embedded-login'
 import { UserAuthForm } from './components/user-auth-form'
@@ -105,13 +105,12 @@ export function SignIn() {
           status?.register_enabled !== false && (
             <p className='text-muted-foreground border-t pt-5 text-center text-sm'>
               {t("Don't have an account?")}{' '}
-              <Link
+              <AuthRouteLink
                 to='/sign-up'
-                target={isIssuerFrame() ? '_top' : undefined}
                 className='text-primary inline-flex min-h-11 items-center font-medium hover:underline'
               >
                 {t('Sign up')}
-              </Link>
+              </AuthRouteLink>
             </p>
           )}
 

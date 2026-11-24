@@ -58,6 +58,7 @@ import { OTP_REGEX, registerFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
 import { useEmailVerification } from '@/features/auth/hooks/use-email-verification'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
+import { isIssuerFrame, retailOrigin } from '@/features/auth/lib/embedded-login'
 import {
   getAffiliateCode,
   saveAffiliateCode,
@@ -223,6 +224,7 @@ export function SignUpForm({
     await form.handleSubmit(onSubmit)(event)
   }
 
+  /** 完成统一账号注册后，在承载注册流程的站点打开登录页。 */
   async function onSubmit(data: z.infer<typeof registerFormSchema>) {
     if (requiresLegalConsent && !agreedToLegal) {
       toast.error(legalConsentErrorMessage)
@@ -261,7 +263,15 @@ export function SignUpForm({
 
       if (response?.success) {
         toast.success(t('Account created! Please sign in'))
-        redirectToLogin()
+        if (isIssuerFrame()) {
+          // Registration returns no retail session. Start a fresh login in the outer page.
+          window.parent.postMessage(
+            { type: 'luobo.form.sign-in' },
+            retailOrigin
+          )
+        } else {
+          redirectToLogin()
+        }
       } else {
         handleServerError(
           createServerError(response, t('Failed to create account'))

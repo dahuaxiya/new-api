@@ -16,20 +16,36 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Link } from '@tanstack/react-router'
+import { useRouteContext, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
 
 import { AuthLayout } from '../auth-layout'
+import { AuthRouteLink } from '../components/auth-route-link'
 import { TermsFooter } from '../components/terms-footer'
 import { UnifiedAccountNotice } from '../components/unified-account'
+import { issuerOrigin } from '../lib/embedded-login'
+import { EmbeddedLogin } from '../sign-in/components/embedded-login'
 import { SignUpForm } from './components/sign-up-form'
 
+/** 中转站展示站内注册入口，实际注册和邮件验证仍由统一身份站办理。 */
 export function SignUp() {
   const { t } = useTranslation()
   const { status } = useStatus()
 
+  const context = useRouteContext({ from: '/(auth)/sign-up' })
+  const { aff } = useSearch({ from: '/(auth)/sign-up' })
+  if ('returningToLogin' in context && context.returningToLogin) return null
+  if ('embeddedRegistration' in context && context.embeddedRegistration) {
+    const url = new URL('/sign-up', issuerOrigin)
+    if (aff) url.searchParams.set('aff', aff)
+    return (
+      <AuthLayout retailEntrance>
+        <EmbeddedLogin key={url.href} url={url.href} registration />
+      </AuthLayout>
+    )
+  }
   if (status?.site_sso?.consumer) {
     return (
       <AuthLayout>
@@ -47,12 +63,12 @@ export function SignUp() {
           </h2>
           <p className='text-muted-foreground text-left text-sm sm:text-base'>
             {t('Already have an account?')}{' '}
-            <Link
+            <AuthRouteLink
               to='/sign-in'
               className='hover:text-primary font-medium underline underline-offset-4'
             >
               {t('Sign in')}
-            </Link>
+            </AuthRouteLink>
             .
           </p>
         </div>

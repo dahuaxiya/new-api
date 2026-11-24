@@ -17,18 +17,49 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { z } from 'zod'
 
+import {
+  isIssuerFrame,
+  issuerOrigin,
+  retailOrigin,
+} from '@/features/auth/lib/embedded-login'
 import { SignUp } from '@/features/auth/sign-up'
+import type { SystemStatus } from '@/features/auth/types'
+import { statusQueryOptions } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/(auth)/sign-up')({
   component: SignUp,
-  beforeLoad: async () => {
+  validateSearch: z.object({ aff: z.string().optional().catch(undefined) }),
+  beforeLoad: async ({ context, search, preload }) => {
+    if (preload) return
+    // Old public links keep their referral code. Only top-level visits migrate;
+    // redirecting the issuer frame as well would recursively embed the retail page.
+    if (window.location.origin === issuerOrigin && window === window.top) {
+      const url = new URL('/sign-up', retailOrigin)
+      if (search.aff) url.searchParams.set('aff', search.aff)
+      throw redirect({ href: url.href, replace: true, reloadDocument: true })
+    }
     const { auth } = useAuthStore.getState()
 
     // 如果已经有用户信息，说明已登录，注册页对其无意义，跳转到 dashboard
     if (auth.user) {
+      if (isIssuerFrame()) {
+        window.parent.postMessage({ type: 'luobo.form.sign-in' }, retailOrigin)
+        return { returningToLogin: true }
+      }
       throw redirect({ to: '/dashboard' })
+    }
+    if (window.location.origin === retailOrigin && window.top === window) {
+      const status = (await context.queryClient.fetchQuery(
+        statusQueryOptions
+      )) as SystemStatus | null
+      return {
+        embeddedRegistration:
+          status?.site_sso?.consumer &&
+          status.site_sso.issuer_url === issuerOrigin,
+      }
     }
   },
 })
