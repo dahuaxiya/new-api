@@ -42,10 +42,40 @@ func providerParams(name string) map[string]any {
 	return map[string]any{"provider": name}
 }
 
+// OAuthStateRateLimit reads the bounded state request once on the consumer site.
+// Only starting a login gets the short window; verification and malformed requests
+// still use the critical budget. The route must apply AnonymousRequestBodyLimit first.
+func OAuthStateRateLimit() gin.HandlerFunc {
+	critical := middleware.CriticalRateLimit()
+	if cfg := common.SiteSSO(); cfg == nil || !cfg.Consumer || !common.CriticalRateLimitEnable {
+		return critical
+	}
+	login := middleware.RetailLoginStartRateLimit()
+	return func(c *gin.Context) {
+		var request oauthStateRequest
+		err := common.DecodeJson(c.Request.Body, &request)
+		if err == nil {
+			// The controller must act on the exact intent used to choose the counter.
+			c.Set("retailOAuthStateRequest", request)
+			if request.Provider == model.SiteSSOProvider && request.Intent == model.AuthFlowIntentLogin {
+				login(c)
+				return
+			}
+		}
+		critical(c)
+		if err != nil && !c.IsAborted() {
+			common.ApiErrorT(c, "Invalid parameters")
+			c.Abort()
+		}
+	}
+}
+
 // GenerateOAuthCode generates a state code for OAuth CSRF protection
 func GenerateOAuthCode(c *gin.Context) {
 	var request oauthStateRequest
-	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
+	if parsed, ok := c.Get("retailOAuthStateRequest"); ok {
+		request = parsed.(oauthStateRequest)
+	} else if err := common.DecodeJson(c.Request.Body, &request); err != nil {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}

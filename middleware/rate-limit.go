@@ -194,6 +194,15 @@ func CriticalRateLimit() func(c *gin.Context) {
 	return defNext
 }
 
+// RetailLoginStartRateLimit limits opening the retail password form per IP. The
+// separate counter prevents an old critical-operation lockout from hiding it.
+func RetailLoginStartRateLimit() gin.HandlerFunc {
+	if !common.CriticalRateLimitEnable {
+		return defNext
+	}
+	return rateLimitFactory(30, 60, "retail-login-start")
+}
+
 // SessionRefreshRateLimit keeps background tab refreshes out of the credential-attempt budget.
 func SessionRefreshRateLimit() func(c *gin.Context) {
 	if !common.CriticalRateLimitEnable {

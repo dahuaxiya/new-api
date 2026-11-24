@@ -2,6 +2,8 @@ import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Skeleton } from '@/components/ui/skeleton'
+
 import { issuerFrameName, issuerOrigin } from '../../lib/embedded-login'
 
 /** 父页面保留首页画布，凭据只进入身份站。回调只接受本次事务和当前子窗口。 */
@@ -58,11 +60,25 @@ export function EmbeddedLogin({ url }: { url: string }) {
   return (
     <div className='relative'>
       {!ready && (
-        <div role='status' className='absolute inset-x-0 top-0'>
-          <h2>{t('Sign in to the relay')}</h2>
-          <p className='text-muted-foreground mt-6 text-sm'>
+        <div className='luobo-embedded-form pointer-events-none absolute inset-x-0 top-0'>
+          <h2 className='font-semibold tracking-tight'>
+            {t('Sign in to the relay')}
+          </h2>
+          <span className='sr-only' role='status'>
             {t('Loading...')}
-          </p>
+          </span>
+          {/* Match the issuer's field geometry; placeholders never receive focus or credentials. */}
+          <div aria-hidden='true' className='mt-8 grid gap-4'>
+            {['Username or Email', 'Password'].map((label) => (
+              <div key={label} className='grid gap-2'>
+                <span className='text-muted-foreground text-sm leading-none font-medium'>
+                  {t(label)}
+                </span>
+                <Skeleton className='bg-muted/50 border-border/60 h-12 rounded-[9px] border motion-reduce:animate-none' />
+              </div>
+            ))}
+            <Skeleton className='bg-primary/15 mt-2 h-12 rounded-[9px] motion-reduce:animate-none' />
+          </div>
         </div>
       )}
       <iframe
