@@ -31,6 +31,7 @@ import { Route as AuthenticatedSsoRouteImport } from './routes/_authenticated/ss
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as DocsIndexRouteImport } from './routes/docs/index'
+import { Route as ModelAvailabilityIndexRouteImport } from './routes/model-availability/index'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
@@ -189,6 +190,11 @@ const AboutIndexRoute = AboutIndexRouteImport.update({
 const DocsIndexRoute = DocsIndexRouteImport.update({
   id: '/docs/',
   path: '/docs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ModelAvailabilityIndexRoute = ModelAvailabilityIndexRouteImport.update({
+  id: '/model-availability/',
+  path: '/model-availability/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OauthProviderRoute = OauthProviderRouteImport.update({
@@ -504,6 +510,7 @@ export interface FileRoutesByFullPath {
   '/oauth/$provider': typeof OauthProviderRoute
   '/about/': typeof AboutIndexRoute
   '/docs/': typeof DocsIndexRoute
+  '/model-availability/': typeof ModelAvailabilityIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
@@ -575,6 +582,7 @@ export interface FileRoutesByTo {
   '/oauth/$provider': typeof OauthProviderRoute
   '/about': typeof AboutIndexRoute
   '/docs': typeof DocsIndexRoute
+  '/model-availability': typeof ModelAvailabilityIndexRoute
   '/pricing': typeof PricingIndexRoute
   '/rankings': typeof RankingsIndexRoute
   '/setup': typeof SetupIndexRoute
@@ -650,6 +658,7 @@ export interface FileRoutesById {
   '/oauth/$provider': typeof OauthProviderRoute
   '/about/': typeof AboutIndexRoute
   '/docs/': typeof DocsIndexRoute
+  '/model-availability/': typeof ModelAvailabilityIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
@@ -724,6 +733,7 @@ export interface FileRouteTypes {
     | '/oauth/$provider'
     | '/about/'
     | '/docs/'
+    | '/model-availability/'
     | '/pricing/'
     | '/rankings/'
     | '/setup/'
@@ -795,6 +805,7 @@ export interface FileRouteTypes {
     | '/oauth/$provider'
     | '/about'
     | '/docs'
+    | '/model-availability'
     | '/pricing'
     | '/rankings'
     | '/setup'
@@ -869,6 +880,7 @@ export interface FileRouteTypes {
     | '/oauth/$provider'
     | '/about/'
     | '/docs/'
+    | '/model-availability/'
     | '/pricing/'
     | '/rankings/'
     | '/setup/'
@@ -934,6 +946,7 @@ export interface RootRouteChildren {
   OauthProviderRoute: typeof OauthProviderRoute
   AboutIndexRoute: typeof AboutIndexRoute
   DocsIndexRoute: typeof DocsIndexRoute
+  ModelAvailabilityIndexRoute: typeof ModelAvailabilityIndexRoute
   PricingIndexRoute: typeof PricingIndexRoute
   RankingsIndexRoute: typeof RankingsIndexRoute
   SetupIndexRoute: typeof SetupIndexRoute
@@ -1094,6 +1107,13 @@ declare module '@tanstack/react-router' {
       path: '/docs'
       fullPath: '/docs/'
       preLoaderRoute: typeof DocsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/model-availability/': {
+      id: '/model-availability/'
+      path: '/model-availability'
+      fullPath: '/model-availability/'
+      preLoaderRoute: typeof ModelAvailabilityIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/oauth/$provider': {
@@ -1623,6 +1643,7 @@ const rootRouteChildren: RootRouteChildren = {
   OauthProviderRoute: OauthProviderRoute,
   AboutIndexRoute: AboutIndexRoute,
   DocsIndexRoute: DocsIndexRoute,
+  ModelAvailabilityIndexRoute: ModelAvailabilityIndexRoute,
   PricingIndexRoute: PricingIndexRoute,
   RankingsIndexRoute: RankingsIndexRoute,
   SetupIndexRoute: SetupIndexRoute,

@@ -34,10 +34,16 @@ export function RetailPricing() {
             {t('Models and pricing')}
           </h2>
         </div>
-        <Link to='/pricing' className='luobo-text-link'>
-          {t('Full price list')}
-          <ArrowUpRight className='size-4' aria-hidden='true' />
-        </Link>
+        <div className='flex flex-wrap gap-x-5 gap-y-2'>
+          <Link to='/model-availability' className='luobo-text-link'>
+            {t('Model availability')}
+            <ArrowUpRight className='size-4' aria-hidden='true' />
+          </Link>
+          <Link to='/pricing' className='luobo-text-link'>
+            {t('Full price list')}
+            <ArrowUpRight className='size-4' aria-hidden='true' />
+          </Link>
+        </div>
       </div>
       {/* 错误优先于缓存数据展示，避免失效的价格快照被误读成刚刚加载的报价。 */}
       {pricing.error ? (

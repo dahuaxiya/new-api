@@ -1,5 +1,17 @@
 {
   "translation": {
+    "Historical status for each call group, based on sampled requests. This is not a live test.": "Historical status for each call group, based on sampled requests. This is not a live test.",
+    "Availability data is temporarily unavailable": "Availability data is temporarily unavailable",
+    "No published call groups": "No published call groups",
+    "Not monitored": "Not monitored",
+    "{{minutes}} min per segment": "{{minutes}} min per segment",
+    "Model availability": "Model availability",
+    "Last 90 minutes": "Last 90 minutes",
+    "Data updated {{time}}": "Data updated {{time}}",
+    "All requests succeeded": "All requests succeeded",
+    "No samples": "No samples",
+    "All requests failed": "All requests failed",
+    "Some requests failed": "Some requests failed",
     "Sign in to the relay": "Sign in to the relay",
     "Quote": "Quote",
     "Upload image": "Upload image",

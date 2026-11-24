@@ -1,5 +1,17 @@
 {
   "translation": {
+    "Historical status for each call group, based on sampled requests. This is not a live test.": "Trạng thái theo nhóm gọi dựa trên các yêu cầu đã lấy mẫu. Đây không phải phép thử trực tiếp.",
+    "Availability data is temporarily unavailable": "Tạm thời không có dữ liệu về khả năng hoạt động",
+    "No published call groups": "Không có nhóm gọi công khai",
+    "Not monitored": "Không theo dõi",
+    "{{minutes}} min per segment": "{{minutes}} phút mỗi ô",
+    "Model availability": "Tính khả dụng của mô hình",
+    "Last 90 minutes": "90 phút qua",
+    "Data updated {{time}}": "Dữ liệu cập nhật lúc {{time}}",
+    "All requests succeeded": "Tất cả yêu cầu thành công",
+    "No samples": "Chưa có mẫu",
+    "All requests failed": "Tất cả yêu cầu thất bại",
+    "Some requests failed": "Một số yêu cầu thất bại",
     "Sign in to the relay": "Đăng nhập trạm trung chuyển",
     "Quote": "Trích dẫn",
     "Upload image": "Tải ảnh lên",

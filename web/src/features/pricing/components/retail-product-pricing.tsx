@@ -51,9 +51,18 @@ export function RetailProductPricing() {
     <PublicLayout>
       <div className='mx-auto max-w-5xl space-y-8 px-4 py-12 sm:px-6'>
         <div className='space-y-3'>
-          <h1 className='text-3xl font-semibold tracking-tight'>
-            {t('Model catalog')}
-          </h1>
+          <div className='flex flex-wrap items-start justify-between gap-3'>
+            <h1 className='text-3xl font-semibold tracking-tight'>
+              {t('Model catalog')}
+            </h1>
+            <Button
+              size='sm'
+              variant='outline'
+              render={<Link to='/model-availability' />}
+            >
+              {t('Model availability')}
+            </Button>
+          </div>
           <p className='text-muted-foreground'>
             {t('Selling prices · CNY per million tokens')}
           </p>

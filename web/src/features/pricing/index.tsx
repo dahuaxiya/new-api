@@ -16,11 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
+import { Button } from '@/components/ui/button'
+import { useStatus } from '@/hooks/use-status'
 
 import {
   LoadingSkeleton,
@@ -40,6 +43,7 @@ import { usePricingData } from './hooks/use-pricing-data'
 /** Select the server's pricing contract before displaying prices in the model catalog. */
 export function Pricing() {
   const { t } = useTranslation()
+  const { status } = useStatus()
   const [selectedModelName, setSelectedModelName] = useState<string | null>(
     null
   )
@@ -196,6 +200,16 @@ export function Pricing() {
                 'Discover curated AI models, compare pricing and capabilities, and choose the right model for every scenario.'
               )}
             </p>
+            {status?.site_mode === 'retail' && (
+              <Button
+                className='mt-3'
+                size='sm'
+                variant='outline'
+                render={<Link to='/model-availability' />}
+              >
+                {t('Model availability')}
+              </Button>
+            )}
             <SearchBar
               value={searchInput}
               onChange={setSearchInput}

@@ -1,5 +1,17 @@
 {
   "translation": {
+    "Historical status for each call group, based on sampled requests. This is not a live test.": "グループ別に観測したリクエストの履歴です。リアルタイムのテストではありません。",
+    "Availability data is temporarily unavailable": "現在、稼働状況を取得できません",
+    "No published call groups": "公開されている呼び出しグループはありません",
+    "Not monitored": "監視対象外",
+    "{{minutes}} min per segment": "1 区間 {{minutes}} 分",
+    "Model availability": "モデルの可用性",
+    "Last 90 minutes": "過去90分",
+    "Data updated {{time}}": "データ更新 {{time}}",
+    "All requests succeeded": "全件成功",
+    "No samples": "サンプルなし",
+    "All requests failed": "全件失敗",
+    "Some requests failed": "一部失敗",
     "Sign in to the relay": "中継サイトにログイン",
     "Quote": "引用",
     "Upload image": "画像をアップロード",

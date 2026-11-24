@@ -1,5 +1,17 @@
 {
   "translation": {
+    "Historical status for each call group, based on sampled requests. This is not a live test.": "История по группам вызовов на основе выборки запросов. Это не проверка в реальном времени.",
+    "Availability data is temporarily unavailable": "Данные о доступности временно недоступны",
+    "No published call groups": "Нет публичных групп вызовов",
+    "Not monitored": "Без мониторинга",
+    "{{minutes}} min per segment": "{{minutes}} мин на интервал",
+    "Model availability": "Доступность моделей",
+    "Last 90 minutes": "Последние 90 минут",
+    "Data updated {{time}}": "Данные обновлены {{time}}",
+    "All requests succeeded": "Все запросы успешны",
+    "No samples": "Нет данных",
+    "All requests failed": "Все запросы завершились ошибкой",
+    "Some requests failed": "Часть запросов завершилась ошибкой",
     "Sign in to the relay": "Вход в API-шлюз",
     "Quote": "Цитировать",
     "Upload image": "Загрузить изображение",

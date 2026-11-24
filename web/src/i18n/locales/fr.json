@@ -1,5 +1,17 @@
 {
   "translation": {
+    "Historical status for each call group, based on sampled requests. This is not a live test.": "État historique par groupe d’appel, basé sur des requêtes échantillonnées. Ce n’est pas un test en direct.",
+    "Availability data is temporarily unavailable": "Les données de disponibilité sont temporairement indisponibles",
+    "No published call groups": "Aucun groupe d’appel public",
+    "Not monitored": "Non surveillé",
+    "{{minutes}} min per segment": "{{minutes}} min par segment",
+    "Model availability": "Disponibilité des modèles",
+    "Last 90 minutes": "90 dernières minutes",
+    "Data updated {{time}}": "Données mises à jour à {{time}}",
+    "All requests succeeded": "Toutes les requêtes ont réussi",
+    "No samples": "Aucun échantillon",
+    "All requests failed": "Toutes les requêtes ont échoué",
+    "Some requests failed": "Certaines requêtes ont échoué",
     "Sign in to the relay": "Se connecter au relais",
     "Quote": "Citer",
     "Upload image": "Importer une image",

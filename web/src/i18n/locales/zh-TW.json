@@ -1,5 +1,17 @@
 {
   "translation": {
+    "Historical status for each call group, based on sampled requests. This is not a live test.": "按呼叫群組顯示歷史樣本狀態，僅供參考，不代表即時探測。",
+    "Availability data is temporarily unavailable": "暫時無法取得可用性資料",
+    "No published call groups": "暫無公開呼叫群組",
+    "Not monitored": "未監測",
+    "{{minutes}} min per segment": "每格 {{minutes}} 分鐘",
+    "Model availability": "模型可用性",
+    "Last 90 minutes": "近 90 分鐘",
+    "Data updated {{time}}": "資料更新於 {{time}}",
+    "All requests succeeded": "全部成功",
+    "No samples": "暫無樣本",
+    "All requests failed": "全部失敗",
+    "Some requests failed": "部分失敗",
     "Sign in to the relay": "登入中轉站",
     "Quote": "引用",
     "Upload image": "上傳圖片",
