@@ -17,30 +17,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import {
-  sideDrawerContentClassName,
-  sideDrawerHeaderClassName,
-} from '@/components/drawer-layout'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
@@ -63,11 +52,13 @@ import {
 import { RetailGroupBindings } from './retail-group-bindings'
 import { RetailSupplies } from './retail-supplies'
 
-/** Root-only pricing drawer; query identity follows the login session and failures hide old state. */
+/** 分组页的倍率和同步配置。两种保存独立校验版本，切换视图保留尚未提交的价表草稿。
+ * @return 供货绑定、倍率跟随及正式价表编辑区；只由中转站超级管理员挂载。
+ */
 export function RetailPricing() {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const [hasPricingDraft, setHasPricingDraft] = useState(false)
+  const client = useQueryClient()
+  const [draftBase, setDraftBase] = useState<RetailPricingState | null>(null)
   const [staleDraft, setStaleDraft] = useState(false)
   const identity = useAuthStore(
     (s) => `${s.auth.user?.id}:${s.auth.session?.sid}`
@@ -75,143 +66,133 @@ export function RetailPricing() {
   const query = useQuery({
     queryKey: ['retail-pricing', identity],
     queryFn: ({ signal }) => getRetailPricing(signal),
-    enabled: open,
     retry: false,
   })
+  const editorState = draftBase ?? query.data
+  const serverTime = query.data?.server_time ?? 0
+  const needsRefresh =
+    staleDraft || (!!draftBase && draftBase.version !== query.data?.version)
   return (
-    <>
-      <Button variant='outline' onClick={() => setOpen(true)}>
-        {t('Retail pricing')}
-      </Button>
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent className={sideDrawerContentClassName('sm:max-w-3xl')}>
-          <SheetHeader className={sideDrawerHeaderClassName()}>
-            <SheetTitle>{t('Retail pricing')}</SheetTitle>
-            <SheetDescription>
-              {t(
-                'Users select a group on this site. Its supply route determines the upstream Key and purchase price.'
-              )}
-            </SheetDescription>
-            <a
-              href='/upstream-keys'
-              target='_blank'
-              rel='noopener noreferrer'
-              className='text-sm underline'
-            >
-              {t('Upstream Keys')}
-            </a>
-          </SheetHeader>
-          <div className='flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6'>
-            <Tabs defaultValue='routes' className='space-y-3'>
-              <TabsList>
-                <TabsTrigger value='routes'>{t('Supply routes')}</TabsTrigger>
-                <TabsTrigger value='pricing'>
-                  {t('Automatic pricing')}
-                </TabsTrigger>
-              </TabsList>
-              {/* Keep both drafts mounted when switching views; only explicit saves write changes. */}
-              <TabsContent value='routes' keepMounted>
-                {open && (
-                  <RetailGroupBindings
-                    key={identity}
-                    identity={identity}
-                    onSaved={() => {
-                      // A binding is saved independently; never erase an unsaved tariff draft.
-                      if (!hasPricingDraft) {
-                        void query.refetch()
-                      } else {
-                        // Keep local catalog edits, but block previews/publication with old economics.
-                        // A deliberate refresh reloads the complete committed version atomically.
-                        setStaleDraft(true)
-                        toast.info(
-                          t(
-                            'Bindings saved. Refresh pricing before publishing the existing draft.'
-                          )
-                        )
-                      }
-                    }}
-                  />
-                )}
-                <RetailSupplies readOnly />
-              </TabsContent>
-              <TabsContent value='pricing' keepMounted className='space-y-4'>
-                {query.isPending && (
-                  <LoadingState inline message={t('Loading...')} />
-                )}
-                {query.isError && (
-                  <ErrorState
-                    title={t('Unable to load retail pricing')}
-                    onRetry={() => void query.refetch()}
-                  />
-                )}
-                {query.data && !query.isError && (
-                  <>
-                    <Button
-                      variant='ghost'
-                      className='self-end'
-                      disabled={query.isFetching}
-                      onClick={async () => {
-                        const refreshed = await query.refetch()
-                        // Failed reads must keep old drafts blocked until committed economics are known.
-                        if (refreshed.isSuccess) setStaleDraft(false)
-                      }}
-                    >
-                      {t('Refresh')}
-                    </Button>
-                    <p className='text-sm' role='status'>
-                      {t(
-                        'Following official prices for {{count}} of {{total}} models',
-                        {
-                          count: query.data.book.models.filter(
-                            (m) =>
-                              m.price_mode === 'official' &&
-                              m.valid_until > query.data!.server_time
-                          ).length,
-                          total: query.data.book.models.length,
-                        }
-                      )}
-                    </p>
-                    {query.data.book.models.some(
+    <section aria-label={t('Rates and sync')} className='gm-rates min-w-0'>
+      <Tabs defaultValue='routes' className='space-y-3'>
+        <TabsList>
+          <TabsTrigger value='routes'>{t('Supply routes')}</TabsTrigger>
+          <TabsTrigger value='pricing'>{t('Automatic pricing')}</TabsTrigger>
+        </TabsList>
+        {/* Keep both drafts mounted when switching views; only explicit saves write changes. */}
+        <TabsContent
+          value='routes'
+          keepMounted
+          className='space-y-3 data-hidden:hidden'
+        >
+          <RetailGroupBindings
+            key={identity}
+            identity={identity}
+            onSaved={() => {
+              // 目录与编辑器共享正式价表。保留正在编辑的草稿，仍须让目录读取已发布版本。
+              void client.invalidateQueries({
+                queryKey: ['retail-supplies', identity],
+              })
+              // A binding is saved independently; never erase an unsaved tariff draft.
+              void query.refetch()
+              if (draftBase) {
+                // Keep local catalog edits, but block previews/publication with old economics.
+                // A deliberate refresh reloads the complete committed version atomically.
+                setStaleDraft(true)
+                toast.info(
+                  t(
+                    'Bindings saved. Refresh pricing before publishing the existing draft.'
+                  )
+                )
+              }
+            }}
+          />
+          <RetailSupplies readOnly />
+        </TabsContent>
+        <TabsContent
+          value='pricing'
+          keepMounted
+          className='space-y-4 data-hidden:hidden'
+        >
+          {query.isPending && <LoadingState inline message={t('Loading...')} />}
+          {query.isError && (
+            <ErrorState
+              title={t('Unable to load retail pricing')}
+              onRetry={() => void query.refetch()}
+            />
+          )}
+          {editorState && query.data && !query.isError && (
+            <>
+              <Button
+                variant='ghost'
+                className='self-end'
+                disabled={query.isFetching}
+                onClick={async () => {
+                  const refreshed = await query.refetch()
+                  // Failed reads must keep old drafts blocked until committed economics are known.
+                  if (refreshed.isSuccess) {
+                    setStaleDraft(false)
+                    setDraftBase(null)
+                  }
+                }}
+              >
+                {t('Refresh')}
+              </Button>
+              <p className='text-sm' role='status'>
+                {t(
+                  'Following official prices for {{count}} of {{total}} models',
+                  {
+                    count: query.data.book.models.filter(
                       (m) =>
-                        m.price_mode !== 'official' ||
-                        m.valid_until <= query.data!.server_time
-                    ) && (
-                      <details>
-                        <summary>
-                          {t('Models outside automatic pricing')}
-                        </summary>
-                        <p className='text-sm'>
-                          {query.data.book.models
-                            .filter(
-                              (m) =>
-                                m.price_mode !== 'official' ||
-                                m.valid_until <= query.data!.server_time
-                            )
-                            .map((m) => m.id)
-                            .join(', ')}
-                        </p>
-                      </details>
-                    )}
-                    <details className='space-y-3'>
-                      <summary className='cursor-pointer text-sm'>
-                        {t('Manual price book settings')}
-                      </summary>
-                      <RetailPricingEditor
-                        key={`${identity}:${query.data.version}`}
-                        state={query.data}
-                        staleDraft={staleDraft}
-                        onSaved={() => void query.refetch()}
-                        onDirtyChange={setHasPricingDraft}
-                      />
-                    </details>
-                  </>
+                        m.price_mode === 'official' &&
+                        m.valid_until > serverTime
+                    ).length,
+                    total: query.data.book.models.length,
+                  }
                 )}
-              </TabsContent>
-            </Tabs>
-          </div>
-        </SheetContent>
-      </Sheet>
-    </>
+              </p>
+              {query.data.book.models.some(
+                (m) =>
+                  m.price_mode !== 'official' || m.valid_until <= serverTime
+              ) && (
+                <details>
+                  <summary>{t('Models outside automatic pricing')}</summary>
+                  <p className='text-sm'>
+                    {query.data.book.models
+                      .filter(
+                        (m) =>
+                          m.price_mode !== 'official' ||
+                          m.valid_until <= serverTime
+                      )
+                      .map((m) => m.id)
+                      .join(', ')}
+                  </p>
+                </details>
+              )}
+              <details className='space-y-3'>
+                <summary className='cursor-pointer text-sm'>
+                  {t('Manual price book settings')}
+                </summary>
+                <RetailPricingEditor
+                  key={`${identity}:${editorState.version}`}
+                  state={editorState}
+                  staleDraft={needsRefresh}
+                  onSaved={() => {
+                    setDraftBase(null)
+                    setStaleDraft(false)
+                    void query.refetch()
+                    void client.invalidateQueries({
+                      queryKey: ['retail-group-bindings', identity],
+                    })
+                  }}
+                  onDirtyChange={setDraftBase}
+                />
+              </details>
+            </>
+          )}
+        </TabsContent>
+      </Tabs>
+    </section>
   )
 }
 
@@ -220,7 +201,7 @@ function RetailPricingEditor(props: {
   state: RetailPricingState
   staleDraft: boolean
   onSaved: () => void
-  onDirtyChange: (dirty: boolean) => void
+  onDirtyChange: (base: RetailPricingState | null) => void
 }) {
   const { t } = useTranslation()
   const form = useForm({
@@ -251,8 +232,9 @@ function RetailPricingEditor(props: {
   const [initialDraft] = useState(draft)
   const onDirtyChange = props.onDirtyChange
   useEffect(() => {
-    onDirtyChange(draft !== initialDraft)
-  }, [draft, initialDraft, onDirtyChange])
+    // 固定草稿基于的版本；其他页签刷新共享查询时，目录可以更新，编辑器不能被悄悄重置。
+    onDirtyChange(draft !== initialDraft ? props.state : null)
+  }, [draft, initialDraft, onDirtyChange, props.state])
   const previewValid = !props.staleDraft && preview?.draft === draft
   const catalog = useMemo(() => {
     try {

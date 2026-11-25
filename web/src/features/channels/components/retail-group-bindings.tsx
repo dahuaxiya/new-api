@@ -49,12 +49,16 @@ import {
 } from '../retail-pricing-api'
 import { RetailSupplyModelPicker } from './retail-supply-model-picker'
 
-/** Root-only configuration, isolated by session and refreshed after explicit writes. */
+/** 按会话读取已发布的同步规则，普通读取不覆盖打开的草稿，显式重载用于放弃草稿。
+ * @param props 管理员会话和保存后刷新正式价表的回调。
+ * @return 供货与跟随规则编辑器。
+ */
 export function RetailGroupBindings(props: {
   identity: string
   onSaved: () => void
 }) {
   const { t } = useTranslation()
+  const [reload, setReload] = useState(0)
   const query = useQuery({
     queryKey: ['retail-group-bindings', props.identity],
     queryFn: ({ signal }) => getRetailGroupBindings(signal),
@@ -74,14 +78,16 @@ export function RetailGroupBindings(props: {
   }
   return (
     <BindingEditor
-      key={`${props.identity}:${query.dataUpdatedAt}`}
+      key={`${props.identity}:${query.data.version}:${reload}`}
       state={query.data}
       identity={props.identity}
       onSaved={() => {
         void query.refetch()
         props.onSaved()
       }}
-      onReload={() => void query.refetch()}
+      onReload={async () => {
+        if ((await query.refetch()).isSuccess) setReload((n) => n + 1)
+      }}
     />
   )
 }
@@ -316,14 +322,6 @@ function BindingEditor(props: {
   // Older deployments expose route credentials here. The inventory-aware API exposes the group-to-Key mapping as read-only on this page.
   const supplyFields = props.state.inventory_keys ? (
     <div className='space-y-3'>
-      <div className='flex gap-4 text-sm'>
-        <a href='/upstream-keys' className='underline'>
-          {t('Upstream Keys')}
-        </a>
-        <a href='/groups' className='underline'>
-          {t('Edit call group routing')}
-        </a>
-      </div>
       {(props.state.bindings ?? []).map((binding, index) => {
         const channel = props.state.rate_channels?.find(
           (ch) => ch.id === binding.channel_id

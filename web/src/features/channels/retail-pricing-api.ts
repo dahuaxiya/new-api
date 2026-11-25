@@ -93,6 +93,7 @@ export type RetailPriceBook = {
   rates: RetailRate[]
 }
 export type RetailPricingState = {
+  sale_multipliers?: Record<string, string> | null
   version: number
   server_time: number
   book: RetailPriceBook

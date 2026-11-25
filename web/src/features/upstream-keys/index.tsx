@@ -17,12 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, RefreshCw, Route } from 'lucide-react'
+import { ChevronRight, KeyRound, RefreshCw, Route, Search } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -32,6 +31,11 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from '@/components/ui/input-group'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import type { RetailBindingChannel } from '@/features/channels/retail-pricing-api'
 import { api } from '@/lib/api'
@@ -39,7 +43,6 @@ import {
   requireServerSuccess,
   getServerErrorMessage,
 } from '@/lib/server-error-message'
-import { useAuthStore } from '@/stores/auth-store'
 
 import { credentialUses, credentialCoverage, type Inventory } from './coverage'
 import { AddLibraryKey, KeyLibrary } from './library'
@@ -184,27 +187,22 @@ function CredentialDialog({
   )
 }
 
-/** 每个登录会话独立持有列表与草稿，退出或切换账号时销毁 secret 输入。 */
-export function UpstreamKeys() {
-  const { user, session } = useAuthStore((s) => s.auth)
-  return (
-    <InventoryPage
-      key={`${user?.id}:${session?.sid}`}
-      identity={`${user?.id}:${session?.sid}`}
-    />
-  )
-}
-
-/** 按站点列出可管理的供货凭据，历史不可管理引用只显示编号，不读取未授权渠道。 */
-function InventoryPage({ identity }: { identity: string }) {
+/** 按所属站点管理库存；供货线路的启停与更换库存 Key 分开确认。
+ * @param props 当前管理员会话，由分组工作区在切换身份时重新挂载。
+ * @return 可检索的库存和折叠的线路管理。
+ */
+export function InventoryPanel({ identity }: { identity: string }) {
   const { t } = useTranslation()
   const cache = useQueryClient()
   const [filter, setFilter] = useState('')
+  const [keySearch, setKeySearch] = useState('')
+  const [routesOpen, setRoutesOpen] = useState(false)
   const [site, setSite] = useState('')
   const [status, setStatus] = useState('')
   const [draft, setDraft] = useState<Draft>()
   const query = useQuery({
     queryKey: ['upstream-keys', identity],
+    enabled: routesOpen,
     retry: false,
     queryFn: async ({ signal }): Promise<Inventory> =>
       requireServerSuccess(
@@ -237,171 +235,179 @@ function InventoryPage({ identity }: { identity: string }) {
     )
   }
   return (
-    <SectionPageLayout className='mx-auto w-full max-w-5xl'>
-      <SectionPageLayout.Title>{t('Upstream Keys')}</SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        <AddLibraryKey identity={identity} />
-        <Button
-          variant='outline'
-          size='icon'
-          aria-label={t('Refresh')}
-          title={t('Refresh')}
-          onClick={() => void refresh()}
-        >
-          <RefreshCw aria-hidden />
-        </Button>
-      </SectionPageLayout.Actions>
-      <SectionPageLayout.Content>
-        <div className='space-y-4'>
-          <KeyLibrary identity={identity} />
-          <details className='group bg-card rounded-xl border'>
-            <summary className='flex cursor-pointer list-none items-center gap-3 px-4 py-4 text-sm font-semibold sm:px-5 [&::-webkit-details-marker]:hidden'>
-              <Route className='text-muted-foreground size-4' aria-hidden />
-              {t('Supply routes')}
-              <ChevronRight
-                className='text-muted-foreground ml-auto size-4 group-open:rotate-90'
-                aria-hidden
-              />
-            </summary>
-            <div className='space-y-3 border-t p-4 sm:p-5'>
-              <div className='flex flex-wrap gap-2'>
-                <Input
-                  className='w-full sm:w-60'
-                  aria-label={t('Search')}
-                  placeholder={t('Search by Key name or upstream group')}
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                />
-                <NativeSelect
-                  aria-label={t('Upstream site')}
-                  value={site}
-                  onChange={(e) => setSite(e.target.value)}
-                >
-                  <NativeSelectOption value=''>
-                    {t('All sites')}
-                  </NativeSelectOption>
-                  {sites.map((id) => (
-                    <NativeSelectOption key={id} value={id}>
-                      {channels.find((c) => c.id === id)?.name ?? `#${id}`}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-                <NativeSelect
-                  aria-label={t('Status')}
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                >
-                  <NativeSelectOption value=''>
-                    {t('All statuses')}
-                  </NativeSelectOption>
-                  <NativeSelectOption value='enabled'>
-                    {t('Enabled')}
-                  </NativeSelectOption>
-                  <NativeSelectOption value='disabled'>
-                    {t('Disabled')}
-                  </NativeSelectOption>
-                </NativeSelect>
-              </div>
-              {query.isPending && <p>{t('Loading...')}</p>}
-              {query.isError && (
-                <p role='alert'>{t(getServerErrorMessage(query.error))}</p>
-              )}
-              {data && !sites.length && <p>{t('None')}</p>}
-              {data &&
-                sites
-                  .filter((id) => !site || String(id) === site)
-                  .map((id) => {
-                    const root = channels.find((c) => c.id === id)
-                    const rows = channels.filter(
-                      (c) =>
-                        c.site_id === id &&
-                        (!status ||
-                          (c.status === 1) === (status === 'enabled')) &&
-                        [
-                          c.name,
-                          `#${c.id}`,
-                          data.groups[c.id] ?? t('Unassigned'),
-                        ]
-                          .join(' ')
-                          .toLowerCase()
-                          .includes(filter.trim().toLowerCase())
-                    )
-                    return (
-                      <section key={id} className='rounded-lg border p-4'>
-                        <div className='flex flex-wrap items-center justify-between gap-2'>
-                          <h2 className='font-semibold'>
-                            {root?.name ?? `#${id}`}
-                          </h2>
-                        </div>
-                        {!rows.length && <p className='py-3'>{t('None')}</p>}
-                        {rows.map((row) => {
-                          const uses = credentialUses(data, row.id)
-                          const names = [
-                            ...new Set([
-                              ...uses.products.map(
-                                (p) => p.binding_group || p.name
-                              ),
-                              ...uses.bindings.map((b) => b.local_group),
-                            ]),
-                          ]
-                          return (
-                            <div
-                              key={row.id}
-                              className='mt-3 flex flex-wrap items-center justify-between gap-3 border-t pt-3'
-                            >
-                              <div>
-                                <strong>{row.name}</strong>{' '}
-                                <span className='text-muted-foreground'>
-                                  #{row.id}
-                                </span>
-                                <div className='text-sm'>
-                                  {data.groups[row.id] || t('Unassigned')} ·{' '}
-                                  {t(row.status === 1 ? 'Enabled' : 'Disabled')}
-                                </div>
-                                <div className='text-muted-foreground text-sm'>
-                                  {t('Referenced call groups')}:{' '}
-                                  {names.join(' · ') || t('None')}
-                                </div>
-                              </div>
-                              <div className='flex gap-2'>
-                                <Button
-                                  variant='outline'
-                                  size='sm'
-                                  onClick={() =>
-                                    setDraft({
-                                      action:
-                                        row.status === 1 ? 'disable' : 'enable',
-                                      row,
-                                      inventory: data,
-                                    })
-                                  }
-                                >
-                                  {t(row.status === 1 ? 'Disable' : 'Enable')}
-                                </Button>
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </section>
-                    )
-                  })}
-              {!!unknown.size && (
-                <p>
-                  {t('Unavailable credential references')}:{' '}
-                  {[...unknown].map((id) => `#${id}`).join(', ')}
-                </p>
-              )}
-            </div>
-          </details>
-          {draft && (
-            <CredentialDialog
-              draft={draft}
-              close={() => setDraft(undefined)}
-              saved={refresh}
+    <section className='gm-inventory space-y-4' aria-label={t('Upstream Keys')}>
+      <header className='gm-key-toolbar'>
+        <h3>
+          <KeyRound aria-hidden />
+          {t('Inventory Key')}
+        </h3>
+        <InputGroup className='gm-key-search'>
+          <InputGroupAddon>
+            <Search aria-hidden />
+          </InputGroupAddon>
+          <InputGroupInput
+            aria-label={t('Find a group or Key')}
+            placeholder={t('Find a group or Key')}
+            value={keySearch}
+            onChange={(event) => setKeySearch(event.target.value)}
+          />
+        </InputGroup>
+        <div className='flex items-center gap-1'>
+          <AddLibraryKey identity={identity} />
+          <Button
+            variant='outline'
+            size='icon'
+            aria-label={t('Refresh')}
+            title={t('Refresh')}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw aria-hidden />
+          </Button>
+        </div>
+      </header>
+      <KeyLibrary identity={identity} search={keySearch} />
+      <details
+        className='group bg-card rounded-lg border'
+        onToggle={(event) => setRoutesOpen(event.currentTarget.open)}
+      >
+        <summary className='flex cursor-pointer list-none items-center gap-3 px-4 py-4 text-sm font-semibold sm:px-5 [&::-webkit-details-marker]:hidden'>
+          <Route className='text-muted-foreground size-4' aria-hidden />
+          {t('Supply routes')}
+          <ChevronRight
+            className='text-muted-foreground ml-auto size-4 group-open:rotate-90'
+            aria-hidden
+          />
+        </summary>
+        <div className='space-y-3 border-t p-4 sm:p-5'>
+          <div className='flex flex-wrap gap-2'>
+            <Input
+              className='w-full sm:w-60'
+              aria-label={t('Search')}
+              placeholder={t('Search by Key name or upstream group')}
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
             />
+            <NativeSelect
+              aria-label={t('Upstream site')}
+              value={site}
+              onChange={(e) => setSite(e.target.value)}
+            >
+              <NativeSelectOption value=''>{t('All sites')}</NativeSelectOption>
+              {sites.map((id) => (
+                <NativeSelectOption key={id} value={id}>
+                  {channels.find((c) => c.id === id)?.name ?? `#${id}`}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <NativeSelect
+              aria-label={t('Status')}
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <NativeSelectOption value=''>
+                {t('All statuses')}
+              </NativeSelectOption>
+              <NativeSelectOption value='enabled'>
+                {t('Enabled')}
+              </NativeSelectOption>
+              <NativeSelectOption value='disabled'>
+                {t('Disabled')}
+              </NativeSelectOption>
+            </NativeSelect>
+          </div>
+          {query.isPending && <p>{t('Loading...')}</p>}
+          {query.isError && (
+            <p role='alert'>{t(getServerErrorMessage(query.error))}</p>
+          )}
+          {data && !sites.length && <p>{t('None')}</p>}
+          {data &&
+            sites
+              .filter((id) => !site || String(id) === site)
+              .map((id) => {
+                const root = channels.find((c) => c.id === id)
+                const rows = channels.filter(
+                  (c) =>
+                    c.site_id === id &&
+                    (!status || (c.status === 1) === (status === 'enabled')) &&
+                    [c.name, `#${c.id}`, data.groups[c.id] ?? t('Unassigned')]
+                      .join(' ')
+                      .toLowerCase()
+                      .includes(filter.trim().toLowerCase())
+                )
+                return (
+                  <section key={id} className='rounded-lg border p-4'>
+                    <div className='flex flex-wrap items-center justify-between gap-2'>
+                      <h2 className='font-semibold'>
+                        {root?.name ?? `#${id}`}
+                      </h2>
+                    </div>
+                    {!rows.length && <p className='py-3'>{t('None')}</p>}
+                    {rows.map((row) => {
+                      const uses = credentialUses(data, row.id)
+                      const names = [
+                        ...new Set([
+                          ...uses.products.map(
+                            (p) => p.binding_group || p.name
+                          ),
+                          ...uses.bindings.map((b) => b.local_group),
+                        ]),
+                      ]
+                      return (
+                        <div
+                          key={row.id}
+                          className='mt-3 flex flex-wrap items-center justify-between gap-3 border-t pt-3'
+                        >
+                          <div>
+                            <strong>{row.name}</strong>{' '}
+                            <span className='text-muted-foreground'>
+                              #{row.id}
+                            </span>
+                            <div className='text-sm'>
+                              {data.groups[row.id] || t('Unassigned')} ·{' '}
+                              {t(row.status === 1 ? 'Enabled' : 'Disabled')}
+                            </div>
+                            <div className='text-muted-foreground text-sm'>
+                              {t('Referenced call groups')}:{' '}
+                              {names.join(' · ') || t('None')}
+                            </div>
+                          </div>
+                          <div className='flex gap-2'>
+                            <Button
+                              variant='outline'
+                              size='sm'
+                              onClick={() =>
+                                setDraft({
+                                  action:
+                                    row.status === 1 ? 'disable' : 'enable',
+                                  row,
+                                  inventory: data,
+                                })
+                              }
+                            >
+                              {t(row.status === 1 ? 'Disable' : 'Enable')}
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </section>
+                )
+              })}
+          {!!unknown.size && (
+            <p>
+              {t('Unavailable credential references')}:{' '}
+              {[...unknown].map((id) => `#${id}`).join(', ')}
+            </p>
           )}
         </div>
-      </SectionPageLayout.Content>
-    </SectionPageLayout>
+      </details>
+      {draft && (
+        <CredentialDialog
+          draft={draft}
+          close={() => setDraft(undefined)}
+          saved={refresh}
+        />
+      )}
+    </section>
   )
 }

@@ -53,6 +53,10 @@ import {
   type RetailLaunchReview,
   type RetailLaunchRoute,
 } from '@/features/channels/retail-pricing-api'
+import {
+  AddLibraryKey,
+  EditLibraryKeyButton,
+} from '@/features/upstream-keys/library'
 import { useStatus } from '@/hooks/use-status'
 import { formatNumber } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
@@ -195,7 +199,9 @@ function PublishedGroups(props: {
   const saved = query.data
   return (
     <PublishedGroupDirectory
+      identity={props.identity}
       book={saved?.book}
+      multipliers={saved?.sale_multipliers}
       supply={supply.isError ? undefined : supply.data}
       priceError={query.isError}
       supplyError={supply.isError}
@@ -1120,10 +1126,18 @@ function InventoryLaunchForm({
                 <KeyRound aria-hidden />
                 {t('Inventory Key')}
               </label>
-              <a href='/upstream-keys'>
-                {t('Upstream Keys')}
-                <ArrowUpRight aria-hidden />
-              </a>
+              {selected ? (
+                <EditLibraryKeyButton
+                  id={selected.id}
+                  identity={identity}
+                  label={`${t('Edit Key')} · ${selected.name} #${selected.id}`}
+                >
+                  {t('Edit Key')}
+                  <ArrowUpRight aria-hidden />
+                </EditLibraryKeyButton>
+              ) : (
+                <AddLibraryKey identity={identity} />
+              )}
             </div>
             <NativeSelect
               id='group-inventory-key'

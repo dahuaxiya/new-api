@@ -1,7 +1,15 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { Globe2, KeyRound, Pencil, Plus } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import {
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { DataTableRowActionMenu } from '@/components/data-table/core/row-action-menu'
 import { Button } from '@/components/ui/button'
@@ -69,9 +77,12 @@ const labels = {
 }
 const endpoint = '/api/retail/admin/key-library'
 
-/** Shared metadata query contains no secrets. A change of login identity gets a different cache entry. */
-function useLibrary(identity: string) {
-  return useQuery({
+/** 列表和按编号打开的编辑器共用本会话的无密钥库存元数据。
+ * @param identity 管理员与登录会话标识。
+ * @return 只读库存请求；编辑仍需服务器验证版本和影响范围。
+ */
+function libraryOptions(identity: string) {
+  return queryOptions({
     queryKey: ['retail-key-library', identity],
     retry: false,
     queryFn: async ({ signal }): Promise<Library> =>
@@ -103,10 +114,12 @@ function EditKey({
   draft,
   close,
   identity,
+  finalFocus,
 }: {
   draft: Draft
   close: () => void
   identity: string
+  finalFocus?: RefObject<HTMLElement | null>
 }) {
   const { t } = useTranslation()
   const cache = useQueryClient()
@@ -236,7 +249,7 @@ function EditKey({
         if (!v && !busy) close()
       }}
     >
-      <DialogContent>
+      <DialogContent finalFocus={finalFocus}>
         <DialogHeader>
           <DialogTitle>
             {t(labels[action])}
@@ -476,7 +489,7 @@ function EditKey({
 /** The page header shares the inventory query. Pin the snapshot when opening a create form. */
 export function AddLibraryKey({ identity }: { identity: string }) {
   const { t } = useTranslation()
-  const { data } = useLibrary(identity)
+  const { data } = useQuery(libraryOptions(identity))
   const [draft, setDraft] = useState<Draft>()
   return (
     <>
@@ -498,6 +511,76 @@ export function AddLibraryKey({ identity }: { identity: string }) {
   )
 }
 
+/** 在分组行或路由抽屉中编辑指定库存 Key。按下时才读取库存，并固定本次确认所用的版本。
+ * @param props 库存主键和当前会话，渠道编号不能用作库存编号。
+ * @return 就地编辑入口；关闭后焦点回到打开它的控件。
+ */
+export function EditLibraryKeyButton(props: {
+  id: number
+  identity: string
+  label: string
+  children: ReactNode
+}) {
+  const { t } = useTranslation()
+  const cache = useQueryClient()
+  const [draft, setDraft] = useState<Draft>()
+  const [busy, setBusy] = useState(false)
+  const trigger = useRef<HTMLButtonElement>(null)
+  /** 查询失败或 Key 已删除时不打开其他凭据；管理员可以再次点击刷新。 */
+  async function open() {
+    if (busy) return
+    setBusy(true)
+    try {
+      const library = await cache.fetchQuery({
+        ...libraryOptions(props.identity),
+        staleTime: 0,
+      })
+      const entry = library.keys.find((key) => key.id === props.id)
+      // 加载期间可能已切换页签、退出或关闭抽屉。不要在已离开的界面上弹出编辑器。
+      if (
+        !trigger.current ||
+        trigger.current.closest('[hidden],[data-hidden]')
+      ) {
+        return
+      }
+      if (!entry) {
+        toast.error(t('Key no longer available'))
+        return
+      }
+      setDraft({ action: 'edit', entry, library })
+    } catch (error) {
+      toast.error(t(getServerErrorMessage(error)))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <Button
+        ref={trigger}
+        type='button'
+        variant='link'
+        size='sm'
+        className='gm-key-link'
+        aria-label={props.label}
+        aria-busy={busy}
+        aria-haspopup='dialog'
+        onClick={() => void open()}
+      >
+        {props.children}
+      </Button>
+      {draft && (
+        <EditKey
+          draft={draft}
+          identity={props.identity}
+          finalFocus={trigger}
+          close={() => setDraft(undefined)}
+        />
+      )}
+    </>
+  )
+}
+
 /** Keep referenced routes distinct from library IDs. Show a destination inline only when it differs from the site's header. */
 function routeSummary(library: Library, id: number, ownerUrl?: string) {
   const route = library.channels?.find((row) => row.id === id)
@@ -512,9 +595,15 @@ function routeSummary(library: Library, id: number, ownerUrl?: string) {
 }
 
 /** Render each Key under its owner, including legacy references that still need an explicit detach. */
-export function KeyLibrary({ identity }: { identity: string }) {
+export function KeyLibrary({
+  identity,
+  search = '',
+}: {
+  identity: string
+  search?: string
+}) {
   const { t } = useTranslation()
-  const query = useLibrary(identity)
+  const query = useQuery(libraryOptions(identity))
   const [draft, setDraft] = useState<Draft>()
   const data = query.data
   if (query.isError) {
@@ -527,26 +616,45 @@ export function KeyLibrary({ identity }: { identity: string }) {
   }
   if (!data) return <p>{t('Loading...')}</p>
   const channels = data.channels ?? []
-  const pending = channels.filter((c) => !c.library_id && c.has_key)
+  const term = search.trim().toLowerCase()
+  // 库存编号与旧渠道编号可能相同。两类结果仍在各自的区块中，原始凭据不进入搜索。
+  const savedKeys = (data.keys ?? []).filter((entry) =>
+    [
+      entry.name,
+      `#${entry.id}`,
+      entry.upstream_group,
+      ...(data.uses[entry.id] ?? []).flatMap(
+        (id) => data.consumers?.[id] ?? []
+      ),
+    ].some((value) => value?.toLowerCase().includes(term))
+  )
+  const pending = channels.filter(
+    (c) =>
+      !c.library_id &&
+      c.has_key &&
+      [c.name, `#${c.id}`, data.groups[c.id]].some((value) =>
+        value?.toLowerCase().includes(term)
+      )
+  )
   // Include missing owners and unfiled legacy entries even when no selectable root remains.
   const ownerIds = [
     ...new Set([
-      ...channels.map((row) => row.site_id),
-      ...data.keys.map((entry) => entry.owner_site_id || 0),
+      ...(term ? pending : channels).map((row) => row.site_id),
+      ...savedKeys.map((entry) => entry.owner_site_id || 0),
     ]),
   ].sort((a, b) => a - b)
   return (
     <div className='space-y-5'>
       {!ownerIds.length && (
         <p className='text-muted-foreground py-6 text-sm'>
-          {t('No saved Keys')}
+          {t(term ? 'No results found' : 'No saved Keys')}
         </p>
       )}
       {ownerIds.map((ownerId) => {
         const root = channels.find(
           (c) => c.id === ownerId && c.site_id === ownerId
         )
-        const saved = data.keys.filter(
+        const saved = savedKeys.filter(
           (entry) => (entry.owner_site_id || 0) === ownerId
         )
         const legacy = pending.filter((site) => site.site_id === ownerId)
@@ -581,12 +689,29 @@ export function KeyLibrary({ identity }: { identity: string }) {
             </header>
             {!!saved.length && (
               <div className='px-4 pt-3 sm:px-5'>
-                <h4 className='text-muted-foreground mb-1 text-xs font-medium'>
-                  {t('Saved Keys')}
-                </h4>
+                <div
+                  aria-hidden
+                  className='text-muted-foreground hidden text-xs sm:ms-7 sm:me-[5.5rem] sm:grid sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-4'
+                >
+                  <span>
+                    {t('Inventory Key')} / {t('Upstream group')}
+                  </span>
+                  <span>
+                    {t(
+                      data.consumers
+                        ? 'Referenced call groups'
+                        : 'Supply routes'
+                    )}
+                  </span>
+                </div>
                 <ul className='divide-y'>
                   {saved.map((entry) => {
                     const uses = data.uses[entry.id] ?? []
+                    const consumers = [
+                      ...new Set(
+                        uses.flatMap((id) => data.consumers?.[id] ?? [])
+                      ),
+                    ]
                     return (
                       <li
                         key={entry.id}
@@ -604,12 +729,23 @@ export function KeyLibrary({ identity }: { identity: string }) {
                             </span>
                             {data.site_rates && (
                               <div className='text-muted-foreground text-xs'>
+                                <span className='sm:sr-only'>
+                                  {t('Upstream group')} ·{' '}
+                                </span>
                                 {entry.upstream_group ||
                                   t('Select upstream group')}
                               </div>
                             )}
                           </div>
                           <div className='text-muted-foreground text-xs leading-relaxed wrap-anywhere'>
+                            {consumers.length > 0 && (
+                              <div className='text-foreground mb-0.5 font-medium'>
+                                <span className='sm:sr-only'>
+                                  {t('Referenced call groups')} ·{' '}
+                                </span>
+                                {consumers.join(' · ')}
+                              </div>
+                            )}
                             {uses.length
                               ? uses.map((id) => (
                                   <div key={id}>
@@ -773,16 +909,16 @@ function SiteBinding({
   channel: number
 }) {
   const { t } = useTranslation()
-  const query = useLibrary(identity)
+  const query = useQuery(libraryOptions(identity))
   const [draft, setDraft] = useState<Draft>()
   const library = query.data
   const site = library?.channels?.find((c) => c.id === channel)
   if (!library || !site) return null
   if (library.site_rates) {
     return (
-      <a className='text-sm underline' href='/upstream-keys'>
+      <Link className='text-sm underline' to='/groups' search={{ tab: 'keys' }}>
         {t('Upstream Keys')}
-      </a>
+      </Link>
     )
   }
   return (

@@ -763,6 +763,49 @@ func TestRetailSupplyOverview(t *testing.T) {
 	require.Contains(t, request(token).Body.String(), `"success":false`)
 }
 
+// TestRetailAdminGroupMultiplier 检查分组列表只向中转站管理员返回同一版本的售价倍率，含仅定价来源。
+func TestRetailAdminGroupMultiplier(t *testing.T) {
+	user, identity := setupSecurityEnrollmentTest(t)
+	t.Setenv("SITE_MODE", "retail")
+	require.NoError(t, model.DB.AutoMigrate(&model.RetailPriceState{}))
+	raw, err := os.ReadFile("../pkg/retailprice/testdata/book.json")
+	require.NoError(t, err)
+	var book retailprice.Book
+	require.NoError(t, common.Unmarshal(raw, &book))
+	now := time.Now().Unix()
+	book.Models[0].VerifiedAt, book.Models[0].ValidUntil = now, now+3600
+	book.Rates[0].VerifiedAt, book.Rates[0].ValidUntil = now, now+3600
+	product := &book.Products[0]
+	product.Public, product.BindingGroup, product.RateSourceChannelID = true, "retail", 222
+	// 实际路线是 101，只有 222 的已核实倍率是本站定价来源。
+	book.GroupBindings = []retailprice.GroupBinding{{LocalGroup: "retail", ChannelID: 222, UpstreamGroup: "sample"}}
+	book.PublicRateSync = retailprice.PublicRateSync{Enabled: true, Snapshot: &retailprice.PublicRateSnapshot{Source: "https://aixingxing.pro/api/public/rates", UpdatedAt: now, FetchedAt: now, Groups: []retailprice.PublicRate{{Group: "sample", Multiplier: "0.45"}}}}
+	payload, err := common.Marshal(book)
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Create(&model.RetailPriceState{ID: 1, Version: 7, Payload: string(payload)}).Error)
+	access, _, err := service.IssueAccessToken(identity)
+	require.NoError(t, err)
+	engine := gin.New()
+	engine.GET("/api/retail/admin/pricing", middleware.RootAuth(), GetRetailPricingAdmin)
+	read := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/api/retail/admin/pricing", nil)
+		r.Header.Set("Authorization", "Bearer "+access)
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, r)
+		return w
+	}
+	require.Equal(t, http.StatusForbidden, read().Code)
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
+	require.NoError(t, model.PublishUserAuthCache(user.Id))
+	response := read().Body.String()
+	require.Contains(t, response, `"sale_multipliers":{"standard":"0.5625"}`)
+	require.Contains(t, response, `"version":7`)
+	t.Setenv("SITE_MODE", "hosting")
+	host := read()
+	require.Contains(t, host.Body.String(), `"success":true`)
+	require.NotContains(t, host.Body.String(), "sale_multipliers")
+}
+
 // TestRetailPricingManagement uses real login sessions to exercise root access, ownership, CSRF and version conflicts.
 func TestRetailPricingManagement(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)

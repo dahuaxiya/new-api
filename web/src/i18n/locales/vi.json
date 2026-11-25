@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Rates and sync": "Hệ số và đồng bộ",
+    "Key no longer available": "Khóa này không còn khả dụng để chỉnh sửa",
+    "Rate unavailable": "Chưa có giá",
+    "Pricing only": "Chỉ định giá",
+    "Route-based rate": "Theo tuyến",
     "Call group routes": "Định tuyến nhóm",
     "Account groups": "Nhóm tài khoản",
     "Inventory Key": "Key trong kho",

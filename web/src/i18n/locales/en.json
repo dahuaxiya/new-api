@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Rates and sync": "Rates and sync",
+    "Key no longer available": "This Key is no longer available to edit",
+    "Rate unavailable": "No rate available",
+    "Pricing only": "Pricing only",
+    "Route-based rate": "Route-based rate",
     "Call group routes": "Call group routes",
     "Account groups": "Account groups",
     "Inventory Key": "Inventory Key",

@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Rates and sync": "倍率與同步",
+    "Key no longer available": "這把 Key 已不存在或無法編輯",
+    "Rate unavailable": "暫無報價",
+    "Pricing only": "僅定價",
+    "Route-based rate": "依線路計價",
     "Call group routes": "分組路由",
     "Account groups": "帳號分組",
     "Inventory Key": "庫存 Key",

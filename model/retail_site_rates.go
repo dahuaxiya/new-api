@@ -124,6 +124,27 @@ func GetQuotableRetailPriceBook() (retailprice.Book, int64, error) {
 	return book, version, err
 }
 
+// RetailGroupSaleMultipliers 为管理员返回这个已发布版本的固定售价倍率。只按已授权的定价来源读取，
+// 账号分组、模型可用性和实际选路不参与。旧商品按请求选价，因此没有固定倍率。
+func RetailGroupSaleMultipliers(book retailprice.Book) (map[string]string, error) {
+	factors := make(map[string]string)
+	if !slices.ContainsFunc(book.Products, func(p retailprice.Product) bool { return p.RateSourceChannelID > 0 }) {
+		return factors, nil
+	}
+	// 和正式报价使用同一批量校验，保留原价表供管理员修复；单组缺价不影响其余行。
+	if err := checkRetailRateAccess(DB, &book); err != nil {
+		return nil, err
+	}
+	for _, product := range book.Products {
+		if product.RateSourceChannelID > 0 {
+			if _, factor, err := book.AnchoredSaleFactor(product); err == nil {
+				factors[product.ID] = factor.String()
+			}
+		}
+	}
+	return factors, nil
+}
+
 // checkRetailRateAccess 在报价和资金预留前核实站点、协议与托管归属。一次批量读取，无需读取任何 Key。
 func checkRetailRateAccess(db *gorm.DB, book *retailprice.Book) error {
 	// 库存和渠道的当前关联必须与商品快照一致。可停用或撤销 Key，但旧快照不能继续为替换凭据报价。

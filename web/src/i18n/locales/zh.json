@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Rates and sync": "倍率与同步",
+    "Key no longer available": "这把 Key 已不存在或不可编辑",
+    "Rate unavailable": "暂无报价",
+    "Pricing only": "仅定价",
+    "Route-based rate": "按线路计价",
     "Call group routes": "分组路由",
     "Account groups": "账号分组",
     "Inventory Key": "库存 Key",

@@ -31,6 +31,11 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from '@/components/ui/input-group'
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   TableBody,
@@ -47,11 +52,14 @@ import type {
   RetailBindingState,
   RetailPriceBook,
 } from '@/features/channels/retail-pricing-api'
+import { EditLibraryKeyButton } from '@/features/upstream-keys/library'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatNumber } from '@/lib/format'
 
 type Product = RetailPriceBook['products'][number]
 type DirectoryProps = {
+  identity: string
+  multipliers?: Record<string, string> | null
   book?: RetailPriceBook
   supply?: RetailBindingState
   priceError: boolean
@@ -100,7 +108,10 @@ function directoryGroups(book?: RetailPriceBook, supply?: RetailBindingState) {
         status: channel?.status ?? CHANNEL_STATUS.UNKNOWN,
       }
     })
-    return { product, routes }
+    const anchor = channels.get(product.rate_source_channel_id ?? 0)
+    const sourceID = product.rate_source_key_id || anchor?.library_id
+    const sourceKey = sourceID ? keys.get(sourceID) : undefined
+    return { product, routes, sourceID, sourceKey }
   })
 }
 
@@ -142,11 +153,23 @@ function RouteStatus(props: { status: number }) {
  */
 function ProductRows(props: {
   group: GroupRow
-  legacy: boolean
+  identity: string
+  factor?: string
   onEdit: DirectoryProps['onEdit']
 }) {
-  const { t } = useTranslation()
-  const { product, routes } = props.group
+  const { t, i18n } = useTranslation()
+  const { product, routes, sourceID, sourceKey } = props.group
+  const anchor = product.rate_source_channel_id
+  const pricingOnly =
+    !!anchor && !routes.some((route) => route.channelId === anchor)
+  const exact = props.factor
+  // 循环小数可有 24 位。列表只缩短显示，精确值原样保留在可点击的详情里。
+  const short =
+    exact &&
+    new Intl.NumberFormat(
+      toIntlLocale(i18n.resolvedLanguage || i18n.language),
+      { maximumSignificantDigits: 6, useGrouping: false }
+    ).format(Number(exact))
   const lines = routes.length ? routes : [undefined]
   return (
     <TableBody className='gm-product'>
@@ -163,24 +186,83 @@ function ProductRows(props: {
                 product.binding_group !== product.name && (
                   <small>{product.binding_group}</small>
                 )}
-              {props.legacy && !!product.rate_source_channel_id && (
-                <small>
-                  {t('Selling multiplier source')}: #
-                  {product.rate_source_channel_id}
+            </TableHead>
+          )}
+          {index === 0 && (
+            <TableCell className='gm-rate' rowSpan={lines.length}>
+              <span className='gm-rate-label'>{t('Selling multiplier')} </span>
+              {anchor ? (
+                <Popover>
+                  <PopoverTrigger
+                    render={
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        className='gm-rate-trigger'
+                        aria-label={`${t('Selling multiplier')} · ${product.name} · ${exact ? `${exact}×` : t('Rate unavailable')}`}
+                      />
+                    }
+                  >
+                    {exact ? `${short}×` : t('Rate unavailable')}
+                  </PopoverTrigger>
+                  <PopoverContent className='w-auto max-w-72 space-y-2 text-sm'>
+                    <div>
+                      <span className='text-muted-foreground'>
+                        {t('Selling multiplier')}
+                      </span>{' '}
+                      <strong className='tabular-nums'>
+                        {exact ? `${exact}×` : t('Rate unavailable')}
+                      </strong>
+                    </div>
+                    <div>
+                      {t('Selling multiplier source')}:{' '}
+                      {sourceID
+                        ? `${sourceKey?.name ?? t('Inventory Key')} #${sourceID}`
+                        : `${t('Channel')} #${anchor}`}
+                    </div>
+                    {pricingOnly && (
+                      <div className='text-muted-foreground'>
+                        {t('Pricing only')}
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <span className='gm-variable'>{t('Route-based rate')}</span>
+              )}
+              {pricingOnly && (
+                <small className='gm-rate-origin'>
+                  {sourceID ? (
+                    <EditLibraryKeyButton
+                      identity={props.identity}
+                      id={sourceID}
+                      label={`${t('Edit Key')} · ${t('Selling multiplier source')} #${sourceID}`}
+                    >
+                      {t('Pricing only')} · #{sourceID}
+                    </EditLibraryKeyButton>
+                  ) : (
+                    <>
+                      {t('Pricing only')} · {t('Channel')} #{anchor}
+                    </>
+                  )}
                 </small>
               )}
-            </TableHead>
+            </TableCell>
           )}
           <TableCell className='gm-key'>
             {route ? (
               <div className='gm-binding'>
                 {route.keyId ? (
-                  <>
+                  <EditLibraryKeyButton
+                    id={route.keyId}
+                    identity={props.identity}
+                    label={`${t('Edit Key')} · ${route.keyName || t('Inventory Key')} #${route.keyId}`}
+                  >
                     <span className='gm-key-id'>
                       <KeyRound aria-hidden />#{route.keyId}
                     </span>
                     {route.keyName && <span>{route.keyName}</span>}
-                  </>
+                  </EditLibraryKeyButton>
                 ) : (
                   <span className='gm-legacy'>
                     {t('Channel')} #{route.channelId}
@@ -236,11 +318,14 @@ export function PublishedGroupDirectory(props: DirectoryProps) {
   )
   const query = search.trim().toLowerCase()
   const visible = groups.filter(
-    ({ product, routes }) =>
+    ({ product, routes, sourceID, sourceKey }) =>
       !query ||
       [
         product.name,
         product.binding_group,
+        sourceID ? `#${sourceID}` : undefined,
+        sourceKey?.name,
+        sourceKey?.upstream_group,
         ...routes.flatMap((line) => [
           line.keyName,
           line.upstream,
@@ -341,6 +426,7 @@ export function PublishedGroupDirectory(props: DirectoryProps) {
               <TableHeader>
                 <TableRow>
                   <TableHead>{t('Call group')}</TableHead>
+                  <TableHead>{t('Selling multiplier')}</TableHead>
                   <TableHead>{t('Inventory Key')}</TableHead>
                   <TableHead>{t('Upstream group')}</TableHead>
                   <TableHead>{t('Configured route status')}</TableHead>
@@ -353,8 +439,9 @@ export function PublishedGroupDirectory(props: DirectoryProps) {
                 <ProductRows
                   key={group.product.id}
                   group={group}
+                  identity={props.identity}
+                  factor={props.multipliers?.[group.product.id]}
                   onEdit={props.onEdit}
-                  legacy={!!props.supply && !props.supply.inventory_keys}
                 />
               ))}
             </StaticDataTable>

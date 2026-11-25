@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Rates and sync": "倍率と同期",
+    "Key no longer available": "このキーは編集できなくなりました",
+    "Rate unavailable": "料金未取得",
+    "Pricing only": "価格設定のみ",
+    "Route-based rate": "経路別の倍率",
     "Call group routes": "グループのルート",
     "Account groups": "アカウントグループ",
     "Inventory Key": "登録済みキー",

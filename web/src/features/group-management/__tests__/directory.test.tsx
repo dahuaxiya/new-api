@@ -16,7 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { expect, it, vi } from 'vitest'
 
 import type {
@@ -93,6 +95,7 @@ const supply: RetailBindingState = {
   ],
 }
 const props = {
+  identity: 'test-session',
   book,
   supply,
   priceError: false,
@@ -103,9 +106,16 @@ const props = {
   publishButton: null,
 }
 
+/** 每个目录独立使用库存查询缓存，只有打开某把 Key 才会读取编辑资料。 */
+function renderDirectory(view: ReactNode) {
+  return render(
+    <QueryClientProvider client={new QueryClient()}>{view}</QueryClientProvider>
+  )
+}
+
 /** 命中备用组时保留整组，每条线路的 Key 与配置状态保持配对。 */
 it('keeps both routes and their individual switches when a search matches only the backup', () => {
-  render(<PublishedGroupDirectory {...props} />)
+  renderDirectory(<PublishedGroupDirectory {...props} />)
   fireEvent.change(
     screen.getByRole('textbox', { name: 'Find a group or Key' }),
     { target: { value: 'CuRsOr' } }
@@ -124,7 +134,7 @@ it('keeps both routes and their individual switches when a search matches only t
 /** 补充资料读不到时保留价表里的库存编号和旧绑定，不把未知的线路标为已停用或启用。 */
 it('keeps the published bindings and offers a retry when supply metadata cannot be read', () => {
   const retrySupply = vi.fn()
-  render(
+  renderDirectory(
     <PublishedGroupDirectory
       {...props}
       supply={undefined}
@@ -149,7 +159,7 @@ it('keeps the published bindings and offers a retry when supply metadata cannot 
 
 /** 搜索无结果可以清空后恢复列表，并继续用库存编号定位目标。 */
 it('restores the directory after an empty search and finds a Key by its inventory number', () => {
-  render(<PublishedGroupDirectory {...props} />)
+  renderDirectory(<PublishedGroupDirectory {...props} />)
   const search = screen.getByRole('textbox', { name: 'Find a group or Key' })
   fireEvent.change(search, { target: { value: 'not-a-group' } })
   expect(screen.getByText('No results found')).toBeVisible()
@@ -159,4 +169,34 @@ it('restores the directory after an empty search and finds a Key by its inventor
   expect(
     screen.getByRole('rowheader', { name: 'private-preview' })
   ).toBeVisible()
+})
+
+/** 仅定价的来源、缺价和按线路计价不能被备用 Key 或账号倍率替代。 */
+it('shows the published selling factor once for all routes and distinguishes missing and unanchored prices', () => {
+  const anchored = {
+    ...book.products[0],
+    rate_source_channel_id: 10,
+    rate_source_key_id: 8,
+  }
+  const result = renderDirectory(
+    <PublishedGroupDirectory
+      {...props}
+      book={{ ...book, products: [anchored, book.products[1]] }}
+      multipliers={{ one: '0.5625' }}
+    />
+  )
+  expect(
+    screen.getAllByRole('button', { name: /Selling multiplier.*0.5625×/ })
+  ).toHaveLength(1)
+  expect(screen.getByText('Pricing only · #8')).toBeVisible()
+  expect(screen.getByText('Route-based rate')).toBeVisible()
+  result.unmount()
+  renderDirectory(
+    <PublishedGroupDirectory
+      {...props}
+      book={{ ...book, products: [anchored] }}
+      multipliers={{}}
+    />
+  )
+  expect(screen.getByRole('button', { name: /Rate unavailable/ })).toBeVisible()
 })

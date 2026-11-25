@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Rates and sync": "Tarifs et synchronisation",
+    "Key no longer available": "Cette clé n’est plus disponible à la modification",
+    "Rate unavailable": "Tarif indisponible",
+    "Pricing only": "Tarification uniquement",
+    "Route-based rate": "Selon la route",
     "Call group routes": "Routage des groupes",
     "Account groups": "Groupes de comptes",
     "Inventory Key": "Clé en inventaire",

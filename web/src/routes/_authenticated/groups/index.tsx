@@ -17,12 +17,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { z } from 'zod'
 
 import { GroupManagement } from '@/features/group-management'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/_authenticated/groups/')({
+  validateSearch: z.object({
+    tab: z
+      .enum(['routes', 'keys', 'rates', 'accounts'])
+      .optional()
+      .catch(undefined),
+  }),
   beforeLoad: () => {
     const { auth } = useAuthStore.getState()
     if (auth.user?.role !== ROLE.SUPER_ADMIN) {

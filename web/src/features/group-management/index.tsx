@@ -16,16 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Network, UsersRound } from 'lucide-react'
+import { getRouteApi } from '@tanstack/react-router'
+import { KeyRound, Network, SlidersHorizontal, UsersRound } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { RetailPricing } from '@/features/channels/components/retail-pricing'
 import { defaultBillingSettings } from '@/features/system-settings/billing/defaults'
 import { GroupPricingSection } from '@/features/system-settings/billing/group-pricing-section'
 import { SettingsPage } from '@/features/system-settings/components/settings-page'
 import { SettingsPageProvider } from '@/features/system-settings/components/settings-page-context'
 import type { BillingSettings } from '@/features/system-settings/types'
+import { InventoryPanel } from '@/features/upstream-keys'
 import { useStatus } from '@/hooks/use-status'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -34,12 +37,17 @@ import { RetailGroupLaunch } from './retail-group-launch'
 
 import './group-management.css'
 
+const route = getRouteApi('/_authenticated/groups/')
+type GroupTab = NonNullable<ReturnType<typeof route.useSearch>['tab']>
+
 /** 在原有管理页保留权限和设置加载流程，中转站才提供库存 Key 路由。
  * @return 当前站点的分组工作区。
  */
 export function GroupManagement() {
   const { status } = useStatus()
   const { user, session } = useAuthStore((s) => s.auth)
+  const { tab = 'routes' } = route.useSearch()
+  const navigate = route.useNavigate()
   const hasRouting =
     status?.site_mode === 'retail' && user?.role === ROLE.SUPER_ADMIN
   return (
@@ -51,7 +59,12 @@ export function GroupManagement() {
         hasRouting ? (
           <GroupWorkspace
             key={`${user.id}:${session?.sid}`}
+            identity={`${user.id}:${session?.sid}`}
             settings={settings}
+            tab={tab}
+            onTabChange={(next) =>
+              void navigate({ search: { tab: next }, resetScroll: false })
+            }
           />
         ) : (
           <GroupPricingSection
@@ -65,14 +78,21 @@ export function GroupManagement() {
   )
 }
 
-/** 切换页签保留账号草稿；保存入口随表单隐藏，避免在路由页误保存倍率。
- * @param props 由系统设置加载的账号分组配置。
- * @return 当前管理员的分组路由和账号设置页签。
+/** 每个页签首次打开时才读取对应配置；切换或在浏览器中后退时保留当前会话的编辑草稿。
+ * @param props 当前价表管理员身份、账号设置，以及由路由控制的页签。
+ * @return 本站分组、库存 Key 与倍率的管理入口。
  */
-export function GroupWorkspace(props: { settings: BillingSettings }) {
+export function GroupWorkspace(props: {
+  identity: string
+  settings: BillingSettings
+  tab: GroupTab
+  onTabChange: (tab: GroupTab) => void
+}) {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState('routes')
-  const [visitedAccounts, setVisitedAccounts] = useState(false)
+  const { tab } = props
+  const [visited, setVisited] = useState<readonly GroupTab[]>([tab])
+  // URL 也能通过旧书签或后退改变，不能只在按钮点击时登记已打开的页签。
+  if (!visited.includes(tab)) setVisited([...visited, tab])
   const [accountActions, setAccountActions] = useState<HTMLDivElement | null>(
     null
   )
@@ -84,12 +104,8 @@ export function GroupWorkspace(props: { settings: BillingSettings }) {
   return (
     <Tabs
       className='group-workspace'
-      value={activeTab}
-      onValueChange={(value) => {
-        setActiveTab(value)
-        // 按需打开倍率表，首次访问后保留输入到本会话离开管理页为止。
-        if (value === 'accounts') setVisitedAccounts(true)
-      }}
+      value={tab}
+      onValueChange={(value) => props.onTabChange(value as GroupTab)}
     >
       <div className='gm-nav'>
         <TabsList variant='line' aria-label={t('Group Management')}>
@@ -97,26 +113,50 @@ export function GroupWorkspace(props: { settings: BillingSettings }) {
             <Network aria-hidden />
             {t('Call group routes')}
           </TabsTrigger>
+          <TabsTrigger value='keys'>
+            <KeyRound aria-hidden />
+            {t('Upstream Keys')}
+          </TabsTrigger>
+          <TabsTrigger value='rates'>
+            <SlidersHorizontal aria-hidden />
+            {t('Rates and sync')}
+          </TabsTrigger>
           <TabsTrigger value='accounts'>
             <UsersRound aria-hidden />
             {t('Account groups')}
           </TabsTrigger>
         </TabsList>
-        <div ref={setAccountActions} hidden={activeTab !== 'accounts'} />
+        <div ref={setAccountActions} hidden={tab !== 'accounts'} />
       </div>
       <TabsContent
         value='routes'
         keepMounted
         className='min-w-0 data-hidden:hidden'
       >
-        <RetailGroupLaunch />
+        {visited.includes('routes') && <RetailGroupLaunch />}
+      </TabsContent>
+      <TabsContent
+        value='keys'
+        keepMounted
+        className='min-w-0 data-hidden:hidden'
+      >
+        {visited.includes('keys') && (
+          <InventoryPanel identity={props.identity} />
+        )}
+      </TabsContent>
+      <TabsContent
+        value='rates'
+        keepMounted
+        className='min-w-0 data-hidden:hidden'
+      >
+        {visited.includes('rates') && <RetailPricing />}
       </TabsContent>
       <TabsContent
         value='accounts'
         keepMounted
         className='gm-accounts min-w-0 data-hidden:hidden'
       >
-        {visitedAccounts && (
+        {visited.includes('accounts') && (
           <SettingsPageProvider actionsContainer={accountActions}>
             {accountForm}
           </SettingsPageProvider>

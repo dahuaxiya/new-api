@@ -22,7 +22,6 @@ import {
   CreditCard,
   FileText,
   Layers3,
-  KeyRound,
   LayoutDashboard,
   PlugZap,
   Radio,
@@ -62,12 +61,6 @@ export const ADMIN_VIEW: SidebarView = {
           title: t('Channels'),
           url: '/channels',
           icon: Radio,
-        },
-        {
-          title: t('Upstream Keys'),
-          url: '/upstream-keys',
-          icon: KeyRound,
-          requiredRole: ROLE.SUPER_ADMIN,
         },
         {
           title: t('Models'),

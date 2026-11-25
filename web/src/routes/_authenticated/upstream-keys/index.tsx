@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { UpstreamKeys } from '@/features/upstream-keys'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -28,6 +27,7 @@ export const Route = createFileRoute('/_authenticated/upstream-keys/')({
     if (auth.user?.role !== ROLE.SUPER_ADMIN) {
       throw redirect({ to: '/403' })
     }
+    // 旧书签保留原来的权限检查，只改变管理入口。
+    throw redirect({ to: '/groups', search: { tab: 'keys' }, replace: true })
   },
-  component: UpstreamKeys,
 })

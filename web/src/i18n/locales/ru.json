@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Rates and sync": "Тарифы и синхронизация",
+    "Key no longer available": "Этот ключ больше недоступен для редактирования",
+    "Rate unavailable": "Нет тарифа",
+    "Pricing only": "Только для расчёта цены",
+    "Route-based rate": "По маршруту",
     "Call group routes": "Маршруты групп",
     "Account groups": "Группы аккаунтов",
     "Inventory Key": "Ключ из реестра",
