@@ -53,7 +53,7 @@ const readyBook = {
 }
 const priceRows = [{ product: 'Normal', model: 'gpt-6.1-sol', available: true }]
 
-/** Mount the production drawer with only the HTTP boundary replaced. */
+/** Mount the group's pricing panel with only the HTTP boundary replaced. */
 async function openPricing(manual = true) {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'root', role: 100 })
   const client = new QueryClient({
@@ -65,9 +65,10 @@ async function openPricing(manual = true) {
       <RetailPricing />
     </QueryClientProvider>
   )
-  fireEvent.click(screen.getByRole('button', { name: 'Retail pricing' }))
   fireEvent.click(screen.getByRole('tab', { name: 'Automatic pricing' }))
-  if (manual) fireEvent.click(await screen.findByText('Manual price book settings'))
+  if (manual) {
+    fireEvent.click(await screen.findByText('Manual price book settings'))
+  }
 }
 
 afterEach(() => {

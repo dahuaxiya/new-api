@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/stretchr/testify/require"
 )
@@ -340,9 +342,8 @@ func TestRetailModelSyncAtomicPublication(t *testing.T) {
 	}
 }
 
-// TestRetailGroupLaunchDatabases checks cancellation, price changes and publication with an independent Claude credential on each supported database.
-// TestRetailInventoryGroupLaunch verifies exactly the operator contract: a group takes one saved Key,
-// preview has no effects, its tariff and live model list determine the product, and another Key cannot impersonate it.
+// TestRetailInventoryGroupLaunch checks that launch and later model following use the actual Kiro
+// inventory Key and protocol. Changing consent must not change its tariff, mappings or sibling groups.
 func TestRetailInventoryGroupLaunch(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
 		t.Run(dialect, func(t *testing.T) {
@@ -377,7 +378,8 @@ func TestRetailInventoryGroupLaunch(t *testing.T) {
 			require.NoError(t, err)
 			margin := 2000
 			input := RetailGroupLaunch{Version: version, Group: "claude-normal", LibraryID: id, Margin: &margin}
-			discover := func(_ context.Context, base, secret string) ([]string, error) {
+			discover := func(_ context.Context, channelType int, base, secret string) ([]string, error) {
+				require.Equal(t, constant.ChannelTypeAnthropic, channelType)
 				require.Equal(t, endpoint, base)
 				require.Equal(t, "kiro-secret", secret)
 				return []string{price.ID, "unknown-model"}, nil
@@ -401,6 +403,9 @@ func TestRetailInventoryGroupLaunch(t *testing.T) {
 			book, _, err := GetQuotableRetailPriceBook()
 			require.NoError(t, err)
 			product := book.Products[1]
+			factors, err := RetailGroupSaleMultipliers(book)
+			require.NoError(t, err)
+			require.Equal(t, map[string]string{product.ID: review.SaleMultiplier}, factors, "legacy products must not borrow an anchored price")
 			require.Equal(t, id, product.RateSourceKeyID)
 			require.Equal(t, id, product.Routes[0].LibraryID)
 			require.Equal(t, map[string]string{price.ID: price.ID}, product.Routes[0].Models)
@@ -408,6 +413,38 @@ func TestRetailInventoryGroupLaunch(t *testing.T) {
 			require.NoError(t, db.First(&unchanged, root.Id).Error)
 			require.Empty(t, unchanged.Key)
 			require.Equal(t, id, unchanged.RetailKeyID)
+			book, version, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			optIn := book.Binding("claude-normal", root.Id)
+			require.NotNil(t, optIn)
+			require.False(t, optIn.FollowModels)
+			optIn.FollowModels = true
+			version, err = SaveRetailSupplyConfiguration(ctx, version, book.GroupBindings, true, feed, 1, nil, nil)
+			require.NoError(t, err)
+			src, err := RetailModelListSource(db, root.Id)
+			require.NoError(t, err)
+			require.Equal(t, id, src.RetailKeyID)
+			require.Equal(t, constant.ChannelTypeAnthropic, src.Type)
+			require.Equal(t, "kiro-secret", src.Key)
+			_, err = ApplyRetailModelList(ctx, version, root.Id, src, []string{price.ID, "unpriced-claude"})
+			require.NoError(t, err)
+			book, version, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			require.True(t, book.Binding("claude-normal", root.Id).FollowModels)
+			require.False(t, book.Binding("default", root.Id).FollowModels)
+			require.Equal(t, []string{"unpriced-claude"}, book.ModelSync[optIn.SyncID()].Pending)
+			// A protocol or owner change while the list is in flight cannot publish the old catalog.
+			stale := *src
+			stale.Type = constant.ChannelTypeOpenAI
+			_, err = ApplyRetailModelList(ctx, version, root.Id, &stale, []string{"incorrect-model"})
+			require.ErrorIs(t, err, ErrRetailPriceConflict)
+			_, err = ApplyRetailModelList(ctx, version, root.Id, src, nil)
+			require.NoError(t, err)
+			book, _, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			require.True(t, book.ModelSync[optIn.SyncID()].Failed)
+			require.Empty(t, book.ModelSync[optIn.SyncID()].Paused)
+			require.Equal(t, product.Routes, book.Products[1].Routes)
 			// 用同一把 Key 切换采购组，预先存在的报价不得被改写，缺价时两边都必须回滚。
 			editGroup := func(group string, confirm string) error {
 				view, err := ReadRetailKeyLibrary(ctx)
@@ -423,6 +460,9 @@ func TestRetailInventoryGroupLaunch(t *testing.T) {
 			rate, err := book.BoundRate(*book.Binding("claude-normal", root.Id))
 			require.NoError(t, err)
 			require.Equal(t, "0.35", rate.Multiplier)
+			factors, err = RetailGroupSaleMultipliers(book)
+			require.NoError(t, err)
+			require.Equal(t, "0.4375", factors[product.ID], "editing the Key binding changes the displayed sale factor")
 			view, err = ReadRetailKeyLibrary(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "cursor", view.Keys[0].UpstreamGroup)
@@ -434,6 +474,9 @@ func TestRetailInventoryGroupLaunch(t *testing.T) {
 			book, _, err = GetQuotableRetailPriceBook()
 			require.NoError(t, err)
 			require.True(t, book.UnavailableRateChannels[root.Id])
+			factors, err = RetailGroupSaleMultipliers(book)
+			require.NoError(t, err)
+			require.NotContains(t, factors, product.ID, "revoked sources must never keep showing their cached rate")
 			_, err = book.MakeQuote(applied.Version, "default", retailprice.KeyPolicy{ProductID: product.ID, GroupCurrent: true}, price.ID, 1, []int{root.Id}, now)
 			require.Error(t, err)
 			// 旧版把同一个凭据复制到了另一协议站点。只有同目的地、同凭据且人工停用的子线路允许接管。
@@ -464,6 +507,71 @@ func TestRetailInventoryGroupLaunch(t *testing.T) {
 			require.Equal(t, spareID, child.RetailKeyID)
 			require.Equal(t, common.ChannelStatusManuallyDisabled, child.Status)
 			require.Empty(t, child.Key)
+		})
+	}
+}
+
+// TestRetailAnthropicSiteConsent exercises an enrolled external reseller and a separate child Key.
+// Turning on its saved binding cannot duplicate it, use the parent Key or revive paused supply.
+func TestRetailAnthropicSiteConsent(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := useVM2APIEnrollmentDatabase(t, dialect)
+			require.NoError(t, migrateDB())
+			ctx := t.Context()
+			endpoint := "https://anthropic-supplier.example/api/v1"
+			parent := Channel{Name: "Claude site", Key: "site-test-key", BaseURL: &endpoint, Type: constant.ChannelTypeAnthropic, Models: "claude-test", Group: "retail", Status: common.ChannelStatusEnabled}
+			require.NoError(t, parent.Insert())
+			cfg := filepath.Join(t.TempDir(), "retail.json")
+			raw, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"channel_id": parent.Id, "kind": "reseller"}}})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(cfg, raw, 0600))
+			t.Setenv("RETAIL_RELAY_CONFIG", cfg)
+			child, err := CreateRetailSupplyGroup(ctx, parent.Id, "Kiro", "child-test-key", "claude-test")
+			require.NoError(t, err)
+			now := time.Now().Unix()
+			url := "https://anthropic-supplier.example/api/public/rates"
+			binding := retailprice.GroupBinding{LocalGroup: "default", ChannelID: child, UpstreamGroup: "kiro"}
+			siteFeed := retailprice.SiteRateFeed{URL: url, Snapshot: &retailprice.PublicRateSnapshot{Source: url, UpdatedAt: now, FetchedAt: now, Groups: []retailprice.PublicRate{{Group: "kiro", Multiplier: "0.45"}}}}
+			v, err := SaveRetailSiteRates(ctx, 0, parent.Id, retailprice.SiteRateFeed{}, siteFeed, 1)
+			require.NoError(t, err)
+			// The group is already bound via site-specific pricing; the legacy editor cannot create such a route.
+			v, err = mutateRetailPriceBook(ctx, v, 1, false, func(book *retailprice.Book) error {
+				book.GroupBindings = []retailprice.GroupBinding{binding}
+				return nil
+			})
+			require.NoError(t, err)
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", child).Update("status", common.ChannelStatusManuallyDisabled).Error)
+			binding.FollowModels = true
+			v, err = SaveRetailSupplyConfiguration(ctx, v, []retailprice.GroupBinding{binding}, false, nil, 1, nil, nil)
+			require.NoError(t, err)
+			book, _, err := GetRetailPriceBook()
+			require.NoError(t, err)
+			require.Equal(t, []retailprice.GroupBinding{binding}, book.GroupBindings)
+			require.Equal(t, siteFeed, book.SiteFeeds[parent.Id])
+			_, err = RetailModelListSource(db, child)
+			require.ErrorIs(t, err, ErrRetailModelSourcePaused)
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", child).Update("status", common.ChannelStatusEnabled).Error)
+			src, err := RetailModelListSource(db, child)
+			require.NoError(t, err)
+			require.Equal(t, "child-test-key", src.Key)
+			require.Equal(t, endpoint, src.GetBaseURL())
+			binding.FollowModels = false
+			v, err = SaveRetailSupplyConfiguration(ctx, v, []retailprice.GroupBinding{binding}, false, nil, 1, nil, nil)
+			require.NoError(t, err)
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", child).Update("header_override", `{"x-api-key":"other-test-key"}`).Error)
+			_, err = RetailModelListSource(db, child)
+			require.ErrorIs(t, err, retailprice.ErrAccess)
+			binding.FollowModels = true
+			_, err = SaveRetailSupplyConfiguration(ctx, v, []retailprice.GroupBinding{binding}, false, nil, 1, nil, nil)
+			require.ErrorIs(t, err, retailprice.ErrAccess)
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", child).Update("header_override", nil).Error)
+			require.NoError(t, db.Create(&GPTHostingBinding{SeatID: "model-source-seat", BindingID: "model-source-seat", ChannelID: parent.Id}).Error)
+			_, err = RetailModelListSource(db, child)
+			require.ErrorIs(t, err, retailprice.ErrAccess)
+			rows, err := RetailRateSiteChannels(db)
+			require.NoError(t, err)
+			require.False(t, slices.ContainsFunc(rows, func(row RetailBindingChannel) bool { return row.ID == child && row.ModelSyncSupported }))
 		})
 	}
 }

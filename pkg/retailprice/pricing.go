@@ -355,6 +355,24 @@ func (b Book) SaleFactor(multiplier string) (decimal.Decimal, error) {
 	return factor, nil
 }
 
+// AnchoredSaleFactor 读取商品指定的定价来源，并将该商品的毛利覆盖应用于价表副本。
+// 管理列表与实际报价共用此入口。调用方应先核对渠道授权；来源缺失时不能用备用线路猜价。
+func (b Book) AnchoredSaleFactor(product Product) (PublicRate, decimal.Decimal, error) {
+	binding := b.Binding(product.BindingGroup, product.RateSourceChannelID)
+	if product.RateSourceChannelID == 0 || binding == nil {
+		return PublicRate{}, decimal.Zero, ErrConfig
+	}
+	rate, err := b.BoundRate(*binding)
+	if err != nil {
+		return PublicRate{}, decimal.Zero, err
+	}
+	if product.MarginBPS != nil {
+		b.MarginBPS = *product.MarginBPS
+	}
+	factor, err := b.SaleFactor(rate.Multiplier)
+	return rate, factor, err
+}
+
 // MakeQuote freezes the selected group's tariff before routing. Anchored groups
 // admit all routes that can serve that tariff. Historical groups keep cheapest-route pricing.
 func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName string, outputLimit int, eligible []int, now int64, inputTokens ...int) (*Quote, error) {
@@ -399,26 +417,22 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 	if outputLimit > official.MaxOutput {
 		return nil, &OutputLimitError{MaxOutput: official.MaxOutput}
 	}
-	// Only the selected product overrides the margin. Book is a value copy, so other quotes retain their policy.
-	if product.MarginBPS != nil {
-		b.MarginBPS = *product.MarginBPS
-	}
 	var saleFactor decimal.Decimal
 	var groupMultiplier string
 	expires := official.ValidUntil
 	routeFloor := b
 	if product.RateSourceChannelID != 0 {
-		rate, err := b.BoundRate(*b.Binding(product.BindingGroup, product.RateSourceChannelID))
+		rate, factor, err := b.AnchoredSaleFactor(*product)
 		if err != nil {
 			return nil, err
 		}
 		groupMultiplier = rate.Multiplier // 锚定组按报价来源计费，备用线路不改客户价格。
-		saleFactor, err = b.SaleFactor(rate.Multiplier)
-		if err != nil {
-			return nil, err
-		}
+		saleFactor = factor
 		// 备用线路可牺牲目标毛利，但必须覆盖采购、手续费、折扣和成本缓冲。
 		routeFloor.MarginBPS = 0
+	} else if product.MarginBPS != nil {
+		// 旧商品由能承接模型的线路定价，同样遵循该商品的毛利覆盖。
+		routeFloor.MarginBPS = *product.MarginBPS
 	}
 	channels := []int{}
 	// Legacy private products used account groups as binding selectors. New call

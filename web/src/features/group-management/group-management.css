@@ -1,0 +1,958 @@
+/* Keep typography and surfaces on the active site theme, including dark and custom presets. */
+.group-workspace {
+  container: group-workspace / inline-size;
+  width: 100%;
+  max-width: 80rem;
+  min-width: 0;
+  gap: 18px;
+  padding-bottom: 16px;
+}
+.gm-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+}
+.gm-nav [data-slot='tabs-list'] {
+  height: 42px;
+  gap: 20px;
+  padding: 0;
+}
+.gm-nav [data-slot='tabs-trigger'] {
+  padding: 0 3px;
+  gap: 8px;
+  font-weight: 550;
+}
+.gm-nav [data-slot='tabs-trigger']::after {
+  bottom: -1px;
+  background: var(--primary);
+}
+.gm-nav [data-slot='tabs-trigger'][data-active] {
+  color: var(--primary);
+}
+.gm-directory {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+}
+.gm-directory-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+.gm-directory-head {
+  padding: 17px 22px;
+}
+.gm-directory-title,
+.gm-heading-line,
+.gm-binding {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.gm-directory-title {
+  gap: 12px;
+  margin-inline-end: auto;
+}
+.gm-directory-mark,
+.gm-drawer-mark {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 39px;
+  height: 39px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 8%, var(--card));
+  color: var(--primary);
+}
+.gm-directory-mark svg {
+  width: 21px;
+  height: 21px;
+  stroke-width: 1.7;
+}
+.gm-heading-line {
+  gap: 9px;
+}
+.gm-heading-line h3 {
+  font-size: 17px;
+  font-weight: 640;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+.gm-count {
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.gm-directory-title p,
+.gm-results {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.gm-directory-title p {
+  margin-top: 3px;
+}
+.gm-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.gm-search {
+  width: clamp(180px, 16vw, 255px);
+  background: var(--background);
+}
+.gm-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--muted);
+  font-size: 13px;
+}
+.gm-table-wrap {
+  border: 0;
+  border-radius: 0 0 14px 14px;
+}
+.gm-table {
+  table-layout: fixed;
+}
+.gm-table thead {
+  background: color-mix(in srgb, var(--muted) 62%, var(--card));
+}
+.gm-table thead th {
+  height: 35px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 550;
+}
+.gm-table th,
+.gm-table td {
+  padding-inline: 12px;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.gm-table th:first-child,
+.gm-table .gm-group {
+  padding-inline-start: 22px;
+}
+.gm-table thead th:nth-child(1) {
+  width: 19%;
+}
+.gm-table thead th:nth-child(2) {
+  width: 15%;
+}
+.gm-table thead th:nth-child(3) {
+  width: 24%;
+}
+.gm-table thead th:nth-child(5) {
+  width: 13%;
+}
+.gm-table thead th:last-child {
+  width: 5.75rem;
+}
+.gm-product + .gm-product {
+  border-top: 1px solid var(--border);
+}
+.gm-table .gm-row {
+  height: 48px;
+}
+.gm-table .gm-group-name {
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: 0;
+}
+.gm-group small {
+  display: block;
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.gm-binding {
+  gap: 9px;
+}
+.gm-key-link,
+.gm-rate-trigger {
+  height: auto;
+  min-width: 0;
+  min-height: 32px;
+  max-width: 100%;
+  padding-inline: 0;
+  justify-content: flex-start;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.gm-key-link {
+  color: var(--primary);
+}
+.gm-rate-trigger {
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline dotted var(--border);
+  text-underline-offset: 4px;
+}
+.gm-variable,
+.gm-rate-origin,
+.gm-rate-label {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.gm-rate-origin {
+  display: block;
+}
+.gm-rate-origin .gm-key-link {
+  min-height: 22px;
+  font-size: inherit;
+}
+.gm-rate-label {
+  display: none;
+}
+.gm-key-toolbar,
+.gm-key-toolbar h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gm-key-toolbar {
+  flex-wrap: wrap;
+}
+.gm-key-toolbar h3 {
+  margin-inline-end: auto;
+  font-size: 16px;
+  font-weight: 600;
+}
+.gm-key-toolbar h3 svg {
+  color: var(--muted-foreground);
+  width: 18px;
+}
+.gm-key-search {
+  max-width: 16rem;
+}
+.gm-rates > [data-slot='tabs'] > [data-slot='tabs-list'] {
+  margin: 0 0 6px;
+}
+.gm-table .gm-key-id {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.gm-key-id svg {
+  width: 12px;
+  height: 12px;
+}
+.gm-table .gm-upstream,
+.gm-table .gm-legacy {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.gm-table .gm-status {
+  font-size: 12px;
+  font-weight: 530;
+  padding: 4px 8px;
+  border-radius: 24px;
+  background: color-mix(in srgb, currentColor 7%, var(--card));
+}
+.gm-table .gm-status[data-tone='success'] {
+  color: color-mix(in srgb, var(--success) 48%, var(--foreground));
+}
+.gm-table .gm-status[data-tone='warning'] {
+  color: color-mix(in srgb, var(--warning) 45%, var(--foreground));
+}
+.gm-table .gm-action {
+  padding-inline-end: 16px;
+  text-align: end;
+}
+.gm-action button {
+  color: var(--muted-foreground);
+}
+.gm-action button:hover,
+.gm-action button:focus-visible {
+  color: var(--primary);
+}
+.gm-action svg {
+  width: 14px;
+  height: 14px;
+}
+.gm-drawer .gm-drawer-head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding-inline-end: 50px;
+}
+.gm-drawer-head [data-slot='sheet-title'] {
+  overflow-wrap: anywhere;
+  font-size: 18px;
+  font-weight: 640;
+}
+.gm-drawer-head [data-slot='sheet-description'] {
+  overflow-wrap: anywhere;
+}
+.gm-drawer .gm-drawer-body {
+  gap: 12px;
+}
+.gm-edit-fields {
+  min-width: 0;
+  display: grid;
+  gap: 20px;
+}
+.gm-field {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 550;
+}
+.gm-field input,
+.gm-key-panel select {
+  height: 38px;
+  background: var(--card);
+  font-weight: 450;
+}
+.gm-key-panel {
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  min-width: 0;
+}
+.gm-key-panel-head,
+.gm-key-panel-head a,
+.gm-key-panel-head label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.gm-key-panel-head {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.gm-key-panel-head label {
+  font-weight: 600;
+}
+.gm-key-panel-head svg {
+  width: 15px;
+  height: 15px;
+}
+.gm-key-panel-head a {
+  color: var(--primary);
+  font-size: 12px;
+}
+.gm-key-panel-head a:hover {
+  text-decoration: underline;
+}
+.gm-key-details {
+  display: grid;
+  grid-template-columns: 1fr 1.25fr 0.7fr;
+  gap: 10px;
+  margin-top: 15px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.gm-key-details dt {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.gm-key-details dd {
+  margin-top: 3px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.gm-margin input {
+  max-width: 15rem;
+}
+.gm-drawer-body details {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.gm-drawer-body summary {
+  cursor: pointer;
+  padding-block: 4px;
+  font-size: 13px;
+  font-weight: 550;
+}
+.gm-drawer-body summary::marker {
+  color: var(--muted-foreground);
+}
+.gm-disclosure [data-slot='native-select-wrapper'] {
+  width: 100%;
+}
+.gm-drawer-footer {
+  flex-shrink: 0;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+.gm-drawer-footer button {
+  min-height: 36px;
+  white-space: normal;
+}
+/* Use the panel's available width: the admin sidebar can make even a desktop window narrow.
+   Keep one table and one edit button per group, including when a group has several routes. */
+@container group-workspace (max-width: 700px) {
+  .gm-directory-head {
+    padding: 15px 14px 12px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .gm-tools {
+    order: 3;
+    flex: 1 0 100%;
+  }
+  .gm-search {
+    width: 100%;
+  }
+  .gm-directory-title {
+    gap: 9px;
+  }
+  .gm-directory-mark {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+  }
+  .gm-table,
+  .gm-product {
+    display: block;
+    width: 100%;
+  }
+  .gm-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .gm-table .gm-row {
+    position: relative;
+    height: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'group state' 'rate rate' 'key action' 'upstream action';
+    align-items: center;
+    gap: 3px 8px;
+    padding: 10px 14px;
+  }
+  .gm-table .gm-row:not(:first-child) {
+    grid-template-areas: 'key state' 'upstream state';
+  }
+  .gm-table .gm-row td,
+  .gm-table .gm-row th {
+    padding: 0;
+    height: auto;
+  }
+  .gm-group {
+    grid-area: group;
+  }
+  .gm-key {
+    grid-area: key;
+  }
+  .gm-rate {
+    grid-area: rate;
+  }
+  .gm-rate-label {
+    display: inline;
+  }
+  .gm-rate-trigger {
+    min-height: 28px;
+    margin-inline-start: 4px;
+  }
+  .gm-rate-origin {
+    display: inline;
+    margin-inline-start: 8px;
+  }
+  .gm-upstream {
+    grid-area: upstream;
+  }
+  .gm-table .gm-upstream {
+    font-size: 12px;
+  }
+  .gm-binding {
+    gap: 6px;
+  }
+  .gm-state {
+    grid-area: state;
+    justify-self: end;
+  }
+  .gm-action {
+    grid-area: action;
+    align-self: end;
+  }
+  .gm-action button {
+    min-height: 36px;
+    min-width: 42px;
+  }
+  .gm-table .gm-product:first-of-type {
+    border-top: 1px solid var(--border);
+  }
+}
+@container group-workspace (max-width: 450px) {
+  .gm-directory-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+  .gm-directory-title,
+  .gm-directory-title > div {
+    display: contents;
+  }
+  .gm-heading-line {
+    grid-area: 1 / 1;
+    align-self: center;
+  }
+  .gm-directory-mark {
+    display: none;
+  }
+  .gm-publish {
+    grid-area: 1 / 2;
+  }
+  .gm-tools {
+    grid-area: 3 / 1 / 4 / -1;
+  }
+  .gm-directory-title p {
+    grid-area: 2 / 1 / 3 / -1;
+    margin-top: 0;
+  }
+  .gm-heading-line h3 {
+    font-size: 15px;
+  }
+}
+@media (max-width: 480px) {
+  .gm-key-details {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+  .gm-key-details > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .gm-key-details dd {
+    margin: 0;
+    text-align: end;
+  }
+}
+
+/* The pricing editor keeps one set of inputs. On a phone the same translated column headings
+   label the fields in each group, so editing a ratio never requires sideways scrolling. */
+@container group-workspace (max-width: 730px) {
+  .gm-account-pricing {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+  .gm-account-pricing thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .gm-account-pricing tbody {
+    display: block;
+  }
+  .gm-account-pricing tbody tr {
+    display: grid;
+    height: auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+    align-items: end;
+    padding: 12px;
+  }
+  .gm-account-pricing tbody td {
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0;
+    text-align: start;
+  }
+  .gm-account-pricing tbody td[data-label]::before {
+    display: block;
+    content: attr(data-label);
+    margin-bottom: 3px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+  .gm-account-pricing tbody td:nth-child(1),
+  .gm-account-pricing tbody td:nth-child(5),
+  .gm-account-pricing tbody td[colspan] {
+    grid-column: 1/-1;
+  }
+  .gm-account-pricing tbody td:nth-child(4) {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .gm-account-pricing tbody td:nth-child(6) {
+    grid-column: 2;
+    grid-row: 3;
+  }
+  .gm-account-pricing tbody td:nth-child(6)::before {
+    display: none;
+  }
+}
+
+@container group-workspace (max-width: 540px) {
+  .gm-nav > [role='tablist'] {
+    display: flex;
+    width: 100%;
+    justify-content: start;
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .gm-nav > [role='tablist'] > [role='tab'] {
+    flex: 1 0 auto;
+    gap: 3px;
+    padding-inline: 5px;
+    font-size: 13px;
+  }
+  .gm-nav > [role='tablist'] > [role='tab'] svg {
+    display: none;
+  }
+  .gm-key-search {
+    order: 3;
+    max-width: none;
+    width: 100%;
+  }
+  .gm-accounts [data-slot='tabs-list'] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    width: 100%;
+    height: auto;
+    gap: 3px;
+  }
+  .gm-accounts [data-slot='tabs-list'] [role='tab'] {
+    min-height: 34px;
+    padding: 3px 6px;
+    white-space: normal;
+  }
+}
+
+/* 同一行可能有多个本站分组。将倍率贴着自己的组名，金额保留服务端精度，窄屏允许换行。 */
+.gm-rate-value {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3em;
+  max-width: 100%;
+  margin-inline-start: 0.45rem;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.gm-rate-value b,
+.gm-supply-rate b {
+  color: var(--foreground);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.gm-consumer-rates {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 2px;
+}
+.gm-consumer-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 4px;
+}
+.gm-consumer-group strong {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+.gm-upstream-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.gm-upstream-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.gm-upstream-field-head label {
+  font-weight: 550;
+}
+.gm-upstream-field-head .gm-rate-value {
+  margin: 0;
+}
+.gm-group-options [role='option'] {
+  min-height: 36px;
+}
+
+.gm-sync-panel {
+  --sync-gutter: clamp(14px, 2.2cqi, 24px);
+  overflow-wrap: anywhere;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+}
+.gm-sync-head,
+.gm-sync-actions,
+.gm-supply-list-head,
+.gm-supply-tools,
+.gm-policy-controls,
+.gm-sync-follow,
+.gm-fees summary,
+.gm-rate-catalog summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.gm-sync-head {
+  padding: 17px var(--sync-gutter);
+  gap: 12px;
+}
+.gm-sync-intro {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.gm-sync-intro .gm-heading-line {
+  flex-wrap: wrap;
+}
+.gm-sync-intro p {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.gm-sync-actions,
+.gm-supply-tools {
+  gap: 6px;
+}
+.gm-sync-actions button,
+.gm-supply-tools button {
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+  white-space: normal;
+}
+.gm-sync-actions button svg,
+.gm-supply-tools button svg,
+.gm-fees svg,
+.gm-rate-catalog summary svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.gm-sync-policy {
+  padding: 13px var(--sync-gutter);
+  background: color-mix(in srgb, var(--card) 60%, var(--muted));
+  border-block: 1px solid var(--border);
+}
+.gm-policy-controls {
+  column-gap: clamp(22px, 4cqi, 48px);
+  row-gap: 10px;
+}
+.gm-sync-margin[data-slot='field'],
+.gm-sync-follow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: auto;
+  gap: 10px;
+}
+.gm-sync-margin label,
+.gm-sync-follow label {
+  font-size: 13px;
+  font-weight: 550;
+}
+.gm-sync-margin input {
+  width: 5.25rem;
+  height: 32px;
+  background: var(--card);
+  font-variant-numeric: tabular-nums;
+}
+.gm-fees {
+  margin-top: 8px;
+}
+.gm-fees summary,
+.gm-rate-catalog summary {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 32px;
+  cursor: pointer;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 500;
+  list-style: none;
+}
+.gm-fees summary::-webkit-details-marker,
+.gm-rate-catalog summary::-webkit-details-marker {
+  display: none;
+}
+.gm-fees:not([open]) summary svg,
+.gm-rate-catalog:not([open]) summary svg {
+  transform: rotate(-90deg);
+}
+.gm-fees [data-slot='field-group'] {
+  margin-block: 12px;
+}
+.gm-supply-list-head {
+  gap: 8px 16px;
+  justify-content: space-between;
+  padding: 15px var(--sync-gutter) 12px;
+}
+.gm-supply-list-head h4 {
+  font-size: 15px;
+  font-weight: 620;
+}
+.gm-supply-wrap {
+  border: 0;
+  border-radius: 0;
+}
+.gm-supply-table {
+  table-layout: fixed;
+}
+.gm-supply-table th,
+.gm-supply-table td {
+  height: auto;
+  padding: 10px var(--sync-gutter);
+  text-align: start;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.gm-supply-table thead th {
+  padding-block: 7px;
+  background: color-mix(in srgb, var(--muted) 60%, var(--card));
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 550;
+}
+.gm-supply-table thead th:nth-child(1) {
+  width: 25%;
+}
+.gm-supply-table thead th:nth-child(2) {
+  width: 40%;
+}
+.gm-supply-table thead th:nth-child(3) {
+  width: 18%;
+}
+.gm-supply-table thead th:last-child,
+.gm-supply-table .gm-supply-follow {
+  text-align: end;
+}
+.gm-supply-table .gm-supply-group {
+  font-size: 14px;
+  font-weight: 620;
+}
+.gm-supply-table .gm-supply-key span {
+  display: block;
+  font-weight: 550;
+}
+.gm-supply-table .gm-supply-key small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.gm-supply-table .gm-supply-follow span.text-muted-foreground {
+  font-size: 12px;
+}
+.gm-supply-table .gm-supply-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+.gm-narrow-label {
+  display: none;
+}
+.gm-rate-catalog {
+  border-top: 1px solid var(--border);
+  padding: 6px var(--sync-gutter);
+}
+.gm-rate-catalog[open] > :not(summary) {
+  margin-block: 8px;
+}
+/* 旧接口的编辑字段与读取/保存错误仍留在同一张卡里。 */
+.gm-sync-panel > :is(p, [role='alert'], .space-y-2, .space-y-3, button) {
+  margin: 10px var(--sync-gutter);
+}
+@container group-workspace (max-width: 650px) {
+  .gm-sync-head {
+    align-items: flex-start;
+  }
+  .gm-sync-actions {
+    flex-basis: 100%;
+  }
+  .gm-supply-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    clip-path: inset(50%);
+    overflow: hidden;
+  }
+  .gm-supply-table,
+  .gm-supply-table tbody {
+    display: block;
+    width: 100%;
+  }
+  .gm-supply-table tbody tr {
+    display: grid;
+    /* 站点表格主题给普通行固定高度；折行后应由两排内容和内边距共同撑开。 */
+    height: auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+    grid-template-areas: 'group follow' 'key rate';
+    align-items: center;
+    gap: 6px 12px;
+    padding: 12px var(--sync-gutter);
+  }
+  .gm-supply-table tbody td,
+  .gm-supply-table tbody th {
+    padding: 0;
+  }
+  .gm-supply-group {
+    grid-area: group;
+  }
+  .gm-supply-key {
+    grid-area: key;
+  }
+  .gm-supply-follow {
+    grid-area: follow;
+    display: inline-flex;
+    align-items: center;
+    justify-content: end;
+    gap: 6px;
+  }
+  .gm-supply-table .gm-supply-rate {
+    grid-area: rate;
+    text-align: end;
+  }
+  .gm-supply-table .gm-narrow-label {
+    display: inline;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    font-weight: 400;
+  }
+  .gm-supply-empty {
+    grid-column: 1/-1;
+  }
+}

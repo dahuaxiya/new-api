@@ -18,11 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Settings2 } from 'lucide-react'
+import { Layers3, Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
@@ -39,7 +40,6 @@ import { ChannelsPrimaryButtons } from './components/channels-primary-buttons'
 import { ChannelsProvider } from './components/channels-provider'
 import { ChannelsTable } from './components/channels-table'
 import { RetailAccounting } from './components/retail-accounting'
-import { RetailPricing } from './components/retail-pricing'
 
 /** 渠道管理复用原权限和操作；供货总览只在中转站向超级管理员展示。 */
 export function Channels() {
@@ -102,7 +102,13 @@ export function Channels() {
         <SectionPageLayout.Actions>
           {isRoot && status?.site_mode === 'retail' && (
             <>
-              <RetailPricing />
+              <Button
+                variant='outline'
+                render={<Link to='/groups' search={{ tab: 'rates' }} />}
+              >
+                <Layers3 aria-hidden />
+                {t('Rates and sync')}
+              </Button>
               <RetailAccounting />
             </>
           )}

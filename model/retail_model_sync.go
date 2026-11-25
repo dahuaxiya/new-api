@@ -2,50 +2,48 @@ package model
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/QuantumNous/new-api/setting/retail_setting"
 
 	"gorm.io/gorm"
 )
 
-// RetailModelListSource verifies supply enrollment before allowing a credential to be used for discovery.
-// Reserved retail suppliers may carry legacy group labels; ApplyRetailRouting already excludes
-// these channel IDs from legacy traffic. Mixed-key pools cannot prove group-specific availability.
+// ErrRetailModelSourcePaused means enrollment is valid but the scheduler must skip this channel.
+var ErrRetailModelSourcePaused = errors.New("retail model source paused")
+
+// RetailModelListSource resolves a single Key only after the same enrollment check used by the editor.
+// It returns a detached snapshot for one read; never save this struct with its resolved credential.
 func RetailModelListSource(db *gorm.DB, id int) (*Channel, error) {
-	rows, err := retailBindingChannels(db)
-	if err != nil {
-		return nil, err
-	}
-	if !slices.ContainsFunc(rows, func(r RetailBindingChannel) bool {
-		return r.ID == id && r.HasKey && r.Status == common.ChannelStatusEnabled
-	}) {
+	if id <= 0 {
 		return nil, retailprice.ErrAccess
 	}
 	var ch Channel
-	if err = db.First(&ch, id).Error; err != nil {
+	if err := db.First(&ch, id).Error; err != nil {
 		return nil, err
 	}
-	// Recheck the exact row whose bearer token will be sent, not just the earlier selector entry.
-	cfg, err := retail_setting.Load()
-	if err != nil || !validRetailSupplySite(ch, cfg.Group) {
-		return nil, retailprice.ErrAccess
-	}
-	var occupied int64
-	if err = db.Model(&GPTHostingBinding{}).Where("channel_id = ?", id).Count(&occupied).Error; err != nil {
+	rows, err := RetailRateSiteChannels(db)
+	if err != nil {
 		return nil, err
 	}
-	if occupied != 0 || !slices.ContainsFunc(rows, func(r RetailBindingChannel) bool { return r.ID == id && r.BaseURL == ch.GetBaseURL() }) || ch.ChannelInfo.IsMultiKey || ch.Type != constant.ChannelTypeOpenAI || strings.ContainsAny(ch.Key, "\r\n") || ch.Status != common.ChannelStatusEnabled || (ch.HeaderOverride != nil && *ch.HeaderOverride != "" && *ch.HeaderOverride != "{}") {
+	// Compare the exact credential, protocol and destination with the enrolled row. Identical hostnames
+	// do not imply identical custody: different sites or groups can use different Kiro or Claude Keys.
+	i := slices.IndexFunc(rows, func(r RetailBindingChannel) bool {
+		return r.ID == id && r.ModelSyncSupported && r.SiteID == ch.supplySiteID() && r.Type == ch.Type && r.BaseURL == ch.GetBaseURL() && r.LibraryID == ch.RetailKeyID && r.credentialStamp == credentialMAC([]byte(ch.Key+"\x00"+ch.GetModelMapping()))
+	})
+	if i < 0 {
 		return nil, retailprice.ErrAccess
 	}
-	// This detached snapshot is used only for discovery and comparison, never saved.
+	if rows[i].Status != common.ChannelStatusEnabled || ch.Status != common.ChannelStatusEnabled {
+		return nil, ErrRetailModelSourcePaused
+	}
 	ch.Key, err = ch.SupplySecret(db)
-	if err == nil && ch.Key == "" {
+	if err == nil && (ch.Key == "" || strings.ContainsAny(ch.Key, "\r\n")) {
 		return nil, retailprice.ErrAccess
 	}
 	if err != nil {
@@ -55,7 +53,7 @@ func RetailModelListSource(db *gorm.DB, id int) (*Channel, error) {
 }
 
 // ApplyRetailModelList commits abilities and the price book together. Revalidate the credential under
-// the price lock: a delayed response for a replaced Key must never open its replacement's routes.
+// the price lock: a delayed response must not publish to a replaced Key, site, or protocol.
 func ApplyRetailModelList(ctx context.Context, expected int64, id int, source *Channel, names []string) (bool, error) {
 	if source == nil && len(names) > 0 {
 		return false, retailprice.ErrAccess
@@ -75,7 +73,7 @@ func ApplyRetailModelList(ctx context.Context, expected int64, id int, source *C
 				return err
 			}
 			current, err := RetailModelListSource(tx, id)
-			if err != nil || current.Key != source.Key || current.GetBaseURL() != source.GetBaseURL() {
+			if err != nil || current.Id != source.Id || current.Key != source.Key || current.RetailKeyID != source.RetailKeyID || current.supplySiteID() != source.supplySiteID() || current.supplyTarget() != source.supplyTarget() {
 				return ErrRetailPriceConflict
 			}
 		}

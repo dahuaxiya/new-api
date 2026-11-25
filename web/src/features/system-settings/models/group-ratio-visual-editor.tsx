@@ -479,6 +479,10 @@ type GroupPricingTableProps = {
   onShowDetail: (name: string) => void
 }
 
+/** 分组倍率在桌面和手机共用同一份输入状态，列标题同时作为窄屏输入的说明。
+ * @param props 当前分组配置、变更回调及打开详情的入口。
+ * @return 可搜索、可编辑的分组倍率表。
+ */
 function GroupPricingTable({
   groupRatio,
   userUsableGroups,
@@ -626,7 +630,7 @@ function GroupPricingTable({
             )}
           </InputGroup>
           <StaticDataTable
-            tableClassName='min-w-[760px]'
+            tableClassName='gm-account-pricing min-w-[760px]'
             tableProps={{ 'aria-label': t('Pricing groups') }}
             data={visibleRows}
             getRowKey={(row) => row._id}

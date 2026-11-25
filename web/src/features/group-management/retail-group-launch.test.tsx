@@ -106,8 +106,9 @@ it('previews a new Claude credential and retains the draft after a conflicting p
     </QueryClientProvider>
   )
   // 即使账号定价表没有同名分组，已保存的调用分组和真实供货线路也必须可见。
-  expect(await screen.findByText('claude', { selector: 'dt' })).toBeVisible()
-  expect(screen.getByText('#5 · actual-upstream')).toBeVisible()
+  expect(await screen.findByRole('rowheader', { name: 'claude' })).toBeVisible()
+  const legacyRow = screen.getByRole('row', { name: /claude.*actual-upstream/ })
+  expect(within(legacyRow).getByText('Channel #5')).toBeVisible()
   fireEvent.click(screen.getByRole('button', { name: 'Publish a call group' }))
   fireEvent.change(await screen.findByLabelText('Selling multiplier source'), {
     target: { value: 'claude' },
@@ -306,7 +307,7 @@ it('re-previews a draft at the current price version and protects concurrent gro
     </QueryClientProvider>
   )
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Edit call group routing' })
+    await screen.findByRole('button', { name: /Edit call group routing/ })
   )
   const input = await screen.findByLabelText('Target margin (%)')
   fireEvent.change(input, { target: { value: '30' } })
@@ -483,7 +484,7 @@ it('publishes a local group using its selected inventory Key ID', async () => {
   )
   const field = await screen.findByLabelText('Call group name')
   fireEvent.change(field, { target: { value: 'claude-normal' } })
-  fireEvent.change(screen.getByLabelText('Upstream API Key'), {
+  fireEvent.change(screen.getByLabelText('Inventory Key'), {
     target: { value: '9' },
   })
   expect(screen.queryByLabelText('Upstream group')).toBeNull()

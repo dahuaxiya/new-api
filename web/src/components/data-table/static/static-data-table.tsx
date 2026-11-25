@@ -150,6 +150,10 @@ type StaticDataTableRowProps<TData> = Required<
     index: number
   }
 
+/** Render cells from the original column definitions so responsive labels use the same translation as the header.
+ * @param props Row data and the column or custom renderer that owns its content.
+ * @return A single row, delegated unchanged when a custom renderer is supplied.
+ */
 function StaticDataTableRow<TData>({
   row,
   index,
@@ -166,6 +170,10 @@ function StaticDataTableRow<TData>({
       {columns.map((column) => (
         <TableCell
           key={column.id}
+          // Narrow layouts can repeat the translated heading next to its field without duplicating controls.
+          data-label={
+            typeof column.header === 'string' ? column.header : undefined
+          }
           className={cn(
             'max-w-full min-w-0 overflow-hidden',
             getStaticCellClassName(column, row, index)

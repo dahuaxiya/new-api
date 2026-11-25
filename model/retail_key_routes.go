@@ -19,8 +19,8 @@ type retailKeySelection struct {
 }
 
 // LaunchRetailGroupKeys accepts inventory IDs only. Read each Key's model list outside the price lock,
-// then recheck its identity and destination before committing the supply reference and price together.
-func LaunchRetailGroupKeys(ctx context.Context, in RetailGroupLaunch, actor int, discover func(context.Context, string, string) ([]string, error)) (result RetailLaunchResult, err error) {
+// using the enrolled site's protocol and address, then recheck both before committing the route.
+func LaunchRetailGroupKeys(ctx context.Context, in RetailGroupLaunch, actor int, discover func(context.Context, int, string, string) ([]string, error)) (result RetailLaunchResult, err error) {
 	if actor <= 0 || in.LibraryID <= 0 || len(in.KeyRoutes) > 99 || in.Key != "" || len(in.Models) > 0 || len(in.Routes) > 0 || in.Upstream != "" || in.Site != 0 || in.Channel != 0 || discover == nil {
 		return result, retailprice.ErrConfig
 	}
@@ -57,7 +57,7 @@ func LaunchRetailGroupKeys(ctx context.Context, in RetailGroupLaunch, actor int,
 			if err != nil {
 				return result, err
 			}
-			selection.models, err = discover(ctx, site.BaseURL, secret)
+			selection.models, err = discover(ctx, site.Type, site.BaseURL, secret)
 			if err != nil {
 				return result, err
 			}

@@ -12,8 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetRetailPricingAdmin returns the current book and the operator's actual account group.
-// Group information explains access mismatches without changing any account permissions.
+// GetRetailPricingAdmin 返回管理员的正式价表、账号分组和同一版本的售价倍率；不改动价表或权限。
 func GetRetailPricingAdmin(c *gin.Context) {
 	book, version, err := model.GetRetailPriceBook()
 	if err != nil {
@@ -25,7 +24,16 @@ func GetRetailPricingAdmin(c *gin.Context) {
 		retailPricingManagementError(c, retailprice.ErrAccess)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"book": book, "version": version, "server_time": time.Now().Unix(), "account_group": user.Group}})
+	data := gin.H{"book": book, "version": version, "server_time": time.Now().Unix(), "account_group": user.Group}
+	if common.IsRetailSite() {
+		factors, factorErr := model.RetailGroupSaleMultipliers(book)
+		if factorErr != nil {
+			// 无法核实来源时保留配置入口；库错误不应进入管理接口的响应。
+			common.SysError("failed to read retail sale multiplier sources")
+		}
+		data["sale_multipliers"] = factors
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }
 
 // GenerateRetailOfficialDraft builds a version-bound proposal from enrolled supplies and saved bindings.

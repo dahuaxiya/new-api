@@ -17,6 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery } from '@tanstack/react-query'
+import {
+  ArrowDownToLine,
+  ChevronDown,
+  RefreshCw,
+  RotateCcw,
+  SlidersHorizontal,
+} from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -25,7 +32,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { StaticDataTable } from '@/components/data-table'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
-import { Badge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -41,6 +48,7 @@ import {
   getRetailGroupBindings,
   getRetailPublicRates,
   saveRetailGroupBindings,
+  supportsRetailModelSync,
   syncRetailGroupBindings,
   type RetailBindingState,
   type RetailGroupBinding,
@@ -48,13 +56,18 @@ import {
   type RetailSupplyEdit,
 } from '../retail-pricing-api'
 import { RetailSupplyModelPicker } from './retail-supply-model-picker'
+import { SupplyRouteTable } from './supply-route-table'
 
-/** Root-only configuration, isolated by session and refreshed after explicit writes. */
+/** 按会话读取已发布的同步规则，普通读取不覆盖打开的草稿，显式重载用于放弃草稿。
+ * @param props 管理员会话和保存后刷新正式价表的回调。
+ * @return 供货与跟随规则编辑器。
+ */
 export function RetailGroupBindings(props: {
   identity: string
   onSaved: () => void
 }) {
   const { t } = useTranslation()
+  const [reload, setReload] = useState(0)
   const query = useQuery({
     queryKey: ['retail-group-bindings', props.identity],
     queryFn: ({ signal }) => getRetailGroupBindings(signal),
@@ -74,19 +87,24 @@ export function RetailGroupBindings(props: {
   }
   return (
     <BindingEditor
-      key={`${props.identity}:${query.dataUpdatedAt}`}
+      key={`${props.identity}:${query.data.version}:${reload}`}
       state={query.data}
       identity={props.identity}
       onSaved={() => {
         void query.refetch()
         props.onSaved()
       }}
-      onReload={() => void query.refetch()}
+      onReload={async () => {
+        if ((await query.refetch()).isSuccess) setReload((n) => n + 1)
+      }}
     />
   )
 }
 
-/** Keep selections local until confirmation; source reads never select or save a credential mapping. */
+/** 独立保留当前版本的毛利和跟随草稿，显式保存前不改动绑定。
+ * @param props 已发布的配置快照、管理员身份及保存和重载回调。
+ * @return 当前库存的供货线路和同步策略；旧版接口使用兼容编辑器。
+ */
 function BindingEditor(props: {
   state: RetailBindingState
   identity: string
@@ -313,53 +331,32 @@ function BindingEditor(props: {
   // Upstream timestamps describe publication. Only sync failures or missing groups pause a binding.
   const healthy =
     props.state.sync.enabled && !props.state.sync.last_error && committed
+  let syncLabel = 'Not following'
+  let syncTone: 'neutral' | 'warning' | 'success' = 'neutral'
+  if (props.state.sync.enabled) {
+    syncLabel = 'Waiting for first sync'
+    if (props.state.sync.last_error) {
+      syncLabel = 'Refresh failed'
+      syncTone = 'warning'
+    } else if (committed) {
+      syncLabel = 'Automatic following'
+      syncTone = 'success'
+    }
+  }
   // Older deployments expose route credentials here. The inventory-aware API exposes the group-to-Key mapping as read-only on this page.
   const supplyFields = props.state.inventory_keys ? (
-    <div className='space-y-3'>
-      <div className='flex gap-4 text-sm'>
-        <a href='/upstream-keys' className='underline'>
-          {t('Upstream Keys')}
-        </a>
-        <a href='/groups' className='underline'>
-          {t('Edit call group routing')}
-        </a>
-      </div>
-      {(props.state.bindings ?? []).map((binding, index) => {
-        const channel = props.state.rate_channels?.find(
-          (ch) => ch.id === binding.channel_id
+    <SupplyRouteTable
+      state={props.state}
+      bindings={bindings}
+      busy={mutation.isPending}
+      onFollowChange={(index, value) =>
+        setBindings((rows) =>
+          rows.map((row, pos) =>
+            pos === index ? { ...row, follow_models: value } : row
+          )
         )
-        const key = props.state.inventory_keys?.find(
-          (k) => k.id === channel?.library_id
-        )
-        return (
-          <div
-            key={`${binding.local_group}/${binding.channel_id}`}
-            className='flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm'
-          >
-            <span>
-              {binding.local_group} → {key?.name || channel?.name} ·{' '}
-              {key?.upstream_group || binding.upstream_group}
-            </span>
-            {channel?.type === 1 && (
-              <label className='flex items-center gap-1'>
-                <Switch
-                  aria-label={`${t('Follow this supply group’s models')} · ${binding.local_group}`}
-                  checked={!!bindings[index].follow_models}
-                  onCheckedChange={(value) =>
-                    setBindings((rows) =>
-                      rows.map((row, pos) =>
-                        pos === index ? { ...row, follow_models: value } : row
-                      )
-                    )
-                  }
-                />
-                {t('Follow this supply group’s models')}
-              </label>
-            )}
-          </div>
-        )
-      })}
-    </div>
+      }
+    />
   ) : (
     <>
       {channels.length === 0 && (
@@ -763,7 +760,7 @@ function BindingEditor(props: {
                       label={`${t('Allowed models')} ${index + 1}`}
                       following={bindings.some(
                         (other) =>
-                          channel.type === 1 &&
+                          supportsRetailModelSync(channel) &&
                           other.channel_id === channel.id &&
                           other.follow_models
                       )}
@@ -774,7 +771,7 @@ function BindingEditor(props: {
                 </FieldGroup>
               )}
               <div className='space-y-1 text-sm'>
-                {(channel?.type === 1 || row.follow_models) && (
+                {(supportsRetailModelSync(channel) || row.follow_models) && (
                   <div className='flex items-center gap-2'>
                     <Switch
                       id={`follow-models-${row.rowID}`}
@@ -793,7 +790,7 @@ function BindingEditor(props: {
                     </Label>
                   </div>
                 )}
-                {channel?.type === 1 && row.follow_models && (
+                {supportsRetailModelSync(channel) && row.follow_models && (
                   <p className='text-muted-foreground text-xs'>
                     {t(
                       'Every 10 minutes while sales are enabled. Missing prices need review; two complete reads confirm removals.'
@@ -892,47 +889,93 @@ function BindingEditor(props: {
     </>
   )
   return (
-    <section
-      className='shrink-0 space-y-4 rounded-lg border p-4'
-      aria-label={t('Supply routes')}
-    >
-      <div className='flex flex-wrap items-start justify-between gap-3'>
-        <div className='space-y-1'>
-          <h3 className='font-medium'>{t('Group multiplier bindings')}</h3>
+    <section className='gm-sync-panel' aria-label={t('Supply routes')}>
+      <header className='gm-sync-head'>
+        <span aria-hidden className='gm-directory-mark'>
+          <SlidersHorizontal />
+        </span>
+        <div className='gm-sync-intro'>
+          <div className='gm-heading-line'>
+            <h3>{t('Group multiplier bindings')}</h3>
+            <StatusBadge
+              type='text'
+              copyable={false}
+              showDot
+              variant={syncTone}
+              label={t(syncLabel)}
+            />
+          </div>
+          {!!committed?.fetched_at && (
+            <p>
+              {t('Last successful read')} ·{' '}
+              <time
+                dateTime={new Date(committed.fetched_at * 1000).toISOString()}
+              >
+                {dateFormat.format(new Date(committed.fetched_at * 1000))}
+              </time>
+            </p>
+          )}
         </div>
-        <Badge variant={healthy ? 'secondary' : 'outline'}>
-          {props.state.sync.enabled
-            ? t('Automatic following')
-            : t('Not following')}
-        </Badge>
-      </div>
-      <div className='bg-muted/50 space-y-3 rounded-md p-3'>
-        <Field>
-          <FieldLabel htmlFor='following-margin'>
-            {t('Target margin (%)')}
-          </FieldLabel>
-          <Input
-            id='following-margin'
-            type='number'
-            min={0}
-            max={95}
-            step='0.01'
-            value={
-              Number.isFinite(salePolicy.margin_bps)
-                ? salePolicy.margin_bps / 100
-                : ''
+        <div className='gm-sync-actions'>
+          <Button
+            disabled={!changed || !valid || mutation.isPending}
+            onClick={() => setConfirm(true)}
+          >
+            {t('Save bindings and margin')}
+          </Button>
+          <Button
+            variant='outline'
+            disabled={
+              changed || !props.state.sync.enabled || mutation.isPending
             }
-            disabled={mutation.isPending}
-            onChange={(event) =>
-              setSalePolicy({
-                ...salePolicy,
-                margin_bps: Math.round(event.target.valueAsNumber * 100),
-              })
-            }
-          />
-        </Field>
-        <details className='space-y-3'>
-          <summary className='cursor-pointer text-xs'>
+            onClick={() => mutation.mutate('sync')}
+          >
+            <RefreshCw aria-hidden />
+            {t('Sync bound multipliers now')}
+          </Button>
+        </div>
+      </header>
+      <div className='gm-sync-policy'>
+        <div className='gm-policy-controls'>
+          <Field className='gm-sync-margin'>
+            <FieldLabel htmlFor='following-margin'>
+              {t('Target margin (%)')}
+            </FieldLabel>
+            <Input
+              id='following-margin'
+              type='number'
+              min={0}
+              max={95}
+              step='0.01'
+              value={
+                Number.isFinite(salePolicy.margin_bps)
+                  ? salePolicy.margin_bps / 100
+                  : ''
+              }
+              disabled={mutation.isPending}
+              onChange={(event) =>
+                setSalePolicy({
+                  ...salePolicy,
+                  margin_bps: Math.round(event.target.valueAsNumber * 100),
+                })
+              }
+            />
+          </Field>
+          <div className='gm-sync-follow'>
+            <Switch
+              id='binding-auto-sync'
+              checked={enabled}
+              disabled={mutation.isPending}
+              onCheckedChange={setEnabled}
+            />
+            <Label htmlFor='binding-auto-sync'>
+              {t('Automatically follow upstream multipliers')}
+            </Label>
+          </div>
+        </div>
+        <details className='gm-fees'>
+          <summary>
+            <ChevronDown aria-hidden />
             {t('Fees, buffer and credit discount')}
           </summary>
           <FieldGroup className='grid gap-3 sm:grid-cols-3'>
@@ -999,23 +1042,31 @@ function BindingEditor(props: {
           )}
         </p>
       )}
-      <div className='flex flex-wrap gap-2'>
-        <Button
-          variant='outline'
-          size='sm'
-          disabled={feed.isFetching || mutation.isPending}
-          onClick={() => void feed.refetch()}
-        >
-          {t('Load upstream groups')}
-        </Button>
-        <Button
-          variant='ghost'
-          size='sm'
-          disabled={mutation.isPending}
-          onClick={props.onReload}
-        >
-          {t('Reload saved bindings')}
-        </Button>
+      <div className='gm-supply-list-head'>
+        <div className='gm-heading-line'>
+          <h4>{t('Supply routes')}</h4>
+          <span className='gm-count'>{bindings.length}</span>
+        </div>
+        <div className='gm-supply-tools'>
+          <Button
+            variant='outline'
+            size='sm'
+            disabled={feed.isFetching || mutation.isPending}
+            onClick={() => void feed.refetch()}
+          >
+            <ArrowDownToLine aria-hidden />
+            {t('Load upstream groups')}
+          </Button>
+          <Button
+            variant='ghost'
+            size='sm'
+            disabled={mutation.isPending}
+            onClick={props.onReload}
+          >
+            <RotateCcw aria-hidden />
+            {t('Reload saved bindings')}
+          </Button>
+        </div>
       </div>
       {feed.isFetching && <LoadingState inline message={t('Loading...')} />}
       {feed.isError && (
@@ -1031,17 +1082,7 @@ function BindingEditor(props: {
           )}
         </p>
       )}
-      <div className='flex items-center gap-2'>
-        <Switch
-          id='binding-auto-sync'
-          checked={enabled}
-          disabled={mutation.isPending}
-          onCheckedChange={setEnabled}
-        />
-        <Label htmlFor='binding-auto-sync'>
-          {t('Automatically follow upstream multipliers')}
-        </Label>
-      </div>
+
       {props.state.sync.last_error && (
         <p role='alert' className='text-destructive text-sm'>
           {t(props.state.sync.last_error)}
@@ -1052,24 +1093,11 @@ function BindingEditor(props: {
           {failure}
         </p>
       )}
-      <div className='flex flex-wrap gap-2'>
-        <Button
-          disabled={!changed || !valid || mutation.isPending}
-          onClick={() => setConfirm(true)}
-        >
-          {t('Save bindings and margin')}
-        </Button>
-        <Button
-          variant='outline'
-          disabled={changed || !props.state.sync.enabled || mutation.isPending}
-          onClick={() => mutation.mutate('sync')}
-        >
-          {t('Sync bound multipliers now')}
-        </Button>
-      </div>
+
       {source && (
-        <details>
-          <summary className='text-muted-foreground cursor-pointer text-xs'>
+        <details className='gm-rate-catalog'>
+          <summary>
+            <ChevronDown aria-hidden />
             {t('Available upstream multipliers')}
           </summary>
           <p className='text-muted-foreground text-xs leading-relaxed'>
@@ -1079,8 +1107,6 @@ function BindingEditor(props: {
           </p>
           {committed && (
             <p className='text-muted-foreground text-xs'>
-              {t('Last successful read')}:{' '}
-              {dateFormat.format(new Date(committed.fetched_at * 1000))} ·{' '}
               {t('Upstream update time')}:{' '}
               {dateFormat.format(new Date(committed.updated_at * 1000))}
             </p>

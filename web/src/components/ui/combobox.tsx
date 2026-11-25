@@ -230,6 +230,10 @@ function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props) {
   )
 }
 
+/** 绑定标准输入框与原生下拉按钮，保留按键和焦点的默认行为。
+ * @param props 基础输入属性、可访问名称和触发/清除按钮选项。
+ * @return 复用站内样式的组合框输入控件。
+ */
 function ComboboxInput({
   className,
   children,
@@ -254,6 +258,7 @@ function ComboboxInput({
           <InputGroupButton
             size='icon-xs'
             variant='ghost'
+            nativeButton
             render={<ComboboxTrigger aria-label={triggerAriaLabel} />}
             data-slot='input-group-button'
             className='group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent'

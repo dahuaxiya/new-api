@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
@@ -378,7 +379,11 @@ it('accepts a typed upstream group for an in-use Key after reviewing its local c
   )
   const dlg = within(screen.getByRole('dialog'))
   const field = dlg.getByRole('combobox', { name: 'Upstream group' })
+  const user = userEvent.setup()
+  await user.click(field)
   fireEvent.change(field, { target: { value: 'kiro' } })
+  await user.keyboard('{Escape}')
+  expect(field).toHaveValue('kiro')
   expect(dlg.getByText(/claude-normal/)).toBeInTheDocument()
   expect(dlg.getByRole('button', { name: 'Save' })).toBeDisabled()
   fireEvent.click(dlg.getByRole('checkbox'))

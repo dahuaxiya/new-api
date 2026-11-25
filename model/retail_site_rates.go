@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// RetailRateSiteChannels 只枚举已获供货授权的单 Key 线路，沿用路由的托管账号隔离规则。
+// RetailRateSiteChannels 只枚举已获供货授权的单 Key 线路。报价本身不使用凭据，模型同步资格另按实际站点和协议校验。
 func RetailRateSiteChannels(tx *gorm.DB) ([]RetailBindingChannel, error) {
 	cfg, err := RetailSupplyConfig(tx)
 	if err != nil || !cfg.Enabled {
@@ -35,6 +35,12 @@ func RetailRateSiteChannels(tx *gorm.DB) ([]RetailBindingChannel, error) {
 		return nil, err
 	}
 	out := []RetailBindingChannel{}
+	parents := map[int]Channel{}
+	for _, ch := range rows {
+		if ch.RetailSiteID == 0 && resellers[ch.Id] && validRetailSupplySite(ch, cfg.Group) && !ch.ChannelInfo.IsMultiKey && !strings.ContainsAny(ch.Key, "\r\n") {
+			parents[ch.Id] = ch
+		}
+	}
 	for _, ch := range rows {
 		if !validRetailSupplySite(ch, cfg.Group) || ch.ChannelInfo.IsMultiKey || strings.ContainsAny(ch.Key, "\r\n") {
 			continue
@@ -43,7 +49,12 @@ func RetailRateSiteChannels(tx *gorm.DB) ([]RetailBindingChannel, error) {
 		if id == 0 {
 			id = ch.Id
 		}
-		out = append(out, RetailBindingChannel{LibraryID: ch.RetailKeyID, credentialStamp: credentialMAC([]byte(ch.Key + "\x00" + ch.GetModelMapping())), AllowNewCredential: ch.Id == id && resellers[id], ID: ch.Id, SiteID: id, Type: ch.Type, Name: ch.Name, BaseURL: ch.GetBaseURL(), Models: ch.Models, Status: ch.Status, HasKey: ch.hasSupplyKey(owners), ModelMapping: ch.GetModelMapping()})
+		owner, enrolled := parents[id]
+		hasKey := ch.hasSupplyKey(owners)
+		// A price-only subscription, custom auth or mismatched child does not authorize sending a Key.
+		// Status is checked at dispatch, so operators can set a preference while a route is paused.
+		canSync := hasKey && enrolled && resellers[ch.Id] && owner.Type == ch.Type && owner.GetBaseURL() == ch.GetBaseURL() && ch.BaseURL != nil && *ch.BaseURL != "" && retailprice.RateFeedOrigin(*ch.BaseURL) != "" && (ch.HeaderOverride == nil || *ch.HeaderOverride == "" || *ch.HeaderOverride == "{}")
+		out = append(out, RetailBindingChannel{LibraryID: ch.RetailKeyID, credentialStamp: credentialMAC([]byte(ch.Key + "\x00" + ch.GetModelMapping())), AllowNewCredential: ch.Id == id && resellers[id], ModelSyncSupported: canSync, ID: ch.Id, SiteID: id, Type: ch.Type, Name: ch.Name, BaseURL: ch.GetBaseURL(), Models: ch.Models, Status: ch.Status, HasKey: hasKey, ModelMapping: ch.GetModelMapping()})
 	}
 	return out, nil
 }
@@ -122,6 +133,27 @@ func GetQuotableRetailPriceBook() (retailprice.Book, int64, error) {
 		err = checkRetailRateAccess(DB, &book)
 	}
 	return book, version, err
+}
+
+// RetailGroupSaleMultipliers 为管理员返回这个已发布版本的固定售价倍率。只按已授权的定价来源读取，
+// 账号分组、模型可用性和实际选路不参与。旧商品按请求选价，因此没有固定倍率。
+func RetailGroupSaleMultipliers(book retailprice.Book) (map[string]string, error) {
+	factors := make(map[string]string)
+	if !slices.ContainsFunc(book.Products, func(p retailprice.Product) bool { return p.RateSourceChannelID > 0 }) {
+		return factors, nil
+	}
+	// 和正式报价使用同一批量校验，保留原价表供管理员修复；单组缺价不影响其余行。
+	if err := checkRetailRateAccess(DB, &book); err != nil {
+		return nil, err
+	}
+	for _, product := range book.Products {
+		if product.RateSourceChannelID > 0 {
+			if _, factor, err := book.AnchoredSaleFactor(product); err == nil {
+				factors[product.ID] = factor.String()
+			}
+		}
+	}
+	return factors, nil
 }
 
 // checkRetailRateAccess 在报价和资金预留前核实站点、协议与托管归属。一次批量读取，无需读取任何 Key。
