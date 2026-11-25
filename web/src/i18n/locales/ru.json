@@ -1,7 +1,7 @@
 {
   "translation": {
     "No published rate for this group. You can still enter its name.": "Для этой группы нет опубликованного тарифа. Название можно ввести вручную.",
-    "Model following": "Синхронизация моделей",
+    "Automatically sync models": "Автосинхронизация моделей",
     "Waiting for first sync": "Ожидание первой синхронизации",
     "Rates and sync": "Тарифы и синхронизация",
     "Key no longer available": "Этот ключ больше недоступен для редактирования",

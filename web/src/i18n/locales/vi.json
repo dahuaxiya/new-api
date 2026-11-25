@@ -1,7 +1,7 @@
 {
   "translation": {
     "No published rate for this group. You can still enter its name.": "Nhóm này chưa có mức giá công bố. Bạn vẫn có thể nhập tên nhóm.",
-    "Model following": "Đồng bộ mô hình",
+    "Automatically sync models": "Tự động đồng bộ mô hình",
     "Waiting for first sync": "Đang chờ lần đồng bộ đầu tiên",
     "Rates and sync": "Hệ số và đồng bộ",
     "Key no longer available": "Khóa này không còn khả dụng để chỉnh sửa",

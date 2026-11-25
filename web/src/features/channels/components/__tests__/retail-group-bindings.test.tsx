@@ -452,8 +452,9 @@ it('saves model following on the selected binding without enabling multiplier sy
   const summary = (
     await screen.findByLabelText('Estimated selling multiplier 1')
   ).closest('summary')
-  if (!summary)
+  if (!summary) {
     throw new Error('The multiplier must be inside the route summary')
+  }
   expect(summary.closest('details')).not.toHaveAttribute('open')
   fireEvent.click(summary)
   expect(screen.queryByText('previous-observation')).toBeNull()
@@ -720,7 +721,7 @@ it('saves two distinct Keys and upstream groups under one site', async () => {
   }
 })
 
-/** 相同上游组名在两个站点有不同倍率。站点读取失败时不能套用公共报价，非 OpenAI 线路不提供跟随开关。 */
+/** 同名分组不能串价；单独开启 Anthropic 模型同步不能开启 OpenAI 同步、改倍率或替换 Key。 */
 it('aligns each supply route with its own rate and eligible model-follow control', async () => {
   const local = {
     local_group: 'default',
@@ -728,12 +729,16 @@ it('aligns each supply route with its own rate and eligible model-follow control
     upstream_group: 'ChatGPT-pro稳定',
   }
   const other = { ...local, local_group: 'claude', channel_id: 8 }
+  const unsupported = { ...local, local_group: 'custom', channel_id: 9 }
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
   vi.spyOn(api, 'get').mockResolvedValue({
     data: {
       success: true,
       data: {
         ...state,
-        bindings: [local, other],
+        bindings: [local, other, unsupported],
         inventory_keys: [
           {
             id: 1,
@@ -751,6 +756,7 @@ it('aligns each supply route with its own rate and eligible model-follow control
         rate_channels: [
           { ...state.channels[0], library_id: 1 },
           { ...state.channels[0], id: 8, site_id: 8, library_id: 2, type: 14 },
+          { ...state.channels[0], id: 9, site_id: 9, type: 99 },
         ],
         rate_site_by_channel: { 4: 4, 8: 8 },
         site_feeds: {
@@ -769,12 +775,27 @@ it('aligns each supply route with its own rate and eligible model-follow control
   const first = within(table.getByRole('row', { name: /default/ }))
   expect(first.getByText('0.24×')).toBeVisible()
   expect(first.getByRole('switch', { name: /default/ })).not.toBeChecked()
-  fireEvent.click(first.getByRole('switch', { name: /default/ }))
-  expect(
-    screen.getByRole('button', { name: 'Save bindings and margin' })
-  ).toBeEnabled()
   const second = within(table.getByRole('row', { name: /claude/ }))
   expect(second.getByText('Rate unavailable')).toBeVisible()
-  expect(second.getByText('Not applicable')).toBeVisible()
-  expect(second.queryByRole('switch')).toBeNull()
+  const toggle = second.getByRole('switch', { name: /claude/ })
+  expect(toggle).not.toBeChecked()
+  fireEvent.click(toggle)
+  const unknown = within(table.getByRole('row', { name: /custom/ }))
+  expect(unknown.getByText('Not applicable')).toBeVisible()
+  expect(unknown.queryByRole('switch')).toBeNull()
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
+  await waitFor(() =>
+    expect(put).toHaveBeenCalledWith(
+      '/api/retail/admin/pricing/group-bindings',
+      {
+        expected_version: state.version,
+        enabled: true,
+        bindings: [local, { ...other, follow_models: true }, unsupported],
+        sale_policy: state.sale_policy,
+      }
+    )
+  )
 })

@@ -21,6 +21,7 @@ type RetailBindingChannel struct {
 	LibraryID          int    `json:"library_id,omitempty"`
 	credentialStamp    string // Keyed concurrency token; never returned as an individual channel field.
 	AllowNewCredential bool   `json:"allow_new_credential"`
+	ModelSyncSupported bool   `json:"model_sync_supported"`
 	ID                 int    `json:"id"`
 	Name               string `json:"name"`
 	SiteID             int    `json:"site_id"`
@@ -259,7 +260,8 @@ func SaveRetailGroupBindings(ctx context.Context, expected int64, bindings []ret
 	return saveRetailGroupBindingsIn(DB, ctx, expected, bindings, enabled, snapshot, actorID, policy...)
 }
 
-// saveRetailGroupBindingsIn validates route ownership against the same transaction that writes credentials.
+// saveRetailGroupBindingsIn validates route ownership alongside credential edits. Existing site-specific
+// bindings can change their model-sync preference without granting the legacy editor control of their Keys.
 func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64, bindings []retailprice.GroupBinding, enabled bool, snapshot *retailprice.PublicRateSnapshot, actorID int, policy ...retailprice.SalePolicy) (int64, error) {
 	if actorID <= 0 || len(policy) > 1 {
 		return 0, retailprice.ErrConfig
@@ -278,10 +280,23 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 			}
 		}
 		groups := book.RegisteredGroups()
+		var syncChannels []RetailBindingChannel
 		// 旧供货编辑器只管理星行。保留其无法展示的外站绑定，避免只改毛利时丢失线路。
 		for _, old := range book.GroupBindings {
-			if book.RateSiteByChannel[old.ChannelID] != 0 && !slices.ContainsFunc(channels, func(c RetailBindingChannel) bool { return c.ID == old.ChannelID }) && !slices.Contains(bindings, old) {
+			if book.RateSiteByChannel[old.ChannelID] != 0 && !slices.ContainsFunc(channels, func(c RetailBindingChannel) bool { return c.ID == old.ChannelID }) && !slices.ContainsFunc(bindings, func(b retailprice.GroupBinding) bool {
+				return b.ChannelID == old.ChannelID && b.LocalGroup == old.LocalGroup
+			}) {
 				bindings = append(bindings, old)
+			}
+		}
+		if slices.ContainsFunc(bindings, func(b retailprice.GroupBinding) bool {
+			old := book.Binding(b.LocalGroup, b.ChannelID)
+			return b.FollowModels && (old == nil || !old.FollowModels || old.UpstreamGroup != b.UpstreamGroup)
+		}) {
+			// Resolve all opt-ins once; unrelated price edits and opting out do not need the upstream Keys.
+			syncChannels, err = RetailRateSiteChannels(db)
+			if err != nil {
+				return err
 			}
 		}
 		for index, binding := range bindings {
@@ -306,7 +321,18 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 				return retailprice.ErrConfig
 			}
 			groups[binding.ChannelID] = binding.UpstreamGroup
-			if book.RateSiteByChannel[binding.ChannelID] != 0 && slices.Contains(book.GroupBindings, binding) {
+			old := book.Binding(binding.LocalGroup, binding.ChannelID)
+			site := book.RateSiteByChannel[binding.ChannelID]
+			if binding.FollowModels && (old == nil || !old.FollowModels || old.UpstreamGroup != binding.UpstreamGroup) {
+				// 开启时核实凭据归属；停用线路可预设开关，撤销开关也不应依赖站点仍然在线。
+				if !slices.ContainsFunc(syncChannels, func(ch RetailBindingChannel) bool {
+					return ch.ID == binding.ChannelID && ch.ModelSyncSupported && (site == 0 || ch.SiteID == site)
+				}) {
+					return retailprice.ErrAccess
+				}
+			}
+			// A change of consent does not reassign a saved site's upstream group or require a new tariff.
+			if site != 0 && old != nil && old.UpstreamGroup == binding.UpstreamGroup {
 				continue
 			}
 			if _, ok := localGroups[binding.LocalGroup]; !ok {

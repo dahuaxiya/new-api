@@ -48,6 +48,7 @@ import {
   getRetailGroupBindings,
   getRetailPublicRates,
   saveRetailGroupBindings,
+  supportsRetailModelSync,
   syncRetailGroupBindings,
   type RetailBindingState,
   type RetailGroupBinding,
@@ -759,7 +760,7 @@ function BindingEditor(props: {
                       label={`${t('Allowed models')} ${index + 1}`}
                       following={bindings.some(
                         (other) =>
-                          channel.type === 1 &&
+                          supportsRetailModelSync(channel) &&
                           other.channel_id === channel.id &&
                           other.follow_models
                       )}
@@ -770,7 +771,7 @@ function BindingEditor(props: {
                 </FieldGroup>
               )}
               <div className='space-y-1 text-sm'>
-                {(channel?.type === 1 || row.follow_models) && (
+                {(supportsRetailModelSync(channel) || row.follow_models) && (
                   <div className='flex items-center gap-2'>
                     <Switch
                       id={`follow-models-${row.rowID}`}
@@ -789,7 +790,7 @@ function BindingEditor(props: {
                     </Label>
                   </div>
                 )}
-                {channel?.type === 1 && row.follow_models && (
+                {supportsRetailModelSync(channel) && row.follow_models && (
                   <p className='text-muted-foreground text-xs'>
                     {t(
                       'Every 10 minutes while sales are enabled. Missing prices need review; two complete reads confirm removals.'

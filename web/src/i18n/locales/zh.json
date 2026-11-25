@@ -1,7 +1,7 @@
 {
   "translation": {
     "No published rate for this group. You can still enter its name.": "暂未收录此分组的报价，可以手动填写组名。",
-    "Model following": "模型跟随",
+    "Automatically sync models": "自动同步模型",
     "Waiting for first sync": "待首次同步",
     "Rates and sync": "倍率与同步",
     "Key no longer available": "这把 Key 已不存在或不可编辑",
@@ -8483,7 +8483,7 @@
     "Call group unavailable": "调用分组已不可用",
     "Choose a call group. Usage is charged to your balance at its current prices.": "选择调用分组，使用费用按该分组当前售价从余额扣除。",
     "Follow this supply group’s models": "跟随该供货分组的模型",
-    "Every 10 minutes while sales are enabled. Missing prices need review; two complete reads confirm removals.": "开放销售后每 10 分钟检查一次。缺价的模型待确认，连续两次完整清单中缺失才暂停线路。",
+    "Every 10 minutes while sales are enabled. Missing prices need review; two complete reads confirm removals.": "销售和线路启用后，每 10 分钟读取一次。新模型缺价时留待确认，已有模型连续两次未出现在完整清单中，才暂停它在这条线路上的供应。",
     "Model list unavailable. Previous routes retained.": "未能读取分组模型，保留原有线路。",
     "Models to review": "待确认模型",
     "Paused on this route": "此线路已暂停",

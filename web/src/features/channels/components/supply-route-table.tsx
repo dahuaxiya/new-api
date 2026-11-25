@@ -28,9 +28,10 @@ import {
   TableBody,
 } from '@/components/ui/table'
 
-import type {
-  RetailBindingState,
-  RetailGroupBinding,
+import {
+  supportsRetailModelSync,
+  type RetailBindingState,
+  type RetailGroupBinding,
 } from '../retail-pricing-api'
 
 /** 对齐本站分组、库存、报价与模型同步开关，窄屏继续使用同一组开关与字段。
@@ -63,7 +64,7 @@ export function SupplyRouteTable(props: {
             {t('Inventory Key')} / {t('Upstream group')}
           </TableHead>
           <TableHead scope='col'>{t('Purchase multiplier')}</TableHead>
-          <TableHead scope='col'>{t('Model following')}</TableHead>
+          <TableHead scope='col'>{t('Automatically sync models')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -83,9 +84,14 @@ export function SupplyRouteTable(props: {
           let feed:
             | Pick<typeof state.sync, 'snapshot' | 'last_error'>
             | undefined
-          if (siteId) feed = state.site_feeds?.[siteId]
-          else if (legacyChannels.has(binding.channel_id) && state.sync.enabled)
+          if (siteId) {
+            feed = state.site_feeds?.[siteId]
+          } else if (
+            legacyChannels.has(binding.channel_id) &&
+            state.sync.enabled
+          ) {
             feed = state.sync
+          }
           const rate =
             !feed?.last_error && group === binding.upstream_group
               ? feed?.snapshot?.groups.find((r) => r.group === group)
@@ -109,10 +115,15 @@ export function SupplyRouteTable(props: {
                 <b>{rate ? `${rate}×` : t('Rate unavailable')}</b>
               </TableCell>
               <TableCell className='gm-supply-follow'>
-                <span className='gm-narrow-label'>{t('Model following')} </span>
-                {channel?.type === 1 ? (
+                <span className='gm-narrow-label'>
+                  {t('Automatically sync models')}{' '}
+                </span>
+                {supportsRetailModelSync(channel) || binding.follow_models ? (
                   <Switch
                     aria-label={`${t('Follow this supply group’s models')} · ${binding.local_group}`}
+                    title={t(
+                      'Every 10 minutes while sales are enabled. Missing prices need review; two complete reads confirm removals.'
+                    )}
                     disabled={props.busy}
                     checked={!!binding.follow_models}
                     onCheckedChange={(value) =>

@@ -5,12 +5,14 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/QuantumNous/new-api/service"
@@ -19,71 +21,128 @@ import (
 var errRetailModelList = errors.New("retail model list unavailable or incomplete")
 var retailModelName = regexp.MustCompile(`^[[:alnum:]_.:/-]{1,100}$`)
 
-// readRetailModelList sends only the enrolled group's bearer token to the fixed model-list endpoint.
-// The shared client rejects redirects. Never include response bodies or request headers in task errors.
-func readRetailModelList(ctx context.Context, key string) ([]string, error) {
-	return readRetailSiteModelList(ctx, "https://aixingxing.pro", key)
-}
-
-// readRetailSiteModelList reads only the enrolled inventory owner's models. Credentials never follow redirects.
-func readRetailSiteModelList(ctx context.Context, base, key string) ([]string, error) {
+// readRetailSiteModelList reads a complete catalog using the protocol, destination and Key verified
+// together by the caller. No page can redirect the credential or publish a partial catalog.
+func readRetailSiteModelList(ctx context.Context, channelType int, base, key string) ([]string, error) {
+	if retailprice.RateFeedOrigin(base) == "" || key == "" || strings.ContainsAny(key, "\r\n") {
+		return nil, errRetailModelList
+	}
 	base = strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")
+	endpoint, err := url.Parse(base + "/v1/models")
+	if err != nil {
+		return nil, errRetailModelList
+	}
+	var headers http.Header
+	switch channelType {
+	case constant.ChannelTypeOpenAI:
+		headers = GetAuthHeader(key)
+	case constant.ChannelTypeAnthropic:
+		headers = GetClaudeAuthHeader(key)
+		endpoint.RawQuery = "limit=100"
+	default:
+		return nil, errRetailModelList
+	}
+	headers.Set("Cache-Control", "no-cache")
 	client := retailPublicRatesClient
 	if base != "https://aixingxing.pro" {
 		protected := service.GetSSRFProtectedHTTPClient()
-		if protected == nil || retailprice.RateFeedOrigin(base) == "" {
+		if protected == nil {
 			return nil, errRetailModelList
 		}
 		client = &http.Client{Transport: protected.Transport, Timeout: 8 * time.Second, CheckRedirect: retailPublicRatesClient.CheckRedirect}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/models", nil)
-	if err != nil {
-		return nil, errRetailModelList
+	// One deadline for the entire snapshot, even when the supplier ignores the requested page size.
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	var names []string
+	seen := map[string]bool{}
+	for range 16 {
+		ids, cursor, err := readRetailModelPage(ctx, client, endpoint, headers, channelType)
+		if err != nil || len(names)+len(ids) > 500 {
+			return nil, errRetailModelList
+		}
+		names = append(names, ids...)
+		if cursor == "" {
+			slices.Sort(names)
+			return slices.Compact(names), nil
+		}
+		if seen[cursor] || len(names) == 500 {
+			return nil, errRetailModelList
+		}
+		seen[cursor] = true
+		// Only the cursor is taken from the response. Keep protocol, URL path and headers pinned.
+		query := endpoint.Query()
+		query.Set("after_id", cursor)
+		endpoint.RawQuery = query.Encode()
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
-	req.Header.Set("Cache-Control", "no-cache")
+	return nil, errRetailModelList
+}
+
+// readRetailModelPage closes each bounded response before another request can be issued. Upstream
+// errors are intentionally opaque because even an error body can contain credentials.
+func readRetailModelPage(ctx context.Context, client *http.Client, endpoint *url.URL, headers http.Header, channelType int) ([]string, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, "", errRetailModelList
+	}
+	req.Header = headers.Clone()
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, errRetailModelList
+		return nil, "", errRetailModelList
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || resp.Header.Get("Link") != "" {
-		return nil, errRetailModelList
+		return nil, "", errRetailModelList
 	}
 	const limit = 256 << 10
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil || len(raw) > limit {
-		return nil, errRetailModelList
+		return nil, "", errRetailModelList
 	}
-	return parseRetailModelList(raw)
+	return parseRetailModelPage(raw, channelType, endpoint.Query().Has("after_id"))
 }
 
-// parseRetailModelList rejects incomplete snapshots as a whole; partial pages cannot prove removal.
-func parseRetailModelList(raw []byte) ([]string, error) {
+// parseRetailModelPage distinguishes a complete OpenAI-compatible list from Anthropic cursor pages.
+// A bare data array or an unrecognized pagination scheme cannot prove that any model disappeared.
+func parseRetailModelPage(raw []byte, channelType int, continuation bool) ([]string, string, error) {
 	var list struct {
 		Object string `json:"object"`
 		Data   []struct {
 			ID string `json:"id"`
 		} `json:"data"`
-		HasMore    bool              `json:"has_more"`
+		HasMore    *bool             `json:"has_more"`
+		LastID     string            `json:"last_id"`
 		Next       string            `json:"next"`
 		NextPage   string            `json:"next_page"`
 		NextCursor string            `json:"next_cursor"`
 		Error      common.RawMessage `json:"error"`
 		Success    *bool             `json:"success"`
 	}
-	if common.Unmarshal(raw, &list) != nil || list.Object != "list" || len(list.Data) == 0 || len(list.Data) > 500 || list.HasMore || list.Next != "" || list.NextPage != "" || list.NextCursor != "" || (len(list.Error) > 0 && string(list.Error) != "null") || (list.Success != nil && !*list.Success) {
-		return nil, errRetailModelList
+	if common.Unmarshal(raw, &list) != nil || len(list.Data) == 0 || len(list.Data) > 500 || list.Next != "" || list.NextPage != "" || list.NextCursor != "" || (len(list.Error) > 0 && string(list.Error) != "null") || (list.Success != nil && !*list.Success) {
+		return nil, "", errRetailModelList
+	}
+	cursor := ""
+	switch {
+	case channelType == constant.ChannelTypeAnthropic && list.Object == "" && list.HasMore != nil:
+		if *list.HasMore {
+			if list.LastID == "" || list.LastID != list.Data[len(list.Data)-1].ID {
+				return nil, "", errRetailModelList
+			}
+			cursor = list.LastID
+		}
+	case list.Object == "list" && !continuation && (list.HasMore == nil || !*list.HasMore):
+		// Some relays accept Anthropic authentication but return one standard OpenAI list.
+	default:
+		return nil, "", errRetailModelList
 	}
 	names := make([]string, 0, len(list.Data))
 	for _, item := range list.Data {
 		if !retailModelName.MatchString(item.ID) {
-			return nil, errRetailModelList
+			return nil, "", errRetailModelList
 		}
 		names = append(names, item.ID)
 	}
-	slices.Sort(names)
-	return slices.Compact(names), nil
+	return names, cursor, nil
 }
 
 type retailModelsHandler struct{}
@@ -106,7 +165,8 @@ func (retailModelsHandler) Interval() time.Duration { return 10 * time.Minute }
 // NewPayload accepts no caller-supplied destinations or credentials.
 func (retailModelsHandler) NewPayload() any { return nil }
 
-// Run fetches once per credential and lets other suppliers progress during an isolated outage.
+// Run fetches the bound Key's catalog from its own site and protocol. Paused routes keep their
+// preference without contacting a supplier; one failed read cannot stop the other suppliers.
 func (h retailModelsHandler) Run(ctx context.Context, task *model.SystemTask, runner string) {
 	b, _, err := model.GetRetailPriceBook()
 	seen := map[int]bool{}
@@ -130,9 +190,12 @@ func (h retailModelsHandler) Run(ctx context.Context, task *model.SystemTask, ru
 				continue
 			}
 			src, e := model.RetailModelListSource(model.DB.WithContext(ctx), id)
+			if errors.Is(e, model.ErrRetailModelSourcePaused) {
+				continue
+			}
 			var names []string
 			if e == nil {
-				names, e = readRetailModelList(ctx, src.Key)
+				names, e = readRetailSiteModelList(ctx, src.Type, src.GetBaseURL(), src.Key)
 			}
 			if ctx.Err() != nil {
 				err = ctx.Err()

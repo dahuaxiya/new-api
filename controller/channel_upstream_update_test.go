@@ -3,9 +3,11 @@ package controller
 import (
 	"bytes"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -612,13 +614,85 @@ func TestDetectAllChannelUpstreamModelUpdatesRejectsExistingActiveTask(t *testin
 	require.Contains(t, recorder.Body.String(), "A model update task is already running or queued")
 }
 
-// TestRetailModelSyncListContract prevents empty, malformed and paginated responses from causing withdrawals.
+// TestRetailModelSyncListContract keeps OpenAI authentication and its complete-list contract intact.
 func TestRetailModelSyncListContract(t *testing.T) {
+	previous := retailPublicRatesClient.Transport
+	t.Cleanup(func() { retailPublicRatesClient.Transport = previous })
+	body := ""
+	retailPublicRatesClient.Transport = retailPublicRatesTestTransport(func(r *http.Request) (*http.Response, error) {
+		require.Equal(t, "https://aixingxing.pro/v1/models", r.URL.String())
+		require.Equal(t, "Bearer openai-test-key", r.Header.Get("Authorization"))
+		require.Empty(t, r.Header.Get("x-api-key"))
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
 	for _, raw := range []string{`{"object":"list","data":[]}`, `{"object":"list","data":[{"id":"one"}],"has_more":true}`, `{"object":"list","data":[{"id":"valid"},{}]}`, `{"object":"list","data":[{"id":"valid"}],"next_cursor":"two"}`, `{"error":"denied"}`} {
-		_, err := parseRetailModelList([]byte(raw))
+		body = raw
+		_, err := readRetailSiteModelList(t.Context(), constant.ChannelTypeOpenAI, "https://aixingxing.pro/v1", "openai-test-key")
 		require.Error(t, err)
 	}
-	ids, err := parseRetailModelList([]byte(`{"object":"list","data":[{"id":"z"},{"id":"a"},{"id":"a"}]}`))
+	body = `{"object":"list","data":[{"id":"z"},{"id":"a"},{"id":"a"}]}`
+	ids, err := readRetailSiteModelList(t.Context(), constant.ChannelTypeOpenAI, "https://aixingxing.pro", "openai-test-key")
 	require.NoError(t, err)
 	require.Equal(t, []string{"a", "z"}, ids)
+}
+
+// TestRetailAnthropicModelList checks the native wire contract and all-or-nothing pagination.
+// Failure on the final page must not turn the first page into evidence for removals.
+func TestRetailAnthropicModelList(t *testing.T) {
+	previous := retailPublicRatesClient.Transport
+	t.Cleanup(func() { retailPublicRatesClient.Transport = previous })
+	const first = `{"has_more":true,"last_id":"claude:z","data":[{"id":"claude:z"}]}`
+	for _, tc := range []struct {
+		name  string
+		pages []string
+		want  []string
+	}{
+		{"native pages", []string{first, `{"has_more":false,"last_id":"claude-a","data":[{"id":"claude-a"}]}`}, []string{"claude-a", "claude:z"}},
+		{"compatible relay", []string{`{"object":"list","data":[{"id":"claude-a"}]}`}, []string{"claude-a"}},
+		{"incomplete envelope", []string{`{"data":[{"id":"claude-a"}]}`}, nil},
+		{"unknown cursor", []string{`{"has_more":true,"last_id":"unknown","data":[{"id":"claude-a"}]}`}, nil},
+		{"missing cursor", []string{`{"has_more":true,"data":[{"id":"claude-a"}]}`}, nil},
+		{"repeated cursor", []string{first, first}, nil},
+		{"missing continuation", []string{first, `{"has_more":false,"data":[]}`}, nil},
+		{"server error", []string{first, "503"}, nil},
+		{"redirect", []string{first, "302"}, nil},
+		{"external continuation", []string{`{"has_more":false,"next":"https://other.example","data":[{"id":"claude-a"}]}`}, nil},
+		{"changed envelope", []string{first, `{"object":"list","data":[{"id":"other"}]}`}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			retailPublicRatesClient.Transport = retailPublicRatesTestTransport(func(r *http.Request) (*http.Response, error) {
+				require.Less(t, calls, len(tc.pages))
+				require.Equal(t, "aixingxing.pro", r.URL.Host)
+				require.Equal(t, "/v1/models", r.URL.Path)
+				require.Equal(t, "100", r.URL.Query().Get("limit"))
+				require.Equal(t, "kiro-test-key", r.Header.Get("x-api-key"))
+				require.Equal(t, "2023-06-01", r.Header.Get("anthropic-version"))
+				require.Empty(t, r.Header.Get("Authorization"))
+				if calls == 0 {
+					require.False(t, r.URL.Query().Has("after_id"))
+				} else {
+					require.Equal(t, "claude:z", r.URL.Query().Get("after_id"))
+				}
+				body := tc.pages[calls]
+				calls++
+				status := http.StatusOK
+				if body == "503" {
+					status = http.StatusServiceUnavailable
+				}
+				if body == "302" {
+					status = http.StatusFound
+				}
+				return &http.Response{StatusCode: status, Header: http.Header{"Location": {"https://other.example/"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})
+			ids, err := readRetailSiteModelList(t.Context(), constant.ChannelTypeAnthropic, "https://aixingxing.pro/v1/", "kiro-test-key")
+			if tc.want == nil {
+				require.ErrorIs(t, err, errRetailModelList)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.want, ids)
+			require.Equal(t, len(tc.pages), calls)
+		})
+	}
 }

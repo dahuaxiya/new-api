@@ -132,6 +132,7 @@ export type RetailSalePolicy = Pick<
 export type RetailBindingChannel = {
   library_id?: number
   allow_new_credential?: boolean
+  model_sync_supported?: boolean
   id: number
   name: string
   site_id: number
@@ -141,6 +142,20 @@ export type RetailBindingChannel = {
   has_key: boolean
   status: number
 }
+
+/** 只有专门校验完整清单的协议才可以定时同步；普通渠道的手动探测支持更多协议。
+ * @param channel 已登记的供货线路；旧接口没有返回同步资格时按协议判断。
+ * @return 该线路是否可开启同步。后端明确拒绝时不能只按协议放行。
+ */
+export function supportsRetailModelSync(
+  channel?: RetailBindingChannel
+): boolean {
+  return (
+    channel?.model_sync_supported ??
+    (channel?.type === 1 || channel?.type === 14)
+  )
+}
+
 export type RetailSupplyEdit = {
   enabled?: boolean
   confirm_key_group?: string
