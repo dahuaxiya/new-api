@@ -148,10 +148,23 @@ func TestRetailHTTPRelay(t *testing.T) {
 			{"chat_stream_missing_usage", "/v1/chat/completions", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20,"stream":true}`, "data: {\"id\":\"chat-1\",\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", types.RelayFormatOpenAI, 1, false},
 			{"responses_stream", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true}`, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-4o\",\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12}}}\n\n", types.RelayFormatOpenAIResponses, 1, true},
 			{"responses_stream_interrupted", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true}`, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n", types.RelayFormatOpenAIResponses, 1, false},
+			{"group_output_default", "/v1/responses", `{"model":"gpt-4o","input":"hello"}`, `{"status":"completed","usage":{"input_tokens":10,"output_tokens":1184,"total_tokens":1194}}`, types.RelayFormatOpenAIResponses, 1, true},
+			{"group_output_explicit", "/v1/responses", `{"model":"gpt-4o","input":"hello","max_output_tokens":1024}`, `{"status":"completed","usage":{"input_tokens":10,"output_tokens":1184,"total_tokens":1194}}`, types.RelayFormatOpenAIResponses, 1, false},
+			{"group_failed_with_usage", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true}`, "data: " + `{"type":"response.failed","response":{"status":"failed","usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}` + "\n\n", types.RelayFormatOpenAIResponses, 1, true},
+			{"group_failed_partial_usage", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true}`, "data: " + `{"type":"response.failed","response":{"status":"failed","usage":{"input_tokens":10}}}` + "\n\n", types.RelayFormatOpenAIResponses, 1, false},
 			{"responses_stream_estimated", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true}`, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-4o\",\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":0,\"total_tokens\":10}}}\n\n", types.RelayFormatOpenAIResponses, 1, false},
 			{"claude_stream", "/v1/messages", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20,"stream":true}`, "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"gpt-4o\",\"content\":[],\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"OK\"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\ndata: {\"type\":\"message_stop\"}\n\n", types.RelayFormatClaude, 14, true},
 		} {
 			t.Run(fmt.Sprintf("%s/guarded_%t", scenario.name, priced), func(t *testing.T) {
+				groupCase := strings.HasPrefix(scenario.name, "group_output_")
+				groupFailed := strings.HasPrefix(scenario.name, "group_failed_")
+				if (groupCase || groupFailed) && !priced {
+					t.Skip("group pricing requires a tariff")
+				}
+				// 明确的零输出保留原始计数；未启用零售报价的旧路径仍沿用原测试预期。
+				if priced && scenario.name == "responses_stream_estimated" {
+					scenario.charged = true
+				}
 				imageTool := strings.HasPrefix(scenario.name, "tool_image")
 				if strings.HasPrefix(scenario.name, "tool_search_") && !priced {
 					t.Skip("search fee requires published retail tariff")
@@ -198,6 +211,14 @@ func TestRetailHTTPRelay(t *testing.T) {
 				var publishDuringCall func() error
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					hit := hits.Add(1)
+					if groupCase {
+						raw, err := io.ReadAll(r.Body)
+						cap := gjson.GetBytes(raw, "max_output_tokens")
+						if err != nil || cap.Exists() != (scenario.name == "group_output_explicit") || cap.Exists() && cap.Int() != 1024 {
+							http.Error(w, "wrong output limit", 400)
+							return
+						}
+					}
 					if strings.HasPrefix(scenario.name, "tool_search_compat_") {
 						raw, err := io.ReadAll(r.Body)
 						cap := gjson.GetBytes(raw, "max_tool_calls")
@@ -310,7 +331,11 @@ func TestRetailHTTPRelay(t *testing.T) {
 							return err
 						}
 					}
-					require.NoError(t, model.PutRetailKeyPolicy(user.Id, token.Id, 0, retailprice.KeyPolicy{ProductID: "standard", AcceptFloating: true, Caps: map[string]retailprice.Prices{"gpt-4o": cap}, MaxRequestCNY: "1", DailyBudgetCNY: "1"}))
+					policy := retailprice.KeyPolicy{ProductID: "standard", AcceptFloating: true, Caps: map[string]retailprice.Prices{"gpt-4o": cap}, MaxRequestCNY: "1", DailyBudgetCNY: "1"}
+					if groupCase || groupFailed {
+						policy = retailprice.KeyPolicy{ProductID: "standard", GroupCurrent: true}
+					}
+					require.NoError(t, model.PutRetailKeyPolicy(user.Id, token.Id, 0, policy))
 				}
 				engine := gin.New()
 				engine.Use(middleware.BodyStorageCleanup())
@@ -344,8 +369,13 @@ func TestRetailHTTPRelay(t *testing.T) {
 						expected = 21
 					}
 					if scenario.name == "tool_search_compat_used" || scenario.name == "tool_search_used" || scenario.name == "tool_search_stream" {
-						expected += 1500
-					} // 每千次 10，测试倍率 0.3；只结算实际调用。
+						expected += 1200 // 搜索按原始组倍率 0.24，而非含毛利的文本倍率 0.30。
+					}
+					if groupCase {
+						expected = 3567 // 10 输入、1184 输出，按冻结价 3/6 每百万 token。
+					} else if priced && scenario.name == "responses_stream_estimated" {
+						expected = 15 // 只结算上游报告的 10 输入，不把本地收到的文字算作输出。
+					}
 					if imageTool && scenario.name != "tool_image_empty" {
 						// 测试价每千张 150，倍率 0.3；单张 0.045 元，对应 22500 额度。
 						expected += 22500
@@ -370,7 +400,7 @@ func TestRetailHTTPRelay(t *testing.T) {
 				}
 				if strings.HasSuffix(scenario.name, "interrupted") {
 					require.Equal(t, "interrupted", attempt.State)
-				} else if wantStatus != 200 {
+				} else if wantStatus != 200 || groupFailed {
 					require.Equal(t, "failed", attempt.State)
 				} else {
 					require.Equal(t, "completed", attempt.State)

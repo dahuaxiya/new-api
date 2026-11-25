@@ -63,9 +63,12 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	store := gjson.GetBytes(raw, "store")
 	c.Set("retail_client_store", store.Type == gjson.True)
 	c.Set("retail_client_no_store", store.Type == gjson.False)
-	output := uint(1024)
+	// 首次查价仅辨认商品与模型，不应把本地占位数写成客户的输出限制。
+	output := uint(1)
+	explicitOutput := false
 	switch req := info.Request.(type) {
 	case *dto.GeneralOpenAIRequest:
+		explicitOutput = req.MaxTokens != nil || req.MaxCompletionTokens != nil
 		if req.MaxTokens != nil {
 			output = *req.MaxTokens
 		}
@@ -79,16 +82,19 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 			return true, retailPriceError(retailprice.ErrConfig)
 		}
 	case *dto.OpenAIResponsesRequest:
+		explicitOutput = req.MaxOutputTokens != nil
 		if req.MaxOutputTokens != nil {
 			output = *req.MaxOutputTokens
 		}
 	case *dto.GeminiChatRequest:
+		explicitOutput = req.GenerationConfig.MaxOutputTokens != nil
 		if req.GenerationConfig.MaxOutputTokens != nil {
 			output = *req.GenerationConfig.MaxOutputTokens
 		}
 	case *dto.ImageRequest:
 		output = 1 // MakeQuote replaces this with the verified image output bound.
 	case *dto.ClaudeRequest:
+		explicitOutput = req.MaxTokens != nil
 		if req.MaxTokens != nil {
 			output = *req.MaxTokens
 		}
@@ -117,6 +123,16 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		}
 		return true, retailPriceError(err)
 	}
+	clientLimit := 0
+	if explicitOutput {
+		clientLimit = int(output)
+	} else if quote.EstimatedTextHold {
+		// 分组 Key 按输入预留；未声明上限时只用模型容量校验账单，出站保留供应商默认值。
+		output = uint(quote.Model.MaxOutput)
+	} else {
+		// 带显式金额预算的旧 Key 仍须在发单前锁定最大费用。
+		output = uint(min(1024, quote.Model.MaxOutput))
+	}
 	responses := c.Request.URL.Path == "/v1/responses"
 	if responses {
 		// Read the selected route before reserving: rejecting only after dispatch leaves a wallet hold.
@@ -137,7 +153,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 			// 此线路使用模型上限结算。显式值不代表上游执行了独立的截断。
 			c.Header("X-Luobo-Output-Limit", "best-effort")
 		}
-		if limited || c.GetString("retail_responses_utility") == "compact" {
+		if !explicitOutput && (limited || c.GetString("retail_responses_utility") == "compact") {
 			// 无法约束输出的线路以模型上限校验实报用量；输出上限不参与分组文本的输入预扣。
 			output = uint(quote.Model.MaxOutput)
 		}
@@ -194,6 +210,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		}
 		return true, retailPriceError(err)
 	}
+	quote.ClientOutputLimit = clientLimit
 	if imageRequest != (quote.Model.Kind == "image") || (quote.InputLimit > 0 && tokens > quote.InputLimit) {
 		return true, retailPriceError(retailprice.ErrBudget)
 	}
@@ -402,6 +419,10 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		}
 		outgoingLimit = max(outgoingLimit, searchLimit)
 		setOutput := !gjson.GetBytes(raw, limitField).Exists()
+		if quote.EstimatedTextHold && quote.ClientOutputLimit == 0 && (strings.HasSuffix(req.URL.Path, "/responses") || strings.HasSuffix(req.URL.Path, "/chat/completions")) {
+			// 不向支持省略上限的 OpenAI 接口注入模型最大值；某些线路拒收该参数。
+			setOutput = false
+		}
 		setTool := outgoingLimit > 0 && !gjson.GetBytes(raw, "max_tool_calls").Exists()
 		// 只允许已配置的原生 HTTP 流走本地次数检查。非流式和生图仍要求上游硬上限。
 		if explicit := c.GetString("retail_explicit_tool_cap"); explicit != "" && outgoingLimit > 0 && gjson.GetBytes(raw, "max_tool_calls").Raw != explicit {
@@ -877,12 +898,20 @@ func retailToolLimit(raw []byte, path, kind string) (int, error) {
 }
 
 // freezeRetailTool 在钱包预留前冻结工具的人民币单价；站内工具价以每千次为单位。
-// 复用同一分组的售价倍率，结算时不再读取可热更新的工具价和分组配置。
+// 搜索按官方基价和分组原始倍率，图片继续按销售倍率。结算沿用已冻结单价。
 func freezeRetailTool(q *retailprice.Quote, tool string, perThousand float64, limit int) error {
 	if limit < 1 || limit > dto.MaxImageN || perThousand <= 0 || math.IsNaN(perThousand) || math.IsInf(perThousand, 0) {
 		return retailprice.ErrConfig
 	}
 	unit := decimal.NewFromFloat(perThousand).Shift(-3).Mul(q.SaleFactor).RoundCeil(8)
+	if tool == dto.BuildInToolWebSearch {
+		factor, err := retailprice.Amount(q.GroupMultiplier)
+		if err != nil || !factor.IsPositive() {
+			return retailprice.ErrConfig
+		}
+		// 零售钱包沿用本站美元数值计人民币的约定，搜索不再加收零售利润。
+		unit = decimal.New(1, -2).Mul(factor).RoundCeil(8)
+	}
 	if !unit.IsPositive() {
 		return retailprice.ErrConfig
 	}

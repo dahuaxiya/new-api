@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/tokenkit"
+	"github.com/tidwall/gjson"
 )
 
 // ResponsesUsageAccumulator owns the accounting facts for one Responses stream.
@@ -16,14 +17,15 @@ import (
 // Finish's usage through the normal text billing path, including interrupted
 // streams. Observe and Finish must be called by the same stream owner.
 type ResponsesUsageAccumulator struct {
-	info            *relaycommon.RelayInfo
-	usage           *dto.Usage
-	outputText      strings.Builder
-	imageCounter    relaycommon.ImageGenerationCallCounter
-	imageCommitted  bool
-	retailSearchIDs map[string]struct{}
-	started         bool
-	finished        bool
+	info              *relaycommon.RelayInfo
+	usage             *dto.Usage
+	outputText        strings.Builder
+	imageCounter      relaycommon.ImageGenerationCallCounter
+	imageCommitted    bool
+	retailSearchIDs   map[string]struct{}
+	started           bool
+	finished          bool
+	retailFinalCounts bool
 }
 
 func NewResponsesUsageAccumulator(info *relaycommon.RelayInfo) *ResponsesUsageAccumulator {
@@ -57,6 +59,11 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse, 
 	case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
 		if event.Response != nil {
 			ObserveResponsesEffort(a.info, event.Response)
+			if a.info.RetailQuote != nil && event.Response.Usage != nil {
+				// JSON 里的显式 0 与缺字段在 Go 结构里相同。只有终帧实报的两项都存在，才排除本地估算。
+				u := gjson.GetBytes(raw, "response.usage")
+				a.retailFinalCounts = u.Get("input_tokens").Type == gjson.Number && u.Get("output_tokens").Type == gjson.Number
+			}
 			ApplyResponsesUsage(a.usage, event.Response.Usage)
 			if a.outputText.Len() == 0 {
 				// Some upstreams carry the output only on the terminal event.
@@ -130,6 +137,7 @@ func (a *ResponsesUsageAccumulator) observeRetailSearch(item *dto.ResponsesOutpu
 	return true
 }
 
+// Finish 返回本轮最终用量。零售确认的零值不补算；缺少凭据时旧统计仍可估算，但不能用于扣费。
 func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {
 	if a.finished {
 		return a.usage
@@ -140,6 +148,14 @@ func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {
 	if !a.imageCommitted {
 		a.imageCounter.Commit(a.info)
 		a.imageCommitted = true
+	}
+	if a.info.RetailQuote != nil && a.usage.BillingUsage != nil {
+		if a.retailFinalCounts && !a.usage.BillingUsage.Estimated {
+			// 即使传输提前结束或输出为零，只要上游终帧有完整计数，就保留原始账单。
+			return a.usage
+		}
+		// 不能把部分 usage 与本地 token 拼成一张看似完整的账单。
+		a.usage.BillingUsage.Estimated = true
 	}
 	if a.usage.CompletionTokens == 0 {
 		if output := a.outputText.String(); output != "" {
