@@ -1,123 +1,245 @@
-.wl {
-  max-width: 1160px;
-  margin: auto;
-  color: var(--ink);
+.wl,
+.wl-sheet {
   font-variant-numeric: tabular-nums;
+}
+.wl {
+  color: var(--ink);
+  margin: auto;
+  /* 内页页脚固定在滚动区下方，留出空白让最后一条流水完整露出。 */
+  padding-bottom: 1.5rem;
 }
 .wl-head,
 .wl-trend header,
-.wl-trend footer {
+.wl-trend footer,
+.wl-readout,
+.wl-links {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-}
-.wl h1 {
-  font-size: clamp(22px, 3vw, 28px);
-  font-weight: 650;
-  letter-spacing: -0.035em;
+  gap: 0.65rem;
 }
 .wl h2 {
-  font-size: 15px;
+  font-size: 1rem;
+  line-height: 1.35;
   font-weight: 600;
 }
 .wl p,
 .wl small,
 .wl dt,
-.wl-trend footer {
-  font-size: 12px;
+.wl-trend footer,
+.wl-readout time,
+.wl-labels,
+.wl-scale {
+  font-size: 0.8125rem;
   color: var(--sub);
+  line-height: 1.5;
+}
+.wl-head p {
+  margin-top: 0.25rem;
 }
 .wl-overview {
   display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  gap: 14px;
-  margin: 17px 0;
+  grid-template-columns: minmax(0, 0.83fr) minmax(0, 1.17fr);
+  gap: 0.875rem;
+  margin: 1rem 0;
 }
 .wl-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 13px;
-  padding: 17px;
+  padding: clamp(1rem, 1.6vw, 1.35rem);
   min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--surface);
 }
 .wl-balance {
-  background:
-    radial-gradient(ellipse at 100% 0%, #f4d9c2, transparent 66%), #fffdf9;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: linear-gradient(
+    120deg,
+    var(--surface) 27%,
+    color-mix(in srgb, var(--apricot) 55%, var(--surface))
+  );
 }
-.dark .wl-balance {
-  background:
-    radial-gradient(ellipse at 100% 0%, #58412d, transparent 66%),
-    var(--surface);
+.wl-balance h2 {
+  color: var(--sub);
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 .wl-amount {
   display: block;
-  font-size: clamp(36px, 4vw, 49px);
-  line-height: 1.25;
-  letter-spacing: -0.045em;
+  font-size: clamp(1.875rem, 2.8vw, 2.25rem);
+  font-weight: 600;
+  line-height: 1.14;
+  margin: 0.25rem 0 0.75rem;
 }
 .wl-metrics {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   border-top: 1px solid var(--line);
-  padding-top: 9px;
-  margin-top: 8px;
-}
-.wl-metrics > div {
-  flex: 1;
+  padding-top: 0.7rem;
 }
 .wl-metrics > div + div {
-  padding-inline-start: 14px;
+  padding-inline-start: 1rem;
   border-inline-start: 1px solid var(--line);
 }
-.wl dd {
+.wl-metrics dd {
+  font-size: 1rem;
   font-weight: 600;
 }
-.wl-choices {
-  display: flex;
-  gap: 3px;
-  flex-wrap: wrap;
+.wl-pending-link {
+  /* 预留是正常状态，用正文色；强调色只留给充值和异常。 */
+  color: var(--ink);
+  cursor: pointer;
+  text-underline-offset: 0.22em;
 }
-.wl-choices button,
-.wl-activity > a {
-  border-radius: 7px;
-  padding: 5px 9px;
+.wl-pending-link:hover {
+  text-decoration: underline;
+}
+.wl-pending-link span {
   color: var(--sub);
-  font-size: 13px;
+}
+.wl-metrics dd small {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.wl-choices {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  background: color-mix(in srgb, var(--line) 39%, var(--surface));
+  border-radius: 0.68rem;
+}
+.wl-choices button {
+  padding: 0.28rem 0.65rem;
+  border-radius: 0.48rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  font-weight: 500;
+  color: var(--sub);
+  cursor: pointer;
 }
 .wl-choices button[aria-pressed='true'] {
-  background: var(--apricot);
-  color: var(--accent-ink);
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 1px 3px #0002;
 }
-.wl-trend svg {
+.wl-chart {
+  margin-top: 0.5rem;
+}
+.wl-readout {
+  justify-content: start;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+.wl-readout strong {
+  font-size: clamp(1.0625rem, 1.45vw, 1.1875rem);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.wl-readout time,
+.wl-trend footer,
+.wl-scale {
+  font-size: 0.8125rem;
+}
+.wl-plot-area {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 0.7rem;
+  margin: 0.35rem 0.3rem 0.15rem;
+}
+.wl-scale {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.2rem 0;
+  align-self: stretch;
+  text-align: end;
+}
+.wl-scale:has(> :only-child) {
+  justify-content: center;
+}
+.wl-plot {
+  grid-column: 1;
+  grid-row: 1;
+  height: 4.8rem;
+  position: relative;
+  cursor: crosshair;
+  touch-action: pan-y;
+  direction: ltr;
+}
+.wl-plot svg {
+  display: block;
   width: 100%;
-  height: 90px;
+  height: 100%;
   color: var(--accent-ink);
-  margin: 8px 0;
+  overflow: visible;
+}
+.wl-guide {
+  stroke: var(--line);
+  stroke-dasharray: 2 5;
+  stroke-width: 1;
+}
+.wl-cursor,
+.wl-point {
+  position: absolute;
+  pointer-events: none;
+}
+.wl-cursor {
+  inset-block: 0;
+  border-inline-start: 1px dashed var(--accent-ink);
+  opacity: 0.45;
+}
+.wl-point {
+  width: 0.6rem;
+  height: 0.6rem;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--accent-ink);
+  box-shadow: 0 0 0 1px var(--accent-ink);
+  transform: translate(-50%, -50%);
+}
+.wl-trend footer {
+  justify-content: space-between;
+}
+.wl-coverage {
+  margin-top: 0.4rem;
+  font-size: 0.75rem !important;
 }
 .wl-activity .wl-choices {
-  margin: 10px 0;
+  margin: 0.75rem 0;
 }
 .wl-empty {
   text-align: center;
-  padding: 25px 5px;
+  padding: 1.5rem 0.4rem;
 }
 .wl-row,
 .wl-labels {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(100px, 0.45fr) minmax(
-      100px,
-      0.45fr
-    );
   align-items: center;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(7rem, 0.46fr) minmax(
+      6rem,
+      0.36fr
+    );
+  gap: 0.75rem;
+  text-align: end;
   width: 100%;
-  text-align: right;
-  padding: 9px 4px;
-  border-top: 1px solid var(--line);
+  padding: 0.65rem 0.6rem;
+  border-block-start: 1px solid var(--line);
 }
 .wl-labels {
-  font-size: 12px;
-  color: var(--sub);
+  font-size: 0.8125rem;
+  padding-block: 0.45rem;
+}
+.wl-row {
+  cursor: pointer;
+  min-height: 3.5rem;
 }
 .wl-row > span:first-child,
 .wl-labels > span:first-child {
@@ -127,16 +249,36 @@
 .wl-row small {
   display: block;
 }
-.wl-row b,
+.wl-row b {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.wl-row small {
+  font-size: 0.8125rem;
+}
 .wl-row strong {
   font-weight: 600;
+  font-size: 1rem;
+  white-space: nowrap;
 }
-.wl-row:hover,
-.wl-row:focus-visible {
-  background: var(--apricot);
+/* 整数部分靠右、小数部分靠左，不同精度的实扣也能按小数点对齐，不补零。 */
+.wl-num {
+  display: inline-grid;
+  grid-template-columns: auto 4.6em;
 }
-.wl-row:active {
-  opacity: 0.75;
+.wl-num > span:last-child {
+  text-align: start;
+}
+.wl-after {
+  color: var(--sub);
+  font-size: 0.875rem;
+}
+.wl-mobile-label {
+  display: none;
+}
+.wl-row strong[data-pending='true'] {
+  color: var(--sub);
+  font-weight: 500;
 }
 .wl-row strong[data-credit='true'] {
   color: #23694f;
@@ -144,63 +286,202 @@
 .dark .wl-row strong[data-credit='true'] {
   color: #8ed3b1;
 }
-.wl-foot {
-  margin: 12px 0 6px;
+@media (hover: hover) {
+  .wl-row:hover,
+  .wl-choices button:hover:not([aria-pressed='true']) {
+    background: color-mix(in srgb, var(--apricot) 55%, transparent);
+  }
 }
-.wl-detail {
-  padding: 0 20px 22px;
-}
-.wl-detail > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
-}
-.wl-detail dd {
-  overflow-wrap: anywhere;
-  text-align: end;
+.wl-row:active,
+.wl-choices button:active {
+  background: var(--apricot);
 }
 .wl button:focus-visible,
 .wl a:focus-visible {
   outline: 2px solid var(--accent-ink);
-  outline-offset: 1px;
+  outline-offset: 2px;
+}
+/* 键盘移动的是选中点，焦点提示跟着点走，避免描边盖过整张图。 */
+.wl-plot:focus {
+  outline: none;
+}
+.wl-plot:focus-visible .wl-point {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  .wl-plot:focus-visible .wl-point {
+    outline-color: Highlight;
+  }
+}
+.wl-foot {
+  margin: 0.85rem 0.6rem 0.35rem;
+}
+.wl-links {
+  justify-content: start;
+  gap: 1rem;
+  padding-inline: 0.6rem;
+  flex-wrap: wrap;
+}
+.wl-links a {
+  color: var(--accent-ink);
+  font-size: 0.8rem;
+  text-underline-offset: 0.22em;
+}
+.wl-links a:hover {
+  text-decoration: underline;
+}
+.wl-sheet[data-slot] {
+  gap: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.wl-sheet [data-slot='sheet-header'] {
+  padding: 1.5rem 3rem 0.8rem 1.35rem;
+}
+.wl-detail {
+  padding: 0 1.35rem max(1.35rem, env(safe-area-inset-bottom));
+}
+.wl-charge {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.9rem 1rem;
+  border-radius: 0.8rem;
+  background: var(--muted);
+}
+.wl-charge span {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+.wl-charge strong {
+  font-size: 1.5rem;
+  line-height: 1.25;
+  font-weight: 600;
+}
+.wl-equation,
+.wl-facts {
+  margin-top: 0.75rem;
+}
+.wl-equation > div,
+.wl-facts > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.45rem 0.15rem;
+}
+.wl-equation > [data-total='true'] {
+  margin-top: 0.2rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+}
+.wl-equation > [data-total='true'] dt {
+  color: inherit;
+}
+.wl-facts {
+  border-top: 1px solid var(--border);
+  padding-top: 0.3rem;
+}
+.wl-detail dt {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+.wl-detail dd {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  text-align: end;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  font-weight: 500;
+}
+.wl-detail code {
+  font-family: inherit;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+.wl-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.45rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.wl-icon:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.wl-icon svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+.wl-log-link {
+  width: 100%;
+  margin-top: 1rem;
 }
 @media (max-width: 640px) {
   .wl-overview {
     grid-template-columns: 1fr;
-    gap: 10px;
-    margin: 12px 0;
+    gap: 0.6rem;
+    margin: 0.75rem 0;
   }
   .wl-card {
-    padding: 13px;
+    padding: 0.9rem;
+    border-radius: 0.85rem;
   }
-  .wl-trend svg {
-    height: 72px;
+  .wl-amount {
+    margin: 0.2rem 0 0.65rem;
+  }
+  .wl-metrics {
+    padding-top: 0.45rem;
+  }
+  .wl-choices button {
+    min-height: 2.25rem;
   }
   .wl-labels {
     display: none;
   }
   .wl-row {
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 1px 8px;
+    gap: 0 0.5rem;
+    padding: 0.55rem 0.2rem;
   }
   .wl-row > span:first-child {
     grid-row: span 2;
   }
-  .wl-after {
-    font-size: 12px;
-    color: var(--sub);
+  .wl-mobile-label {
+    display: inline;
   }
-  .wl-choices button {
-    min-height: 36px;
+  .wl-after {
+    font-size: 0.8125rem;
+  }
+  .wl-plot {
+    height: 4rem;
+  }
+  .wl-sheet[data-side='bottom'] {
+    border-radius: 1.2rem 1.2rem 0 0;
+    max-height: 88dvh;
   }
 }
-@media (prefers-reduced-motion: no-preference) {
-  .wl-choices button,
-  .wl-row {
-    transition:
-      background-color 0.14s ease,
-      color 0.14s ease;
+@media (prefers-reduced-motion: reduce) {
+  .wl-sheet[data-slot],
+  .wl-sheet[data-slot][data-starting-style],
+  .wl-sheet[data-slot][data-ending-style] {
+    translate: none;
+    transition-property: opacity;
+    transition-duration: 0.08s;
+  }
+}
+@media (prefers-contrast: more) {
+  .wl-choices button[aria-pressed='true'] {
+    outline: 1px solid currentColor;
+  }
+  .wl-guide {
+    stroke: currentColor;
   }
 }

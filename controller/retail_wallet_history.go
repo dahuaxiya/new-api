@@ -30,7 +30,13 @@ func GetRetailWalletHistory(c *gin.Context) {
 		c.Status(http.StatusBadRequest)
 		return
 	}
-	history, err := model.ReadRetailWalletHistory(c.Request.Context(), c.GetInt("id"), days, time.Now(), before, source, key)
+	// 老客户端默认仍读原始流水；视图只改变呈现，不改变账本或所有者。
+	view := c.DefaultQuery("view", "events")
+	if view != "activity" && view != "pending" && view != "events" {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	history, err := model.ReadRetailWalletView(c.Request.Context(), c.GetInt("id"), days, time.Now(), before, source, key, view)
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return

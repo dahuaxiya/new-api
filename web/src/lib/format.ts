@@ -230,14 +230,16 @@ export function formatTimeStr(date: Date): string {
   return dayjs(date).format('HH:mm:ss')
 }
 
-/**
- * Format quota for usage logs with higher precision
- * Uses 6 decimal places to show very small costs accurately
+/** 钱包与使用日志共用单笔费用精度，两处仍各自按账本币种换算。 */
+export const usageCostPrecision = { digitsLarge: 4, digitsSmall: 6 } as const
+
+/** 格式化使用日志中的费用，小于一个货币单位时最多展示六位小数。
+ * @param quota 请求的整数额度。
+ * @return 按当前显示币种换算的金额。
  */
 export function formatLogQuota(quota: number): string {
   return formatQuotaWithCurrency(quota, {
-    digitsLarge: 4,
-    digitsSmall: 6,
+    ...usageCostPrecision,
     abbreviate: false,
   })
 }

@@ -152,6 +152,20 @@ func TestRetailDatabases(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, older.Events, 1)
 			require.Equal(t, "hold_total", older.Events[0].Kind)
+			// 即使预留在前一天，消费摘要仍完整显示实扣及差额；长期未结算单可以从总额钻取。
+			pending := RetailCharge{ID: "wallet-pending-old", UserID: outsider.Id, Reserved: 11, Status: "reserved", CreatedAt: now.Add(-48 * time.Hour).Unix()}
+			require.NoError(t, db.Create(&pending).Error)
+			activity, err := ReadRetailWalletView(t.Context(), outsider.Id, 1, now, 0, 0, "", "activity")
+			require.NoError(t, err)
+			require.Len(t, activity.Events, 1)
+			require.Equal(t, "settle", activity.Events[0].Kind)
+			require.EqualValues(t, -3, activity.Events[0].Delta)
+			require.EqualValues(t, 10, *activity.Events[0].Held)
+			open, err := ReadRetailWalletView(t.Context(), outsider.Id, 1, now, 0, 0, "", "pending")
+			require.NoError(t, err)
+			require.Len(t, open.Events, 1)
+			require.Equal(t, pending.ID, open.Events[0].Reference)
+			require.EqualValues(t, open.Pending, *open.Events[0].Held)
 
 			other, err := CreateWalletPayment(user.Id, "merchant-a", 1234, 500, 1)
 			require.NoError(t, err)

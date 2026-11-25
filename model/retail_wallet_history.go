@@ -37,6 +37,7 @@ type RetailWalletEvent struct {
 	At        int64  `json:"at"`
 	Delta     int64  `json:"delta"`
 	Actual    *int64 `json:"actual"`
+	Held      *int64 `json:"held,omitempty"`
 	After     *int64 `json:"after" gorm:"column:balance_after"`
 	Source    int    `json:"source"`
 	EventKey  string `json:"key"`
@@ -53,8 +54,13 @@ type RetailWalletHistory struct {
 // ReadRetailWalletHistory 按上海自然日读取，翻页键含来源和单据号，避免同秒交易被跳过。
 // userID 必须来自会话；所有分支按单据所有者过滤，历史余额不得根据当前余额倒推。
 func ReadRetailWalletHistory(ctx context.Context, userID, days int, now time.Time, before int64, source int, key string) (RetailWalletHistory, error) {
+	return ReadRetailWalletView(ctx, userID, days, now, before, source, key, "events")
+}
+
+// ReadRetailWalletView 只读当前用户的账单。activity 在分页前按请求取最终实扣；pending 与卡片总额一样不限日期。
+func ReadRetailWalletView(ctx context.Context, userID, days int, now time.Time, before int64, source int, key, view string) (RetailWalletHistory, error) {
 	result := RetailWalletHistory{Events: []RetailWalletEvent{}, QuotaPerUnit: common.QuotaPerUnit}
-	if userID <= 0 || (days != 1 && days != 7 && days != 30) || before < 0 || source < 0 || source > 5 || len(key) > 255 {
+	if userID <= 0 || (days != 1 && days != 7 && days != 30) || before < 0 || source < 0 || source > 5 || len(key) > 255 || (view != "events" && view != "activity" && view != "pending") {
 		return result, errors.New("invalid wallet history query")
 	}
 	local := now.In(time.FixedZone("CST", 8*60*60))
@@ -77,18 +83,38 @@ func ReadRetailWalletHistory(ctx context.Context, userID, days int, now time.Tim
 			return err
 		}
 		// 固定 SQL 片段，类型转换只取决于受支持的方言。客户端输入全部绑定，绝不拼入 SQL。
-		query := `SELECT * FROM (
+		charges := `
  SELECT id AS reference, CASE WHEN held_balance IS NULL AND pricing_version = 0 THEN 'hold_total' ELSE 'hold' END AS kind,created_at AS at,-COALESCE(initial_hold,reserved) AS delta,NULL AS actual,held_balance AS balance_after,1 AS source,id AS event_key FROM retail_charges WHERE user_id=? AND created_at>=? AND COALESCE(initial_hold,reserved)>0
  UNION ALL SELECT id,CASE WHEN status='refunded' THEN 'release' ELSE 'settle' END,updated_at,reserved-actual,actual,final_balance,5,id FROM retail_charges WHERE user_id=? AND updated_at>=? AND status IN ('refunded','settled')
- UNION ALL SELECT wp.order_id,'topup',tu.complete_time,wp.quota,NULL,wp.balance_after,2,wp.order_id FROM wallet_payments wp JOIN top_ups tu ON tu.trade_no=wp.order_id AND tu.user_id=wp.user_id WHERE wp.user_id=? AND tu.complete_time>=? AND tu.payment_provider=?
- UNION ALL SELECT CAST(id AS TEXT),'redeem',redeemed_time,quota,NULL,balance_after,3,CAST(id AS TEXT) FROM redemptions WHERE used_user_id=? AND redeemed_time>=? AND status=?
- UNION ALL SELECT reference,kind,created_at,delta,NULL,balance,4,CAST(id AS TEXT) FROM retail_wallet_movements WHERE user_id=? AND created_at>=?
- ) w`
+ `
+		args := []any{userID, since, userID, since}
+		heldColumn := ""
+		if view != "events" {
+			// 直接取原始单据，避免预留和结算跨日或跨页时算错。追加过预留的旧余额不能当作当前快照。
+			charges = `SELECT id AS reference,'pending' AS kind,created_at AS at,-reserved AS delta,NULL AS actual,CASE WHEN initial_hold=reserved OR initial_hold IS NULL THEN held_balance ELSE NULL END AS balance_after,1 AS source,id AS event_key,reserved AS held FROM retail_charges WHERE user_id=? AND status='reserved' AND reserved>0`
+			args = []any{userID}
+			if view == "activity" {
+				charges += ` AND created_at>=? UNION ALL SELECT id,CASE WHEN status='refunded' THEN 'release' ELSE 'settle' END,updated_at,-actual,actual,final_balance,5,id,reserved FROM retail_charges WHERE user_id=? AND updated_at>=? AND status IN ('settled','refunded')`
+				args = append(args, since, userID, since)
+			}
+			heldColumn = ",NULL"
+		}
+		query := "SELECT * FROM (" + charges
+		if view != "pending" {
+			query += ` UNION ALL SELECT wp.order_id,'topup',tu.complete_time,wp.quota,NULL,wp.balance_after,2,wp.order_id` + heldColumn + ` FROM wallet_payments wp JOIN top_ups tu ON tu.trade_no=wp.order_id AND tu.user_id=wp.user_id WHERE wp.user_id=? AND tu.complete_time>=? AND tu.payment_provider=?
+ UNION ALL SELECT CAST(id AS TEXT),'redeem',redeemed_time,quota,NULL,balance_after,3,CAST(id AS TEXT)` + heldColumn + ` FROM redemptions WHERE used_user_id=? AND redeemed_time>=? AND status=?
+ UNION ALL SELECT reference,kind,created_at,delta,NULL,balance,4,CAST(id AS TEXT)` + heldColumn + ` FROM retail_wallet_movements WHERE user_id=? AND created_at>=?`
+			if view == "activity" {
+				// 总预留已包含追加金额；再显示 extra_hold 会让同一请求重复出现。
+				query += ` AND kind<>'extra_hold'`
+			}
+			args = append(args, userID, since, PaymentProviderAlipayOfficial, userID, since, common.RedemptionCodeStatusUsed, userID, since)
+		}
+		query += ") w"
 		if db.Dialector.Name() == "mysql" {
 			// 旧表与新版校验表可能采用不同的排序规则；UNION 与后续游标比较统一按标识的二进制顺序。
 			query = strings.NewReplacer(" AS TEXT)", " AS CHAR)", "id AS reference", "CONVERT(id USING utf8mb4) COLLATE utf8mb4_bin AS reference", "END AS kind", "END COLLATE utf8mb4_bin AS kind", "id AS event_key", "CONVERT(id USING utf8mb4) COLLATE utf8mb4_bin AS event_key").Replace(query)
 		}
-		args := []any{userID, since, userID, since, userID, since, PaymentProviderAlipayOfficial, userID, since, common.RedemptionCodeStatusUsed, userID, since}
 		if before > 0 {
 			query += " WHERE (at < ? OR (at = ? AND (source < ? OR (source = ? AND event_key < ?))))"
 			args = append(args, before, before, source, source, key)
