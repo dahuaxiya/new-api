@@ -145,6 +145,7 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 	return nil, errors.New("not implemented")
 }
 
+// ConvertOpenAIResponsesRequest 将 Responses 转为 Messages；零售搜索须携带报价冻结的调用上限。
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
 	result, err := service.ConvertRequest(c, info, types.RelayFormatClaude, &request)
 	if err != nil {
@@ -153,6 +154,21 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	claudeRequest, ok := result.Value.(*dto.ClaudeRequest)
 	if !ok {
 		return nil, fmt.Errorf("expected Anthropic Messages request, got %T", result.Value)
+	}
+	if info != nil && info.RetailQuote != nil && info.RetailQuote.SearchLimit > 0 {
+		for _, tool := range request.GetToolsMap() {
+			if tool["type"] == "web_search" && tool["external_web_access"] == false {
+				// Messages 没有仅搜索缓存的模式，不能悄悄把离线搜索改成联网。
+				return nil, errors.New("Claude web search does not support external_web_access:false")
+			}
+		}
+		// Claude 使用工具自身的 max_uses。最终发单时还要复核，防止渠道覆盖修改次数。
+		tools, _ := claudeRequest.Tools.([]any)
+		for _, entry := range tools {
+			if tool, ok := entry.(map[string]any); ok && tool["type"] == "web_search_20250305" && tool["name"] == "web_search" {
+				tool["max_uses"] = info.RetailQuote.SearchLimit
+			}
+		}
 	}
 	return claudeRequest, nil
 }

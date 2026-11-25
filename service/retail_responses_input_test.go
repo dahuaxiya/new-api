@@ -47,6 +47,18 @@ func TestRetailCodexHistory(t *testing.T) {
 	require.Same(t, storage, again)
 }
 
+// TestRetailMagpieSummary 只回放按顺序提供的可读摘要，不能把其他私有字段带到下一家供应商。
+func TestRetailMagpieSummary(t *testing.T) {
+	item := gjson.Parse(`{"type":"magpie_reasoning","content":null,"id":"private","summary":[{"type":"summary_text","text":"Remember"},{"type":"summary_text","text":"green"}]}`)
+	got, err := retailCodexHistoryMessage(item)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"role":"assistant","content":"Remember\ngreen"}`, string(got))
+	for _, bad := range []string{`[]`, `[{"type":"text","text":"private"}]`, `[{"type":"summary_text","text":{}}]`} {
+		_, err = retailCodexHistoryMessage(gjson.Parse(`{"type":"magpie_reasoning","summary":` + bad + `}`))
+		require.Error(t, err)
+	}
+}
+
 // TestRetailCodexHistoryRejectsIncompleteResult 验证仅含上游 ID 或远程地址的图片不能冒充自带结果。
 func TestRetailCodexHistoryRejectsIncompleteResult(t *testing.T) {
 	for _, item := range []string{`{"type":"image_generation_call","id":"ig_other","status":"completed"}`, `{"type":"image_generation_call","status":"completed","result":"https://example.com/pic"}`, `{"type":"image_generation_call","status":"in_progress","result":"dGVzdA=="}`} {

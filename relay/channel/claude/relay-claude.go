@@ -245,7 +245,8 @@ func countClaudeContentBlockTools(info *relaycommon.RelayInfo, block *dto.Claude
 	case "tool_use":
 		info.CountBillableToolCall(dto.BuildInCallToolUse, block.Name)
 	case "web_search_tool_result":
-		if _, delivered := block.Content.([]any); delivered && info.WebSearchBillingKey != "" {
+		// 有些 Messages 代理仅返回搜索结果，不返回 server_tool_use；一次结果块代表一次搜索。
+		if _, delivered := block.Content.([]any); delivered && (info.WebSearchBillingKey != "" || info.RetailQuote != nil && info.RetailQuote.SearchLimit > 0) {
 			info.CountBillableToolCall(dto.BuildInCallWebSearchCall, "")
 		}
 	}
@@ -258,6 +259,15 @@ func countClaudeContentBlockTools(info *relaycommon.RelayInfo, block *dto.Claude
 // them.
 func recordClaudeServerToolUse(info *relaycommon.RelayInfo, serverToolUse *dto.ClaudeServerToolUse) {
 	if info == nil || serverToolUse == nil {
+		return
+	}
+	if q := info.RetailQuote; q != nil && q.SearchLimit > 0 {
+		// 部分流式快照只保存 token，必须在原始累计用量仍可见时核对；异常进入现有待复核分支。
+		count := serverToolUse.WebSearchRequests
+		if count < 0 || serverToolUse.WebFetchRequests != 0 || serverToolUse.CodeExecutionRequests != 0 || serverToolUse.ToolSearchRequests != 0 {
+			count = q.SearchLimit + 1
+		}
+		info.SetBillableToolCount(dto.BuildInToolWebSearch, count)
 		return
 	}
 	for name, count := range map[string]int{

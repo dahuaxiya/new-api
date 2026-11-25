@@ -174,7 +174,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 			c.Request = c.Request.WithContext(WithStudioVision(c.Request.Context(), pictures))
 		}
 	}
-	if err := validateRetailRequest(c, raw, quote.Model.Kind, c.Request.URL.Path); err != nil {
+	if err := validateRetailRequest(c, raw, quote.Model.Kind, c.Request.URL.Path, false); err != nil {
 		return true, retailPriceError(err)
 	}
 	// 内嵌参考图经过协议转换与渠道参数覆盖，必须在出站前核对原顺序及内容。
@@ -374,7 +374,9 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		return retailprice.ErrConfig
 	}
 	reference := studioReferencePath(c.Request, c.Request.URL.Path == "/v1/images/edits")
-	if err := validateRetailRequest(c, raw, quote.Model.Kind, req.URL.Path); err != nil {
+	// 只认可本次 Responses 搜索报价经官方 Messages 适配器转换出的工具，不扩展原生入口。
+	claudeSearch := quote.SearchLimit > 0 && info.ChannelMeta != nil && info.ChannelType == constant.ChannelTypeAnthropic && info.RelayFormat == types.RelayFormatOpenAIResponses && strings.HasSuffix(req.URL.Path, "/messages")
+	if err := validateRetailRequest(c, raw, quote.Model.Kind, req.URL.Path, claudeSearch); err != nil {
 		return err
 	}
 	if original, ok := c.Get("retail_edit_references"); ok && !slices.Equal(original.([][sha256.Size]byte), retailEditDigests(raw)) {
@@ -415,7 +417,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		if err != nil || searchLimit != quote.SearchLimit {
 			return retailprice.ErrConfig
 		}
-		if searchLimit > 0 && (info.ChannelMeta == nil || (info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeCodex)) {
+		if searchLimit > 0 && !claudeSearch && (info.ChannelMeta == nil || (info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeCodex)) {
 			return retailprice.ErrAccess
 		}
 		outgoingLimit = max(outgoingLimit, searchLimit)
@@ -424,9 +426,9 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 			// 不向支持省略上限的 OpenAI 接口注入模型最大值；某些线路拒收该参数。
 			setOutput = false
 		}
-		setTool := outgoingLimit > 0 && !gjson.GetBytes(raw, "max_tool_calls").Exists()
+		setTool := !claudeSearch && outgoingLimit > 0 && !gjson.GetBytes(raw, "max_tool_calls").Exists()
 		// 只允许已配置的原生 HTTP 流走本地次数检查。非流式和生图仍要求上游硬上限。
-		if explicit := c.GetString("retail_explicit_tool_cap"); explicit != "" && outgoingLimit > 0 && gjson.GetBytes(raw, "max_tool_calls").Raw != explicit {
+		if explicit := c.GetString("retail_explicit_tool_cap"); !claudeSearch && explicit != "" && outgoingLimit > 0 && gjson.GetBytes(raw, "max_tool_calls").Raw != explicit {
 			return retailprice.ErrConfig
 		}
 		if setTool && quote.ImageToolLimit == 0 && searchLimit > 0 && c.GetBool("retail_limited_responses") && info.RelayFormat == types.RelayFormatOpenAIResponses && strings.HasSuffix(req.URL.Path, "/responses") {
@@ -557,7 +559,7 @@ func retailReplayCiphertext(item gjson.Result) (string, bool) {
 }
 
 // validateRetailRequest 校验入站和最终出站的实际协议，工作台上传图片的许可仅限本次请求。
-func validateRetailRequest(c *gin.Context, raw []byte, kind, path string) error {
+func validateRetailRequest(c *gin.Context, raw []byte, kind, path string, claudeSearch bool) error {
 	if kind != "image" {
 		if strings.HasPrefix(path, "/v1beta/models/") {
 			return validateRetailGeminiRequest(raw, extractRetailGeminiModel(path))
@@ -566,7 +568,7 @@ func validateRetailRequest(c *gin.Context, raw []byte, kind, path string) error 
 		if HasStudioVision(c.Request) {
 			vision = c.Request.Context().Value(studioVisionKey{}).(map[string]int)
 		}
-		return validateRetailChatWithOptions(raw, vision, strings.HasSuffix(path, "/responses"), c.GetString("retail_previous_response"), c.GetString("retail_responses_utility") == "compact", c.GetInt("retail_fast_channel") > 0)
+		return validateRetailChatWithOptions(raw, vision, strings.HasSuffix(path, "/responses"), c.GetString("retail_previous_response"), c.GetString("retail_responses_utility") == "compact", c.GetInt("retail_fast_channel") > 0, claudeSearch)
 	}
 	edit := c.Request.URL.Path == "/v1/images/edits"
 	return validateRetailBody(raw, kind, edit, studioReferencePath(c.Request, edit) != "")
@@ -610,11 +612,11 @@ func UniqueRetailKeys(root gjson.Result) bool {
 // validateRetailChat 校验文本计费契约。原生 Responses 只在 input 数组的直接元素中
 // 接受加密历史和工具回放；工具结果仍须遵守本次请求的媒体许可。
 func validateRetailChat(raw []byte, vision map[string]int, responses bool, previous string) error {
-	return validateRetailChatWithOptions(raw, vision, responses, previous, false, false)
+	return validateRetailChatWithOptions(raw, vision, responses, previous, false, false, false)
 }
 
 // validateRetailChatWithOptions 仅在服务端标记的新协议路径开放压缩触发和已验证的高速服务档位。
-func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses bool, previous string, compact, fastGroup bool) error {
+func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses bool, previous string, compact, fastGroup, claudeSearch bool) error {
 	root := gjson.ParseBytes(raw)
 	if !gjson.ValidBytes(raw) || !root.IsObject() {
 		return retailprice.ErrConfig
@@ -655,6 +657,8 @@ func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses 
 					return valid
 				})
 			}
+		} else if claudeSearch && typ == "web_search_20250305" {
+			valid = tool.Get("name").Str == dto.BuildInToolWebSearch
 		} else {
 			valid = typ == "function" || (responses && (typ == "custom" || typ == dto.BuildInToolImageGeneration || typ == dto.BuildInToolWebSearch)) || (typ == "" && tool.Get("input_schema").Exists())
 		}
@@ -806,8 +810,14 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 					return 0, retailprice.ErrUsage
 				}
 			}
-			if tools := raw.ServerToolUse; tools != nil && (tools.WebSearchRequests != 0 || tools.WebFetchRequests != 0 || tools.CodeExecutionRequests != 0 || tools.ToolSearchRequests != 0) {
-				return 0, retailprice.ErrUsage
+			if tools := raw.ServerToolUse; tools != nil {
+				// 已报价的搜索只按实际次数收一次；其他服务端工具仍然没有报价。
+				if tools.WebFetchRequests != 0 || tools.CodeExecutionRequests != 0 || tools.ToolSearchRequests != 0 || tools.WebSearchRequests < 0 || tools.WebSearchRequests > info.RetailQuote.SearchLimit {
+					return 0, retailprice.ErrUsage
+				}
+				if info.RetailQuote.SearchLimit > 0 && tools.WebSearchRequests != info.BuiltInTools[dto.BuildInToolWebSearch].CallCount {
+					return 0, retailprice.ErrUsage
+				}
 			}
 		}
 	}
@@ -876,7 +886,16 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 func retailToolLimit(raw []byte, path, kind string) (int, error) {
 	tools := gjson.GetBytes(raw, "tools")
 	found := false
+	cap := gjson.GetBytes(raw, "max_tool_calls")
 	for _, tool := range tools.Array() {
+		if kind == dto.BuildInToolWebSearch && strings.HasSuffix(path, "/messages") && tool.Get("type").Str == "web_search_20250305" {
+			// Messages 没有全局工具上限，必须在唯一的搜索工具上核对实际发给供应商的 max_uses。
+			if found || cap.Exists() || tool.Get("name").Str != kind || !tool.Get("max_uses").Exists() {
+				return 0, retailprice.ErrConfig
+			}
+			found, cap = true, tool.Get("max_uses")
+			continue
+		}
 		if tool.Get("type").Str != kind {
 			continue
 		}
@@ -888,7 +907,6 @@ func retailToolLimit(raw []byte, path, kind string) (int, error) {
 	if !found {
 		return 0, nil
 	}
-	cap := gjson.GetBytes(raw, "max_tool_calls")
 	if !cap.Exists() {
 		return 1, nil
 	}

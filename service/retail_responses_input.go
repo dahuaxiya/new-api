@@ -155,6 +155,24 @@ func joinRetailInputs(history string, input common.RawMessage) ([]byte, error) {
 // retailCodexHistoryMessage 将 Codex 私有的历史事件转换成可计量的上下文；返回 nil 表示保留原条目。
 func retailCodexHistoryMessage(item gjson.Result) (common.RawMessage, error) {
 	switch item.Get("type").Str {
+	case "magpie_reasoning":
+		// 只转发 Magpie 已公开给客户端的文字摘要，不恢复私有推理或上游 ID。
+		summary := item.Get("summary")
+		if !summary.IsArray() || item.Get("content").Type != gjson.Null {
+			return nil, retailprice.ErrConfig
+		}
+		var parts []string
+		for _, part := range summary.Array() {
+			text := part.Get("text")
+			if part.Get("type").Str != "summary_text" || text.Type != gjson.String || strings.TrimSpace(text.Str) == "" {
+				return nil, retailprice.ErrConfig
+			}
+			parts = append(parts, text.Str)
+		}
+		if len(parts) == 0 {
+			return nil, retailprice.ErrConfig
+		}
+		return common.Marshal(map[string]string{"role": "assistant", "content": strings.Join(parts, "\n")})
 	case "additional_tools":
 		tools := item.Get("tools")
 		if item.Get("role").Str != "developer" || !tools.IsArray() {

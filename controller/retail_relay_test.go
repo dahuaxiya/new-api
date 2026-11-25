@@ -110,6 +110,18 @@ func TestRetailHTTPRelay(t *testing.T) {
 	const usage = `"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}`
 	const imageResponse = `{"id":"resp-image","model":"gpt-4o","status":"completed","output":[` + item + `],` + usage + `}`
 	const compatBody = `{"model":"gpt-4o","input":"hello","stream":true,"tools":[{"type":"web_search","external_web_access":false}],"max_output_tokens":20}`
+	const claudeSearch = `{"model":"gpt-4o","input":"hello","tools":[{"type":"web_search"}],"max_output_tokens":20}`
+	const claudeResult = `{"id":"msg-1","type":"message","role":"assistant","model":"gpt-4o","content":[{"type":"text","text":"OK"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":2,"server_tool_use":{"web_search_requests":1}}}`
+	const magpieHistory = `[{"role":"user","content":"Remember the test word."},{"type":"magpie_reasoning","content":null,"summary":[{"type":"summary_text","text":"orchid-42"}]},{"role":"user","content":"Summarize the history."}]`
+	claudeSearchStream := "data: " + strings.Join([]string{
+		`{"type":"message_start","message":{"id":"msg-1","type":"message","role":"assistant","model":"gpt-4o","content":[],"usage":{"input_tokens":10,"output_tokens":0}}}`,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{"query":"orchid-42"}}}`,
+		`{"type":"content_block_stop","index":0}`,
+		`{"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","tool_use_id":"srv_1","content":[{"type":"web_search_result","url":"https://example.com","title":"Orchid"}]}}`,
+		`{"type":"content_block_stop","index":1}`,
+		`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2,"server_tool_use":{"web_search_requests":1}}}`,
+		`{"type":"message_stop"}`,
+	}, "\n\ndata: ") + "\n\n"
 	const startedSearch = "data: " + `{"type":"response.output_item.added","item":{"type":"web_search_call","id":"ws_1"}}` + "\n\n"
 	compatDone := "data: " + `{"type":"response.completed","response":` + strings.Replace(imageResponse, item, "", 1) + "}\n\n"
 	for _, priced := range []bool{false, true} {
@@ -125,6 +137,12 @@ func TestRetailHTTPRelay(t *testing.T) {
 			{"image_no_payload", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"revised_prompt":"tree"}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":10,"image_tokens":0}}}`, types.RelayFormatOpenAIImage, 1, false},
 			{"chat", "/v1/chat/completions", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20}`, `{"id":"chat-1","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`, types.RelayFormatOpenAI, 1, true},
 			{"tool_search_compat_idle", "/v1/responses", compatBody, compatDone, types.RelayFormatOpenAIResponses, 1, true},
+			{"tool_search_claude_used", "/v1/responses", claudeSearch, claudeResult, types.RelayFormatOpenAIResponses, 14, true},
+			{"tool_search_claude_stream", "/v1/responses", strings.Replace(claudeSearch, `"max_output_tokens"`, `"stream":true,"max_output_tokens"`, 1), claudeSearchStream, types.RelayFormatOpenAIResponses, 14, true},
+			{"tool_search_claude_refund", "/v1/responses", claudeSearch, "", types.RelayFormatOpenAIResponses, 14, false},
+			{"tool_search_claude_over_limit", "/v1/responses", claudeSearch, strings.Replace(claudeResult, `"web_search_requests":1`, `"web_search_requests":2`, 1), types.RelayFormatOpenAIResponses, 14, false},
+			{"magpie_claude_history", "/v1/responses", `{"model":"gpt-4o","input":` + magpieHistory + `,"max_output_tokens":20}`, strings.Replace(claudeResult, `"web_search_requests":1`, `"web_search_requests":0`, 1), types.RelayFormatOpenAIResponses, 14, true},
+			{"tool_search_claude_idle", "/v1/responses", strings.Replace(claudeSearch, `"max_output_tokens"`, `"max_tool_calls":2,"max_output_tokens"`, 1), strings.Replace(claudeResult, `"web_search_requests":1`, `"web_search_requests":0`, 1), types.RelayFormatOpenAIResponses, 14, true},
 			{"tool_search_compat_used", "/v1/responses", compatBody, startedSearch + strings.Replace(compatDone, `"output":[]`, `"output":[{"type":"web_search_call","id":"ws_1","status":"completed"}]`, 1), types.RelayFormatOpenAIResponses, 1, true},
 			{"tool_search_compat_explicit", "/v1/responses", strings.Replace(compatBody, `"stream":true`, `"stream":true,"max_tool_calls":1`, 1), compatDone, types.RelayFormatOpenAIResponses, 1, true},
 			{"tool_search_compat_interrupted", "/v1/responses", compatBody, startedSearch + strings.Replace(startedSearch, "ws_1", "ws_2", 1) + compatDone, types.RelayFormatOpenAIResponses, 1, false},
@@ -159,7 +177,7 @@ func TestRetailHTTPRelay(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/guarded_%t", scenario.name, priced), func(t *testing.T) {
 				groupCase := strings.HasPrefix(scenario.name, "group_output_")
 				groupFailed := strings.HasPrefix(scenario.name, "group_failed_")
-				if (groupCase || groupFailed || scenario.name == "budget_output_default") && !priced {
+				if (groupCase || groupFailed || scenario.name == "magpie_claude_history" || scenario.name == "budget_output_default") && !priced {
 					t.Skip("group pricing requires a tariff")
 				}
 				// 明确的零输出保留原始计数；未启用零售报价的旧路径仍沿用原测试预期。
@@ -196,7 +214,7 @@ func TestRetailHTTPRelay(t *testing.T) {
 					wantHits = 2
 				case "retry_limit":
 					wantHits, wantStatus, wantChargeState = 2, 429, "refunded"
-				case "no_retry_500":
+				case "no_retry_500", "tool_search_claude_refund":
 					wantStatus, wantChargeState = 500, "refunded"
 				}
 				if priced {
@@ -212,6 +230,21 @@ func TestRetailHTTPRelay(t *testing.T) {
 				var publishDuringCall func() error
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					hit := hits.Add(1)
+					if scenario.name == "magpie_claude_history" {
+						raw, err := io.ReadAll(r.Body)
+						if err != nil || !strings.Contains(gjson.GetBytes(raw, "messages.1.content").String(), "orchid-42") || gjson.GetBytes(raw, "messages.1.role").Str != "assistant" || bytes.Contains(raw, []byte("magpie_reasoning")) {
+							http.Error(w, "missing normalized summary", 400)
+							return
+						}
+					}
+					if strings.HasPrefix(scenario.name, "tool_search_claude_") {
+						raw, err := io.ReadAll(r.Body)
+						limit := max(int64(1), gjson.Get(scenario.body, "max_tool_calls").Int())
+						if err != nil || r.URL.Path != "/v1/messages" || gjson.GetBytes(raw, "tools.0.type").Str != "web_search_20250305" || gjson.GetBytes(raw, "tools.0.max_uses").Int() != limit || gjson.GetBytes(raw, "max_tool_calls").Exists() {
+							http.Error(w, "incorrect Claude search contract", 400)
+							return
+						}
+					}
 					if groupCase {
 						raw, err := io.ReadAll(r.Body)
 						cap := gjson.GetBytes(raw, "max_output_tokens")
@@ -265,7 +298,7 @@ func TestRetailHTTPRelay(t *testing.T) {
 						_, _ = fmt.Fprint(w, `{"error":{"message":"rate limit","type":"rate_limit_error"}}`)
 						return
 					}
-					if scenario.name == "no_retry_500" {
+					if scenario.name == "no_retry_500" || scenario.name == "tool_search_claude_refund" {
 						w.WriteHeader(500)
 						_, _ = fmt.Fprint(w, `{"error":{"message":"upstream failed","type":"server_error"}}`)
 						return
@@ -357,6 +390,10 @@ func TestRetailHTTPRelay(t *testing.T) {
 				engine.ServeHTTP(recorder, req)
 				require.Equal(t, wantStatus, recorder.Code, recorder.Body.String())
 				require.Equal(t, wantHits, hits.Load())
+				if scenario.name == "tool_search_claude_stream" {
+					require.Contains(t, recorder.Body.String(), `"type":"web_search_call"`)
+					require.Contains(t, recorder.Body.String(), `response.completed`)
+				}
 				if scenario.name == "tool_search_compat_interrupted" {
 					require.Contains(t, recorder.Body.String(), "retail_search_usage_unverified")
 					require.NotContains(t, recorder.Body.String(), "response.completed")
@@ -369,7 +406,7 @@ func TestRetailHTTPRelay(t *testing.T) {
 					if priced {
 						expected = 21
 					}
-					if scenario.name == "tool_search_compat_used" || scenario.name == "tool_search_used" || scenario.name == "tool_search_stream" {
+					if scenario.name == "tool_search_compat_used" || scenario.name == "tool_search_used" || scenario.name == "tool_search_stream" || scenario.name == "tool_search_claude_used" || scenario.name == "tool_search_claude_stream" {
 						expected += 1200 // 搜索按原始组倍率 0.24，而非含毛利的文本倍率 0.30。
 					}
 					if scenario.name == "budget_output_default" {
