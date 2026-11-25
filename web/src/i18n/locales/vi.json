@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Call group routes": "Định tuyến nhóm",
+    "Account groups": "Nhóm tài khoản",
+    "Inventory Key": "Key trong kho",
+    "Each call group uses the upstream group assigned to its Key.": "Nhóm thượng nguồn được xác định bởi Key đã chọn.",
+    "Find a group or Key": "Tìm nhóm hoặc Key",
+    "Configured route status": "Trạng thái cấu hình",
+    "No routes configured": "Chưa cấu hình tuyến",
+    "Key and route details could not be loaded.": "Không tải được thông tin Key và tuyến.",
+    "Failed to load pricing": "Không tải được bảng giá",
     "Request hold": "Request hold",
     "Legacy hold total": "Legacy hold total",
     "Additional hold": "Additional hold",

@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Call group routes": "Маршруты групп",
+    "Account groups": "Группы аккаунтов",
+    "Inventory Key": "Ключ из реестра",
+    "Each call group uses the upstream group assigned to its Key.": "Вышестоящая группа определяется выбранным ключом.",
+    "Find a group or Key": "Поиск группы или ключа",
+    "Configured route status": "Состояние маршрута",
+    "No routes configured": "Маршруты не настроены",
+    "Key and route details could not be loaded.": "Не удалось загрузить ключи и маршруты.",
+    "Failed to load pricing": "Не удалось загрузить цены",
     "Request hold": "Request hold",
     "Legacy hold total": "Legacy hold total",
     "Additional hold": "Additional hold",

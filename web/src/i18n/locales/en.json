@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Call group routes": "Call group routes",
+    "Account groups": "Account groups",
+    "Inventory Key": "Inventory Key",
+    "Each call group uses the upstream group assigned to its Key.": "Each call group uses the upstream group assigned to its Key.",
+    "Find a group or Key": "Find a group or Key",
+    "Configured route status": "Configured route status",
+    "No routes configured": "No routes configured",
+    "Key and route details could not be loaded.": "Key and route details could not be loaded.",
+    "Failed to load pricing": "Failed to load pricing",
     "Request hold": "Request hold",
     "Legacy hold total": "Legacy hold total",
     "Additional hold": "Additional hold",

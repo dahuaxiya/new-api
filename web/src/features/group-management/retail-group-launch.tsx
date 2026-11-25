@@ -17,13 +17,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { ArrowUpRight, GitBranch, KeyRound, Plus } from 'lucide-react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import {
   sideDrawerContentClassName,
   sideDrawerHeaderClassName,
+  sideDrawerFormClassName,
+  sideDrawerFooterClassName,
 } from '@/components/drawer-layout'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -34,6 +37,7 @@ import {
   SheetContent,
   SheetTitle,
   SheetHeader,
+  SheetDescription,
 } from '@/components/ui/sheet'
 import { fetchModels } from '@/features/channels/api'
 import { SellingPricePreview } from '@/features/channels/components/retail-pricing'
@@ -55,39 +59,58 @@ import { ROLE } from '@/lib/roles'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
-/** 入口只在中转站管理后台显示。会话切换时销毁包含未保存 Key 的表单。 */
+import { PublishedGroupDirectory } from './published-group-directory'
+
+/** 入口只在中转站管理后台显示。会话切换时销毁包含未保存 Key 的表单。
+ * @return 可管理的线路目录和编辑抽屉，其他用户不会渲染该入口。
+ */
 export function RetailGroupLaunch() {
   const { t } = useTranslation()
   const { status } = useStatus()
   const { user, session } = useAuthStore((s) => s.auth)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<PublishedGroupEdit>()
+  const opener = useRef<HTMLElement | null>(null)
+  const drawerTitle = useRef<HTMLHeadingElement | null>(null)
   if (status?.site_mode !== 'retail' || user?.role !== ROLE.SUPER_ADMIN) {
     return null
   }
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <Button
-        className='self-start'
-        onClick={() => {
-          setEditing(undefined)
-          setOpen(true)
-        }}
-      >
-        {t('Publish a call group')}
-      </Button>
       <PublishedGroups
         identity={`${user.id}:${session?.sid}`}
-        onEdit={(draft) => {
+        onOpen={(trigger, draft) => {
+          // 同一个抽屉由多行打开，关闭后焦点应回到刚才的行。
+          opener.current = trigger
           setEditing(draft)
           setOpen(true)
         }}
       />
-      <SheetContent className={sideDrawerContentClassName('sm:max-w-2xl')}>
-        <SheetHeader className={sideDrawerHeaderClassName()}>
-          <SheetTitle>
-            {t(editing ? 'Edit call group routing' : 'Publish a call group')}
-          </SheetTitle>
+      <SheetContent
+        initialFocus={drawerTitle}
+        finalFocus={opener}
+        className={sideDrawerContentClassName('gm-drawer sm:max-w-xl')}
+      >
+        <SheetHeader className={sideDrawerHeaderClassName('gm-drawer-head')}>
+          <div className='gm-drawer-mark' aria-hidden>
+            <GitBranch size={19} />
+          </div>
+          <div className='min-w-0'>
+            <SheetTitle
+              ref={drawerTitle}
+              tabIndex={-1}
+              className='outline-none'
+            >
+              {editing?.product.binding_group || t('Publish a call group')}
+            </SheetTitle>
+            <SheetDescription>
+              {t(
+                editing
+                  ? 'Edit call group routing'
+                  : 'Each call group uses the upstream group assigned to its Key.'
+              )}
+            </SheetDescription>
+          </div>
         </SheetHeader>
         {open && (
           <LaunchForm
@@ -154,85 +177,45 @@ function productRouteLabel(
     .join(' / ')
 }
 
-/** 读取正式价表，供管理员核对实际发布的调用分组和线路。账号倍率表可能没有同名项。 */
-function PublishedGroups({
-  identity,
-  onEdit,
-}: {
+/** 读取正式价表，供管理员核对实际发布的调用分组和线路。账号倍率表可能没有同名项。
+ * @param props 当前会话的查询标识与编辑入口。
+ * @return 供管理员检索的正式价表和路由。
+ */
+function PublishedGroups(props: {
   identity: string
-  onEdit: (draft: PublishedGroupEdit) => void
+  onOpen: (trigger: HTMLElement, draft?: PublishedGroupEdit) => void
 }) {
   const { t } = useTranslation()
-  // 和价表共用按登录会话隔离的缓存，保存成功后由上架表单触发重新读取。
-  const query = usePublishedPricing(identity)
+  const query = usePublishedPricing(props.identity)
   const supply = useQuery({
-    queryKey: ['retail-group-bindings', identity],
+    queryKey: ['retail-group-bindings', props.identity],
     queryFn: ({ signal }) => getRetailGroupBindings(signal),
     retry: false,
   })
   const saved = query.data
-  const book = saved?.book
   return (
-    <section aria-label={t('Published call groups')} className='space-y-2'>
-      <h3 className='font-medium'>{t('Published call groups')}</h3>
-      {query.isError && (
-        <Button variant='outline' onClick={() => void query.refetch()}>
-          {t('Retry')}
+    <PublishedGroupDirectory
+      book={saved?.book}
+      supply={supply.isError ? undefined : supply.data}
+      priceError={query.isError}
+      supplyError={supply.isError}
+      retryPrices={() => void query.refetch()}
+      retrySupply={() => void supply.refetch()}
+      publishButton={
+        <Button onClick={(event) => props.onOpen(event.currentTarget)}>
+          <Plus aria-hidden data-icon='inline-start' />
+          {t('Publish a call group')}
         </Button>
-      )}
-      {!query.isError && !book && <p>{t('Loading...')}</p>}
-      {!query.isError && book && !book.products?.length && <p>{t('None')}</p>}
-      {!query.isError && book && !!book.products?.length && (
-        <dl className='grid gap-2 text-sm'>
-          {book.products.map((product) => (
-            <div
-              key={product.id}
-              className='flex flex-wrap items-baseline gap-x-3'
-            >
-              <dt className='font-medium'>{product.name}</dt>
-              <dd className='text-muted-foreground'>
-                {supply.data?.inventory_keys
-                  ? product.routes
-                      .map((route) => {
-                        const ch = supply.data.rate_channels?.find(
-                          (c) => c.id === route.channel_id
-                        )
-                        const key = supply.data.inventory_keys?.find(
-                          (k) => k.id === ch?.library_id
-                        )
-                        return key
-                          ? `${key.name} · ${key.upstream_group}`
-                          : productRouteLabel(book, {
-                              ...product,
-                              routes: [route],
-                            })
-                      })
-                      .join(' / ')
-                  : productRouteLabel(book, product)}
-                {!supply.data?.inventory_keys &&
-                  product.rate_source_channel_id && (
-                    <span className='ms-2'>
-                      {t('Selling multiplier source')}: #
-                      {product.rate_source_channel_id}
-                    </span>
-                  )}
-              </dd>
-              {product.public && product.binding_group && (
-                <Button
-                  size='sm'
-                  variant='ghost'
-                  onClick={() =>
-                    onEdit(groupEditSnapshot(product, book, saved.version))
-                  }
-                >
-                  {t('Edit call group routing')}
-                </Button>
-              )}
-            </div>
-          ))}
-        </dl>
-      )}
-    </section>
+      }
+      onEdit={(product, trigger) => {
+        if (saved) {
+          props.onOpen(
+            trigger,
+            groupEditSnapshot(product, saved.book, saved.version)
+          )
+        }
+      }}
+    />
   )
 }
 
@@ -977,7 +960,10 @@ function LaunchForm({
   )
 }
 
-/** 本站组只持有库存选择。站点、采购分组、模型清单均由服务端按 Key 解析。 */
+/** 本站组只持有库存选择。站点、采购分组、模型清单均由服务端按 Key 解析。
+ * @param props 当前会话库存、打开时的版本和发布后回调。
+ * @return 支持报价预览及保存的库存绑定表单。
+ */
 function InventoryLaunchForm({
   identity,
   state,
@@ -1119,133 +1105,159 @@ function InventoryLaunchForm({
     }
   }
   return (
-    <div className='min-h-0 flex-1 space-y-5 overflow-auto p-6'>
-      <fieldset className='grid gap-4' disabled={busy || !!review}>
-        <label>
-          {t('Call group name')}
-          <Input
-            value={name}
-            readOnly={!!product}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
-        <label>
-          {t('Upstream API Key')}
-          <NativeSelect
-            value={primary}
-            onChange={(e) => setPrimary(Number(e.target.value))}
-          >
-            <NativeSelectOption value={0}>
-              {t('Select a Key')}
-            </NativeSelectOption>
-            {keys.map((key) => (
-              <NativeSelectOption key={key.id} value={key.id}>
-                {key.name} · #{key.id} · {key.upstream_group}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        </label>
-        {selected && (
-          <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm'>
-            <dt>{t('Supply site')}</dt>
-            <dd>{site?.name}</dd>
-            <dt>{t('Upstream group')}</dt>
-            <dd>{selected.upstream_group}</dd>
-            <dt>{t('Procurement rate')}</dt>
-            <dd>{rate ? `${rate.multiplier}×` : t('Unavailable')}</dd>
-          </dl>
-        )}
-        <a className='text-sm underline' href='/upstream-keys'>
-          {t('Upstream Keys')}
-        </a>
-        <label>
-          {t('Target margin (%)')}
-          <Input
-            type='number'
-            min={0}
-            max={95}
-            value={margin}
-            placeholder={String(state.sale_policy.margin_bps / 100)}
-            onChange={(e) => setMargin(e.target.value)}
-          />
-        </label>
-        <details open={extras.length > 0 || !usePrimary || undefined}>
-          <summary>{t('Additional upstream routes')}</summary>
-          <label className='flex items-center gap-2 py-2'>
-            <Checkbox
-              checked={usePrimary}
-              onCheckedChange={(v) => setUsePrimary(v === true)}
-            />
-            {t('Route requests to the selling multiplier source')}
-          </label>
-          {extras.map((id) => (
-            <div key={id} className='flex items-center justify-between'>
-              <span>
-                {keys.find((key) => key.id === id)?.name || t('Unavailable')}
-              </span>
-              <Button
-                variant='ghost'
-                onClick={() => setExtras(extras.filter((item) => item !== id))}
-              >
-                {t('Remove')}
-              </Button>
+    <>
+      <div className={sideDrawerFormClassName('gm-drawer-body')}>
+        <fieldset className='gm-edit-fields' disabled={busy || !!review}>
+          {!product && (
+            <label className='gm-field'>
+              {t('Call group name')}
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+          )}
+          <div className='gm-key-panel'>
+            <div className='gm-key-panel-head'>
+              <label htmlFor='group-inventory-key'>
+                <KeyRound aria-hidden />
+                {t('Inventory Key')}
+              </label>
+              <a href='/upstream-keys'>
+                {t('Upstream Keys')}
+                <ArrowUpRight aria-hidden />
+              </a>
             </div>
-          ))}
-          <NativeSelect
-            aria-label={t('Add upstream route')}
-            value=''
-            onChange={(e) => setExtras([...extras, Number(e.target.value)])}
-          >
-            <NativeSelectOption value=''>
-              {t('Select a Key')}
-            </NativeSelectOption>
-            {keys
-              .filter((key) => key.id !== primary && !extras.includes(key.id))
-              .map((key) => (
+            <NativeSelect
+              id='group-inventory-key'
+              className='w-full'
+              value={primary}
+              onChange={(e) => setPrimary(Number(e.target.value))}
+            >
+              <NativeSelectOption value={0}>
+                {t('Select a Key')}
+              </NativeSelectOption>
+              {keys.map((key) => (
                 <NativeSelectOption key={key.id} value={key.id}>
-                  {key.name} · {key.upstream_group}
+                  {key.name} · #{key.id} · {key.upstream_group}
                 </NativeSelectOption>
               ))}
-          </NativeSelect>
-        </details>
-      </fieldset>
-      {site && !review && (
-        <SiteFeedEditor
-          key={site.id}
-          site={site.id}
-          baseUrl={site.base_url}
-          feed={feed}
-          version={state.version}
-          initialOpen={false}
-          legacyFollow={state.sync.enabled}
-          onSaved={async () => {
-            await client.invalidateQueries({
-              queryKey: ['retail-group-bindings', identity],
-            })
-          }}
-        />
-      )}
-      {failure && <p role='alert'>{failure}</p>}
-      {review && (
-        <div aria-live='polite' className='space-y-2'>
-          <p>
-            {t('Selling multiplier')} · {review.result.sale_multiplier}×
-          </p>
-          <SellingPricePreview
-            rows={review.result.rows
-              .filter((row) => row.tiers)
-              .map((row) => ({ ...row, product: name, available: true }))}
-          />
-          {review.result.rows
-            .filter((row) => row.reason)
-            .map((row) => (
-              <p key={row.model} className='text-muted-foreground text-sm'>
-                {row.model} · {t('Unavailable')}
-              </p>
+            </NativeSelect>
+            {selected && (
+              <dl className='gm-key-details'>
+                <div>
+                  <dt>{t('Supply site')}</dt>
+                  <dd>{site?.name}</dd>
+                </div>
+                <div>
+                  <dt>{t('Upstream group')}</dt>
+                  <dd>{selected.upstream_group}</dd>
+                </div>
+                <div>
+                  <dt>{t('Procurement rate')}</dt>
+                  <dd>{rate ? `${rate.multiplier}×` : t('Unavailable')}</dd>
+                </div>
+              </dl>
+            )}
+          </div>
+          <label className='gm-field gm-margin'>
+            {t('Target margin (%)')}
+            <Input
+              type='number'
+              min={0}
+              max={95}
+              step={0.01}
+              value={margin}
+              placeholder={t('Site default ({{value}}%)', {
+                value: state.sale_policy.margin_bps / 100,
+              })}
+              onChange={(e) => setMargin(e.target.value)}
+            />
+          </label>
+          <details
+            className='gm-disclosure'
+            open={extras.length > 0 || !usePrimary || undefined}
+          >
+            <summary>{t('Additional upstream routes')}</summary>
+            <label className='flex items-center gap-2 py-2'>
+              <Checkbox
+                checked={usePrimary}
+                onCheckedChange={(v) => setUsePrimary(v === true)}
+              />
+              {t('Route requests to the selling multiplier source')}
+            </label>
+            {extras.map((id) => (
+              <div key={id} className='flex items-center justify-between'>
+                <span>
+                  {keys.find((key) => key.id === id)?.name || t('Unavailable')}
+                </span>
+                <Button
+                  variant='ghost'
+                  onClick={() =>
+                    setExtras(extras.filter((item) => item !== id))
+                  }
+                >
+                  {t('Remove')}
+                </Button>
+              </div>
             ))}
-        </div>
-      )}
-      <div className='flex flex-wrap gap-2'>
+            <NativeSelect
+              aria-label={t('Add upstream route')}
+              value=''
+              onChange={(e) => setExtras([...extras, Number(e.target.value)])}
+            >
+              <NativeSelectOption value=''>
+                {t('Select a Key')}
+              </NativeSelectOption>
+              {keys
+                .filter((key) => key.id !== primary && !extras.includes(key.id))
+                .map((key) => (
+                  <NativeSelectOption key={key.id} value={key.id}>
+                    {key.name} · {key.upstream_group}
+                  </NativeSelectOption>
+                ))}
+            </NativeSelect>
+          </details>
+        </fieldset>
+        {site && !review && (
+          <SiteFeedEditor
+            key={site.id}
+            site={site.id}
+            baseUrl={site.base_url}
+            feed={feed}
+            version={state.version}
+            initialOpen={false}
+            legacyFollow={state.sync.enabled}
+            onSaved={async () => {
+              await client.invalidateQueries({
+                queryKey: ['retail-group-bindings', identity],
+              })
+            }}
+          />
+        )}
+        {failure && (
+          <p className='gm-notice' role='alert'>
+            {failure}
+          </p>
+        )}
+        {review && (
+          <div aria-live='polite' className='space-y-2'>
+            <p>
+              {t('Selling multiplier')} · {review.result.sale_multiplier}×
+            </p>
+            <SellingPricePreview
+              rows={review.result.rows
+                .filter((row) => row.tiers)
+                .map((row) => ({ ...row, product: name, available: true }))}
+            />
+            {review.result.rows
+              .filter((row) => row.reason)
+              .map((row) => (
+                <p key={row.model} className='text-muted-foreground text-sm'>
+                  {row.model} · {t('Unavailable')}
+                </p>
+              ))}
+          </div>
+        )}
+      </div>
+      <div className={sideDrawerFooterClassName('gm-drawer-footer')}>
         <Button
           variant='outline'
           disabled={busy || (!review && !valid)}
@@ -1267,7 +1279,7 @@ function InventoryLaunchForm({
             : t(product ? 'Save' : 'Save and publish group')}
         </Button>
       </div>
-    </div>
+    </>
   )
 }
 

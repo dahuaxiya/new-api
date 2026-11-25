@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Call group routes": "Routage des groupes",
+    "Account groups": "Groupes de comptes",
+    "Inventory Key": "Clé en inventaire",
+    "Each call group uses the upstream group assigned to its Key.": "Le groupe amont est défini par la clé choisie.",
+    "Find a group or Key": "Rechercher un groupe ou une clé",
+    "Configured route status": "État configuré",
+    "No routes configured": "Aucune route configurée",
+    "Key and route details could not be loaded.": "Impossible de charger les clés et les routes.",
+    "Failed to load pricing": "Impossible de charger les tarifs",
     "Request hold": "Request hold",
     "Legacy hold total": "Legacy hold total",
     "Additional hold": "Additional hold",

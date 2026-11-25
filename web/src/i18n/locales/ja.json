@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Call group routes": "グループのルート",
+    "Account groups": "アカウントグループ",
+    "Inventory Key": "登録済みキー",
+    "Each call group uses the upstream group assigned to its Key.": "選択したキーによって上流グループが決まります。",
+    "Find a group or Key": "グループまたはキーを検索",
+    "Configured route status": "ルートの設定状態",
+    "No routes configured": "ルート未設定",
+    "Key and route details could not be loaded.": "キーとルートの情報を読み込めませんでした。",
+    "Failed to load pricing": "価格表を読み込めませんでした",
     "Request hold": "Request hold",
     "Legacy hold total": "Legacy hold total",
     "Additional hold": "Additional hold",

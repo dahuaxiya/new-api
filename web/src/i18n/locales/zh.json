@@ -1,5 +1,14 @@
 {
   "translation": {
+    "Call group routes": "分组路由",
+    "Account groups": "账号分组",
+    "Inventory Key": "库存 Key",
+    "Each call group uses the upstream group assigned to its Key.": "上游分组随所选的库存 Key 确定。",
+    "Find a group or Key": "搜索分组或 Key",
+    "Configured route status": "线路开关",
+    "No routes configured": "未配置线路",
+    "Key and route details could not be loaded.": "未能读取 Key 和线路状态。",
+    "Failed to load pricing": "未能读取价表",
     "Request hold": "请求预留",
     "Legacy hold total": "旧请求累计预留",
     "Additional hold": "追加预留",
