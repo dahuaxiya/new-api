@@ -75,7 +75,10 @@ const incompleteImage =
 const maxImageBytes = 48 * 1024 * 1024
 // The supplier returns completed images from this bucket. Never send the session
 // headers to a URL supplied in a model response or follow it to another origin.
-const imageOrigin = 'https://pub-13fd1d3607a441b4a9d232b3a223f5f6.r2.dev'
+const imageOrigins = new Set([
+  'https://pub-13fd1d3607a441b4a9d232b3a223f5f6.r2.dev',
+  'https://pub-13fd1d3607a441b4a9d232b3a223f5f6.r2.lat',
+])
 const imageItem = z.object({
   b64_json: z.string().nullish(),
   url: z.string().nullish(),
@@ -180,7 +183,7 @@ export async function imageDataURL(
     if (!raw || !URL.canParse(raw)) continue
     const url = new URL(raw)
     if (
-      url.origin === imageOrigin &&
+      imageOrigins.has(url.origin) &&
       !url.username &&
       !url.password &&
       url.pathname.startsWith('/images/')
@@ -210,6 +213,8 @@ export async function generateStudioImage(
       n: 1,
       ...(reference ? { images: [{ image_url: reference }] } : {}),
       output_format: input.outputFormat,
+      // Ask for the bytes so saving the result doesn't depend on an expiring link.
+      response_format: 'b64_json',
       ...(input.outputFormat !== 'png' && input.outputCompression !== ''
         ? { output_compression: Number(input.outputCompression) }
         : {}),

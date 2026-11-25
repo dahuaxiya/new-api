@@ -124,6 +124,8 @@ func studioRunRequest(in *studioIntent) (string, []byte, error) {
 			return "", nil, errors.New("invalid image options")
 		}
 		body["output_format"] = format
+		// Ask for portable bytes: output_format selects the codec, not how the image is delivered.
+		body["response_format"] = "b64_json"
 		if in.OutputCompression != nil {
 			body["output_compression"] = *in.OutputCompression
 		}
@@ -456,6 +458,10 @@ func (w *studioWorker) execute(relay http.Handler, req *http.Request, dir, key s
 		if err == nil && len(data) <= studioRecordLimit {
 			var image []byte
 			image, err = studioResultImage(req.Context(), data)
+			if reason, ok := err.(studioImageFailure); ok {
+				// Only log a fixed failure code and our run ID, never signed URLs or image data.
+				common.SysError(fmt.Sprintf("Studio image retrieval failed: run=%s reason=%s", row.ID, string(reason)))
+			}
 			if err == nil {
 				if storeStudioImage(key+".result", image) != nil {
 					err = errors.New("Unable to save the generated image. Check usage before trying again.")
@@ -545,7 +551,23 @@ func studioRelayMessage(message string) string {
 	return message
 }
 
-// studioResultImage saves portable raster bytes, including the existing supplier's expiring image URLs.
+type studioImageFailure string
+
+// Error preserves the translated public message while server logs distinguish delivery failures.
+func (studioImageFailure) Error() string {
+	return "The image response is incomplete. Check usage before trying again."
+}
+
+// studioImageURLAllowed admits only the supplier's two observed HTTPS bucket origins.
+// Match the entire host (including any port), never the shared CDN domain suffix.
+func studioImageURLAllowed(asset *url.URL) bool {
+	const bucket = "pub-13fd1d3607a441b4a9d232b3a223f5f6"
+	return asset.Scheme == "https" && asset.User == nil && strings.HasPrefix(asset.Path, "/images/") &&
+		(asset.Host == bucket+".r2.dev" || asset.Host == bucket+".r2.lat")
+}
+
+// studioResultImage prefers inline bytes; a rejected candidate can fall back to another field
+// in the same paid response. It never sends a second generation request.
 func studioResultImage(ctx context.Context, data []byte) ([]byte, error) {
 	var result struct {
 		Success *bool
@@ -573,55 +595,70 @@ func studioResultImage(ctx context.Context, data []byte) ([]byte, error) {
 			imgs = []image{one}
 		}
 	}
+	reason := studioImageFailure("missing_image_data")
 	for _, img := range imgs {
-		raw := img.B64
-		if raw == "" {
-			raw = img.URL
-		}
-		if strings.HasPrefix(raw, "https://") {
-			u, e := url.Parse(raw)
-			if e != nil || u.Host != "pub-13fd1d3607a441b4a9d232b3a223f5f6.r2.dev" || u.User != nil || !strings.HasPrefix(u.Path, "/images/") {
+		for _, raw := range []string{img.B64, img.URL} {
+			if raw == "" {
 				continue
 			}
-			request, e := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
-			if e != nil {
+			if strings.HasPrefix(raw, "https://") {
+				u, e := url.Parse(raw)
+				if e != nil || !studioImageURLAllowed(u) {
+					reason = "url_rejected"
+					continue
+				}
+				request, e := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+				if e != nil {
+					reason = "url_invalid"
+					continue
+				}
+				// Never forward session credentials or follow provider-supplied redirects.
+				client := http.Client{Timeout: time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+				resp, e := client.Do(request)
+				if e != nil {
+					reason = "download_failed"
+					continue
+				}
+				if resp.StatusCode != http.StatusOK {
+					resp.Body.Close()
+					reason = studioImageFailure(fmt.Sprintf("download_http_%d", resp.StatusCode))
+					continue
+				}
+				b, e := io.ReadAll(io.LimitReader(resp.Body, (48<<20)+1))
+				resp.Body.Close()
+				if e != nil || len(b) > 48<<20 {
+					reason = "download_unreadable_or_oversize"
+					continue
+				}
+				switch http.DetectContentType(b) {
+				case "image/png", "image/jpeg", "image/webp":
+					return b, nil
+				}
+				reason = "unsupported_image_type"
 				continue
 			}
-			// Never forward session credentials or follow provider-supplied redirects.
-			client := http.Client{Timeout: time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			resp, e := client.Do(request)
-			if e != nil {
+			if strings.HasPrefix(raw, "data:") {
+				_, raw, _ = strings.Cut(raw, ",")
+			}
+			if len(raw) > 64<<20 {
+				reason = "inline_oversize"
 				continue
 			}
-			b, e := io.ReadAll(io.LimitReader(resp.Body, (48<<20)+1))
-			resp.Body.Close()
-			if resp.StatusCode != 200 || e != nil || len(b) > 48<<20 {
+			// Detect the decoded signature, including WEBP after RIFF, before archiving untrusted image data.
+			decoded, e := base64.StdEncoding.DecodeString(raw)
+			if e != nil || len(decoded) == 0 {
+				reason = "invalid_base64"
 				continue
 			}
-			switch http.DetectContentType(b) {
+			mime := http.DetectContentType(decoded)
+			switch mime {
 			case "image/png", "image/jpeg", "image/webp":
-				return b, nil
+				return decoded, nil
 			}
-			continue
-		}
-		if strings.HasPrefix(raw, "data:") {
-			_, raw, _ = strings.Cut(raw, ",")
-		}
-		if len(raw) > 64<<20 {
-			continue
-		}
-		// Detect the decoded signature, including WEBP after RIFF, before archiving untrusted image data.
-		decoded, e := base64.StdEncoding.DecodeString(raw)
-		if e != nil || len(decoded) == 0 {
-			continue
-		}
-		mime := http.DetectContentType(decoded)
-		switch mime {
-		case "image/png", "image/jpeg", "image/webp":
-			return decoded, nil
+			reason = "unsupported_image_type"
 		}
 	}
-	return nil, errors.New("The image response is incomplete. Check usage before trying again.")
+	return nil, reason
 }
 
 // GetStudioRun returns only bytes after the caller's cursors. Terminal snapshots are read from disk.

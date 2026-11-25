@@ -471,7 +471,7 @@ it('filters models by mode, locks a pending image request and displays its downl
 it('loads the completed supplier image as downloadable bytes without credentials or a second generation', async () => {
   const signal = new AbortController().signal
   const url =
-    'https://pub-13fd1d3607a441b4a9d232b3a223f5f6.r2.dev/images/completed.png'
+    'https://pub-13fd1d3607a441b4a9d232b3a223f5f6.r2.lat/images/completed.png'
   const get = vi
     .spyOn(globalThis, 'fetch')
     .mockResolvedValue(
@@ -489,6 +489,7 @@ it('loads the completed supplier image as downloadable bytes without credentials
   for (const untrusted of [
     'javascript:alert(1)',
     'https://example.org/images/a.png',
+    'https://other-bucket.r2.lat/images/a.png',
     url.replace('https://', 'https://user@'),
   ]) {
     await expect(
@@ -1073,10 +1074,11 @@ it('quotes a selection from the current conversation without changing the draft'
   selection.removeAllRanges()
   selection.addRange(range)
   const rect = new DOMRect(40, 80, 55, 16)
-  vi.spyOn(
-    screen.getByRole('log', { name: 'Results' }).parentElement!,
-    'getBoundingClientRect'
-  ).mockReturnValue(new DOMRect(0, 0, 800, 600))
+  const results = screen.getByRole('log', { name: 'Results' }).parentElement
+  if (!results) throw new Error('Missing results container')
+  vi.spyOn(results, 'getBoundingClientRect').mockReturnValue(
+    new DOMRect(0, 0, 800, 600)
+  )
   Object.defineProperty(range, 'getClientRects', { value: () => [rect] })
   fireEvent(document, new Event('selectionchange'))
   const action = await screen.findByRole('button', { name: 'Quote' })

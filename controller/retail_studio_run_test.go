@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -128,6 +129,33 @@ func TestStudioRunDetached(t *testing.T) {
 	}
 }
 
+// TestStudioImageURLAllowed covers both supplier origins and rejects other CDN tenants and ports.
+func TestStudioImageURLAllowed(t *testing.T) {
+	const bucket = "pub-13fd1d3607a441b4a9d232b3a223f5f6"
+	for raw, allowed := range map[string]bool{
+		"https://" + bucket + ".r2.lat/images/file.png?sig=test": true,
+		"https://" + bucket + ".r2.dev/images/file.png":          true,
+		"https://other.r2.lat/images/file.png":                   false,
+		"https://" + bucket + ".r2.lat:444/images/file.png":      false,
+		"https://" + bucket + ".r2.lat/private/file.png":         false,
+	} {
+		asset, err := url.Parse(raw)
+		require.NoError(t, err)
+		require.Equal(t, allowed, studioImageURLAllowed(asset), raw)
+	}
+}
+
+// TestStudioResultImageFallback checks that a broken field does not hide usable bytes in the same
+// response and that the diagnostic for a rejected link cannot expose its signed query.
+func TestStudioResultImageFallback(t *testing.T) {
+	const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="
+	got, err := studioResultImage(context.Background(), []byte(`{"data":{"b64_json":"!","url":"data:image/png;base64,`+png+`"}}`))
+	require.NoError(t, err)
+	require.Equal(t, png, base64.StdEncoding.EncodeToString(got))
+	_, err = studioResultImage(context.Background(), []byte(`{"data":[{"url":"https://untrusted.invalid/images/a?signature=private"}]}`))
+	require.Equal(t, studioImageFailure("url_rejected"), err)
+}
+
 // TestStudioRunImageOptions verifies legacy defaults and rejects invalid options before a run is claimed.
 func TestStudioRunImageOptions(t *testing.T) {
 	for _, scenario := range []struct {
@@ -187,6 +215,11 @@ func TestStudioImageThread(t *testing.T) {
 		n := calls.Add(1)
 		var payload map[string]any
 		require.NoError(t, common.DecodeJson(r.Body, &payload))
+		// The supplier may return an expiring URL unless both generations and edits ask for bytes.
+		if payload["response_format"] != "b64_json" {
+			io.WriteString(w, `{"data":[{"url":"https://untrusted.invalid/temporary.png"}]}`)
+			return
+		}
 		require.Equal(t, []string{
 			"A red fox",
 			"Previous requests:\nA red fox\n\n\nCurrent request:\nAdd snow",
