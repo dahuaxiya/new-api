@@ -83,6 +83,7 @@
     "Upstream sites": "Вышестоящие сайты",
     "Remove this Key from its sites before deleting it": "Перед удалением отвяжите ключ от всех сайтов",
     "Upstream Key is unavailable": "Ключ недоступен",
+    "No current price for this upstream group. The Key and its call groups were not changed.": "Для этой группы поставщика нет актуальной цены. Ключ и связанные группы не изменены.",
     "Key inventory changed. Reopen the form.": "Ключи изменились. Откройте форму заново.",
     "Import the existing site Key before replacing it": "Сначала импортируйте текущий ключ сайта",
     "Upstream Keys": "Ключи поставщиков",

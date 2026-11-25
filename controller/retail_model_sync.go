@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
+	"github.com/QuantumNous/new-api/service"
 )
 
 var errRetailModelList = errors.New("retail model list unavailable or incomplete")
@@ -20,13 +22,27 @@ var retailModelName = regexp.MustCompile(`^[[:alnum:]_.:/-]{1,100}$`)
 // readRetailModelList sends only the enrolled group's bearer token to the fixed model-list endpoint.
 // The shared client rejects redirects. Never include response bodies or request headers in task errors.
 func readRetailModelList(ctx context.Context, key string) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://aixingxing.pro/v1/models", nil)
+	return readRetailSiteModelList(ctx, "https://aixingxing.pro", key)
+}
+
+// readRetailSiteModelList reads only the enrolled inventory owner's models. Credentials never follow redirects.
+func readRetailSiteModelList(ctx context.Context, base, key string) ([]string, error) {
+	base = strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")
+	client := retailPublicRatesClient
+	if base != "https://aixingxing.pro" {
+		protected := service.GetSSRFProtectedHTTPClient()
+		if protected == nil || retailprice.RateFeedOrigin(base) == "" {
+			return nil, errRetailModelList
+		}
+		client = &http.Client{Transport: protected.Transport, Timeout: 8 * time.Second, CheckRedirect: retailPublicRatesClient.CheckRedirect}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/models", nil)
 	if err != nil {
 		return nil, errRetailModelList
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Cache-Control", "no-cache")
-	resp, err := retailPublicRatesClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, errRetailModelList
 	}

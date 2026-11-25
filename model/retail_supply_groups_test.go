@@ -341,6 +341,133 @@ func TestRetailModelSyncAtomicPublication(t *testing.T) {
 }
 
 // TestRetailGroupLaunchDatabases checks cancellation, price changes and publication with an independent Claude credential on each supported database.
+// TestRetailInventoryGroupLaunch verifies exactly the operator contract: a group takes one saved Key,
+// preview has no effects, its tariff and live model list determine the product, and another Key cannot impersonate it.
+func TestRetailInventoryGroupLaunch(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := useVM2APIEnrollmentDatabase(t, dialect)
+			require.NoError(t, migrateDB())
+			t.Setenv("CRYPTO_SECRET", "inventory-route-test")
+			ctx := context.Background()
+			endpoint := "https://aixingxing.pro"
+			root := Channel{Name: "Kiro owner", Key: "kiro-secret", BaseURL: &endpoint, Type: 14, Models: "old-unavailable", Group: "retail", Status: 1}
+			require.NoError(t, root.Insert())
+			cfg := filepath.Join(t.TempDir(), "retail.json")
+			raw, err := common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"channel_id": root.Id, "kind": "reseller"}}})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(cfg, raw, 0600))
+			t.Setenv("RETAIL_RELAY_CONFIG", cfg)
+			now := time.Now().Unix()
+			feed := &retailprice.PublicRateSnapshot{Source: endpoint + "/api/public/rates", UpdatedAt: now, FetchedAt: now, Groups: []retailprice.PublicRate{{Group: "kiro", Multiplier: "0.45"}, {Group: "cursor", Multiplier: "0.35"}}}
+			version, err := SaveRetailGroupBindings(ctx, 0, []retailprice.GroupBinding{{LocalGroup: "default", ChannelID: root.Id, UpstreamGroup: "kiro"}}, true, feed, 1)
+			require.NoError(t, err)
+			price := retailprice.OfficialModels()[0]
+			price.ID = "claude-opus-5-5"
+			price.OfficialModel = price.ID
+			price.VerifiedAt = now - 30
+			price.ValidUntil = now + 3600
+			old := retailprice.Product{ID: "existing", Name: "legacy", UserGroups: []string{"default"}, Routes: []retailprice.Route{{ChannelID: root.Id, Models: map[string]string{price.ID: price.ID}}}}
+			version, err = PublishRetailPriceBook(version, retailprice.Book{Enabled: true, WalletCNYPerUnit: "1", ReceiptRatio: "1", Models: []retailprice.Model{price}, Products: []retailprice.Product{old}}, nil, 1)
+			require.NoError(t, err)
+			view, err := ReadRetailKeyLibrary(ctx)
+			require.NoError(t, err)
+			group := "kiro"
+			id, err := EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "create", Stamp: view.Stamp, Name: "Kiro", Key: root.Key, OwnerSiteID: root.Id, UpstreamGroup: &group}, 1)
+			require.NoError(t, err)
+			margin := 2000
+			input := RetailGroupLaunch{Version: version, Group: "claude-normal", LibraryID: id, Margin: &margin}
+			discover := func(_ context.Context, base, secret string) ([]string, error) {
+				require.Equal(t, endpoint, base)
+				require.Equal(t, "kiro-secret", secret)
+				return []string{price.ID, "unknown-model"}, nil
+			}
+			conflict := input
+			conflict.Upstream = "cursor"
+			_, err = LaunchRetailGroupKeys(ctx, conflict, 1, discover)
+			require.ErrorIs(t, err, retailprice.ErrConfig)
+			review, err := LaunchRetailGroupKeys(ctx, input, 1, discover)
+			require.NoError(t, err)
+			require.NotEmpty(t, review.Review)
+			require.Equal(t, "0.5625", review.SaleMultiplier)
+			var unchanged Channel
+			require.NoError(t, db.First(&unchanged, root.Id).Error)
+			require.Zero(t, unchanged.RetailKeyID)
+			require.Equal(t, root.Models, unchanged.Models)
+			input.Review = review.Review
+			applied, err := LaunchRetailGroupKeys(ctx, input, 1, discover)
+			require.NoError(t, err)
+			require.True(t, applied.Applied)
+			book, _, err := GetQuotableRetailPriceBook()
+			require.NoError(t, err)
+			product := book.Products[1]
+			require.Equal(t, id, product.RateSourceKeyID)
+			require.Equal(t, id, product.Routes[0].LibraryID)
+			require.Equal(t, map[string]string{price.ID: price.ID}, product.Routes[0].Models)
+			require.Equal(t, old, book.Products[0])
+			require.NoError(t, db.First(&unchanged, root.Id).Error)
+			require.Empty(t, unchanged.Key)
+			require.Equal(t, id, unchanged.RetailKeyID)
+			// 用同一把 Key 切换采购组，预先存在的报价不得被改写，缺价时两边都必须回滚。
+			editGroup := func(group string, confirm string) error {
+				view, err := ReadRetailKeyLibrary(ctx)
+				require.NoError(t, err)
+				_, err = EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "edit", ID: id, Name: "Kiro", UpstreamGroup: &group, Stamp: view.Stamp, ConfirmGroups: map[int]string{root.Id: confirm}}, 1)
+				return err
+			}
+			require.NoError(t, editGroup("cursor", "kiro"))
+			require.Error(t, editGroup("not-listed", "cursor"))
+			book, _, err = GetQuotableRetailPriceBook()
+			require.NoError(t, err)
+			require.Equal(t, "cursor", book.Binding("claude-normal", root.Id).UpstreamGroup)
+			rate, err := book.BoundRate(*book.Binding("claude-normal", root.Id))
+			require.NoError(t, err)
+			require.Equal(t, "0.35", rate.Multiplier)
+			view, err = ReadRetailKeyLibrary(ctx)
+			require.NoError(t, err)
+			require.Equal(t, "cursor", view.Keys[0].UpstreamGroup)
+			unlisted := "provider-pilot"
+			_, err = EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "create", OwnerSiteID: root.Id, Stamp: view.Stamp, Name: "Spare", Key: "spare-key", UpstreamGroup: &unlisted}, 1)
+			require.NoError(t, err, "an unused Key can be filed before its tariff appears in the feed")
+			// 移除库存引用后，即使调用方持有上一次的可选渠道集合，运行时报价也必须拒绝。
+			require.NoError(t, db.Table("channels").Where("id = ?", root.Id).Update("retail_key_id", 0).Error)
+			book, _, err = GetQuotableRetailPriceBook()
+			require.NoError(t, err)
+			require.True(t, book.UnavailableRateChannels[root.Id])
+			_, err = book.MakeQuote(applied.Version, "default", retailprice.KeyPolicy{ProductID: product.ID, GroupCurrent: true}, price.ID, 1, []int{root.Id}, now)
+			require.Error(t, err)
+			// 旧版把同一个凭据复制到了另一协议站点。只有同目的地、同凭据且人工停用的子线路允许接管。
+			second := Channel{Name: "legacy owner", BaseURL: &endpoint, Type: 1, Group: "retail", Status: 1}
+			require.NoError(t, second.Insert())
+			raw, err = common.Marshal(map[string]any{"enabled": true, "group": "retail", "supplies": []map[string]any{{"channel_id": root.Id, "kind": "reseller"}, {"channel_id": second.Id, "kind": "reseller"}}})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(cfg, raw, 0600))
+			child := Channel{Name: "old copy", RetailSiteID: second.Id, Group: "retail", Type: 1, BaseURL: &endpoint, Key: "some-other-secret", Status: common.ChannelStatusEnabled}
+			require.NoError(t, child.Insert())
+			view, err = ReadRetailKeyLibrary(ctx)
+			require.NoError(t, err)
+			spareID := view.Keys[len(view.Keys)-1].ID
+			adopt := func(destination string) error {
+				state, err := ReadRetailKeyLibrary(ctx)
+				require.NoError(t, err)
+				_, err = EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "adopt_inline", ID: spareID, Channel: child.Id, Destination: destination, Stamp: state.Stamp}, 1)
+				return err
+			}
+			require.Error(t, adopt(endpoint))
+			require.NoError(t, db.Model(&child).Update("status", common.ChannelStatusManuallyDisabled).Error)
+			require.Error(t, adopt(endpoint))
+			require.NoError(t, db.Model(&child).Update("key", "spare-key").Error)
+			require.Error(t, adopt("https://another.example"))
+			require.NoError(t, adopt(endpoint))
+			require.NoError(t, db.First(&child, child.Id).Error)
+			require.Equal(t, root.Id, child.RetailSiteID)
+			require.Equal(t, spareID, child.RetailKeyID)
+			require.Equal(t, common.ChannelStatusManuallyDisabled, child.Status)
+			require.Empty(t, child.Key)
+		})
+	}
+}
+
 func TestRetailGroupLaunchDatabases(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
 		t.Run(dialect, func(t *testing.T) {
@@ -744,6 +871,14 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			}
 			_, err = write(RetailLibraryEdit{Action: "bind", ID: id, Channel: first.Id, Destination: first.GetBaseURL()})
 			require.NoError(t, err)
+			// 库存 Key 的归属变更保留加密凭据，并成为对应线路的唯一分组来源。
+			classified := "kiro"
+			_, err = write(RetailLibraryEdit{Action: "edit", ID: id, Name: "Spare", UpstreamGroup: &classified})
+			require.NoError(t, err)
+			owned, err := ReadRetailKeyLibrary(ctx)
+			require.NoError(t, err)
+			require.Equal(t, classified, owned.Keys[0].UpstreamGroup)
+			require.Equal(t, classified, owned.Groups[first.Id])
 			// Seed a reference that the old version permitted; the new API cannot create it.
 			require.NoError(t, db.Table("channels").Where("id = ?", foreign.Id).Updates(map[string]any{"retail_key_id": id, "retail_key_target": foreign.supplyTarget()}).Error)
 			require.NoError(t, db.First(foreign, foreign.Id).Error)
@@ -772,10 +907,13 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			require.Len(t, view.Uses[id], 2)
 			// Upgrade a database that already has a shared key. Its two consumers cannot tell us who issued it.
 			require.NoError(t, db.Migrator().DropColumn(&RetailUpstreamKey{}, "OwnerSiteID"))
+			require.NoError(t, db.Migrator().DropColumn(&RetailUpstreamKey{}, "UpstreamGroup"))
+			require.NoError(t, migrateDB())
 			require.NoError(t, migrateDB())
 			view, err = ReadRetailKeyLibrary(ctx)
 			require.NoError(t, err)
 			require.Zero(t, view.Keys[0].OwnerSiteID)
+			require.Empty(t, view.Keys[0].UpstreamGroup)
 			_, err = first.SupplySecret(db)
 			require.ErrorIs(t, err, ErrRetailLibraryUnavailable)
 			// A sibling may use the same secret while this old reference is blocked. Filing must not activate both.
@@ -821,7 +959,7 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			require.NoError(t, db.First(&filed, id).Error)
 			require.Equal(t, "Claude", filed.Name)
 			require.Equal(t, entry.Sealed, filed.Sealed)
-			_, err = write(RetailLibraryEdit{Action: "edit", ID: id, Name: "Claude Pro", Key: "edited-secret"})
+			_, err = write(RetailLibraryEdit{Action: "edit", ID: id, Name: "Claude Pro", Key: "edited-secret", ConfirmGroups: map[int]string{first.Id: classified}})
 			require.NoError(t, err)
 			require.NoError(t, db.First(&filed, id).Error)
 			require.Equal(t, "Claude Pro", filed.Name)
@@ -829,7 +967,7 @@ func TestRetailKeyLibraryDatabases(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "edited-secret", secret)
 			// A stale external reference must neither receive the new key nor prevent its owner from rotating it.
-			_, err = write(RetailLibraryEdit{Action: "rotate", ID: id, Key: "test-secret-2"})
+			_, err = write(RetailLibraryEdit{Action: "rotate", ID: id, Key: "test-secret-2", ConfirmGroups: map[int]string{first.Id: classified}})
 			require.NoError(t, err)
 			_, err = foreign.SupplySecret(db)
 			require.ErrorIs(t, err, ErrRetailLibraryUnavailable)

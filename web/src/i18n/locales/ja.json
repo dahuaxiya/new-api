@@ -83,6 +83,7 @@
     "Upstream sites": "上流サイト",
     "Remove this Key from its sites before deleting it": "削除する前にすべてのサイトからキーを解除してください",
     "Upstream Key is unavailable": "上流キーを利用できません",
+    "No current price for this upstream group. The Key and its call groups were not changed.": "この上流グループの料金は取得できません。キーと呼び出しグループの設定は変更されていません。",
     "Key inventory changed. Reopen the form.": "キーが変更されました。フォームを開き直してください。",
     "Import the existing site Key before replacing it": "先にサイトの既存キーを取り込んでください",
     "Upstream Keys": "上流キー管理",

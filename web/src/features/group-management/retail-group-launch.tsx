@@ -44,6 +44,7 @@ import {
   getRetailPricing,
   launchRetailGroup,
   type RetailPriceBook,
+  type RetailBindingState,
   type RetailLaunchInput,
   type RetailLaunchReview,
   type RetailLaunchRoute,
@@ -164,6 +165,11 @@ function PublishedGroups({
   const { t } = useTranslation()
   // 和价表共用按登录会话隔离的缓存，保存成功后由上架表单触发重新读取。
   const query = usePublishedPricing(identity)
+  const supply = useQuery({
+    queryKey: ['retail-group-bindings', identity],
+    queryFn: ({ signal }) => getRetailGroupBindings(signal),
+    retry: false,
+  })
   const saved = query.data
   const book = saved?.book
   return (
@@ -185,13 +191,31 @@ function PublishedGroups({
             >
               <dt className='font-medium'>{product.name}</dt>
               <dd className='text-muted-foreground'>
-                {productRouteLabel(book, product)}
-                {product.rate_source_channel_id && (
-                  <span className='ms-2'>
-                    {t('Selling multiplier source')}: #
-                    {product.rate_source_channel_id}
-                  </span>
-                )}
+                {supply.data?.inventory_keys
+                  ? product.routes
+                      .map((route) => {
+                        const ch = supply.data.rate_channels?.find(
+                          (c) => c.id === route.channel_id
+                        )
+                        const key = supply.data.inventory_keys?.find(
+                          (k) => k.id === ch?.library_id
+                        )
+                        return key
+                          ? `${key.name} · ${key.upstream_group}`
+                          : productRouteLabel(book, {
+                              ...product,
+                              routes: [route],
+                            })
+                      })
+                      .join(' / ')
+                  : productRouteLabel(book, product)}
+                {!supply.data?.inventory_keys &&
+                  product.rate_source_channel_id && (
+                    <span className='ms-2'>
+                      {t('Selling multiplier source')}: #
+                      {product.rate_source_channel_id}
+                    </span>
+                  )}
               </dd>
               {product.public && product.binding_group && (
                 <Button
@@ -382,8 +406,9 @@ function LaunchForm({
       `${t(editing ? 'Saved' : 'Call group published')} · ${groupName}`
     )
     const skipped = rows.filter((r) => r.reason).map((r) => r.model)
-    if (skipped.length)
-      toast.message(t('Skipped models') + ' · ' + skipped.join(', '))
+    if (skipped.length) {
+      toast.message(`${t('Skipped models')} · ${skipped.join(', ')}`)
+    }
     onPublished()
   }
   /** 读取新 Key 时只使用选中站点的协议和地址。后台验证并计算可售范围，浏览器不推算价格。 */
@@ -477,6 +502,17 @@ function LaunchForm({
       'Channel model mapping differs from the price route',
   }
   const actionLabel = editing ? 'Save' : 'Save and publish group'
+  if (data?.inventory_keys) {
+    return (
+      <InventoryLaunchForm
+        identity={identity}
+        state={data}
+        editing={editSnapshot}
+        onReload={onReload}
+        onPublished={onPublished}
+      />
+    )
+  }
   return (
     <div className='min-h-0 flex-1 space-y-4 overflow-auto p-6'>
       {state.isError && (
@@ -937,6 +973,300 @@ function LaunchForm({
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/** 本站组只持有库存选择。站点、采购分组、模型清单均由服务端按 Key 解析。 */
+function InventoryLaunchForm({
+  identity,
+  state,
+  editing,
+  onReload,
+  onPublished,
+}: {
+  identity: string
+  state: RetailBindingState
+  editing?: PublishedGroupEdit
+  onReload: (latest: PublishedGroupEdit) => void
+  onPublished: () => void
+}) {
+  const { t } = useTranslation()
+  const client = useQueryClient()
+  const product = editing?.product
+  const channels = state.rate_channels ?? []
+  const keys = (state.inventory_keys ?? []).filter(
+    (key) =>
+      key.upstream_group &&
+      channels.some((channel) => channel.id === key.owner_site_id)
+  )
+  const anchor =
+    product?.rate_source_channel_id || product?.routes[0]?.channel_id
+  const keyFor = (channelID?: number) =>
+    channels.find((channel) => channel.id === channelID)?.library_id || 0
+  const [primary, setPrimary] = useState(
+    () => product?.rate_source_key_id || keyFor(anchor)
+  )
+  const [extras, setExtras] = useState<number[]>(
+    () =>
+      product?.routes
+        .filter((route) => route.channel_id !== anchor)
+        .map((route) => route.library_id || keyFor(route.channel_id)) ?? []
+  )
+  const [usePrimary, setUsePrimary] = useState(
+    !product || product.routes.some((route) => route.channel_id === anchor)
+  )
+  const [name, setName] = useState(product?.binding_group ?? '')
+  const [margin, setMargin] = useState(
+    product?.margin_bps === undefined ? '' : String(product.margin_bps / 100)
+  )
+  const [busy, setBusy] = useState(false)
+  const [failure, setFailure] = useState('')
+  const [review, setReview] = useState<{
+    input: RetailLaunchInput
+    result: RetailLaunchReview
+  }>()
+  const selected = keys.find((key) => key.id === primary)
+  const site = channels.find(
+    (channel) => channel.id === selected?.owner_site_id
+  )
+  const feed = site && state.site_feeds?.[site.id]
+  const rate = (
+    feed?.snapshot ??
+    (site && state.channels.some((channel) => channel.site_id === site.id)
+      ? state.sync.snapshot
+      : undefined)
+  )?.groups.find((rate) => rate.group === selected?.upstream_group)
+  const valid =
+    !!name.trim() &&
+    !!selected &&
+    !!rate &&
+    (usePrimary || extras.length > 0) &&
+    extras.every(
+      (id) => id !== 0 && id !== primary && keys.some((key) => key.id === id)
+    ) &&
+    new Set(extras).size === extras.length &&
+    (margin === '' ||
+      (Number.isFinite(Number(margin)) &&
+        Number(margin) >= 0 &&
+        Number(margin) <= 95))
+  /** 每次提交都复核草稿版本。其他组变更可以重新报价，同组被修改则先回读再编辑。 */
+  async function submit(publish: boolean) {
+    if (busy || !valid) return
+    setBusy(true)
+    setFailure('')
+    try {
+      let input: RetailLaunchInput
+      if (review) input = review.input
+      else {
+        const latest = await getRetailPricing(new AbortController().signal)
+        if (editing && latest.version !== editing.version) {
+          const current = latest.book.products.find(
+            (p) => p.id === editing.product.id
+          )
+          if (!current) {
+            throw new Error('Retail pricing changed. Reload before saving.')
+          }
+          const fresh = groupEditSnapshot(current, latest.book, latest.version)
+          if (
+            JSON.stringify(fresh.product) !== JSON.stringify(editing.product) ||
+            JSON.stringify(fresh.bindings) !== JSON.stringify(editing.bindings)
+          ) {
+            onReload(fresh)
+            toast.error(
+              t('Group routing changed. Reload the saved group to continue.')
+            )
+            return
+          }
+        }
+        input = {
+          expected_version: latest.version,
+          library_id: primary,
+          additional_key_ids: extras,
+          local_group: name.trim(),
+          pricing_only: !usePrimary,
+          product_id: product?.id,
+          ...(margin !== '' && {
+            margin_bps: Math.round(Number(margin) * 100),
+          }),
+        }
+      }
+      const result = await launchRetailGroup(
+        publish && !review ? { ...input, apply: true } : input,
+        review?.result.review || ''
+      )
+      if (!result.applied) {
+        setReview({ input, result })
+        return
+      }
+      await Promise.all(
+        [
+          'retail-group-bindings',
+          'retail-key-library',
+          'retail-pricing',
+          'upstream-keys',
+          'retail-catalog',
+          'retail-studio',
+        ].map((key) => client.invalidateQueries({ queryKey: [key] }))
+      )
+      toast.success(t('Saved'))
+      onPublished()
+    } catch (error) {
+      setReview(undefined)
+      setFailure(t(getServerErrorMessage(error)))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className='min-h-0 flex-1 space-y-5 overflow-auto p-6'>
+      <fieldset className='grid gap-4' disabled={busy || !!review}>
+        <label>
+          {t('Call group name')}
+          <Input
+            value={name}
+            readOnly={!!product}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <label>
+          {t('Upstream API Key')}
+          <NativeSelect
+            value={primary}
+            onChange={(e) => setPrimary(Number(e.target.value))}
+          >
+            <NativeSelectOption value={0}>
+              {t('Select a Key')}
+            </NativeSelectOption>
+            {keys.map((key) => (
+              <NativeSelectOption key={key.id} value={key.id}>
+                {key.name} · #{key.id} · {key.upstream_group}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </label>
+        {selected && (
+          <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm'>
+            <dt>{t('Supply site')}</dt>
+            <dd>{site?.name}</dd>
+            <dt>{t('Upstream group')}</dt>
+            <dd>{selected.upstream_group}</dd>
+            <dt>{t('Procurement rate')}</dt>
+            <dd>{rate ? `${rate.multiplier}×` : t('Unavailable')}</dd>
+          </dl>
+        )}
+        <a className='text-sm underline' href='/upstream-keys'>
+          {t('Upstream Keys')}
+        </a>
+        <label>
+          {t('Target margin (%)')}
+          <Input
+            type='number'
+            min={0}
+            max={95}
+            value={margin}
+            placeholder={String(state.sale_policy.margin_bps / 100)}
+            onChange={(e) => setMargin(e.target.value)}
+          />
+        </label>
+        <details open={extras.length > 0 || !usePrimary || undefined}>
+          <summary>{t('Additional upstream routes')}</summary>
+          <label className='flex items-center gap-2 py-2'>
+            <Checkbox
+              checked={usePrimary}
+              onCheckedChange={(v) => setUsePrimary(v === true)}
+            />
+            {t('Route requests to the selling multiplier source')}
+          </label>
+          {extras.map((id) => (
+            <div key={id} className='flex items-center justify-between'>
+              <span>
+                {keys.find((key) => key.id === id)?.name || t('Unavailable')}
+              </span>
+              <Button
+                variant='ghost'
+                onClick={() => setExtras(extras.filter((item) => item !== id))}
+              >
+                {t('Remove')}
+              </Button>
+            </div>
+          ))}
+          <NativeSelect
+            aria-label={t('Add upstream route')}
+            value=''
+            onChange={(e) => setExtras([...extras, Number(e.target.value)])}
+          >
+            <NativeSelectOption value=''>
+              {t('Select a Key')}
+            </NativeSelectOption>
+            {keys
+              .filter((key) => key.id !== primary && !extras.includes(key.id))
+              .map((key) => (
+                <NativeSelectOption key={key.id} value={key.id}>
+                  {key.name} · {key.upstream_group}
+                </NativeSelectOption>
+              ))}
+          </NativeSelect>
+        </details>
+      </fieldset>
+      {site && !review && (
+        <SiteFeedEditor
+          key={site.id}
+          site={site.id}
+          baseUrl={site.base_url}
+          feed={feed}
+          version={state.version}
+          initialOpen={false}
+          legacyFollow={state.sync.enabled}
+          onSaved={async () => {
+            await client.invalidateQueries({
+              queryKey: ['retail-group-bindings', identity],
+            })
+          }}
+        />
+      )}
+      {failure && <p role='alert'>{failure}</p>}
+      {review && (
+        <div aria-live='polite' className='space-y-2'>
+          <p>
+            {t('Selling multiplier')} · {review.result.sale_multiplier}×
+          </p>
+          <SellingPricePreview
+            rows={review.result.rows
+              .filter((row) => row.tiers)
+              .map((row) => ({ ...row, product: name, available: true }))}
+          />
+          {review.result.rows
+            .filter((row) => row.reason)
+            .map((row) => (
+              <p key={row.model} className='text-muted-foreground text-sm'>
+                {row.model} · {t('Unavailable')}
+              </p>
+            ))}
+        </div>
+      )}
+      <div className='flex flex-wrap gap-2'>
+        <Button
+          variant='outline'
+          disabled={busy || (!review && !valid)}
+          onClick={() => (review ? setReview(undefined) : void submit(false))}
+        >
+          {t(review ? 'Back' : 'Preview CNY selling prices')}
+        </Button>
+        <Button
+          disabled={
+            busy ||
+            !valid ||
+            !state.pricing_enabled ||
+            (!!review && !review.result.review)
+          }
+          onClick={() => void submit(true)}
+        >
+          {busy
+            ? t('Loading...')
+            : t(product ? 'Save' : 'Save and publish group')}
+        </Button>
+      </div>
     </div>
   )
 }

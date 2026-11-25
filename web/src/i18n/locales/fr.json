@@ -83,6 +83,7 @@
     "Upstream sites": "Sites en amont",
     "Remove this Key from its sites before deleting it": "Détachez la clé de tous les sites avant de la supprimer",
     "Upstream Key is unavailable": "Clé en amont indisponible",
+    "No current price for this upstream group. The Key and its call groups were not changed.": "Aucun tarif disponible pour ce groupe amont. La clé et ses groupes d’appel restent inchangés.",
     "Key inventory changed. Reopen the form.": "Les clés ont changé. Rouvrez le formulaire.",
     "Import the existing site Key before replacing it": "Importez d’abord la clé actuelle du site",
     "Upstream Keys": "Clés amont",

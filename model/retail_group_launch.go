@@ -18,19 +18,23 @@ import (
 
 // RetailGroupLaunch addresses one public group. Only new credentials accept a Key and discovered model list.
 type RetailGroupLaunch struct {
-	Apply       bool                `json:"apply,omitempty"` // Direct publication uses only the locked server-side quote.
-	Version     int64               `json:"expected_version"`
-	ProductID   string              `json:"product_id"`
-	Site        int                 `json:"site_id"`
-	Channel     int                 `json:"channel_id"`
-	Group       string              `json:"local_group"`
-	Upstream    string              `json:"upstream_group"`
-	Key         string              `json:"key"`
-	Models      []string            `json:"models"`
-	Margin      *int                `json:"margin_bps"`
-	PricingOnly bool                `json:"pricing_only"`
-	Routes      []RetailLaunchRoute `json:"additional_routes"`
-	Review      string              `json:"review"`
+	LibraryID       int                 `json:"library_id"`
+	KeyRoutes       []int               `json:"additional_key_ids"`
+	provisionalKeys map[int]int         // 预览回滚后数据库序号可能变化，用稳定的库存编号计算复核摘要。
+	routeKeys       map[int]int         // 仅由事务内核实过的库存路由产生，不接受请求体覆盖。
+	Apply           bool                `json:"apply,omitempty"` // Direct publication uses only the locked server-side quote.
+	Version         int64               `json:"expected_version"`
+	ProductID       string              `json:"product_id"`
+	Site            int                 `json:"site_id"`
+	Channel         int                 `json:"channel_id"`
+	Group           string              `json:"local_group"`
+	Upstream        string              `json:"upstream_group"`
+	Key             string              `json:"key"`
+	Models          []string            `json:"models"`
+	Margin          *int                `json:"margin_bps"`
+	PricingOnly     bool                `json:"pricing_only"`
+	Routes          []RetailLaunchRoute `json:"additional_routes"`
+	Review          string              `json:"review"`
 }
 
 // RetailLaunchRoute selects a registered credential and its procurement tariff.
@@ -64,11 +68,16 @@ var ErrRetailLaunchPaused = errors.New("Enable retail sales and load the upstrea
 // LaunchRetailGroup runs preview and confirmation against the same locked book. Preview rolls back credential,
 // ability and audit writes. Confirmation compares visible tariffs again before allowing the transaction to commit.
 func LaunchRetailGroup(ctx context.Context, in RetailGroupLaunch, actor int) (RetailLaunchResult, error) {
+	return launchRetailGroupIn(DB, ctx, in, actor)
+}
+
+// launchRetailGroupIn 发布调用分组，供库存选择与商品报价共用一次事务。
+func launchRetailGroupIn(db *gorm.DB, ctx context.Context, in RetailGroupLaunch, actor int) (RetailLaunchResult, error) {
 	out := RetailLaunchResult{Rows: []RetailLaunchRow{}}
 	if (in.Apply && in.Review != "") || actor <= 0 || in.Site <= 0 || in.Channel < 0 || in.Group == "" || len(in.Group) > 100 || len(in.Models) > 200 || len(in.Routes) > 99 || (in.Margin != nil && (*in.Margin < 0 || *in.Margin > 9500)) {
 		return out, retailprice.ErrConfig
 	}
-	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		version, err := mutateRetailPriceBookIn(tx, ctx, in.Version, actor, false, func(book *retailprice.Book) error {
 			if !book.Enabled || (!book.PublicRateSync.Enabled && book.SiteFeeds[in.Site].Snapshot == nil) {
 				return ErrRetailLaunchPaused
@@ -233,6 +242,20 @@ func LaunchRetailGroup(ctx context.Context, in RetailGroupLaunch, actor int) (Re
 				product.ID = retailprice.OfficialProductID(in.Group)
 				product.RateSourceChannelID = 0
 				product.Routes = slices.DeleteFunc(slices.Clone(product.Routes), func(r retailprice.Route) bool { return !slices.Contains(ids, r.ChannelID) })
+				// 换 Key 后只保留这把 Key 当前暴露、且实际有报价的模型，旧商品不能带回已下架模型。
+				if in.LibraryID != 0 {
+					for index := range product.Routes {
+						route := &product.Routes[index]
+						route.Models = maps.Clone(route.Models)
+						for modelID := range route.Models {
+							if !slices.ContainsFunc(supplies, func(source retailprice.CatalogSupply) bool {
+								return source.ID == route.ChannelID && slices.Contains(strings.Split(source.Models, ","), modelID)
+							}) {
+								delete(route.Models, modelID)
+							}
+						}
+					}
+				}
 				scoped.Products = []retailprice.Product{product}
 			}
 			draft := retailprice.GenerateOfficialDraft(scoped, supplies, now)
@@ -246,8 +269,10 @@ func LaunchRetailGroup(ctx context.Context, in RetailGroupLaunch, actor int) (Re
 				product = &draft.Book.Products[0]
 				product.MarginBPS = in.Margin
 				product.RateSourceChannelID = id
+				product.RateSourceKeyID = in.LibraryID
 				for i := range product.Routes {
 					product.Routes[i].RateID = rateIDs[product.Routes[i].ChannelID]
+					product.Routes[i].LibraryID = in.routeKeys[product.Routes[i].ChannelID]
 				}
 				if productIndex >= 0 {
 					product.ID = book.Products[productIndex].ID
@@ -294,6 +319,9 @@ func LaunchRetailGroup(ctx context.Context, in RetailGroupLaunch, actor int) (Re
 							if in.Channel == 0 && channel == id {
 								row.Channels[i] = 0
 							}
+							if keyID := in.provisionalKeys[channel]; keyID > 0 {
+								row.Channels[i] = -keyID
+							}
 						}
 						count++
 					}
@@ -305,6 +333,9 @@ func LaunchRetailGroup(ctx context.Context, in RetailGroupLaunch, actor int) (Re
 			}
 			// Ignore expiry renewals and provisional DB IDs. Any change to the reviewed money, model or exclusion requires a new preview.
 			raw, err := common.Marshal([]any{in.Version, in.Site, in.Channel, in.Group, in.Upstream, in.Margin, in.ProductID, in.PricingOnly, in.Routes, sha256.Sum256([]byte(in.Key)), out.SaleMultiplier, out.Rows})
+			if in.LibraryID > 0 {
+				raw, err = common.Marshal([]any{in.Version, in.LibraryID, in.KeyRoutes, in.Group, in.Margin, in.ProductID, in.PricingOnly, out.SaleMultiplier, out.Rows})
+			}
 			if err != nil {
 				return err
 			}

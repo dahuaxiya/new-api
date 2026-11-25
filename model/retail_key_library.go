@@ -28,24 +28,28 @@ import (
 
 // RetailUpstreamKey belongs to one root site. Legacy inventory with no owner cannot be dispatched.
 type RetailUpstreamKey struct {
-	OwnerSiteID int    `json:"owner_site_id" gorm:"not null;default:0"`
-	ID          int    `json:"id"`
-	Name        string `json:"name" gorm:"size:120;not null"`
-	Sealed      string `json:"-" gorm:"type:text;not null"`
-	Version     int64  `json:"version" gorm:"not null"`
+	UpstreamGroup string `json:"upstream_group" gorm:"size:128"` // 升级后未核实的 Key 留空，不从旧线路反推。
+	OwnerSiteID   int    `json:"owner_site_id" gorm:"not null;default:0"`
+	ID            int    `json:"id"`
+	Name          string `json:"name" gorm:"size:120;not null"`
+	Sealed        string `json:"-" gorm:"type:text;not null"`
+	Version       int64  `json:"version" gorm:"not null"`
 }
 
 // RetailLibraryState contains display metadata only. Some references may belong to a site no longer enrolled.
 type RetailLibraryState struct {
-	Keys     []RetailUpstreamKey    `json:"keys"`
-	Channels []RetailBindingChannel `json:"channels"`
-	Uses     map[int][]int          `json:"uses"`
-	Groups   map[int]string         `json:"groups"`
-	Stamp    string                 `json:"stamp"`
+	Consumers map[int][]string                 `json:"consumers"` // 以内部线路索引，供管理员确认受影响的本站组。
+	SiteRates map[int][]retailprice.PublicRate `json:"site_rates"`
+	Keys      []RetailUpstreamKey              `json:"keys"`
+	Channels  []RetailBindingChannel           `json:"channels"`
+	Uses      map[int][]int                    `json:"uses"`
+	Groups    map[int]string                   `json:"groups"`
+	Stamp     string                           `json:"stamp"`
 }
 
-// RetailLibraryEdit carries the destination seen by the administrator. An edit with an empty Key changes only the display name.
+// RetailLibraryEdit carries the destination seen by the administrator. An empty secret preserves the credential when changing its name or upstream group.
 type RetailLibraryEdit struct {
+	UpstreamGroup *string        `json:"upstream_group"`
 	FromSiteID    int            `json:"from_site_id"`
 	OwnerSiteID   int            `json:"owner_site_id"`
 	ConfirmGroups map[int]string `json:"confirm_groups"`
@@ -304,7 +308,7 @@ func validateRestoredSupply(tx *gorm.DB, key RetailUpstreamKey, root int) error 
 
 // readRetailKeyLibrary uses an independent concurrency stamp. Routine background price renewals do not invalidate the form.
 func readRetailKeyLibrary(tx *gorm.DB) (out RetailLibraryState, err error) {
-	if err = tx.Select("id", "name", "version", "owner_site_id").Order("id").Find(&out.Keys).Error; err != nil {
+	if err = tx.Select("id", "name", "version", "owner_site_id", "upstream_group").Order("id").Find(&out.Keys).Error; err != nil {
 		return
 	}
 	if out.Channels, err = RetailRateSiteChannels(tx); err != nil {
@@ -331,12 +335,46 @@ func readRetailKeyLibrary(tx *gorm.DB) (out RetailLibraryState, err error) {
 		}
 	}
 	out.Groups = book.RegisteredGroups()
+	out.Consumers = map[int][]string{}
+	// Includes price-only uses: their new requests also depend on this Key's tariff.
+	for _, p := range book.Products {
+		name := p.BindingGroup
+		if name == "" {
+			name = p.Name
+		}
+		if p.RateSourceChannelID > 0 {
+			out.Consumers[p.RateSourceChannelID] = append(out.Consumers[p.RateSourceChannelID], name)
+		}
+		for _, route := range p.Routes {
+			out.Consumers[route.ChannelID] = append(out.Consumers[route.ChannelID], name)
+		}
+	}
+	for _, b := range book.GroupBindings {
+		out.Consumers[b.ChannelID] = append(out.Consumers[b.ChannelID], b.LocalGroup)
+	}
+	for id, names := range out.Consumers {
+		slices.Sort(names)
+		out.Consumers[id] = slices.Compact(names)
+	}
+	out.SiteRates = map[int][]retailprice.PublicRate{}
+	for _, ch := range out.Channels {
+		if ch.ID != ch.SiteID {
+			continue
+		}
+		snapshot := book.SiteFeeds[ch.ID].Snapshot
+		if snapshot == nil && retailprice.RateFeedOrigin(ch.BaseURL) == "https://aixingxing.pro" {
+			snapshot = book.PublicRateSync.Snapshot
+		}
+		if snapshot != nil {
+			out.SiteRates[ch.ID] = snapshot.Groups
+		}
+	}
 	// Include hidden inline secret revisions so importing an old form cannot adopt a newly replaced Key.
 	stamps := make([]string, 0, len(out.Channels))
 	for _, row := range out.Channels {
 		stamps = append(stamps, row.credentialStamp)
 	}
-	raw, err := common.Marshal([]any{out.Keys, out.Channels, out.Uses, out.Groups, stamps})
+	raw, err := common.Marshal([]any{out.Keys, out.Channels, out.Uses, out.Groups, out.Consumers, stamps})
 	if err == nil {
 		out.Stamp = credentialMAC(raw)
 	}
@@ -412,7 +450,7 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 					return ErrRetailLibraryTransferUsed
 				}
 				// Ciphertext is bound to the stable inventory ID. The receiving site must bind its own route separately.
-				return tx.Model(&key).Updates(map[string]any{"owner_site_id": ownerID, "version": key.Version + 1}).Error
+				return tx.Model(&key).Updates(map[string]any{"owner_site_id": ownerID, "upstream_group": "", "version": key.Version + 1}).Error
 			}
 			if in.Action == "assign_owner" {
 				if id == 0 || key.OwnerSiteID != 0 || ch.Id != 0 || in.Key != "" {
@@ -429,6 +467,41 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 			if in.OwnerSiteID != 0 {
 				return retailprice.ErrConfig
 			}
+		}
+		// 已用 Key 改归属时，和所有本站报价一起提交；旧请求仍按自己的价格快照结算。
+		if in.UpstreamGroup != nil {
+			group := *in.UpstreamGroup
+			if !retailprice.ValidBindingGroup(group) || (in.Action != "edit" && in.Action != "create" && in.Action != "import") || key.OwnerSiteID <= 0 {
+				return retailprice.ErrConfig
+			}
+			// An unused Key can belong to a newly opened or private group. Only a product that buys through it needs a verified price.
+			if in.Action == "edit" && group != key.UpstreamGroup {
+				var ids []int
+				if err := localKeyUses(tx, id, key.OwnerSiteID).Pluck("id", &ids).Error; err != nil {
+					return err
+				}
+				confirmed := map[int]string{}
+				for _, channel := range ids {
+					if old := state.Groups[channel]; old != "" {
+						confirmed[channel] = old
+					}
+				}
+				if !maps.Equal(confirmed, in.ConfirmGroups) {
+					return retailprice.ErrConfig
+				}
+				if len(ids) > 0 {
+					if err := setRetailKeyGroupIn(tx, ctx, price, ids, key.ID, key.OwnerSiteID, group, actor); err != nil {
+						return err
+					}
+					if price, err = lockRetailPriceState(tx); err != nil {
+						return err
+					}
+				}
+				if err := tx.Model(&key).Updates(map[string]any{"upstream_group": group, "version": key.Version + 1}).Error; err != nil {
+					return err
+				}
+			}
+			key.UpstreamGroup = group
 		}
 		// A metadata-only edit must not decrypt the Key or advance any route's pricing revision.
 		rotating := in.Action == "rotate" || (in.Action == "edit" && in.Key != "")
@@ -457,8 +530,25 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 				return err
 			}
 		}
-		if in.Action == "bind" || in.Action == "detach" {
+		if in.Action == "bind" || in.Action == "detach" || in.Action == "adopt_inline" {
 			affected = []int{ch.Id}
+		}
+		if in.Action == "bind" && (key.OwnerSiteID <= 0 || key.OwnerSiteID != ch.supplySiteID()) {
+			return retailprice.ErrAccess
+		}
+		// 商品固定选择库存 ID 后，旧线路编辑器不能把同一渠道悄悄换成另一把 Key。
+		if in.Action == "bind" && ch.RetailKeyID != id {
+			var book retailprice.Book
+			if err := common.UnmarshalJsonStr(price.Payload, &book); err != nil {
+				return err
+			}
+			for _, product := range book.Products {
+				if product.RateSourceChannelID == ch.Id && product.RateSourceKeyID > 0 && product.RateSourceKeyID != id || slices.ContainsFunc(product.Routes, func(route retailprice.Route) bool {
+					return route.ChannelID == ch.Id && route.LibraryID > 0 && route.LibraryID != id
+				}) {
+					return retailprice.ErrConfig
+				}
+			}
 		}
 		groups := map[int]string{}
 		for _, owner := range affected {
@@ -466,7 +556,7 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 				groups[owner] = group
 			}
 		}
-		if (rotating || in.Action == "bind") && !maps.Equal(groups, in.ConfirmGroups) {
+		if (rotating || in.Action == "bind" || in.Action == "adopt_inline") && !maps.Equal(groups, in.ConfirmGroups) {
 			return retailprice.ErrConfig
 		}
 		if (len(affected) > 0 && (rotating || in.Action == "bind" || in.Action == "detach")) || in.Action == "add_route" {
@@ -539,6 +629,34 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 			if in.Action != "import" {
 				return nil
 			}
+		case "adopt_inline":
+			// 修正历史上同一站点不同协议的内联副本，只移动已停用的子线路。库存的所有者、目的地址和凭据必须保持一致。
+			rootIndex := slices.IndexFunc(state.Channels, func(row RetailBindingChannel) bool {
+				return row.ID == key.OwnerSiteID && row.ID == row.SiteID && row.AllowNewCredential && row.BaseURL == in.Destination
+			})
+			if rootIndex < 0 || ch.RetailSiteID <= 0 || ch.RetailSiteID == key.OwnerSiteID || ch.Status != common.ChannelStatusManuallyDisabled || ch.RetailKeyID != 0 || ch.Key == "" || key.UpstreamGroup == "" || in.Key != "" {
+				return retailprice.ErrAccess
+			}
+			for _, override := range []*string{ch.HeaderOverride, ch.ParamOverride, ch.ModelMapping, ch.Setting, ch.OpenAIOrganization} {
+				if override != nil && *override != "" && *override != "{}" {
+					return retailprice.ErrAccess
+				}
+			}
+			if ch.OtherSettings != "" && ch.OtherSettings != "{}" || ch.Other != "" {
+				return retailprice.ErrAccess
+			}
+			secret, err := key.secret()
+			if err != nil || !hmac.Equal([]byte(ch.Key), []byte(secret)) {
+				return retailprice.ErrAccess
+			}
+			ch.RetailSiteID = key.OwnerSiteID
+			ch.Type = state.Channels[rootIndex].Type
+			if err := checkSiteSecret(tx, ch, secret); err != nil {
+				return err
+			}
+			if err := tx.Model(&ch).Updates(map[string]any{"retail_site_id": ch.RetailSiteID, "type": ch.Type}).Error; err != nil {
+				return err
+			}
 		case "bind", "add_route":
 			// Check before decrypting or creating a child. Equal URLs do not imply a shared site.
 			if key.OwnerSiteID <= 0 || key.OwnerSiteID != ch.supplySiteID() {
@@ -559,7 +677,11 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 					return err
 				}
 			} else if ch.Key != "" {
-				return common.NewMessage("Import the existing site Key before replacing it")
+				// 只接管同站点已存在的相同凭据，不覆盖不同的内联 Key。
+				secret, err := key.secret()
+				if err != nil || secret == "" || !hmac.Equal([]byte(ch.Key), []byte(secret)) {
+					return common.NewMessage("Import the existing site Key before replacing it")
+				}
 			}
 
 			if id == 0 || ch.Id == 0 || in.Key != "" {
@@ -613,8 +735,70 @@ func EditRetailKeyLibrary(ctx context.Context, in RetailLibraryEdit, actor int) 
 		if id > 0 {
 			target = ch.supplyTarget()
 		}
+		if id > 0 && key.UpstreamGroup != "" {
+			current, err := lockRetailPriceState(tx)
+			if err != nil {
+				return err
+			}
+			if err = setRetailKeyGroupIn(tx, ctx, current, []int{ch.Id}, key.ID, key.OwnerSiteID, key.UpstreamGroup, actor); err != nil {
+				return err
+			}
+		}
 		// Only this root-only transaction writes the read-only reference columns. Removing the inline value prevents stale fallback.
 		return tx.Table("channels").Where("id = ?", ch.Id).Updates(map[string]any{"retail_key_id": id, "retail_key_target": target, "key": ""}).Error
 	})
 	return id, err
+}
+
+// setRetailKeyGroupIn 把已核实的采购组投影到当前价表。调用方持有价格锁，缺价时连同 Key 修改一起回滚。
+func setRetailKeyGroupIn(tx *gorm.DB, ctx context.Context, price *RetailPriceState, ids []int, keyID, siteID int, group string, actor int) error {
+	_, err := mutateRetailPriceBookIn(tx, ctx, price.Version, actor, false, func(b *retailprice.Book) error {
+		if b.CredentialGroups == nil {
+			b.CredentialGroups = map[int]string{}
+		}
+		for _, id := range ids {
+			b.CredentialGroups[id] = group
+			if b.SiteFeeds[siteID].Snapshot != nil {
+				if b.RateSiteByChannel == nil {
+					b.RateSiteByChannel = map[int]int{}
+				}
+				b.RateSiteByChannel[id] = siteID
+			} else {
+				delete(b.RateSiteByChannel, id)
+			}
+		}
+		for index := range b.Products {
+			product := &b.Products[index]
+			if slices.Contains(ids, product.RateSourceChannelID) {
+				product.RateSourceKeyID = keyID
+			}
+			for pos := range product.Routes {
+				if slices.Contains(ids, product.Routes[pos].ChannelID) {
+					route := &product.Routes[pos]
+					if route.RateID != "" && b.Binding(product.BindingGroup, route.ChannelID) == nil {
+						// A manually priced supplier must have its own current tariff. Never carry an old group's rate into the new one.
+						rateID := b.SiteGroupRates[siteID][group]
+						if rateID == "" || !slices.ContainsFunc(b.Rates, func(rate retailprice.Rate) bool { return rate.ID == rateID && rate.ValidUntil > time.Now().Unix() }) {
+							return retailprice.ErrExpired
+						}
+						route.RateID = rateID
+					}
+					route.LibraryID = keyID
+				}
+			}
+		}
+		for i := range b.GroupBindings {
+			r := &b.GroupBindings[i]
+			if !slices.Contains(ids, r.ChannelID) || r.UpstreamGroup == group {
+				continue
+			}
+			delete(b.ModelSync, r.SyncID())
+			r.UpstreamGroup = group
+			if _, err := b.BoundRate(*r); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return err
 }

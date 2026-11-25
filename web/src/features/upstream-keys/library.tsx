@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { DataTableRowActionMenu } from '@/components/data-table/core/row-action-menu'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { ComboboxInput } from '@/components/ui/combobox-input'
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,7 @@ import {
 import { useAuthStore } from '@/stores/auth-store'
 
 type Entry = {
+  upstream_group?: string
   owner_site_id: number
   id: number
   name: string
@@ -35,6 +37,8 @@ type Entry = {
 }
 type Site = RetailBindingChannel & { library_id?: number }
 type Library = {
+  consumers?: Record<number, string[]>
+  site_rates?: Record<number, { group: string; multiplier: string }[]>
   keys: Entry[]
   channels: Site[] | null
   uses: Record<number, number[]>
@@ -114,6 +118,14 @@ function EditKey({
   })
   const [models, setModels] = useState('')
   const [owner, setOwner] = useState('')
+  const [upstream, setUpstream] = useState(entry?.upstream_group ?? '')
+  const editGroup =
+    library.site_rates !== undefined &&
+    ['create', 'edit', 'import'].includes(action)
+  const groupOptions =
+    library.site_rates?.[
+      Number(owner) || entry?.owner_site_id || site?.site_id || 0
+    ] ?? []
   const needsOwner =
     action === 'create' ||
     action === 'assign_owner' ||
@@ -131,7 +143,11 @@ function EditKey({
   const [conflict, setConflict] = useState(false)
   const uses = entry ? (library.uses[entry.id] ?? []) : []
   let affected: number[] = []
-  if (action === 'edit' && secret && entry) {
+  if (
+    action === 'edit' &&
+    (secret || (editGroup && upstream !== entry?.upstream_group)) &&
+    entry
+  ) {
     // A historical foreign reference can only be detached. It never receives this replacement.
     affected = (library.channels ?? [])
       .filter(
@@ -145,7 +161,15 @@ function EditKey({
       .filter((id) => library.groups[id])
       .map((id) => [id, library.groups[id]])
   )
-  const needsConfirmation = Object.keys(groups).length > 0
+  const changingGroup =
+    editGroup &&
+    action === 'edit' &&
+    upstream.trim() !== (entry?.upstream_group ?? '')
+  const consumers = [
+    ...new Set(affected.flatMap((id) => library.consumers?.[id] ?? [])),
+  ]
+  const needsConfirmation =
+    Object.keys(groups).length > 0 || (changingGroup && consumers.length > 0)
   /** On conflict, reload the reference list before offering a new confirmation. Never replay a secret-bearing request. */
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -170,6 +194,7 @@ function EditKey({
           channel_id: site?.id ?? 0,
           destination: site?.base_url ?? '',
           name,
+          ...(editGroup && upstream && { upstream_group: upstream.trim() }),
           models,
           key: secret,
           confirm_groups: confirmed ? groups : {},
@@ -247,7 +272,10 @@ function EditKey({
               <NativeSelect
                 required
                 value={owner}
-                onChange={(e) => setOwner(e.target.value)}
+                onChange={(e) => {
+                  setOwner(e.target.value)
+                  setUpstream('')
+                }}
               >
                 <NativeSelectOption value=''>
                   {t('Select a site')}
@@ -258,6 +286,28 @@ function EditKey({
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
+            </label>
+          )}
+          {editGroup && (
+            <label className='block'>
+              {t('Upstream group')}
+              <ComboboxInput
+                aria-label={t('Upstream group')}
+                allowCustomValue
+                showEmptyCustomValue={false}
+                placeholder={t('Select or type...')}
+                spellCheck={false}
+                options={groupOptions.map((rate) => ({
+                  value: rate.group,
+                  label: rate.group,
+                  description: `${rate.multiplier}×`,
+                }))}
+                value={upstream}
+                onValueChange={(value) => {
+                  setUpstream(value)
+                  setConfirmed(false)
+                }}
+              />
             </label>
           )}
           {(action === 'create' ||
@@ -364,8 +414,25 @@ function EditKey({
                 checked={confirmed}
                 onCheckedChange={(v) => setConfirmed(!!v)}
               />
-              {t('The replacement Key belongs to this upstream group')} ·{' '}
-              {Object.values(groups).join(' / ')}
+              {changingGroup ? (
+                <span>
+                  {t('Confirm')} ·{' '}
+                  {entry?.upstream_group ||
+                    Object.values(groups).join(' / ') ||
+                    '—'}{' '}
+                  → {upstream.trim()}
+                  {consumers.length > 0 && (
+                    <span className='block'>
+                      {t('Referenced call groups')} · {consumers.join(' / ')}
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span>
+                  {t('The replacement Key belongs to this upstream group')} ·{' '}
+                  {Object.values(groups).join(' / ')}
+                </span>
+              )}
             </label>
           )}
           {error && <p role='alert'>{error}</p>}
@@ -383,7 +450,13 @@ function EditKey({
               disabled={
                 busy ||
                 (action === 'edit' &&
-                  (!name.trim() || (!secret && name.trim() === entry?.name))) ||
+                  (!name.trim() ||
+                    (!secret &&
+                      name.trim() === entry?.name &&
+                      (!editGroup || upstream === entry?.upstream_group)))) ||
+                (editGroup &&
+                  (!upstream.trim() ||
+                    new TextEncoder().encode(upstream.trim()).length > 128)) ||
                 (needsOwner && !owner) ||
                 (action === 'transfer_owner' && uses.length > 0) ||
                 (needsConfirmation && !confirmed) ||
@@ -529,6 +602,12 @@ export function KeyLibrary({ identity }: { identity: string }) {
                             <span className='text-muted-foreground font-mono text-xs'>
                               #{entry.id}
                             </span>
+                            {data.site_rates && (
+                              <div className='text-muted-foreground text-xs'>
+                                {entry.upstream_group ||
+                                  t('Select upstream group')}
+                              </div>
+                            )}
                           </div>
                           <div className='text-muted-foreground text-xs leading-relaxed wrap-anywhere'>
                             {uses.length
@@ -699,6 +778,13 @@ function SiteBinding({
   const library = query.data
   const site = library?.channels?.find((c) => c.id === channel)
   if (!library || !site) return null
+  if (library.site_rates) {
+    return (
+      <a className='text-sm underline' href='/upstream-keys'>
+        {t('Upstream Keys')}
+      </a>
+    )
+  }
   return (
     <div className='flex flex-wrap items-center gap-2'>
       {site.library_id && (

@@ -313,138 +313,55 @@ function BindingEditor(props: {
   // Upstream timestamps describe publication. Only sync failures or missing groups pause a binding.
   const healthy =
     props.state.sync.enabled && !props.state.sync.last_error && committed
-  return (
-    <section
-      className='shrink-0 space-y-4 rounded-lg border p-4'
-      aria-label={t('Supply routes')}
-    >
-      <div className='flex flex-wrap items-start justify-between gap-3'>
-        <div className='space-y-1'>
-          <h3 className='font-medium'>{t('Group multiplier bindings')}</h3>
-        </div>
-        <Badge variant={healthy ? 'secondary' : 'outline'}>
-          {props.state.sync.enabled
-            ? t('Automatic following')
-            : t('Not following')}
-        </Badge>
+  // Older deployments expose route credentials here. The inventory-aware API exposes the group-to-Key mapping as read-only on this page.
+  const supplyFields = props.state.inventory_keys ? (
+    <div className='space-y-3'>
+      <div className='flex gap-4 text-sm'>
+        <a href='/upstream-keys' className='underline'>
+          {t('Upstream Keys')}
+        </a>
+        <a href='/groups' className='underline'>
+          {t('Edit call group routing')}
+        </a>
       </div>
-      <div className='bg-muted/50 space-y-3 rounded-md p-3'>
-        <Field>
-          <FieldLabel htmlFor='following-margin'>
-            {t('Target margin (%)')}
-          </FieldLabel>
-          <Input
-            id='following-margin'
-            type='number'
-            min={0}
-            max={95}
-            step='0.01'
-            value={
-              Number.isFinite(salePolicy.margin_bps)
-                ? salePolicy.margin_bps / 100
-                : ''
-            }
-            disabled={mutation.isPending}
-            onChange={(event) =>
-              setSalePolicy({
-                ...salePolicy,
-                margin_bps: Math.round(event.target.valueAsNumber * 100),
-              })
-            }
-          />
-        </Field>
-        <details className='space-y-3'>
-          <summary className='cursor-pointer text-xs'>
-            {t('Fees, buffer and credit discount')}
-          </summary>
-          <FieldGroup className='grid gap-3 sm:grid-cols-3'>
-            <Field>
-              <FieldLabel htmlFor='following-receipts'>
-                {t('Cash received per CNY of credit')}
-              </FieldLabel>
-              <Input
-                id='following-receipts'
-                inputMode='decimal'
-                value={salePolicy.receipt_ratio}
-                disabled={mutation.isPending}
-                onChange={(event) =>
-                  setSalePolicy({
-                    ...salePolicy,
-                    receipt_ratio: event.target.value,
-                  })
-                }
-              />
-            </Field>
-            {(
-              [
-                { key: 'fee_bps', label: t('Payment fee (%)'), max: 50 },
-                { key: 'buffer_bps', label: t('Cost buffer (%)'), max: 100 },
-              ] as const
-            ).map((field) => (
-              <Field key={field.key}>
-                <FieldLabel htmlFor={`following-${field.key}`}>
-                  {field.label}
-                </FieldLabel>
-                <Input
-                  id={`following-${field.key}`}
-                  type='number'
-                  min={0}
-                  max={field.max}
-                  step='0.01'
-                  value={
-                    Number.isFinite(salePolicy[field.key])
-                      ? salePolicy[field.key] / 100
-                      : ''
-                  }
-                  disabled={mutation.isPending}
-                  onChange={(event) =>
-                    setSalePolicy({
-                      ...salePolicy,
-                      [field.key]: Math.round(event.target.valueAsNumber * 100),
-                    })
+      {(props.state.bindings ?? []).map((binding, index) => {
+        const channel = props.state.rate_channels?.find(
+          (ch) => ch.id === binding.channel_id
+        )
+        const key = props.state.inventory_keys?.find(
+          (k) => k.id === channel?.library_id
+        )
+        return (
+          <div
+            key={`${binding.local_group}/${binding.channel_id}`}
+            className='flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm'
+          >
+            <span>
+              {binding.local_group} → {key?.name || channel?.name} ·{' '}
+              {key?.upstream_group || binding.upstream_group}
+            </span>
+            {channel?.type === 1 && (
+              <label className='flex items-center gap-1'>
+                <Switch
+                  aria-label={`${t('Follow this supply group’s models')} · ${binding.local_group}`}
+                  checked={!!bindings[index].follow_models}
+                  onCheckedChange={(value) =>
+                    setBindings((rows) =>
+                      rows.map((row, pos) =>
+                        pos === index ? { ...row, follow_models: value } : row
+                      )
+                    )
                   }
                 />
-              </Field>
-            ))}
-          </FieldGroup>
-          <p className='text-muted-foreground text-xs'>
-            {t(
-              'The estimate includes credit discount, payment fees and cost buffer. Final charges use the server price book.'
+                {t('Follow this supply group’s models')}
+              </label>
             )}
-          </p>
-        </details>
-      </div>
-      {!props.state.pricing_ready && (
-        <p className='bg-muted rounded-md p-3 text-sm'>
-          {t(
-            'Bindings can be saved now. Configure official models and product routes before accepting priced requests.'
-          )}
-        </p>
-      )}
-      <div className='flex flex-wrap gap-2'>
-        <Button
-          variant='outline'
-          size='sm'
-          disabled={feed.isFetching || mutation.isPending}
-          onClick={() => void feed.refetch()}
-        >
-          {t('Load upstream groups')}
-        </Button>
-        <Button
-          variant='ghost'
-          size='sm'
-          disabled={mutation.isPending}
-          onClick={props.onReload}
-        >
-          {t('Reload saved bindings')}
-        </Button>
-      </div>
-      {feed.isFetching && <LoadingState inline message={t('Loading...')} />}
-      {feed.isError && (
-        <p role='alert' className='text-destructive text-sm'>
-          {t('Unable to read upstream public multipliers')}
-        </p>
-      )}
+          </div>
+        )
+      })}
+    </div>
+  ) : (
+    <>
       {channels.length === 0 && (
         <p className='text-muted-foreground text-sm'>
           {t(
@@ -972,6 +889,141 @@ function BindingEditor(props: {
       >
         {t('Reuse an existing Key')}
       </Button>
+    </>
+  )
+  return (
+    <section
+      className='shrink-0 space-y-4 rounded-lg border p-4'
+      aria-label={t('Supply routes')}
+    >
+      <div className='flex flex-wrap items-start justify-between gap-3'>
+        <div className='space-y-1'>
+          <h3 className='font-medium'>{t('Group multiplier bindings')}</h3>
+        </div>
+        <Badge variant={healthy ? 'secondary' : 'outline'}>
+          {props.state.sync.enabled
+            ? t('Automatic following')
+            : t('Not following')}
+        </Badge>
+      </div>
+      <div className='bg-muted/50 space-y-3 rounded-md p-3'>
+        <Field>
+          <FieldLabel htmlFor='following-margin'>
+            {t('Target margin (%)')}
+          </FieldLabel>
+          <Input
+            id='following-margin'
+            type='number'
+            min={0}
+            max={95}
+            step='0.01'
+            value={
+              Number.isFinite(salePolicy.margin_bps)
+                ? salePolicy.margin_bps / 100
+                : ''
+            }
+            disabled={mutation.isPending}
+            onChange={(event) =>
+              setSalePolicy({
+                ...salePolicy,
+                margin_bps: Math.round(event.target.valueAsNumber * 100),
+              })
+            }
+          />
+        </Field>
+        <details className='space-y-3'>
+          <summary className='cursor-pointer text-xs'>
+            {t('Fees, buffer and credit discount')}
+          </summary>
+          <FieldGroup className='grid gap-3 sm:grid-cols-3'>
+            <Field>
+              <FieldLabel htmlFor='following-receipts'>
+                {t('Cash received per CNY of credit')}
+              </FieldLabel>
+              <Input
+                id='following-receipts'
+                inputMode='decimal'
+                value={salePolicy.receipt_ratio}
+                disabled={mutation.isPending}
+                onChange={(event) =>
+                  setSalePolicy({
+                    ...salePolicy,
+                    receipt_ratio: event.target.value,
+                  })
+                }
+              />
+            </Field>
+            {(
+              [
+                { key: 'fee_bps', label: t('Payment fee (%)'), max: 50 },
+                { key: 'buffer_bps', label: t('Cost buffer (%)'), max: 100 },
+              ] as const
+            ).map((field) => (
+              <Field key={field.key}>
+                <FieldLabel htmlFor={`following-${field.key}`}>
+                  {field.label}
+                </FieldLabel>
+                <Input
+                  id={`following-${field.key}`}
+                  type='number'
+                  min={0}
+                  max={field.max}
+                  step='0.01'
+                  value={
+                    Number.isFinite(salePolicy[field.key])
+                      ? salePolicy[field.key] / 100
+                      : ''
+                  }
+                  disabled={mutation.isPending}
+                  onChange={(event) =>
+                    setSalePolicy({
+                      ...salePolicy,
+                      [field.key]: Math.round(event.target.valueAsNumber * 100),
+                    })
+                  }
+                />
+              </Field>
+            ))}
+          </FieldGroup>
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'The estimate includes credit discount, payment fees and cost buffer. Final charges use the server price book.'
+            )}
+          </p>
+        </details>
+      </div>
+      {!props.state.pricing_ready && (
+        <p className='bg-muted rounded-md p-3 text-sm'>
+          {t(
+            'Bindings can be saved now. Configure official models and product routes before accepting priced requests.'
+          )}
+        </p>
+      )}
+      <div className='flex flex-wrap gap-2'>
+        <Button
+          variant='outline'
+          size='sm'
+          disabled={feed.isFetching || mutation.isPending}
+          onClick={() => void feed.refetch()}
+        >
+          {t('Load upstream groups')}
+        </Button>
+        <Button
+          variant='ghost'
+          size='sm'
+          disabled={mutation.isPending}
+          onClick={props.onReload}
+        >
+          {t('Reload saved bindings')}
+        </Button>
+      </div>
+      {feed.isFetching && <LoadingState inline message={t('Loading...')} />}
+      {feed.isError && (
+        <p role='alert' className='text-destructive text-sm'>
+          {t('Unable to read upstream public multipliers')}
+        </p>
+      )}
+      {supplyFields}
       {duplicates && (
         <p role='alert' className='text-destructive text-sm'>
           {t(

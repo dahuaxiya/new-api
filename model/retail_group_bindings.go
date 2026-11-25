@@ -78,7 +78,7 @@ func retailBindingChannels(db *gorm.DB) ([]RetailBindingChannel, error) {
 		if siteID == 0 {
 			siteID = channel.Id
 		}
-		result = append(result, RetailBindingChannel{ID: channel.Id, Name: channel.Name, SiteID: siteID, BaseURL: channel.GetBaseURL(), Type: channel.Type, Models: channel.Models, HasKey: channel.hasSupplyKey(owners), Status: channel.Status, ModelMapping: channel.GetModelMapping()})
+		result = append(result, RetailBindingChannel{LibraryID: channel.RetailKeyID, ID: channel.Id, Name: channel.Name, SiteID: siteID, BaseURL: channel.GetBaseURL(), Type: channel.Type, Models: channel.Models, HasKey: channel.hasSupplyKey(owners), Status: channel.Status, ModelMapping: channel.GetModelMapping()})
 	}
 	return result, nil
 }
@@ -284,7 +284,24 @@ func saveRetailGroupBindingsIn(db *gorm.DB, ctx context.Context, expected int64,
 				bindings = append(bindings, old)
 			}
 		}
-		for _, binding := range bindings {
+		for index, binding := range bindings {
+			// 价表可保留旧线路，但已登记库存的采购组只能由库存编辑器修改。
+			if pos := slices.IndexFunc(channels, func(ch RetailBindingChannel) bool { return ch.ID == binding.ChannelID }); pos >= 0 && channels[pos].LibraryID > 0 {
+				var key RetailUpstreamKey
+				if err := db.Select("id", "owner_site_id", "upstream_group").First(&key, channels[pos].LibraryID).Error; err != nil {
+					return err
+				}
+				if key.OwnerSiteID != channels[pos].SiteID {
+					return retailprice.ErrAccess
+				}
+				if key.UpstreamGroup != "" {
+					if binding.UpstreamGroup != "" && binding.UpstreamGroup != key.UpstreamGroup {
+						return retailprice.ErrConfig
+					}
+					binding.UpstreamGroup = key.UpstreamGroup
+					bindings[index] = binding
+				}
+			}
 			if group := groups[binding.ChannelID]; group != "" && group != binding.UpstreamGroup {
 				return retailprice.ErrConfig
 			}

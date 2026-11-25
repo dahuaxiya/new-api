@@ -80,9 +80,11 @@ export type RetailPriceBook = {
     public?: boolean
     binding_group?: string
     rate_source_channel_id?: number
+    rate_source_key_id?: number
     margin_bps?: number
     user_groups: string[]
     routes: Array<{
+      library_id?: number
       channel_id: number
       rate_id: string
       models: Record<string, string>
@@ -127,6 +129,7 @@ export type RetailSalePolicy = Pick<
   'receipt_ratio' | 'margin_bps' | 'fee_bps' | 'buffer_bps'
 >
 export type RetailBindingChannel = {
+  library_id?: number
   allow_new_credential?: boolean
   id: number
   name: string
@@ -173,6 +176,12 @@ export async function saveRetailSiteFeed(
 }
 
 export type RetailBindingState = {
+  inventory_keys?: Array<{
+    id: number
+    owner_site_id: number
+    name: string
+    upstream_group: string
+  }>
   rate_channels?: RetailBindingChannel[]
   rate_site_by_channel?: Record<number, number>
   rate_source_channels?: Record<string, number>
@@ -413,15 +422,17 @@ export type RetailLaunchRoute = {
 }
 
 export type RetailLaunchInput = {
+  library_id?: number
+  additional_key_ids?: number[]
   apply?: boolean
   expected_version: number
   product_id?: string
   additional_routes?: RetailLaunchRoute[]
   pricing_only?: boolean
-  site_id: number
-  channel_id: number
+  site_id?: number
+  channel_id?: number
   local_group: string
-  upstream_group: string
+  upstream_group?: string
   margin_bps?: number
   key?: string
   models?: string[]

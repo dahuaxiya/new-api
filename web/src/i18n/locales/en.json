@@ -83,6 +83,7 @@
     "Upstream sites": "Upstream sites",
     "Remove this Key from its sites before deleting it": "Remove this Key from its sites before deleting it",
     "Upstream Key is unavailable": "Upstream Key is unavailable",
+    "No current price for this upstream group. The Key and its call groups were not changed.": "No current price for this upstream group. The Key and its call groups were not changed.",
     "Key inventory changed. Reopen the form.": "Key inventory changed. Reopen the form.",
     "Import the existing site Key before replacing it": "Import the existing site Key before replacing it",
     "Upstream Keys": "Upstream Keys",

@@ -333,3 +333,62 @@ it('edits the saved name and optionally replaces the secret on the same Key', as
     confirm_groups: { 7: 'fast' },
   })
 })
+
+/** Editing the group alone keeps the credential and shows which local products the change will affect. */
+it('accepts a typed upstream group for an in-use Key after reviewing its local consumers', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        keys: [
+          {
+            id: 9,
+            name: 'Kiro',
+            version: 1,
+            owner_site_id: 2,
+            upstream_group: 'old',
+          },
+        ],
+        channels: [
+          { id: 2, site_id: 2, name: 'Site', base_url: 'https://example.com' },
+        ],
+        uses: { 9: [2] },
+        groups: { 2: 'old' },
+        consumers: { 2: ['claude-normal'] },
+        site_rates: {
+          2: [
+            { group: 'old', multiplier: '0.4' },
+            { group: 'kiro', multiplier: '0.45' },
+          ],
+        },
+        stamp: 'before',
+      },
+    },
+  })
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <KeyLibrary identity='root' />
+    </QueryClientProvider>
+  )
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Edit Key · Kiro #9' })
+  )
+  const dlg = within(screen.getByRole('dialog'))
+  const field = dlg.getByRole('combobox', { name: 'Upstream group' })
+  fireEvent.change(field, { target: { value: 'kiro' } })
+  expect(dlg.getByText(/claude-normal/)).toBeInTheDocument()
+  expect(dlg.getByRole('button', { name: 'Save' })).toBeDisabled()
+  fireEvent.click(dlg.getByRole('checkbox'))
+  fireEvent.click(dlg.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  expect(put.mock.calls[0][1]).toMatchObject({
+    action: 'edit',
+    id: 9,
+    key: '',
+    upstream_group: 'kiro',
+    confirm_groups: { 2: 'old' },
+  })
+})

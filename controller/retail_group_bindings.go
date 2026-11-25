@@ -40,6 +40,15 @@ func GetRetailGroupBindings(c *gin.Context) {
 		retailPricingManagementError(c, err)
 		return
 	}
+	library, err := model.ReadRetailKeyLibrary(c.Request.Context())
+	if err != nil {
+		retailPricingManagementError(c, err)
+		return
+	}
+	keys := library.Keys
+	if keys == nil {
+		keys = []model.RetailUpstreamKey{}
+	}
 	groups := []string{}
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		groups = append(groups, group)
@@ -59,6 +68,7 @@ func GetRetailGroupBindings(c *gin.Context) {
 	}
 	slices.Sort(groups)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+		"inventory_keys":       keys,
 		"rate_source_channels": sources, "rate_site_by_channel": book.RateSiteByChannel, "rate_channels": rateChannels, "site_feeds": book.SiteFeeds,
 		"credential_groups": book.RegisteredGroups(), "version": version, "bindings": book.GroupBindings, "model_sync": book.ModelSync, "sync": book.PublicRateSync,
 		"group_margins": margins, "local_groups": groups, "channels": channels, "routing_channels": routingChannels, "server_time": time.Now().Unix(),
@@ -92,16 +102,19 @@ func PutRetailGroupBindings(c *gin.Context) {
 		retailPricingManagementError(c, model.ErrRetailPriceConflict)
 		return
 	}
-	// Suspension does not buy capacity. Commit it even when the rate feed is down, without renewing any price.
-	version, err = model.SuspendRetailSupplies(c.Request.Context(), input.ExpectedVersion, input.Bindings, input.Enabled, c.GetInt("id"), input.SalePolicy, input.Supplies)
-	if err == nil {
-		model.InitChannelCache()
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"version": version}})
+	// The supply page can edit sync settings, including model following. Only the inventory publication path may change the mapping.
+	if len(input.Supplies) != 0 || len(input.Bindings) != len(book.GroupBindings) {
+		retailPricingManagementError(c, retailprice.ErrConfig)
 		return
 	}
-	if err != model.ErrRetailMixedSupplyEdit {
-		retailPricingManagementError(c, err)
-		return
+	seen := make(map[string]bool, len(input.Bindings))
+	for _, row := range input.Bindings {
+		old := book.Binding(row.LocalGroup, row.ChannelID)
+		if old == nil || old.UpstreamGroup != row.UpstreamGroup || seen[row.SyncID()] {
+			retailPricingManagementError(c, retailprice.ErrConfig)
+			return
+		}
+		seen[row.SyncID()] = true
 	}
 	snapshot := book.PublicRateSync.Snapshot
 	if slices.ContainsFunc(input.Bindings, func(b retailprice.GroupBinding) bool { return book.RateSiteByChannel[b.ChannelID] == 0 }) {
@@ -210,7 +223,7 @@ func LaunchRetailGroup(c *gin.Context) {
 		retailPricingManagementError(c, retailprice.ErrConfig)
 		return
 	}
-	result, err := model.LaunchRetailGroup(c.Request.Context(), in, c.GetInt("id"))
+	result, err := model.LaunchRetailGroupKeys(c.Request.Context(), in, c.GetInt("id"), readRetailSiteModelList)
 	if err != nil {
 		switch err {
 		case model.ErrRetailGroupRateConflict, model.ErrRetailGroupExists, model.ErrRetailLaunchPaused, model.ErrRetailSupplyGroupName, model.ErrRetailSupplyGroupKey, model.ErrRetailSupplyGroupIncomplete:

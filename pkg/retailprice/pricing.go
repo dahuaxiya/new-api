@@ -78,6 +78,7 @@ type Rate struct {
 
 // Route binds one supplier group credential to a channel and an explicit upstream model name.
 type Route struct {
+	LibraryID int               `json:"library_id,omitempty"` // 业务上选择的库存 Key。ChannelID 供实际分发和历史结算使用。
 	ChannelID int               `json:"channel_id"`
 	RateID    string            `json:"rate_id"`
 	Models    map[string]string `json:"models"`
@@ -85,6 +86,7 @@ type Route struct {
 
 // Product defines independently authorized sales access and equivalent procurement routes.
 type Product struct {
+	RateSourceKeyID     int      `json:"rate_source_key_id,omitempty"`
 	RateSourceChannelID int      `json:"rate_source_channel_id,omitempty"` // 旧组为 0，继续按原有报价规则。
 	MarginBPS           *int     `json:"margin_bps,omitempty"`             // Nil products inherit the site margin, including every historical product.
 	ID                  string   `json:"id"`
@@ -426,7 +428,7 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		bindingGroup = product.BindingGroup
 	}
 	for _, route := range product.Routes {
-		if route.Models[modelName] == "" || !slices.Contains(eligible, route.ChannelID) {
+		if route.Models[modelName] == "" || b.UnavailableRateChannels[route.ChannelID] || !slices.Contains(eligible, route.ChannelID) {
 			continue
 		}
 		routeRates, rateID := b.Rates, route.RateID

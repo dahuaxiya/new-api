@@ -185,6 +185,11 @@ func CreateRetailSupplyGroup(c *gin.Context) {
 		common.ApiError(c, retail_setting.ErrUnavailable)
 		return
 	}
+	// A legacy console may create a disabled draft, but may no longer store a second copy of a Key on it.
+	if input.Key != "" {
+		common.ApiError(c, retail_setting.ErrUnavailable)
+		return
+	}
 	id, err := model.CreateRetailSupplyGroup(c.Request.Context(), input.SiteID, input.Name, input.Key, input.Models)
 	if err != nil {
 		if errors.Is(err, model.ErrRetailSupplyGroupName) || errors.Is(err, model.ErrRetailSupplyGroupKey) {

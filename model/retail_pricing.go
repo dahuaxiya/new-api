@@ -95,6 +95,28 @@ func PublishRetailPriceBook(expected int64, book retailprice.Book, ratesOnly []r
 			// Manual imports cannot overwrite the independently verified public feed.
 			current.Rates = ratesOnly
 		} else {
+			// 通用价表只编辑价格。已绑定库存的分组必须通过分组编辑器换 Key，旧版导入也不能清空这个约束。
+			for _, prior := range current.Products {
+				if prior.RateSourceKeyID == 0 && !slices.ContainsFunc(prior.Routes, func(r retailprice.Route) bool { return r.LibraryID > 0 }) {
+					continue
+				}
+				index := slices.IndexFunc(book.Products, func(p retailprice.Product) bool { return p.ID == prior.ID })
+				if index < 0 {
+					return retailprice.ErrConfig
+				}
+				next := &book.Products[index]
+				if next.RateSourceChannelID != prior.RateSourceChannelID || len(next.Routes) != len(prior.Routes) || next.BindingGroup != prior.BindingGroup {
+					return retailprice.ErrConfig
+				}
+				next.RateSourceKeyID = prior.RateSourceKeyID
+				for pos := range next.Routes {
+					old := slices.IndexFunc(prior.Routes, func(r retailprice.Route) bool { return r.ChannelID == next.Routes[pos].ChannelID })
+					if old < 0 {
+						return retailprice.ErrConfig
+					}
+					next.Routes[pos].LibraryID = prior.Routes[old].LibraryID
+				}
+			}
 			// Imports must never label an edited tariff as freshly verified. A deliberate
 			// change of deadline or billing basis is also a manual pricing decision.
 			for i := range book.Models {

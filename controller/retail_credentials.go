@@ -36,6 +36,11 @@ func PutRetailCredential(c *gin.Context) {
 		retailPricingManagementError(c, retailprice.ErrConfig)
 		return
 	}
+	// Credentials and supplier groups are owned by inventory. This endpoint only controls the availability of an existing route.
+	if (in.Action != "enable" && in.Action != "disable") || in.Key != "" || in.Group != "" || in.ConfirmGroup != "" {
+		retailPricingManagementError(c, retailprice.ErrConfig)
+		return
+	}
 	id, err := model.EditRetailCredential(c.Request.Context(), in, c.GetInt("id"))
 	switch err {
 	case nil:
@@ -77,6 +82,10 @@ func PutRetailKeyLibrary(c *gin.Context) {
 		retailPricingManagementError(c, retailprice.ErrConfig)
 		return
 	}
+	if (in.Action == "create" || in.Action == "import") && in.UpstreamGroup == nil {
+		retailPricingManagementError(c, retailprice.ErrConfig)
+		return
+	}
 	id, err := model.EditRetailKeyLibrary(c.Request.Context(), in, c.GetInt("id"))
 	switch err {
 	case nil:
@@ -88,6 +97,8 @@ func PutRetailKeyLibrary(c *gin.Context) {
 		}
 		model.RecordAuditLog(c, model.AuditLog{UserId: c.GetInt("id"), ActorRole: c.GetInt("role"), Action: "retail.key." + in.Action, Category: model.AuditCategoryOperation, Content: content, Success: true})
 		common.ApiSuccess(c, gin.H{"id": id})
+	case retailprice.ErrExpired:
+		common.ApiError(c, common.NewMessage("No current price for this upstream group. The Key and its call groups were not changed."))
 	case model.ErrRetailLibraryConflict:
 		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "Key inventory changed. Reopen the form."})
 	case model.ErrRetailLibraryTransferUsed, model.ErrRetailLibraryUsed, model.ErrRetailLibraryUnavailable, model.ErrRetailSupplyGroupKey:

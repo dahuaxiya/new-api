@@ -433,3 +433,78 @@ it('scopes identical upstream group names to their site and refreshes without ch
     })
   )
 })
+
+/** The local group sends only inventory references. The server resolves the supplier and its tariff. */
+it('publishes a local group using its selected inventory Key ID', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  })
+  client.setQueryData(['status'], { site_mode: 'retail' })
+  useAuthStore.getState().auth.setUser({ id: 1, username: 'root', role: 100 })
+  const site = {
+    id: 2,
+    site_id: 2,
+    name: 'Site',
+    base_url: 'https://example.com',
+    type: 14,
+  }
+  vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+    data: {
+      success: true,
+      data: url.endsWith('/pricing')
+        ? { version: 23, book: { products: [] } }
+        : {
+            inventory_keys: [
+              { id: 9, owner_site_id: 2, name: 'Kiro', upstream_group: 'kiro' },
+            ],
+            version: 23,
+            local_groups: [],
+            pricing_enabled: true,
+            channels: [site],
+            rate_channels: [site],
+            sale_policy: { margin_bps: 2000 },
+            sync: {
+              enabled: true,
+              snapshot: { groups: [{ group: 'kiro', multiplier: '0.45' }] },
+            },
+          },
+    },
+  }))
+  const post = vi
+    .spyOn(api, 'post')
+    .mockResolvedValue({ data: { success: true, data: { applied: true } } })
+  render(
+    <QueryClientProvider client={client}>
+      <RetailGroupLaunch />
+    </QueryClientProvider>
+  )
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Publish a call group' })
+  )
+  const field = await screen.findByLabelText('Call group name')
+  fireEvent.change(field, { target: { value: 'claude-normal' } })
+  fireEvent.change(screen.getByLabelText('Upstream API Key'), {
+    target: { value: '9' },
+  })
+  expect(screen.queryByLabelText('Upstream group')).toBeNull()
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Save and publish group' })
+  )
+  await waitFor(() => expect(post).toHaveBeenCalled())
+  const body = post.mock.calls[0][1]
+  expect(body).toMatchObject({
+    library_id: 9,
+    additional_key_ids: [],
+    local_group: 'claude-normal',
+    expected_version: 23,
+  })
+  for (const field of [
+    'key',
+    'upstream_group',
+    'site_id',
+    'channel_id',
+    'routes',
+  ]) {
+    expect(body).not.toHaveProperty(field)
+  }
+})

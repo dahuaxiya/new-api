@@ -126,6 +126,38 @@ func GetQuotableRetailPriceBook() (retailprice.Book, int64, error) {
 
 // checkRetailRateAccess 在报价和资金预留前核实站点、协议与托管归属。一次批量读取，无需读取任何 Key。
 func checkRetailRateAccess(db *gorm.DB, book *retailprice.Book) error {
+	// 库存和渠道的当前关联必须与商品快照一致。可停用或撤销 Key，但旧快照不能继续为替换凭据报价。
+	pins := map[int]int{}
+	for _, product := range book.Products {
+		if product.RateSourceKeyID > 0 {
+			pins[product.RateSourceChannelID] = product.RateSourceKeyID
+		}
+		for _, route := range product.Routes {
+			if route.LibraryID > 0 {
+				pins[route.ChannelID] = route.LibraryID
+			}
+		}
+	}
+	book.UnavailableRateChannels = map[int]bool{}
+	if len(pins) > 0 {
+		type routeKey struct {
+			ChannelID     int
+			KeyID         int
+			UpstreamGroup string
+		}
+		var rows []routeKey
+		if err := db.Table("channels AS c").Select("c.id AS channel_id, k.id AS key_id, k.upstream_group").Joins("JOIN retail_upstream_keys AS k ON k.id=c.retail_key_id").Where("c.id IN ? AND (k.owner_site_id=c.retail_site_id OR (COALESCE(c.retail_site_id,0)=0 AND k.owner_site_id=c.id))", slices.Collect(maps.Keys(pins))).Scan(&rows).Error; err != nil {
+			return err
+		}
+		for id := range pins {
+			book.UnavailableRateChannels[id] = true
+		}
+		for _, row := range rows {
+			if row.KeyID == pins[row.ChannelID] && row.UpstreamGroup != "" && row.UpstreamGroup == book.CredentialGroups[row.ChannelID] {
+				delete(book.UnavailableRateChannels, row.ChannelID)
+			}
+		}
+	}
 	if len(book.RateSiteByChannel) == 0 {
 		return nil
 	}
@@ -149,7 +181,6 @@ func checkRetailRateAccess(db *gorm.DB, book *retailprice.Book) error {
 			valid[ch.Id] = ch
 		}
 	}
-	book.UnavailableRateChannels = map[int]bool{}
 	for id, site := range book.RateSiteByChannel {
 		parent, ok := valid[site]
 		ch, exists := valid[id]

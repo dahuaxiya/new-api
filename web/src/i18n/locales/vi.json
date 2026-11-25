@@ -83,6 +83,7 @@
     "Upstream sites": "Trang thượng nguồn",
     "Remove this Key from its sites before deleting it": "Gỡ khóa khỏi các trang trước khi xóa",
     "Upstream Key is unavailable": "Khóa thượng nguồn không khả dụng",
+    "No current price for this upstream group. The Key and its call groups were not changed.": "Nhóm nguồn này chưa có giá hiện hành. Khóa và các nhóm sử dụng khóa vẫn giữ cấu hình cũ.",
     "Key inventory changed. Reopen the form.": "Khóa đã thay đổi. Hãy mở lại biểu mẫu.",
     "Import the existing site Key before replacing it": "Nhập khóa hiện có của trang trước khi thay thế",
     "Upstream Keys": "Khóa nhà cung cấp",
