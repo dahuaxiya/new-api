@@ -130,8 +130,9 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		// 分组 Key 按输入预留；未声明上限时只用模型容量校验账单，出站保留供应商默认值。
 		output = uint(quote.Model.MaxOutput)
 	} else {
-		// 带显式金额预算的旧 Key 仍须在发单前锁定最大费用。
-		output = uint(min(1024, quote.Model.MaxOutput))
+		// 旧预算 Key 未声明输出时，为常见的长回答预留 4K；模型容量更小时仍按模型上限。
+		// 这里不放宽客户指定的上限，也不改变分组 Key 仅按输入预扣的约定。
+		output = uint(min(4096, quote.Model.MaxOutput))
 	}
 	responses := c.Request.URL.Path == "/v1/responses"
 	if responses {

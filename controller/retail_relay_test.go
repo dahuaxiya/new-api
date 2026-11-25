@@ -148,6 +148,7 @@ func TestRetailHTTPRelay(t *testing.T) {
 			{"chat_stream_missing_usage", "/v1/chat/completions", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20,"stream":true}`, "data: {\"id\":\"chat-1\",\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", types.RelayFormatOpenAI, 1, false},
 			{"responses_stream", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true}`, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-4o\",\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12}}}\n\n", types.RelayFormatOpenAIResponses, 1, true},
 			{"responses_stream_interrupted", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true}`, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n", types.RelayFormatOpenAIResponses, 1, false},
+			{"budget_output_default", "/v1/responses", `{"model":"gpt-4o","input":"hello"}`, `{"status":"completed","usage":{"input_tokens":10,"output_tokens":2248,"total_tokens":2258}}`, types.RelayFormatOpenAIResponses, 1, true},
 			{"group_output_default", "/v1/responses", `{"model":"gpt-4o","input":"hello"}`, `{"status":"completed","usage":{"input_tokens":10,"output_tokens":1184,"total_tokens":1194}}`, types.RelayFormatOpenAIResponses, 1, true},
 			{"group_output_explicit", "/v1/responses", `{"model":"gpt-4o","input":"hello","max_output_tokens":1024}`, `{"status":"completed","usage":{"input_tokens":10,"output_tokens":1184,"total_tokens":1194}}`, types.RelayFormatOpenAIResponses, 1, false},
 			{"group_failed_with_usage", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true}`, "data: " + `{"type":"response.failed","response":{"status":"failed","usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}` + "\n\n", types.RelayFormatOpenAIResponses, 1, true},
@@ -158,7 +159,7 @@ func TestRetailHTTPRelay(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/guarded_%t", scenario.name, priced), func(t *testing.T) {
 				groupCase := strings.HasPrefix(scenario.name, "group_output_")
 				groupFailed := strings.HasPrefix(scenario.name, "group_failed_")
-				if (groupCase || groupFailed) && !priced {
+				if (groupCase || groupFailed || scenario.name == "budget_output_default") && !priced {
 					t.Skip("group pricing requires a tariff")
 				}
 				// 明确的零输出保留原始计数；未启用零售报价的旧路径仍沿用原测试预期。
@@ -371,7 +372,10 @@ func TestRetailHTTPRelay(t *testing.T) {
 					if scenario.name == "tool_search_compat_used" || scenario.name == "tool_search_used" || scenario.name == "tool_search_stream" {
 						expected += 1200 // 搜索按原始组倍率 0.24，而非含毛利的文本倍率 0.30。
 					}
-					if groupCase {
+					if scenario.name == "budget_output_default" {
+						// 旧预算 Key 的长回复应按 2248 个实际输出结算，不能按 4096 预留全扣。
+						expected = 6759
+					} else if groupCase {
 						expected = 3567 // 10 输入、1184 输出，按冻结价 3/6 每百万 token。
 					} else if priced && scenario.name == "responses_stream_estimated" {
 						expected = 15 // 只结算上游报告的 10 输入，不把本地收到的文字算作输出。
