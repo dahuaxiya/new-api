@@ -1,5 +1,8 @@
 {
   "translation": {
+    "No published rate for this group. You can still enter its name.": "暂未收录此分组的报价，可以手动填写组名。",
+    "Model following": "模型跟随",
+    "Waiting for first sync": "待首次同步",
     "Rates and sync": "倍率与同步",
     "Key no longer available": "这把 Key 已不存在或不可编辑",
     "Rate unavailable": "暂无报价",

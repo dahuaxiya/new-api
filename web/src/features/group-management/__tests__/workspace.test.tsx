@@ -180,6 +180,7 @@ it('edits a saved Key from its group, keeps the filter, and finds the same Key u
   const upstream = dialog.getByRole('combobox', { name: 'Upstream group' })
   fireEvent.change(upstream, { target: { value: 'kiro-b' } })
   await user.keyboard('{Escape}')
+  expect(upstream).toHaveValue('kiro-b')
   expect(dialog.getByRole('button', { name: 'Save' })).toBeDisabled()
   await user.click(dialog.getByRole('checkbox'))
   await user.click(dialog.getByRole('button', { name: 'Save' }))

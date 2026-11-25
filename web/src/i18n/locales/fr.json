@@ -1,5 +1,8 @@
 {
   "translation": {
+    "No published rate for this group. You can still enter its name.": "Aucun tarif publié pour ce groupe. Vous pouvez saisir son nom.",
+    "Model following": "Suivi des modèles",
+    "Waiting for first sync": "Première synchronisation en attente",
     "Rates and sync": "Tarifs et synchronisation",
     "Key no longer available": "Cette clé n’est plus disponible à la modification",
     "Rate unavailable": "Tarif indisponible",

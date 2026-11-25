@@ -24,6 +24,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -450,7 +451,9 @@ it('saves model following on the selected binding without enabling multiplier sy
   mount()
   const summary = (
     await screen.findByLabelText('Estimated selling multiplier 1')
-  ).closest('summary')!
+  ).closest('summary')
+  if (!summary)
+    throw new Error('The multiplier must be inside the route summary')
   expect(summary.closest('details')).not.toHaveAttribute('open')
   fireEvent.click(summary)
   expect(screen.queryByText('previous-observation')).toBeNull()
@@ -710,8 +713,68 @@ it('saves two distinct Keys and upstream groups under one site', async () => {
     }))
   )
   expect(payload.supplies).toHaveLength(2)
-  for (const [i, r] of routes.entries())
+  for (const [i, r] of routes.entries()) {
     expect(payload.supplies).toContainEqual(
       expect.objectContaining({ id: -1 - i, site_id: 4, key: r.key })
     )
+  }
+})
+
+/** 相同上游组名在两个站点有不同倍率。站点读取失败时不能套用公共报价，非 OpenAI 线路不提供跟随开关。 */
+it('aligns each supply route with its own rate and eligible model-follow control', async () => {
+  const local = {
+    local_group: 'default',
+    channel_id: 4,
+    upstream_group: 'ChatGPT-pro稳定',
+  }
+  const other = { ...local, local_group: 'claude', channel_id: 8 }
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        ...state,
+        bindings: [local, other],
+        inventory_keys: [
+          {
+            id: 1,
+            name: 'Alpha',
+            owner_site_id: 4,
+            upstream_group: local.upstream_group,
+          },
+          {
+            id: 2,
+            name: 'Beta',
+            owner_site_id: 8,
+            upstream_group: other.upstream_group,
+          },
+        ],
+        rate_channels: [
+          { ...state.channels[0], library_id: 1 },
+          { ...state.channels[0], id: 8, site_id: 8, library_id: 2, type: 14 },
+        ],
+        rate_site_by_channel: { 4: 4, 8: 8 },
+        site_feeds: {
+          4: { snapshot: source },
+          8: { last_error: 'read failed', snapshot: source },
+        },
+        sync: { enabled: true, snapshot: source },
+        pricing_ready: true,
+      },
+    },
+  })
+  mount()
+  const table = within(
+    await screen.findByRole('table', { name: 'Supply routes' })
+  )
+  const first = within(table.getByRole('row', { name: /default/ }))
+  expect(first.getByText('0.24×')).toBeVisible()
+  expect(first.getByRole('switch', { name: /default/ })).not.toBeChecked()
+  fireEvent.click(first.getByRole('switch', { name: /default/ }))
+  expect(
+    screen.getByRole('button', { name: 'Save bindings and margin' })
+  ).toBeEnabled()
+  const second = within(table.getByRole('row', { name: /claude/ }))
+  expect(second.getByText('Rate unavailable')).toBeVisible()
+  expect(second.getByText('Not applicable')).toBeVisible()
+  expect(second.queryByRole('switch')).toBeNull()
 })

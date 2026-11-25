@@ -20,6 +20,7 @@ import type {
   RetailBindingChannel,
   RetailGroupBinding,
   RetailPriceBook,
+  RetailPricingState,
 } from '@/features/channels/retail-pricing-api'
 
 export type Inventory = {
@@ -30,6 +31,24 @@ export type Inventory = {
   groups: Record<number, string>
   products: RetailPriceBook['products'] | null
   bindings: RetailGroupBinding[] | null
+}
+
+/** 按服务端消费者名称归类正式商品，保留每个商品按其 ID 查得的独立售价。
+ * @param state 同一已发布版本的价表与倍率。
+ * @return 分组到候选商品的索引，同名商品需继续按该 Key 的线路匹配。
+ */
+export function indexConsumerPrices(state: RetailPricingState) {
+  const grouped = new Map<
+    string,
+    { product: RetailPriceBook['products'][number]; multiplier?: string }[]
+  >()
+  for (const product of state.book?.products ?? []) {
+    const name = product.binding_group || product.name
+    const rows = grouped.get(name) ?? []
+    rows.push({ product, multiplier: state.sale_multipliers?.[product.id] })
+    grouped.set(name, rows)
+  }
+  return grouped
 }
 
 /** 从正式商品计算引用；尚未上架的绑定也单独列出，避免掩盖停用影响。 */

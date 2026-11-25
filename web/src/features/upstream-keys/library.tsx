@@ -14,7 +14,6 @@ import { toast } from 'sonner'
 import { DataTableRowActionMenu } from '@/components/data-table/core/row-action-menu'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { ComboboxInput } from '@/components/ui/combobox-input'
 import {
   Dialog,
   DialogContent,
@@ -28,13 +27,19 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
-import type { RetailBindingChannel } from '@/features/channels/retail-pricing-api'
+import {
+  getRetailPricing,
+  type RetailBindingChannel,
+} from '@/features/channels/retail-pricing-api'
 import { api } from '@/lib/api'
 import {
   getServerErrorMessage,
   requireServerSuccess,
 } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
+
+import { indexConsumerPrices } from './coverage'
+import { KeyConsumerRates, RateValue, UpstreamGroupField } from './group-rates'
 
 type Entry = {
   upstream_group?: string
@@ -249,7 +254,7 @@ function EditKey({
         if (!v && !busy) close()
       }}
     >
-      <DialogContent finalFocus={finalFocus}>
+      <DialogContent finalFocus={finalFocus} className='min-w-0 sm:max-w-md'>
         <DialogHeader>
           <DialogTitle>
             {t(labels[action])}
@@ -302,26 +307,14 @@ function EditKey({
             </label>
           )}
           {editGroup && (
-            <label className='block'>
-              {t('Upstream group')}
-              <ComboboxInput
-                aria-label={t('Upstream group')}
-                allowCustomValue
-                showEmptyCustomValue={false}
-                placeholder={t('Select or type...')}
-                spellCheck={false}
-                options={groupOptions.map((rate) => ({
-                  value: rate.group,
-                  label: rate.group,
-                  description: `${rate.multiplier}×`,
-                }))}
-                value={upstream}
-                onValueChange={(value) => {
-                  setUpstream(value)
-                  setConfirmed(false)
-                }}
-              />
-            </label>
+            <UpstreamGroupField
+              value={upstream}
+              options={groupOptions}
+              onChange={(value) => {
+                setUpstream(value)
+                setConfirmed(false)
+              }}
+            />
           )}
           {(action === 'create' ||
             action === 'import' ||
@@ -594,7 +587,10 @@ function routeSummary(library: Library, id: number, ownerUrl?: string) {
     .join(' · ')
 }
 
-/** Render each Key under its owner, including legacy references that still need an explicit detach. */
+/** 按归属站点列库存，采购倍率取该站公开快照，售价单独取正式价表。
+ * @param props 当前管理员会话与搜索词，查询缓存随会话隔离。
+ * @return 库存和历史凭据列表。缺价不阻断凭据管理。
+ */
 export function KeyLibrary({
   identity,
   search = '',
@@ -606,6 +602,16 @@ export function KeyLibrary({
   const query = useQuery(libraryOptions(identity))
   const [draft, setDraft] = useState<Draft>()
   const data = query.data
+  const pricing = useQuery({
+    queryKey: ['retail-pricing', identity],
+    queryFn: ({ signal }) => getRetailPricing(signal),
+    select: indexConsumerPrices,
+    // 单次读取整份正式价表，与分组路由共享缓存。无本站分组引用的库存不需要请求售价。
+    enabled: Object.values(data?.consumers ?? {}).some(
+      (groups) => groups.length > 0
+    ),
+    retry: false,
+  })
   if (query.isError) {
     return (
       <div role='alert'>
@@ -707,6 +713,9 @@ export function KeyLibrary({
                 <ul className='divide-y'>
                   {saved.map((entry) => {
                     const uses = data.uses[entry.id] ?? []
+                    const purchase = data.site_rates?.[ownerId]?.find(
+                      (rate) => rate.group === entry.upstream_group
+                    )?.multiplier
                     const consumers = [
                       ...new Set(
                         uses.flatMap((id) => data.consumers?.[id] ?? [])
@@ -734,17 +743,23 @@ export function KeyLibrary({
                                 </span>
                                 {entry.upstream_group ||
                                   t('Select upstream group')}
+                                {entry.upstream_group && (
+                                  <RateValue kind='purchase' value={purchase} />
+                                )}
                               </div>
                             )}
                           </div>
                           <div className='text-muted-foreground text-xs leading-relaxed wrap-anywhere'>
                             {consumers.length > 0 && (
-                              <div className='text-foreground mb-0.5 font-medium'>
-                                <span className='sm:sr-only'>
-                                  {t('Referenced call groups')} ·{' '}
-                                </span>
-                                {consumers.join(' · ')}
-                              </div>
+                              <KeyConsumerRates
+                                names={consumers}
+                                keyId={entry.id}
+                                channels={uses}
+                                prices={
+                                  pricing.isError ? undefined : pricing.data
+                                }
+                                loading={pricing.isLoading}
+                              />
                             )}
                             {uses.length
                               ? uses.map((id) => (

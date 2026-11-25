@@ -1,5 +1,8 @@
 {
   "translation": {
+    "No published rate for this group. You can still enter its name.": "このグループの公開レートはありません。名前を直接入力できます。",
+    "Model following": "モデルの同期",
+    "Waiting for first sync": "初回同期待ち",
     "Rates and sync": "倍率と同期",
     "Key no longer available": "このキーは編集できなくなりました",
     "Rate unavailable": "料金未取得",
