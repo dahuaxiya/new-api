@@ -93,7 +93,8 @@ func Distribute() func(c *gin.Context) {
 			if c.Request.URL.Path == "/v1/responses" {
 				// 在 DTO、计费和透传共用的请求缓存中展开附件及需本地回放的历史。
 				if err := service.PrepareRetailResponsesInput(c, body.Input); err != nil {
-					abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgRetailInvalidRequest))
+					apiErr := service.RetailResponsesInputError(c, err)
+					abortWithOpenAiError(c, apiErr.StatusCode, apiErr.ToOpenAIError())
 					return
 				}
 			}

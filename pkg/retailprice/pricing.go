@@ -25,6 +25,16 @@ var (
 	idPattern     = regexp.MustCompile(`^[A-Za-z0-9_.:/-]{1,100}$`)
 )
 
+// ConfigRule identifies the rejected price-book rule without retaining tariff values or supplier names.
+// Error deliberately preserves the legacy public text; only diagnostic logs should use the rule.
+type ConfigRule string
+
+// Error keeps management endpoints from accidentally exposing the internal rule.
+func (r ConfigRule) Error() string { return ErrConfig.Error() }
+
+// Unwrap keeps existing configuration error handling compatible with rule-specific failures.
+func (r ConfigRule) Unwrap() error { return ErrConfig }
+
 // OutputLimitError 表示报价因请求的输出 token 超过模型上限而拒绝。
 // 调用方可保留既有预算错误语义，或按请求协议提示对应字段。
 type OutputLimitError struct {
@@ -205,6 +215,9 @@ func pricesFromValues(v []string) Prices { return Prices{v[0], v[1], v[2], v[3],
 // Validate checks complete tariffs before publication; empty disabled configuration is allowed for first setup.
 func (b Book) Validate(now int64) error {
 	if err := b.ValidateBindings(now); err != nil {
+		if errors.Is(err, ErrConfig) {
+			return ConfigRule("book_bindings")
+		}
 		return err
 	}
 	if !b.Enabled && len(b.Models) == 0 && len(b.Products) == 0 && len(b.Rates) == 0 {
@@ -212,37 +225,37 @@ func (b Book) Validate(now int64) error {
 	}
 	wallet, err := Amount(b.WalletCNYPerUnit)
 	if err != nil || !wallet.IsPositive() {
-		return ErrConfig
+		return ConfigRule("wallet_conversion")
 	}
 	receipts, err := Amount(b.ReceiptRatio)
 	if err != nil || !receipts.IsPositive() || receipts.GreaterThan(decimal.NewFromInt(1)) {
-		return ErrConfig
+		return ConfigRule("receipt_ratio")
 	}
 	if b.MarginBPS < 0 || b.MarginBPS > 9500 || b.FeeBPS < 0 || b.FeeBPS > 5000 || b.BufferBPS < 0 || b.BufferBPS > 10000 || len(b.Models) == 0 || len(b.Models) > 500 || len(b.Products) == 0 || len(b.Products) > 100 || len(b.Rates) > 200 {
-		return ErrConfig
+		return ConfigRule("book_limits")
 	}
 	models, rates, products := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, m := range b.Models {
 		if m.PriceMode != "" && m.PriceMode != "official" && m.PriceMode != "manual" {
-			return ErrConfig
+			return ConfigRule("model_price_mode")
 		}
 		if m.Kind != "" && m.Kind != "text" && m.Kind != "image" {
-			return ErrConfig
+			return ConfigRule("model_kind")
 		}
 		u, err := url.Parse(m.Source)
 		if !idPattern.MatchString(m.ID) || !idPattern.MatchString(m.OfficialModel) || models[m.ID] || (m.Currency != "USD" && m.Currency != "CNY") || err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || m.VerifiedAt <= 0 || m.VerifiedAt > now+30 || m.ValidUntil <= m.VerifiedAt || m.ValidUntil-m.VerifiedAt > 366*86400 || m.MaxOutput < 1 || m.MaxOutput > 1000000 || len(m.Tiers) == 0 || len(m.Tiers) > 10 {
-			return ErrConfig
+			return ConfigRule("model_definition")
 		}
 		models[m.ID] = true
 		last := 0
 		for _, tier := range m.Tiers {
 			if tier.UpTo <= last || tier.UpTo > 2000000 {
-				return ErrConfig
+				return ConfigRule("tier_boundary")
 			}
 			last = tier.UpTo
 			for _, raw := range tier.Prices.Values() {
 				if _, err := Amount(raw); err != nil {
-					return err
+					return ConfigRule("tier_price")
 				}
 			}
 		}
@@ -251,31 +264,31 @@ func (b Book) Validate(now int64) error {
 		value, err := Amount(r.Multiplier)
 		// Supplier group names may contain Chinese; they are identifiers, never executable paths.
 		if r.ID == "" || strings.TrimSpace(r.ID) != r.ID || len(r.ID) > 200 || strings.ContainsFunc(r.ID, unicode.IsControl) || rates[r.ID] || err != nil || !value.IsPositive() || value.GreaterThan(decimal.NewFromInt(100)) || r.VerifiedAt <= 0 || r.VerifiedAt > now+30 || r.ValidUntil <= r.VerifiedAt || r.ValidUntil-r.VerifiedAt > 7*86400 {
-			return ErrConfig
+			return ConfigRule("rate_definition")
 		}
 		rates[r.ID] = true
 	}
 	for _, p := range b.Products {
 		if p.MarginBPS != nil && (*p.MarginBPS < 0 || *p.MarginBPS > 9500) {
-			return ErrConfig
+			return ConfigRule("product_margin")
 		}
 		if !idPattern.MatchString(p.ID) || products[p.ID] || strings.TrimSpace(p.Name) == "" || len(p.Name) > 100 || (!p.Public && len(p.UserGroups) == 0) || len(p.UserGroups) > 100 || len(p.Routes) == 0 || len(p.Routes) > 100 {
-			return ErrConfig
+			return ConfigRule("product_definition")
 		}
 		// Public access must have an explicit procurement identity. Otherwise a
 		// customer's account group could select a different multiplier or a stale manual rate.
 		if (p.Public && p.BindingGroup == "") || (p.BindingGroup != "" && !ValidBindingGroup(p.BindingGroup)) {
-			return ErrConfig
+			return ConfigRule("product_binding_group")
 		}
 		// 定价来源必须是本组明确绑定的上游分组。来源线路停用时，已核验的倍率仍可用于其他线路。
 		if p.RateSourceChannelID != 0 && (!p.Public || b.Binding(p.BindingGroup, p.RateSourceChannelID) == nil) {
-			return ErrConfig
+			return ConfigRule("product_price_source")
 		}
 		products[p.ID] = true
 		seenChannels := map[int]bool{}
 		for _, route := range p.Routes {
 			if route.ChannelID <= 0 || seenChannels[route.ChannelID] || (route.RateID != "" && !rates[route.RateID]) || len(route.Models) == 0 || len(route.Models) > 500 {
-				return ErrConfig
+				return ConfigRule("route_definition")
 			}
 			seenChannels[route.ChannelID] = true
 			managedCost := b.RateSiteByChannel[route.ChannelID] != 0 && b.CredentialGroups[route.ChannelID] != ""
@@ -286,13 +299,13 @@ func (b Book) Validate(now int64) error {
 				}
 				for _, group := range groups {
 					if b.Binding(group, route.ChannelID) == nil {
-						return ErrConfig
+						return ConfigRule("route_binding")
 					}
 				}
 			}
 			for name, upstream := range route.Models {
 				if !models[name] || !idPattern.MatchString(upstream) {
-					return ErrConfig
+					return ConfigRule("route_model")
 				}
 			}
 		}

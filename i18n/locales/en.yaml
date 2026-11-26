@@ -1,6 +1,10 @@
 # English translations
 retail.unavailable: "Retail API is unavailable"
 retail.endpoint_unsupported: "This endpoint is not available for retail API keys"
+retail.field_invalid: "Invalid value or format for {{.Field}}."
+retail.field_unsupported: "This setting for {{.Field}} is unsupported. Remove or change it."
+retail.body_too_large: "Request exceeds the body size limit. Shorten the input and retry."
+retail.site_validation_failed: "The site could not validate this request for forwarding. Contact the administrator with the request ID."
 retail.invalid_request: "Invalid retail request"
 retail.state_unsupported: "Cannot verify ownership of the upstream reference {{.Field}}. Resend the conversation as Responses input."
 retail.supply_unavailable: "Retail supply is unavailable"

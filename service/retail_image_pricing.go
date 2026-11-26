@@ -108,11 +108,12 @@ func validateRetailBody(raw []byte, kind string, edit, fileReference bool) error
 	}
 	root := gjson.ParseBytes(raw)
 	if !gjson.ValidBytes(raw) || !root.IsObject() || !UniqueRetailKeys(root) {
-		return retailprice.ErrConfig
+		return retailFieldError{"json_object_unique", "body"}
 	}
 	modelID := root.Get("model").String()
 	format := root.Get("output_format").String()
 	valid := true
+	field := "body"
 	seen := map[string]bool{}
 	root.ForEach(func(key, value gjson.Result) bool {
 		name := key.String()
@@ -143,12 +144,25 @@ func validateRetailBody(raw []byte, kind string, edit, fileReference bool) error
 		case "response_format":
 			valid = value.String() == "b64_json"
 		default:
-			valid = false // Reject unknown cost-affecting overrides before upstream I/O.
+			valid = false
+			return false // Unknown keys may contain user data; report only the containing object.
+		}
+		if !valid {
+			field = name
 		}
 		return valid
 	})
-	if (edit && ((!seen["images"] && !fileReference) || !RetailReferenceModel(root.Get("model").String()))) || !valid || !seen["model"] || !seen["prompt"] || len(root.Get("prompt").String()) > 32000 {
-		return retailprice.ErrConfig
+	if !valid {
+		return retailFieldError{"image_option", field}
+	}
+	if edit && ((!seen["images"] && !fileReference) || !RetailReferenceModel(modelID)) {
+		return retailFieldError{"edit_reference", "images"}
+	}
+	if !seen["model"] {
+		return retailFieldError{"required_model", "model"}
+	}
+	if !seen["prompt"] || len(root.Get("prompt").String()) > 32000 {
+		return retailFieldError{"image_prompt", "prompt"}
 	}
 	return nil
 }

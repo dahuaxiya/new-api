@@ -159,7 +159,7 @@ func retailResponsesPictures(raw []byte) (map[int]string, error) {
 			}
 			uri := part.Get("image_url").Str
 			if part.Get("file_id").Exists() {
-				return nil, retailprice.ErrConfig
+				return nil, retailFieldError{"image_file_reference", "file_id"}
 			}
 			if err := registerRetailPicture(&pictures, &total, uri); err != nil {
 				return nil, err
@@ -223,18 +223,18 @@ func retailClaudePictures(raw []byte) (map[int]string, error) {
 func registerRetailPicture(pictures *map[int]string, total *int, uri string) error {
 	prefix, payload, ok := strings.Cut(uri, ",")
 	if !ok || (prefix != "data:image/png;base64" && prefix != "data:image/jpeg;base64" && prefix != "data:image/webp;base64") {
-		return retailprice.ErrConfig
+		return retailFieldError{"image_source_format", "image_url"}
 	}
 	if len(payload) > base64.StdEncoding.EncodedLen((4<<20)-*total) {
-		return retailprice.ErrConfig
+		return retailFieldError{"image_byte_limit", "image_url"}
 	}
 	data, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil || len(data) == 0 || len(data) > (4<<20)-*total {
-		return retailprice.ErrConfig
+		return retailFieldError{"image_base64_or_size", "image_url"}
 	}
 	cfg, format, err := decodeImageConfig(data)
 	if err != nil || prefix != "data:image/"+format+";base64" || cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width) > 40_000_000/int64(cfg.Height) {
-		return retailprice.ErrConfig
+		return retailFieldError{"image_format_or_dimensions", "image_url"}
 	}
 	*total += len(data)
 	if *pictures == nil {

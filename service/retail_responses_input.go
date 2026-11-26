@@ -8,8 +8,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"errors"
+	"fmt"
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -19,14 +20,17 @@ import (
 func PrepareRetailResponsesInput(c *gin.Context, input common.RawMessage) error {
 	history := c.GetString("retail_previous_history")
 	if len(input) > 8<<20 {
-		return retailprice.ErrConfig
+		return retailFieldError{"body_too_large", "input"}
 	}
 	var err error
 	if history != "" {
 		// 先拼接，旧版本保存的记录也需要经过与本次输入相同的转换。
 		input, err = joinRetailInputs(history, input)
-		if err != nil || len(input) > 8<<20 {
-			return retailprice.ErrConfig
+		if err != nil {
+			return err
+		}
+		if len(input) > 8<<20 {
+			return retailFieldError{"body_too_large", "input"}
 		}
 	}
 	root := gjson.ParseBytes(input)
@@ -34,6 +38,11 @@ func PrepareRetailResponsesInput(c *gin.Context, input common.RawMessage) error 
 	for i, item := range root.Array() {
 		replacement, err := retailCodexHistoryMessage(item)
 		if err != nil {
+			var field retailFieldError
+			if errors.As(err, &field) {
+				field.field = fmt.Sprintf("input.%d.%s", i, field.field)
+				return field
+			}
 			return err
 		}
 		if replacement != nil {
@@ -56,11 +65,11 @@ func PrepareRetailResponsesInput(c *gin.Context, input common.RawMessage) error 
 			name := part.Get("filename").Str
 			data, ok := strings.CutPrefix(part.Get("file_data").Str, "data:text/plain;base64,")
 			if !ok || !strings.EqualFold(filepath.Ext(name), ".txt") || part.Get("file_url").Exists() || part.Get("file_id").Exists() {
-				return retailprice.ErrConfig
+				return retailFieldError{"text_file_source", fmt.Sprintf("input.%d.content.%d.file_data", i, j)}
 			}
 			decoded, err := base64.StdEncoding.DecodeString(data)
 			if err != nil || !utf8.Valid(decoded) || bytes.IndexByte(decoded, 0) >= 0 {
-				return retailprice.ErrConfig
+				return retailFieldError{"text_file_encoding", fmt.Sprintf("input.%d.content.%d.file_data", i, j)}
 			}
 			// 每条消息只拆分和重建一次，避免多附件请求反复复制整个请求体。
 			if parts == nil {
@@ -93,12 +102,18 @@ func PrepareRetailResponsesInput(c *gin.Context, input common.RawMessage) error 
 		return nil
 	}
 	storage, err := common.GetBodyStorage(c)
-	if err != nil || storage.Size() > 8<<20 {
-		return retailprice.ErrConfig
+	if err != nil {
+		return err
+	}
+	if storage.Size() > 8<<20 {
+		return retailFieldError{"body_too_large", "body"}
 	}
 	raw, err := storage.Bytes()
-	if err != nil || !gjson.ValidBytes(raw) || !UniqueRetailKeys(gjson.ParseBytes(raw)) {
-		return retailprice.ErrConfig
+	if err != nil {
+		return err
+	}
+	if !gjson.ValidBytes(raw) || !UniqueRetailKeys(gjson.ParseBytes(raw)) {
+		return retailFieldError{"json_object_unique", "body"}
 	}
 	if items != nil {
 		input, err = common.Marshal(items)
@@ -114,8 +129,11 @@ func PrepareRetailResponsesInput(c *gin.Context, input common.RawMessage) error 
 		}
 	}
 	raw, err = sjson.SetRawBytes(raw, "input", input)
-	if err != nil || len(raw) > 8<<20 {
-		return retailprice.ErrConfig
+	if err != nil {
+		return err
+	}
+	if len(raw) > 8<<20 {
+		return retailFieldError{"body_too_large", "body"}
 	}
 	replacement, err := common.CreateBodyStorage(raw)
 	if err != nil {
@@ -147,7 +165,7 @@ func joinRetailInputs(history string, input common.RawMessage) ([]byte, error) {
 			items = append(items, common.RawMessage(item.Raw))
 		}
 	default:
-		return nil, retailprice.ErrConfig
+		return nil, retailFieldError{"history_input_shape", "input"}
 	}
 	return common.Marshal(items)
 }
@@ -159,35 +177,35 @@ func retailCodexHistoryMessage(item gjson.Result) (common.RawMessage, error) {
 		// 只转发 Magpie 已公开给客户端的文字摘要，不恢复私有推理或上游 ID。
 		summary := item.Get("summary")
 		if !summary.IsArray() || item.Get("content").Type != gjson.Null {
-			return nil, retailprice.ErrConfig
+			return nil, retailFieldError{"reasoning_summary_shape", "summary"}
 		}
 		var parts []string
 		for _, part := range summary.Array() {
 			text := part.Get("text")
 			if part.Get("type").Str != "summary_text" || text.Type != gjson.String || strings.TrimSpace(text.Str) == "" {
-				return nil, retailprice.ErrConfig
+				return nil, retailFieldError{"reasoning_summary_item", "summary"}
 			}
 			parts = append(parts, text.Str)
 		}
 		if len(parts) == 0 {
-			return nil, retailprice.ErrConfig
+			return nil, retailFieldError{"reasoning_summary_empty", "summary"}
 		}
 		return common.Marshal(map[string]string{"role": "assistant", "content": strings.Join(parts, "\n")})
 	case "additional_tools":
 		tools := item.Get("tools")
 		if item.Get("role").Str != "developer" || !tools.IsArray() {
-			return nil, retailprice.ErrConfig
+			return nil, retailFieldError{"history_tools_shape", "tools"}
 		}
 		// 旧工具定义是历史资料。能否调用工具只取决于本轮顶层 tools，不能从历史恢复权限。
 		return common.Marshal(map[string]string{"role": "assistant", "content": "Previously available tool definitions:\n" + tools.Raw})
 	case "image_generation_call":
 		result, prompt := item.Get("result"), item.Get("revised_prompt")
 		if item.Get("status").Str != "completed" || result.Type != gjson.String || (prompt.Exists() && prompt.Type != gjson.String) || len(result.Str) > base64.StdEncoding.EncodedLen(4<<20) {
-			return nil, retailprice.ErrConfig
+			return nil, retailFieldError{"image_history_shape", "result"}
 		}
 		data, err := base64.StdEncoding.DecodeString(result.Str)
 		if err != nil || len(data) == 0 || len(data) > 4<<20 {
-			return nil, retailprice.ErrConfig
+			return nil, retailFieldError{"image_history_encoding", "result"}
 		}
 		text := "Previous image generation result.\n" + prompt.Str
 		// Codex 的结果也可能是 SVG。把源码当普通文本保留，不执行 XML，也不加载外部资源。
@@ -196,7 +214,7 @@ func retailCodexHistoryMessage(item gjson.Result) (common.RawMessage, error) {
 		}
 		_, format, err := decodeImageConfig(data)
 		if err != nil || (format != "png" && format != "jpeg" && format != "webp") {
-			return nil, retailprice.ErrConfig
+			return nil, retailFieldError{"image_history_format", "result"}
 		}
 		// Responses 用 user/input_image 承载输入图片。原字节仍经过同一组总大小、像素和出站一致性检查。
 		parts := []map[string]string{{"type": "input_text", "text": text}, {"type": "input_image", "image_url": "data:image/" + format + ";base64," + result.Str}}

@@ -1,6 +1,10 @@
 # Chinese (Simplified) translations
 retail.unavailable: "余额计费 API 暂不可用"
 retail.endpoint_unsupported: "此接口暂不支持余额计费 API 密钥"
+retail.field_invalid: "{{.Field}} 的值或格式不符合请求要求。"
+retail.field_unsupported: "当前接口不支持 {{.Field}} 的这项设置，请移除或更换。"
+retail.body_too_large: "请求体超过大小上限，请缩短输入后重试。"
+retail.site_validation_failed: "站点无法完成本次转发校验，请联系管理员并提供请求 ID。"
 retail.invalid_request: "余额计费 API 请求格式无效"
 retail.state_unsupported: "无法确认上游引用 {{.Field}} 的归属，请在 input 中重新发送完整对话。"
 retail.supply_unavailable: "商业供货渠道暂不可用"

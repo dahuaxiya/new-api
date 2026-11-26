@@ -384,3 +384,19 @@ curl --fail-with-body https://luobo.world/v1/images/edits \
 ```
 
 编辑也接受 JSON，通过 `images` 数组按顺序提交 `{"image_url":"data:image/png;base64,..."}`。接受 PNG、JPEG、WebP，最多 16 张，解码后的总大小最多 5 MiB，每张最多 4000 万像素。生成和编辑均为同步单张输出，默认 PNG。
+
+## 按请求 ID 排查零售请求拒绝
+
+用响应中的 request ID 在应用日志里查 `retail_rejection`。每次重试可能有不同的 ID，应查对应尝试。示例（本地测试）：
+
+```text
+[WARN] … | retail-http-responses-6 | retail_rejection stage=input rule=search_history_action field="input.3.action" status=400 code=invalid_value channel_id=1 price_version=1
+```
+
+这里的 `input.3.action` 是 `input` 数组第四项的 `action`；日志不包含动作内容。`normalize` 是展开历史和附件，`input` 是检查请求，`pricing` 是报价，`wallet` 是余额预留，`dispatch` 是转换协议后、发给上游前的最后一次检查。`channel_id` 和 `price_version` 只在服务端日志里，尚未选择渠道或读取价表时可能为 0。
+
+- **400**：先看响应的 `error.param` 与日志里的 `rule`。例如 `search_history_status` 表示回放了尚未完成的搜索；`unsupported_content_type` 表示该位置的消息类型不受支持。**413** 表示请求过大。
+- **402 / 403**：按实际错误码检查余额、API Key、产品权限或预算。仅凭 403 不能判断是哪个限制。
+- **500 / 503**：看阶段和规则。`tier_price` 表示价表某个阶梯的单价无效；`retail_dispatch_validation_failed` 表示实际要发出的请求没有通过校验，应检查渠道参数覆盖或协议转换。`retail_price_unavailable` 可能是读取存储或报价依赖失败。不要把这些错误当作客户端字段错误。
+
+这些规则从运行新版本起记录，无法根据旧的通用错误码还原历史请求的失败字段。

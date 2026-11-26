@@ -37,27 +37,31 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		return false, nil
 	}
 	book, version, err := model.GetRetailPriceBook()
+	c.Set("retail_diagnostic_price_version", version)
 	if err != nil {
-		return true, retailPriceError(err)
+		return true, retailRejection(c, "pricing", "price_book_load", err)
 	}
 	if !book.Enabled {
 		if version > 0 || info.RelayFormat == types.RelayFormatGemini || c.GetString("retail_responses_utility") != "" || c.Request.URL.Path == "/v1/images/generations" || c.Request.URL.Path == "/v1/images/edits" {
-			return true, retailPriceError(retailprice.ErrExpired)
+			return true, retailRejection(c, "pricing", "price_book_disabled", retailprice.ErrExpired)
 		}
 		return false, nil
 	}
 	storage, err := common.GetBodyStorage(c)
 	if err != nil {
-		return true, retailPriceError(retailprice.ErrConfig)
+		return true, retailRejection(c, "storage", "body_storage", err)
 	}
 	reader, err := storage.NewReader()
 	if err != nil {
-		return true, retailPriceError(retailprice.ErrConfig)
+		return true, retailRejection(c, "storage", "body_reader", err)
 	}
 	raw, err := io.ReadAll(io.LimitReader(reader, (8<<20)+1))
 	_ = reader.Close()
-	if err != nil || len(raw) > 8<<20 {
-		return true, retailPriceError(retailprice.ErrConfig)
+	if err == nil && len(raw) > 8<<20 {
+		return true, retailRejection(c, "input", "body_too_large", retailFieldError{"body_too_large", "body"})
+	}
+	if err != nil {
+		return true, retailRejection(c, "storage", "body_read", err)
 	}
 	// 保留客户端原始存储决定，渠道改写 store 不能为本地保留内容提供授权。
 	store := gjson.GetBytes(raw, "store")
@@ -79,7 +83,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 			}
 		}
 		if req.N != nil && *req.N != 1 {
-			return true, retailPriceError(retailprice.ErrConfig)
+			return true, retailRejection(c, "input", "candidate_count", retailFieldError{"candidate_count", "n"})
 		}
 	case *dto.OpenAIResponsesRequest:
 		explicitOutput = req.MaxOutputTokens != nil
@@ -99,29 +103,29 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 			output = *req.MaxTokens
 		}
 	default:
-		return true, retailPriceError(retailprice.ErrConfig)
+		return true, retailRejection(c, "pricing", "request_format", retailprice.ErrConfig)
 	}
 	if output == 0 || output > 1000000 {
-		return true, retailPriceError(retailprice.ErrBudget)
+		return true, retailRejection(c, "input", "output_budget", retailprice.ErrBudget)
 	}
 	ids, err := model.RetailSupplyIDs(info.UsingGroup)
 	if err != nil {
-		return true, retailPriceError(err)
+		return true, retailRejection(c, "pricing", "supply_lookup", err)
 	}
 	quote, err := model.RetailQuote(info.UserId, info.TokenId, info.OriginModelName, int(output), ids, c.GetString("retail_studio_product"))
 	if err != nil || quote == nil {
 		var limit *retailprice.OutputLimitError
 		if req, ok := info.Request.(*dto.OpenAIResponsesRequest); ok && req.MaxOutputTokens != nil && errors.As(err, &limit) {
 			// Magpie 收到字段明确的 400 才会省略自己补入的上限重试。原请求仍在预留与出站前拒绝。
-			return true, types.WithOpenAIError(types.OpenAIError{
+			return true, retailRejection(c, "input", "model_output_limit", types.WithOpenAIError(types.OpenAIError{
 				Type: "invalid_request_error", Code: "invalid_value", Param: "max_output_tokens",
 				Message: fmt.Sprintf("max_output_tokens: 不能超过该模型的输出上限 %d。", limit.MaxOutput),
-			}, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}, http.StatusBadRequest, types.ErrOptionWithSkipRetry()))
 		}
 		if err == nil {
 			err = retailprice.ErrConfig
 		}
-		return true, retailPriceError(err)
+		return true, retailRejection(c, "pricing", "initial_quote", err)
 	}
 	clientLimit := 0
 	if explicitOutput {
@@ -142,7 +146,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		fastGroup := limited && book.RegisteredGroups()[channelID] == "GPT-UltraFast"
 		magpieProbe := limited && isMagpieResponsesProbe(raw)
 		if apiErr := validateResponsesContract(raw, limited, magpieProbe, quote.Model.MaxOutput, fastGroup); apiErr != nil {
-			return true, apiErr
+			return true, retailRejection(c, "input", "responses_parameter", apiErr)
 		}
 		tier := gjson.GetBytes(raw, "service_tier").Str
 		if fastGroup && (tier == "priority" || tier == "ultrafast") {
@@ -162,20 +166,20 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	}
 	_, imageRequest := info.Request.(*dto.ImageRequest)
 	if imageRequest != (quote.Model.Kind == "image") {
-		return true, retailPriceError(retailprice.ErrConfig)
+		return true, retailRejection(c, "pricing", "model_kind", retailprice.ErrConfig)
 	}
 	// 在入站阶段登记经过检查的内嵌图片。出站只消费这份清单，不重新信任转换后的数据。
 	if !imageRequest && !HasStudioVision(c.Request) {
 		pictures, err := retailRequestPictures(raw, c.Request.URL.Path)
 		if err != nil {
-			return true, retailPriceError(err)
+			return true, retailRejection(c, "input", "register_media", err)
 		}
 		if len(pictures) > 0 {
 			c.Request = c.Request.WithContext(WithStudioVision(c.Request.Context(), pictures))
 		}
 	}
 	if err := validateRetailRequest(c, raw, quote.Model.Kind, c.Request.URL.Path, false); err != nil {
-		return true, retailPriceError(err)
+		return true, retailRejection(c, "input", "request_contract", err)
 	}
 	// 内嵌参考图经过协议转换与渠道参数覆盖，必须在出站前核对原顺序及内容。
 	if c.Request.URL.Path == "/v1/images/edits" && studioReferencePath(c.Request, true) == "" {
@@ -185,7 +189,7 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	meta := info.Request.GetTokenCountMeta()
 	tokens, err := CountRequestToken(c, meta, info)
 	if err != nil || tokens < 0 || tokens > quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo || (quote.InputLimit > 0 && tokens > quote.InputLimit) {
-		return true, retailPriceError(retailprice.ErrBudget)
+		return true, retailRejection(c, "pricing", "input_budget", retailprice.ErrBudget)
 	}
 	var replay []string
 	if responses {
@@ -209,21 +213,21 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		if err == nil {
 			err = retailprice.ErrConfig
 		}
-		return true, retailPriceError(err)
+		return true, retailRejection(c, "pricing", "input_quote", err)
 	}
 	quote.ClientOutputLimit = clientLimit
 	if imageRequest != (quote.Model.Kind == "image") || (quote.InputLimit > 0 && tokens > quote.InputLimit) {
-		return true, retailPriceError(retailprice.ErrBudget)
+		return true, retailRejection(c, "pricing", "quoted_budget", retailprice.ErrBudget)
 	}
 	if quote.EstimatedTextHold {
 		// 与普通 New API 相同，倍率只调整输入预扣，最终的官方单价和工具费不变。
 		multiplier, err := operation_setting.InputPreConsumeMultiplier()
 		if err != nil {
-			return true, retailPriceError(retailprice.ErrConfig)
+			return true, retailRejection(c, "pricing", "hold_multiplier", retailprice.ErrConfig)
 		}
 		base, err := retailprice.Amount(quote.ReservedCNY)
 		if err != nil {
-			return true, retailPriceError(err)
+			return true, retailRejection(c, "pricing", "hold_amount", err)
 		}
 		quote.ReservedCNY = base.Mul(decimal.NewFromFloat(multiplier)).RoundCeil(8).String()
 	}
@@ -235,18 +239,18 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	for _, tool := range []string{dto.BuildInToolImageGeneration, dto.BuildInToolWebSearch} {
 		limit, err := retailToolLimit(raw, c.Request.URL.Path, tool)
 		if err != nil {
-			return true, retailPriceError(err)
+			return true, retailRejection(c, "input", "tool_limit", err)
 		}
 		if limit > 0 {
 			price := operation_setting.GetToolPriceForModel(tool, info.OriginModelName)
 			if err := freezeRetailTool(quote, tool, price, limit); err != nil {
-				return true, retailPriceError(err)
+				return true, retailRejection(c, "pricing", "tool_price", err)
 			}
 		}
 	}
 	quota, err := model.ReservePricedRetailCharge(info.RequestId, info.UserId, info.TokenId, quote)
 	if err != nil {
-		return true, retailPriceError(err)
+		return true, retailRejection(c, "wallet", "reserve_charge", err)
 	}
 	info.RetailQuote = quote
 	info.TieredBillingSnapshot = nil
@@ -302,7 +306,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		return retailprice.ErrExpired
 	}
 	if strings.Contains(strings.ToLower(req.Header.Get("anthropic-beta")), "fast") {
-		return retailprice.ErrConfig
+		return retailRejection(c, "dispatch", "unsupported_beta", retailprice.ErrConfig)
 	}
 	book, version, err := model.GetRetailPriceBook()
 	if err != nil || !book.Enabled || version != quote.Version {
@@ -359,7 +363,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	raw, err := io.ReadAll(io.LimitReader(reader, (8<<20)+1))
 	_ = reader.Close()
 	if err != nil || len(raw) > 8<<20 || !gjson.ValidBytes(raw) {
-		return retailprice.ErrConfig
+		return retailRejection(c, "dispatch", "dispatch_body", retailprice.ErrConfig)
 	}
 	if !checkRetailResponseOrigin(c, req, info, raw) {
 		// 凭据在绑定后轮换，或出站协议无法表达该引用时，客户端可改为发送完整历史。
@@ -371,16 +375,16 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	}
 	// Gemini 零售只支持转换成已验证的 Chat 计费路径，原生 Gemini 用量未纳入此账本。
 	if info.RelayFormat == types.RelayFormatGemini && !strings.HasSuffix(req.URL.Path, "/chat/completions") {
-		return retailprice.ErrConfig
+		return retailRejection(c, "dispatch", "gemini_endpoint", retailprice.ErrConfig)
 	}
 	reference := studioReferencePath(c.Request, c.Request.URL.Path == "/v1/images/edits")
 	// 只认可本次 Responses 搜索报价经官方 Messages 适配器转换出的工具，不扩展原生入口。
 	claudeSearch := quote.SearchLimit > 0 && info.ChannelMeta != nil && info.ChannelType == constant.ChannelTypeAnthropic && info.RelayFormat == types.RelayFormatOpenAIResponses && strings.HasSuffix(req.URL.Path, "/messages")
 	if err := validateRetailRequest(c, raw, quote.Model.Kind, req.URL.Path, claudeSearch); err != nil {
-		return err
+		return retailRejection(c, "dispatch", "request_contract", err)
 	}
 	if original, ok := c.Get("retail_edit_references"); ok && !slices.Equal(original.([][sha256.Size]byte), retailEditDigests(raw)) {
-		return retailprice.ErrConfig
+		return retailRejection(c, "dispatch", "edit_references", retailprice.ErrConfig)
 	}
 	// 只有原生 Responses 能可靠传递这类历史。渠道覆盖参数或跨协议转换若增删、
 	// 调换了密文，拒绝发单，避免静默丢上下文或在预留之外增加不可计数的输入。
@@ -389,7 +393,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		outgoingReplay = retailReplayContents(raw)
 	}
 	if !slices.Equal(outgoingReplay, c.GetStringSlice("retail_response_replay")) {
-		return retailprice.ErrConfig
+		return retailRejection(c, "dispatch", "replay_changed", retailprice.ErrConfig)
 	}
 	if gjson.GetBytes(raw, "model").String() != upstreamModel || upstreamModel == "" {
 		return retailprice.ErrAccess
@@ -410,12 +414,12 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		// 出站参数可能经过渠道覆盖。图片预算只授权原请求中的工具与调用次数。
 		outgoingLimit, err := retailToolLimit(raw, req.URL.Path, dto.BuildInToolImageGeneration)
 		if err != nil || outgoingLimit != quote.ImageToolLimit {
-			return retailprice.ErrConfig
+			return retailRejection(c, "dispatch", "image_tool_limit", retailprice.ErrConfig)
 		}
 		// 只把已报价的原生搜索转给有同一种调用计数语义的渠道；不能在协议转换时丢掉工具。
 		searchLimit, err := retailToolLimit(raw, req.URL.Path, dto.BuildInToolWebSearch)
 		if err != nil || searchLimit != quote.SearchLimit {
-			return retailprice.ErrConfig
+			return retailRejection(c, "dispatch", "search_tool_limit", retailprice.ErrConfig)
 		}
 		if searchLimit > 0 && !claudeSearch && (info.ChannelMeta == nil || (info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeCodex)) {
 			return retailprice.ErrAccess
@@ -429,7 +433,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		setTool := !claudeSearch && outgoingLimit > 0 && !gjson.GetBytes(raw, "max_tool_calls").Exists()
 		// 只允许已配置的原生 HTTP 流走本地次数检查。非流式和生图仍要求上游硬上限。
 		if explicit := c.GetString("retail_explicit_tool_cap"); !claudeSearch && explicit != "" && outgoingLimit > 0 && gjson.GetBytes(raw, "max_tool_calls").Raw != explicit {
-			return retailprice.ErrConfig
+			return retailRejection(c, "dispatch", "tool_cap_changed", retailprice.ErrConfig)
 		}
 		if setTool && quote.ImageToolLimit == 0 && searchLimit > 0 && c.GetBool("retail_limited_responses") && info.RelayFormat == types.RelayFormatOpenAIResponses && strings.HasSuffix(req.URL.Path, "/responses") {
 			// The supplier rejects or ignores the injected cap. Inspect only a complete JSON result
@@ -445,7 +449,7 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 		if setOutput || setTool {
 			var body map[string]common.RawMessage
 			if common.Unmarshal(raw, &body) != nil {
-				return retailprice.ErrConfig
+				return retailRejection(c, "dispatch", "override_json", retailprice.ErrConfig)
 			}
 			if setTool {
 				body["max_tool_calls"], err = common.Marshal(outgoingLimit)
@@ -482,10 +486,10 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 	case strings.HasSuffix(req.URL.Path, "/chat/completions") && quote.Model.Kind != "image":
 		finalRequest = &dto.GeneralOpenAIRequest{}
 	default:
-		return retailprice.ErrConfig
+		return retailRejection(c, "dispatch", "dispatch_endpoint", retailprice.ErrConfig)
 	}
 	if common.Unmarshal(raw, finalRequest) != nil {
-		return retailprice.ErrConfig
+		return retailRejection(c, "dispatch", "dispatch_decode", retailprice.ErrConfig)
 	}
 	tokens, err := CountRequestToken(c, finalRequest.GetTokenCountMeta(), info)
 	if err != nil || tokens < 0 || tokens > quote.Model.Tiers[len(quote.Model.Tiers)-1].UpTo || (quote.InputLimit > 0 && tokens > quote.InputLimit) {
@@ -619,14 +623,14 @@ func validateRetailChat(raw []byte, vision map[string]int, responses bool, previ
 func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses bool, previous string, compact, fastGroup, claudeSearch bool) error {
 	root := gjson.ParseBytes(raw)
 	if !gjson.ValidBytes(raw) || !root.IsObject() {
-		return retailprice.ErrConfig
+		return retailFieldError{"json_object", "body"}
 	}
 	if !UniqueRetailKeys(root) {
-		return retailprice.ErrConfig
+		return retailFieldError{"duplicate_json_key", "body"}
 	}
 	// 引用必须是中间件已经按本地用户和 Key 验证过的同一个回复 ID。
 	if ref := root.Get("previous_response_id"); ref.Type != gjson.Null && (!responses || ref.Type != gjson.String || ref.Str != previous) {
-		return retailprice.ErrConfig
+		return retailFieldError{"previous_response_mismatch", "previous_response_id"}
 	}
 	for _, field := range []string{"audio", "modalities", "background", "conversation", "prompt", "service_tier", "speed", "parameters"} {
 		v := root.Get(field)
@@ -639,11 +643,12 @@ func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses 
 		if field == "background" && v.Type == gjson.False {
 			continue
 		}
-		return retailprice.ErrConfig
+		return retailFieldError{"unsupported_parameter", field}
 	}
 	if n := root.Get("n"); n.Exists() && (n.Type != gjson.Number || n.Float() != 1) {
-		return retailprice.ErrConfig
+		return retailFieldError{"candidate_count", "n"}
 	}
+	toolField := "tools"
 	valid := true
 	root.Get("tools").ForEach(func(_, tool gjson.Result) bool {
 		typ := tool.Get("type").String()
@@ -651,9 +656,18 @@ func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses 
 			// 命名空间仅组织客户端工具，逐项核对子工具以保留服务端工具的计费限制。
 			members := tool.Get("tools")
 			valid = tool.Get("name").Str != "" && members.IsArray() && len(members.Array()) > 0
+			if !valid {
+				toolField = retailItemField(raw, tool, "tools")
+			}
 			if valid {
 				members.ForEach(func(_, member gjson.Result) bool {
 					valid = member.Get("name").Str != "" && slices.Contains([]string{"function", "custom"}, member.Get("type").Str)
+					if !valid {
+						toolField = retailItemField(raw, member, "type")
+						if member.Get("name").Str == "" {
+							toolField = retailItemField(raw, member, "name")
+						}
+					}
 					return valid
 				})
 			}
@@ -662,10 +676,13 @@ func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses 
 		} else {
 			valid = typ == "function" || (responses && (typ == "custom" || typ == dto.BuildInToolImageGeneration || typ == dto.BuildInToolWebSearch)) || (typ == "" && tool.Get("input_schema").Exists())
 		}
+		if !valid && toolField == "tools" {
+			toolField = retailItemField(raw, tool, "type")
+		}
 		return valid
 	})
 	if !valid {
-		return retailprice.ErrConfig
+		return retailFieldError{"unsupported_tool", toolField}
 	}
 	remaining := maps.Clone(vision)
 	queue := []gjson.Result{root.Get("messages"), root.Get("system")}
@@ -673,7 +690,7 @@ func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses 
 	if compact {
 		items := input.Array()
 		if len(items) < 2 || items[len(items)-1].Get("type").Str != "compaction_trigger" || root.Get("stream").Type != gjson.True {
-			return retailprice.ErrConfig
+			return retailFieldError{"compact_envelope", "input"}
 		}
 	}
 	if responses && input.IsArray() {
@@ -686,25 +703,25 @@ func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses 
 			case "compaction_trigger":
 				// 只允许独立压缩入口追加一个无参数触发项，渠道覆盖也必须保留末尾触发项。
 				if !compact || index != len(items)-1 || len(item.Map()) != 1 {
-					return retailprice.ErrConfig
+					return retailFieldError{"compact_trigger", retailItemField(raw, item, "type")}
 				}
 				continue
 			case "custom_tool_call":
 				if item.Get("input").Type != gjson.String {
-					return retailprice.ErrConfig
+					return retailFieldError{"tool_call_input", retailItemField(raw, item, "input")}
 				}
 			case "custom_tool_call_output":
 				output := item.Get("output")
 				if output.Type != gjson.String && !output.IsArray() {
-					return retailprice.ErrConfig
+					return retailFieldError{"tool_call_output", retailItemField(raw, item, "output")}
 				}
 			case "web_search_call":
 				// 历史动作只作为模型上下文，不访问 URL，也不启用新搜索。
 				if item.Get("status").Str != "completed" {
-					return retailprice.ErrConfig
+					return retailFieldError{"search_history_status", retailItemField(raw, item, "status")}
 				}
 				if _, err := dto.NormalizeResponsesWebSearchAction([]byte(item.Get("action").Raw)); err != nil {
-					return retailprice.ErrConfig
+					return retailFieldError{"search_history_action", retailItemField(raw, item, "action")}
 				}
 			default:
 				if !encrypted {
@@ -713,7 +730,7 @@ func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses 
 				}
 			}
 			if item.Get("image_url").Exists() || item.Get("audio").Exists() || (!encrypted && item.Get("encrypted_content").Exists()) {
-				return retailprice.ErrConfig
+				return retailFieldError{"replay_unexpected_media", retailItemField(raw, item, "")}
 			}
 			queue = append(queue, item.Get("content"), item.Get("output"))
 		}
@@ -745,7 +762,7 @@ func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses 
 				}
 			}
 			if remaining[uri] == 0 {
-				return retailprice.ErrConfig
+				return retailFieldError{"unregistered_image", retailItemField(raw, item, "")}
 			}
 			remaining[uri]--
 			if remaining[uri] == 0 {
@@ -754,17 +771,17 @@ func validateRetailChatWithOptions(raw []byte, vision map[string]int, responses 
 			continue
 		}
 		if !slices.Contains([]string{"", "message", "text", "input_text", "output_text", "function_call", "function_call_output", "tool_use", "tool_result", "thinking", "reasoning"}, typ) {
-			return retailprice.ErrConfig
+			return retailFieldError{"unsupported_content_type", retailItemField(raw, item, "type")}
 		}
 		if item.Get("encrypted_content").Exists() || item.Get("image_url").Exists() || item.Get("audio").Exists() {
-			return retailprice.ErrConfig
+			return retailFieldError{"content_unexpected_media", retailItemField(raw, item, "")}
 		}
 		// Responses function results use output, while messages/tool results use
 		// content. Both can contain media and therefore need the same text-only gate.
 		queue = append(queue, item.Get("content"), item.Get("output"))
 	}
 	if len(remaining) > 0 {
-		return retailprice.ErrConfig
+		return retailFieldError{"unconsumed_image", "content"}
 	}
 	return nil
 }
@@ -904,7 +921,7 @@ func retailToolLimit(raw []byte, path, kind string) (int, error) {
 		if kind == dto.BuildInToolWebSearch && strings.HasSuffix(path, "/messages") && tool.Get("type").Str == "web_search_20250305" {
 			// Messages 没有全局工具上限，必须在唯一的搜索工具上核对实际发给供应商的 max_uses。
 			if found || cap.Exists() || tool.Get("name").Str != kind || !tool.Get("max_uses").Exists() {
-				return 0, retailprice.ErrConfig
+				return 0, retailFieldError{"tool_declaration", "tools"}
 			}
 			found, cap = true, tool.Get("max_uses")
 			continue
@@ -913,7 +930,7 @@ func retailToolLimit(raw []byte, path, kind string) (int, error) {
 			continue
 		}
 		if found || !strings.HasSuffix(path, "/responses") {
-			return 0, retailprice.ErrConfig
+			return 0, retailFieldError{"tool_declaration", "tools"}
 		}
 		found = true
 	}
@@ -924,7 +941,7 @@ func retailToolLimit(raw []byte, path, kind string) (int, error) {
 		return 1, nil
 	}
 	if cap.Type != gjson.Number || cap.Float() != math.Trunc(cap.Float()) || cap.Float() < 1 || cap.Float() > dto.MaxImageN {
-		return 0, retailprice.ErrBudget
+		return 0, retailFieldError{"tool_limit", "max_tool_calls"}
 	}
 	return int(cap.Int()), nil
 }

@@ -546,7 +546,7 @@ func TestRetailHTTPRelay(t *testing.T) {
 						require.Equal(t, "resp-1", gjson.Get(replayBody.Load().(string), "previous_response_id").String())
 
 						// 历史搜索只作为上下文。未报价的文件搜索、未完成的动作及无报价媒体必须在触达上游前拒绝。
-						for _, rejected := range []string{
+						for index, rejected := range []string{
 							strings.Replace(replay, `"type":"custom","name":"ticket_tool"`, `"type":"file_search"`, 1),
 							strings.Replace(replay, `"ws_1","status":"completed"`, `"ws_1","status":"in_progress"`, 1),
 							strings.Replace(replay, `"type":"open_page"`, `"type":"unknown"`, 1),
@@ -556,8 +556,10 @@ func TestRetailHTTPRelay(t *testing.T) {
 							bad.Header = req.Header.Clone()
 							denied := httptest.NewRecorder()
 							engine.ServeHTTP(denied, bad)
-							require.Equal(t, http.StatusForbidden, denied.Code, denied.Body.String())
-							require.Contains(t, denied.Body.String(), "retail_price_configuration_invalid")
+							require.Equal(t, http.StatusBadRequest, denied.Code, denied.Body.String())
+							require.Equal(t, "invalid_request_error", gjson.GetBytes(denied.Body.Bytes(), "error.type").Str)
+							require.Equal(t, []string{"unsupported_parameter", "invalid_value", "invalid_value", "unsupported_parameter"}[index], gjson.GetBytes(denied.Body.Bytes(), "error.code").Str)
+							require.NotEmpty(t, gjson.GetBytes(denied.Body.Bytes(), "error.param").Str)
 							require.EqualValues(t, 3, hits.Load())
 						}
 
@@ -1707,7 +1709,8 @@ func TestRetailStudioDirectRequests(t *testing.T) {
 	w = send("/images/edits", "premium", "https://example.com", edit)
 	require.Equal(t, 200, w.Code, w.Body.String())
 	w = send("/images/edits", "premium", "https://example.com", strings.Replace(edit, "data:image/png;base64,", "https://example.com/", 1))
-	require.Equal(t, 403, w.Code, w.Body.String())
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	require.Equal(t, "images", gjson.GetBytes(w.Body.Bytes(), "error.param").Str)
 	after, afterRevision, err := model.GetRetailKeyPolicy(user.Id, token.Id)
 	require.NoError(t, err)
 	require.Equal(t, policy, after)

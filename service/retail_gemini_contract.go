@@ -4,7 +4,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/tidwall/gjson"
 )
 
@@ -19,51 +18,51 @@ func extractRetailGeminiModel(path string) string {
 func validateRetailGeminiRequest(raw []byte, model string) error {
 	root := gjson.ParseBytes(raw)
 	if !gjson.ValidBytes(raw) || !root.IsObject() || !UniqueRetailKeys(root) {
-		return retailprice.ErrConfig
+		return retailFieldError{"json_object_unique", "body"}
 	}
 	for key, value := range root.Map() {
 		switch key {
 		case "model":
 			if value.Type != gjson.String || value.Str != model {
-				return retailprice.ErrConfig
+				return retailFieldError{"model_mismatch", "model"}
 			}
 		case "contents":
 			if !value.IsArray() || len(value.Array()) == 0 {
-				return retailprice.ErrConfig
+				return retailFieldError{"contents_required", "contents"}
 			}
 			for _, content := range value.Array() {
 				if !retailGeminiTextContent(content, false) {
-					return retailprice.ErrConfig
+					return retailFieldError{"text_content_required", "contents"}
 				}
 			}
 		case "systemInstruction", "system_instruction":
 			if root.Get("systemInstruction").Exists() && root.Get("system_instruction").Exists() || !retailGeminiTextContent(value, true) {
-				return retailprice.ErrConfig
+				return retailFieldError{"system_instruction", key}
 			}
 		case "generationConfig":
 			if !value.IsObject() {
-				return retailprice.ErrConfig
+				return retailFieldError{"generation_config", key}
 			}
 			for field, v := range value.Map() {
 				switch field {
 				case "candidateCount":
 					if v.Type != gjson.Number || v.Float() != 1 {
-						return retailprice.ErrConfig
+						return retailFieldError{"candidate_count", "generationConfig.candidateCount"}
 					}
 				case "maxOutputTokens", "temperature", "topP":
 					if v.Type != gjson.Number {
-						return retailprice.ErrConfig
+						return retailFieldError{"numeric_value", "generationConfig." + field}
 					}
 				case "stopSequences":
 					if !v.IsArray() || slices.ContainsFunc(v.Array(), func(item gjson.Result) bool { return item.Type != gjson.String }) {
-						return retailprice.ErrConfig
+						return retailFieldError{"stop_sequences", "generationConfig.stopSequences"}
 					}
 				default:
-					return retailprice.ErrConfig
+					return retailFieldError{"unsupported_parameter", "generationConfig"}
 				}
 			}
 		default:
-			return retailprice.ErrConfig
+			return retailFieldError{"unsupported_parameter", "body"}
 		}
 	}
 	return nil

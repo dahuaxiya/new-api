@@ -1,6 +1,10 @@
 # Chinese (Traditional) translations
 retail.unavailable: "餘額計費 API 暫不可用"
 retail.endpoint_unsupported: "此介面暫不支援餘額計費 API 金鑰"
+retail.field_invalid: "{{.Field}} 的值或格式不符合請求要求。"
+retail.field_unsupported: "目前介面不支援 {{.Field}} 的這項設定，請移除或更換。"
+retail.body_too_large: "請求內容超過大小上限，請縮短輸入後重試。"
+retail.site_validation_failed: "站點無法完成本次轉發驗證，請聯絡管理員並提供請求 ID。"
 retail.invalid_request: "餘額計費 API 請求格式無效"
 retail.state_unsupported: "無法確認上游引用 {{.Field}} 的歸屬，請在 input 中重新傳送完整對話。"
 retail.supply_unavailable: "商業供貨管道暫不可用"
