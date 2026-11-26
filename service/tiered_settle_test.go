@@ -1137,3 +1137,53 @@ func TestRetailUsageRejectsNegativeCounters(t *testing.T) {
 		require.ErrorIs(t, err, retailprice.ErrUsage)
 	}
 }
+
+// TestRetailClaudeSearchSettlesServerToolOutputAboveClientCap 验证真实 Claude
+// 搜索响应把工具执行内容计入 output_tokens 时仍按实际用量结算。该放宽只在
+// 上游已确认至少一次搜索且实际输出没有超过模型总上限时生效，普通请求仍受
+// 客户端输出上限约束。
+func TestRetailClaudeSearchSettlesServerToolOutputAboveClientCap(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	quote := &retailprice.Quote{
+		GroupMultiplier:   "0.45",
+		SearchUnitCNY:     "0.0045",
+		SearchLimit:       1,
+		Model:             retailprice.Model{Kind: "text", MaxOutput: 32768},
+		OutputLimit:       16,
+		EstimatedTextHold: true,
+		ReservedCNY:       "0.004554",
+		Sale: []retailprice.Tier{{
+			UpTo: 1000000,
+			Prices: retailprice.Prices{
+				Input: "1.125", Output: "5.625", CacheRead: "0.1125", CacheWrite: "1.40625", CacheWrite1h: "2.25",
+			},
+		}},
+		WalletCNYPerUnit: "1",
+	}
+	info := &relaycommon.RelayInfo{RetailQuote: quote}
+	info.SetBillableToolCount(dto.BuildInToolWebSearch, 1)
+	usage := &dto.Usage{
+		PromptTokens:                102,
+		CompletionTokens:            217,
+		UsageSemantic:               dto.BillingUsageSemanticAnthropic,
+		ClaudeCacheCreation5mTokens: 4980,
+		PromptTokensDetails:         dto.InputTokenDetails{CachedCreationTokens: 4980},
+		BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{
+			InputTokens:              102,
+			OutputTokens:             217,
+			CacheCreationInputTokens: 4980,
+			CacheCreation:            &dto.ClaudeCacheCreationUsage{Ephemeral5mInputTokens: 4980},
+			ServerToolUse:            &dto.ClaudeServerToolUse{WebSearchRequests: 1},
+		}),
+	}
+
+	quota, err := SettleRetailTextPrice(c, info, usage, true)
+	require.NoError(t, err)
+	require.Equal(t, 6420, quota)
+
+	idleInfo := &relaycommon.RelayInfo{RetailQuote: quote}
+	idleInfo.SetBillableToolCount(dto.BuildInToolWebSearch, 0)
+	_, err = SettleRetailTextPrice(c, idleInfo, usage, true)
+	require.ErrorIs(t, err, retailprice.ErrUsage)
+}

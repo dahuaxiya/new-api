@@ -141,6 +141,9 @@ func TestClaudeSearchResultBlocksBillVendorSearch(t *testing.T) {
 			want: map[string]int{"deepseek_search": 2}},
 		{name: "reported count replaces blocks", billingKey: "deepseek_search", blocks: results + "," + results,
 			usage: `{"input_tokens":1,"output_tokens":1,"server_tool_use":{"web_search_requests":3}}`, want: map[string]int{"deepseek_search": 3}},
+		{name: "real response counts one search once", billingKey: "deepseek_search",
+			blocks: `{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{"query":"orchid"}},` + results,
+			usage:  `{"input_tokens":1,"output_tokens":1,"server_tool_use":{"web_search_requests":1}}`, want: map[string]int{"deepseek_search": 1}},
 		{name: "no vendor key", blocks: results, want: map[string]int{}},
 	}
 	for _, tt := range tests {

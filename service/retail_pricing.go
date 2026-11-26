@@ -784,17 +784,18 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 		return 0, err
 	}
 	searchFee := decimal.Zero
+	searchCount := 0
 	if q := info.RetailQuote; q.SearchLimit > 0 {
 		// 声明工具只预留余额；有真实调用才收费。上游用量异常时保留预授权交给原有复核流程。
 		if info.ResponsesUsageInfo == nil || info.BuiltInTools[dto.BuildInToolWebSearch] == nil {
 			return 0, retailprice.ErrUsage
 		}
-		count := info.BuiltInTools[dto.BuildInToolWebSearch].CallCount
+		searchCount = info.BuiltInTools[dto.BuildInToolWebSearch].CallCount
 		price, err := retailprice.Amount(q.SearchUnitCNY)
-		if err != nil || !price.IsPositive() || count < 0 || count > q.SearchLimit {
+		if err != nil || !price.IsPositive() || searchCount < 0 || searchCount > q.SearchLimit {
 			return 0, retailprice.ErrUsage
 		}
-		searchFee = price.Mul(decimal.NewFromInt(int64(count)))
+		searchFee = price.Mul(decimal.NewFromInt(int64(searchCount)))
 	}
 	sources := []*dto.Usage{usage}
 	if snapshot := usage.BillingUsage; snapshot != nil {
@@ -865,7 +866,19 @@ func SettleRetailTextPrice(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 			return 0, retailprice.ErrUsage
 		}
 	}
-	amount, err := info.RetailQuote.Charge(int(params.Len), [5]int{int(params.P), int(params.C), int(params.CR), int(params.CC), int(params.CC1h)})
+	settlementQuote := info.RetailQuote
+	if claude && searchCount > 0 && params.C > float64(settlementQuote.OutputLimit) {
+		// Anthropic 的 usage.output_tokens 会把搜索工具执行内容一起计入，
+		// 而客户端 max_output_tokens 约束的是可见文本。只在实际调用搜索后
+		// 放宽到模型总上限，既按上游实际成本收费，又不放开普通请求的输出边界。
+		if settlementQuote.Model.MaxOutput <= 0 || params.C > float64(settlementQuote.Model.MaxOutput) {
+			return 0, retailprice.ErrUsage
+		}
+		relaxed := *settlementQuote
+		relaxed.OutputLimit = int(params.C)
+		settlementQuote = &relaxed
+	}
+	amount, err := settlementQuote.Charge(int(params.Len), [5]int{int(params.P), int(params.C), int(params.CR), int(params.CC), int(params.CC1h)})
 	if err != nil {
 		return 0, err
 	}
