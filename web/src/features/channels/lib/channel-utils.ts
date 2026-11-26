@@ -256,6 +256,37 @@ export function parseGroupsList(groups: string): string[] {
   })
 }
 
+const ROUTING_ONLY_GROUPS = new Set(['default', 'retail'])
+
+/**
+ * Separates channel backing groups from user-facing product groups.
+ *
+ * `default` and `retail` are routing identifiers: they decide how a request
+ * reaches the channel, but they are not products a customer buys. Keeping
+ * those identifiers in a distinct result lets the admin UI preserve the full
+ * configuration without presenting them as peers of `gpt-*` products.
+ *
+ * @param groups comma-separated channel group field
+ * @return product groups and routing-only groups, both in display order
+ */
+export function splitChannelGroups(groups: string): {
+  productGroups: string[]
+  routingGroups: string[]
+} {
+  const productGroups: string[] = []
+  const routingGroups: string[] = []
+
+  for (const group of parseGroupsList(groups)) {
+    if (ROUTING_ONLY_GROUPS.has(group)) {
+      routingGroups.push(group)
+    } else {
+      productGroups.push(group)
+    }
+  }
+
+  return { productGroups, routingGroups }
+}
+
 /**
  * Format models array back to string
  */

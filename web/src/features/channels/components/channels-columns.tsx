@@ -33,7 +33,6 @@ import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { BadgeListCell } from '@/components/data-table'
-import { GroupBadge } from '@/components/group-badge'
 import { ProviderBadge } from '@/components/provider-badge'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
@@ -88,6 +87,7 @@ import {
 } from '../lib'
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
+import { ChannelGroups } from './channel-groups'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { TaskPluginChannelBadge } from './channel-type-badge'
 import { useChannels } from './channels-provider'
@@ -1103,17 +1103,12 @@ export function useChannelsColumns(
         meta: { mobileHidden: true },
         cell: ({ row }) => {
           const group = row.getValue('group') as string
-          const groupArray = parseGroupsList(group)
           return (
-            <BadgeListCell
-              items={groupArray.map((g) => (
-                <GroupBadge
-                  key={g}
-                  group={g}
-                  label={sensitiveVisible ? undefined : SENSITIVE_MASK}
-                  size='sm'
-                />
-              ))}
+            <ChannelGroups
+              groups={group}
+              sensitiveVisible={sensitiveVisible}
+              maskedLabel={SENSITIVE_MASK}
+              variant='table'
             />
           )
         },
