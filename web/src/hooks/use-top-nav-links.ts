@@ -31,7 +31,9 @@ export type TopNavLink = {
   external?: boolean
 }
 
-/** 用户与公共页面共享精简导航；模型广场仍尊重后台的可见性及登录要求。 */
+/** 生成公共页面与控制台共用的顶部导航，按站点配置控制入口可见性。
+ * @return 按显示顺序排列、已翻译的当前站点链接。
+ */
 export function useTopNavLinks(): TopNavLink[] {
   const { t } = useTranslation()
   const { status } = useStatus()
@@ -48,8 +50,12 @@ export function useTopNavLinks(): TopNavLink[] {
 
   const links: TopNavLink[] = []
 
-  if (!isAuthed && modules?.console !== false) {
-    links.push({ title: t('User center'), href: '/dashboard' })
+  const isRetail = status?.site_mode === 'retail'
+  if (modules?.console !== false && (isRetail || !isAuthed)) {
+    links.push({
+      title: isRetail ? t('Console') : t('User center'),
+      href: '/dashboard',
+    })
   }
 
   // Pricing

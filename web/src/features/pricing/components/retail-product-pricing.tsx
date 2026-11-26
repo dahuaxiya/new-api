@@ -27,7 +27,11 @@ import { Button } from '@/components/ui/button'
 import { getRetailCatalog } from '@/features/channels/retail-pricing-api'
 import { useAuthStore } from '@/stores/auth-store'
 
-/** Show authorized CNY sales tariffs without exposing procurement groups or applying display FX. */
+import { RetailGroupPrices } from './retail-group-prices'
+
+/** Load the signed-in user’s catalog and display the published tariffs in their recorded currencies.
+ * @return The retail pricing page with account-scoped loading and error states.
+ */
 export function RetailProductPricing() {
   const { t } = useTranslation()
   const user = useAuthStore((s) => s.auth.user)
@@ -39,20 +43,12 @@ export function RetailProductPricing() {
     refetchInterval: 60_000,
     retry: false,
   })
-  // These tariffs already use CNY; generic wallet display FX would change the contract.
-  const fields = [
-    { key: 'input', label: t('Input') },
-    { key: 'output', label: t('Output') },
-    { key: 'cache_read', label: t('Cache read') },
-    { key: 'cache_write', label: t('Cache write') },
-    { key: 'cache_write_1h', label: t('Cache write (1h)') },
-  ] as const
   return (
     <PublicLayout>
-      <div className='mx-auto max-w-5xl space-y-8 px-4 py-12 sm:px-6'>
+      <div className='mx-auto w-full max-w-7xl space-y-6 px-4 py-8 sm:px-6 sm:py-10'>
         <div className='space-y-3'>
           <div className='flex flex-wrap items-start justify-between gap-3'>
-            <h1 className='text-3xl font-semibold tracking-tight'>
+            <h1 className='text-3xl font-semibold tracking-tight sm:text-4xl'>
               {t('Model catalog')}
             </h1>
             <Button
@@ -63,14 +59,7 @@ export function RetailProductPricing() {
               {t('Model availability')}
             </Button>
           </div>
-          <p className='text-muted-foreground'>
-            {t('Selling prices · CNY per million tokens')}
-          </p>
-          <p className='text-muted-foreground text-sm'>
-            {t(
-              'Prices follow upstream changes within your CNY ceilings. Requests above a ceiling pause before reaching the upstream.'
-            )}
-          </p>
+          <p className='text-muted-foreground'>{t('Per million tokens')}</p>
         </div>
         {!user ? (
           <Button render={<Link to='/sign-in' />}>
@@ -94,43 +83,10 @@ export function RetailProductPricing() {
                     {t('New priced requests are currently paused')}
                   </p>
                 )}
-                {query.data.products.length === 0 && (
-                  <p>{t('No products available for this account')}</p>
-                )}
-                {query.data.products.map((product) => (
-                  <section key={product.id} className='space-y-4'>
-                    <h2 className='text-xl font-medium'>{product.name}</h2>
-                    {product.models.length === 0 && (
-                      <p className='text-muted-foreground text-sm'>
-                        {t('No models have a current verified price')}
-                      </p>
-                    )}
-                    {product.models.map((model) => (
-                      <div key={model.id} className='rounded-lg border p-5'>
-                        <h3 className='mb-4 font-medium'>{model.id}</h3>
-                        {model.tiers.map((tier) => (
-                          <div key={tier.up_to} className='space-y-3 py-3'>
-                            <p className='text-muted-foreground text-xs'>
-                              {t('Context limit')}: {tier.up_to}
-                            </p>
-                            <dl className='grid grid-cols-2 gap-4 sm:grid-cols-5'>
-                              {fields.map((field) => (
-                                <div key={field.key}>
-                                  <dt className='text-muted-foreground text-xs'>
-                                    {field.label}
-                                  </dt>
-                                  <dd className='mt-1 font-mono text-sm tabular-nums'>
-                                    ¥{tier.prices[field.key]}
-                                  </dd>
-                                </div>
-                              ))}
-                            </dl>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </section>
-                ))}
+                <RetailGroupPrices
+                  key={`${user.id}:${sid}`}
+                  products={query.data.products}
+                />
                 <Button variant='outline' render={<Link to='/keys' />}>
                   {t('API key price limits')}
                 </Button>

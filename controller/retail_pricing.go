@@ -267,7 +267,15 @@ func GetRetailCatalog(c *gin.Context) {
 			if err != nil {
 				continue
 			}
-			models = append(models, gin.H{"id": official.ID, "kind": official.Kind, "official_model": official.OfficialModel, "currency": "CNY", "tiers": quote.Sale, "valid_until": quote.ValidUntil, "max_output": official.MaxOutput, "reference_image": official.Kind == "image" && service.RetailReferenceModel(official.ID)})
+			// Use the same quote for both columns. Only publish the effective sale factor;
+			// the underlying route multiplier, fees and procurement data stay private.
+			models = append(models, gin.H{
+				"id": official.ID, "kind": official.Kind, "official_model": official.OfficialModel,
+				"currency": "CNY", "tiers": quote.Sale, "sale_factor": quote.SaleFactor.String(),
+				"base_price":  gin.H{"currency": quote.Model.Currency, "tiers": quote.Model.Tiers, "official": quote.Model.PriceMode == "official"},
+				"valid_until": quote.ValidUntil, "max_output": official.MaxOutput,
+				"reference_image": official.Kind == "image" && service.RetailReferenceModel(official.ID),
+			})
 		}
 		products = append(products, gin.H{"id": p.ID, "name": p.Name, "models": models})
 	}

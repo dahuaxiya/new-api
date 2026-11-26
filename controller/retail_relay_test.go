@@ -862,6 +862,48 @@ func TestRetailAdminGroupMultiplier(t *testing.T) {
 	require.NotContains(t, host.Body.String(), "sale_multipliers")
 }
 
+// TestRetailCatalogPriceColumns verifies native currencies and effective pricing without publishing supplier details.
+func TestRetailCatalogPriceColumns(t *testing.T) {
+	user, _ := setupSecurityEnrollmentTest(t)
+	t.Setenv("SITE_MODE", "retail")
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.GPTHostingBinding{}, &model.RetailPriceState{}, &model.RetailPriceVersion{}))
+	channel := model.Channel{Id: 101, Name: "synthetic", Type: 1, Status: 1, Group: "retail", Models: "gpt-4o", Key: "test-only"}
+	require.NoError(t, model.DB.Create(&channel).Error)
+	require.NoError(t, model.DB.Create(&model.Ability{ChannelId: 101, Model: "gpt-4o", Group: "retail", Enabled: true}).Error)
+	config := filepath.Join(t.TempDir(), "retail.json")
+	require.NoError(t, os.WriteFile(config, []byte(`{"enabled":true,"group":"retail","supplies":[{"channel_id":101,"kind":"reseller"}]}`), 0600))
+	t.Setenv("RETAIL_RELAY_CONFIG", config)
+	raw, err := os.ReadFile("../pkg/retailprice/testdata/book.json")
+	require.NoError(t, err)
+	var book retailprice.Book
+	require.NoError(t, common.Unmarshal(raw, &book))
+	now := time.Now().Unix()
+	book.Models[0].VerifiedAt, book.Models[0].ValidUntil = now, now+86400
+	book.Rates[0].VerifiedAt, book.Rates[0].ValidUntil = now, now+3600
+	book.Rates[0].Multiplier = "0.4"
+	_, err = model.PublishRetailPriceBook(0, book, nil, user.Id)
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Set("id", user.Id)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/retail/catalog", nil)
+	GetRetailCatalog(ctx)
+	require.True(t, gjson.Get(w.Body.String(), "success").Bool(), w.Body.String())
+	// The catalog returns the same published tier in native currencies and exposes
+	// the effective sale factor without leaking the underlying procurement multiplier.
+	offer := gjson.Get(w.Body.String(), "data.products.0.models.0")
+	require.Equal(t, "USD", offer.Get("base_price.currency").String())
+	require.Equal(t, "10", offer.Get("base_price.tiers.0.prices.input").String())
+	require.False(t, offer.Get("base_price.official").Bool(), "historical tariffs are not marked official without verification")
+	require.Equal(t, "CNY", offer.Get("currency").String())
+	require.Equal(t, "5", offer.Get("tiers.0.prices.input").String())
+	require.Equal(t, "0.5", offer.Get("sale_factor").String())
+	for _, private := range []string{"channel_id", "multiplier", "receipt_ratio", "supplier/standard", "margin_bps", "example.com", "test-only"} {
+		require.NotContains(t, w.Body.String(), private)
+	}
+}
+
 // TestRetailPricingManagement uses real login sessions to exercise root access, ownership, CSRF and version conflicts.
 func TestRetailPricingManagement(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)

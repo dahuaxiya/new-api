@@ -132,7 +132,11 @@ export function AppHeader({
       {rightContent ?? (
         <div className='ms-auto flex shrink-0 items-center gap-1 sm:gap-2'>
           {showTopNav && (
-            <div className='me-1 hidden lg:block'>
+            <div
+              className={
+                status?.site_mode === 'retail' ? 'me-1' : 'me-1 hidden lg:block'
+              }
+            >
               <TopNav links={links} />
             </div>
           )}

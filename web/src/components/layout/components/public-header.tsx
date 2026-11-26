@@ -66,7 +66,7 @@ export interface PublicHeaderProps {
 
 /**
  * 公共页共享品牌、两站入口和用户导航，自定义 Logo、站名和原有登录提示仍优先。
- * @param props 页面导航及可选品牌覆盖，不改变登录与返回首页行为。
+ * @param props 站点导航、页面补充链接和可选品牌覆盖。
  * @return 可随窗口宽度切换导航布局的公共页头。
  */
 export function PublicHeader(props: PublicHeaderProps) {
@@ -106,6 +106,7 @@ export function PublicHeader(props: PublicHeaderProps) {
   const isAuthenticated = !!user
   const displaySiteName = customSiteName || systemName
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
+  const hasDashboardLink = links.some((link) => link.href === '/dashboard')
 
   let logoContent: ReactNode = (
     <HeaderLogo
@@ -437,7 +438,8 @@ export function PublicHeader(props: PublicHeaderProps) {
             )}
             style={{ transitionDelay: mobileOpen ? '250ms' : '0ms' }}
           >
-            {showAuthButtons && (
+            {/* The mobile footer only needs a shortcut if the navigation has no dashboard link. */}
+            {showAuthButtons && (!isAuthenticated || !hasDashboardLink) && (
               <Link
                 to={isAuthenticated ? '/dashboard' : '/sign-in'}
                 onClick={() => setMobileOpen(false)}
