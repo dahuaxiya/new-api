@@ -285,6 +285,12 @@ export type RetailCatalog = {
       official_model: string
       currency: 'CNY'
       tiers: RetailTier[]
+      base_price?: {
+        currency: 'USD' | 'CNY'
+        tiers: RetailTier[]
+        official: boolean
+      }
+      sale_factor?: string
       valid_until: number
       reference_image?: boolean
       max_output: number
