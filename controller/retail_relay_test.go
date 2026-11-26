@@ -122,6 +122,8 @@ func TestRetailHTTPRelay(t *testing.T) {
 		`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2,"server_tool_use":{"web_search_requests":1}}}`,
 		`{"type":"message_stop"}`,
 	}, "\n\ndata: ") + "\n\n"
+	const progressRequest = `{"model":"gpt-4o","input":"hello","stream":true}`
+	const meteredProgress = "data: " + `{"type":"response.in_progress","response":{"id":"resp-metered","status":"in_progress","usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"cached_tokens":0}}}}` + "\n\n"
 	const startedSearch = "data: " + `{"type":"response.output_item.added","item":{"type":"web_search_call","id":"ws_1"}}` + "\n\n"
 	compatDone := "data: " + `{"type":"response.completed","response":` + strings.Replace(imageResponse, item, "", 1) + "}\n\n"
 	for _, priced := range []bool{false, true} {
@@ -170,6 +172,13 @@ func TestRetailHTTPRelay(t *testing.T) {
 			{"group_output_default", "/v1/responses", `{"model":"gpt-4o","input":"hello"}`, `{"status":"completed","usage":{"input_tokens":10,"output_tokens":1184,"total_tokens":1194}}`, types.RelayFormatOpenAIResponses, 1, true},
 			{"group_output_explicit", "/v1/responses", `{"model":"gpt-4o","input":"hello","max_output_tokens":1024}`, `{"status":"completed","usage":{"input_tokens":10,"output_tokens":1184,"total_tokens":1194}}`, types.RelayFormatOpenAIResponses, 1, false},
 			{"group_failed_with_usage", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true}`, "data: " + `{"type":"response.failed","response":{"status":"failed","usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}` + "\n\n", types.RelayFormatOpenAIResponses, 1, true},
+			// 断流依然是执行失败。用同一套真钱包校验已实报部分、冲突、缺缓存和晚到终帧。
+			{"group_failed_progress_interrupted", "/v1/responses", progressRequest, meteredProgress + meteredProgress, types.RelayFormatOpenAIResponses, 1, true},
+			{"group_failed_progress_no_cache_interrupted", "/v1/responses", progressRequest, strings.Replace(meteredProgress, `,"input_tokens_details":{"cached_tokens":0}`, "", 1), types.RelayFormatOpenAIResponses, 1, false},
+			{"group_failed_progress_conflict_interrupted", "/v1/responses", progressRequest, meteredProgress + strings.Replace(meteredProgress, "resp-metered", "resp-other", 1), types.RelayFormatOpenAIResponses, 1, false},
+			{"group_failed_progress_regression_interrupted", "/v1/responses", progressRequest, meteredProgress + strings.NewReplacer(`"output_tokens":2`, `"output_tokens":1`, `"total_tokens":12`, `"total_tokens":11`).Replace(meteredProgress), types.RelayFormatOpenAIResponses, 1, false},
+			{"group_failed_progress_final", "/v1/responses", progressRequest, meteredProgress + "data: " + `{"type":"response.failed","response":{"id":"resp-metered","status":"failed","usage":{"input_tokens":10,"output_tokens":3,"total_tokens":13}}}` + "\n\n", types.RelayFormatOpenAIResponses, 1, true},
+			{"group_failed_progress_partial_final", "/v1/responses", progressRequest, meteredProgress + "data: " + `{"type":"response.failed","response":{"id":"resp-metered","status":"failed","usage":{"input_tokens":10}}}` + "\n\n", types.RelayFormatOpenAIResponses, 1, false},
 			{"group_failed_partial_usage", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true}`, "data: " + `{"type":"response.failed","response":{"status":"failed","usage":{"input_tokens":10}}}` + "\n\n", types.RelayFormatOpenAIResponses, 1, false},
 			{"responses_stream_estimated", "/v1/responses", `{"model":"gpt-4o","input":"hello","stream":true}`, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-4o\",\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":0,\"total_tokens\":10}}}\n\n", types.RelayFormatOpenAIResponses, 1, false},
 			{"claude_stream", "/v1/messages", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20,"stream":true}`, "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"gpt-4o\",\"content\":[],\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"OK\"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\ndata: {\"type\":\"message_stop\"}\n\n", types.RelayFormatClaude, 14, true},
@@ -417,6 +426,9 @@ func TestRetailHTTPRelay(t *testing.T) {
 					} else if priced && scenario.name == "responses_stream_estimated" {
 						expected = 15 // 只结算上游报告的 10 输入，不把本地收到的文字算作输出。
 					}
+					if scenario.name == "group_failed_progress_final" {
+						expected = 24
+					} // 终帧报告 3 个输出，不能沿用进度帧的 2 个。
 					if imageTool && scenario.name != "tool_image_empty" {
 						// 测试价每千张 150，倍率 0.3；单张 0.045 元，对应 22500 额度。
 						expected += 22500
@@ -447,6 +459,13 @@ func TestRetailHTTPRelay(t *testing.T) {
 					require.Equal(t, "completed", attempt.State)
 				}
 				require.Equal(t, "unknown", attempt.CostState)
+				if strings.HasPrefix(scenario.name, "group_failed_progress_") {
+					var entry model.Log
+					require.NoError(t, model.LOG_DB.Where("request_id = ? AND type = ?", charge.ID, model.LogTypeConsume).First(&entry).Error)
+					require.Equal(t, charge.Actual, entry.Quota)
+					require.Equal(t, scenario.name == "group_failed_progress_interrupted", gjson.Get(entry.Other, "retail_usage_basis").String() == "upstream_progress")
+				}
+
 				if scenario.name == "image" {
 					for _, extra := range []string{`,"n":2`, `,"image":"https://example.com/input.png"`, `,"quality":"ultra"`, `,"stream":true`, `,"model":"other"`} {
 						bad := httptest.NewRequest("POST", scenario.path, strings.NewReader(strings.TrimSuffix(scenario.body, "}")+extra+"}"))

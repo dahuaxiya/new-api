@@ -516,6 +516,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if ctx.GetBool("retail_request") {
 		other.SetPublic("retail_billing_status", retailBillingState)
+		// 断流时可能只结算到最后一次实报；日志要能和完整终帧结算区分开。
+		if ctx.GetBool("retail_progress_usage") {
+			other.SetPublic("retail_usage_basis", "upstream_progress")
+		}
+
 		other.SetAdmin("retail_calculated_quota", calculatedQuota)
 		if relayInfo.RetailQuote != nil {
 			other.SetPublic("retail_currency", "CNY")
