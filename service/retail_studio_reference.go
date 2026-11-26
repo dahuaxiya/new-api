@@ -158,30 +158,90 @@ func retailResponsesPictures(raw []byte) (map[int]string, error) {
 				continue
 			}
 			uri := part.Get("image_url").Str
-			prefix, payload, ok := strings.Cut(uri, ",")
-			if !ok || part.Get("file_id").Exists() || (prefix != "data:image/png;base64" && prefix != "data:image/jpeg;base64" && prefix != "data:image/webp;base64") {
+			if part.Get("file_id").Exists() {
 				return nil, retailprice.ErrConfig
 			}
-			// 与工作台共享 4 MiB 原图预算和 4000 万像素上限；估算前先限制解码分配。
-			if len(payload) > base64.StdEncoding.EncodedLen((4<<20)-total) {
-				return nil, retailprice.ErrConfig
+			if err := registerRetailPicture(&pictures, &total, uri); err != nil {
+				return nil, err
 			}
-			data, err := base64.StdEncoding.DecodeString(payload)
-			if err != nil || len(data) == 0 || len(data) > (4<<20)-total {
-				return nil, retailprice.ErrConfig
-			}
-			cfg, format, err := decodeImageConfig(data)
-			if err != nil || prefix != "data:image/"+format+";base64" || cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width) > 40_000_000/int64(cfg.Height) {
-				return nil, retailprice.ErrConfig
-			}
-			total += len(data)
-			if pictures == nil {
-				pictures = make(map[int]string)
-			}
-			pictures[len(pictures)] = uri
 		}
 	}
 	return pictures, nil
+}
+
+// retailRequestPictures 按入站协议登记内嵌图片，供统一媒体校验消费。
+// Responses 与 Claude Messages 共用字节和像素上限；其他协议仍走各自原有的校验规则。
+func retailRequestPictures(raw []byte, path string) (map[int]string, error) {
+	switch {
+	case strings.HasSuffix(path, "/responses"):
+		return retailResponsesPictures(raw)
+	case path == "/v1/messages":
+		// Magpie 会把长 Responses 会话转换成 Claude Messages，历史截图也必须沿用同一份媒体白名单。
+		return retailClaudePictures(raw)
+	default:
+		return nil, nil
+	}
+}
+
+// retailClaudePictures 登记 Claude Messages 历史和工具结果中的内嵌图片。
+// Magpie 等客户端会把 Responses 历史转成 Claude 图片块；若这里不登记，后续统一媒体校验会把合法的 data URL 当成未授权内容拒绝。
+func retailClaudePictures(raw []byte) (map[int]string, error) {
+	var pictures map[int]string
+	total := 0
+	queue := []gjson.Result{
+		gjson.GetBytes(raw, "messages"),
+		gjson.GetBytes(raw, "system"),
+	}
+	for len(queue) > 0 {
+		item := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if item.IsArray() {
+			queue = append(queue, item.Array()...)
+			continue
+		}
+		if !item.IsObject() {
+			continue
+		}
+		if item.Get("type").Str == "image" {
+			// 统一校验器只把内嵌 base64 还原成 data URL；外链和文件引用必须先在这里拒绝。
+			uri := ""
+			if item.Get("source.type").Str == "base64" {
+				uri = "data:" + item.Get("source.media_type").Str + ";base64," + item.Get("source.data").Str
+			}
+			if err := registerRetailPicture(&pictures, &total, uri); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		queue = append(queue, item.Get("content"), item.Get("output"))
+	}
+	return pictures, nil
+}
+
+// registerRetailPicture 验证一张内嵌图片并登记其在请求中的顺序。
+// 所有入站协议共用 4 MiB 原图总预算和 4000 万像素上限，估算前先限制 Base64 解码分配。
+func registerRetailPicture(pictures *map[int]string, total *int, uri string) error {
+	prefix, payload, ok := strings.Cut(uri, ",")
+	if !ok || (prefix != "data:image/png;base64" && prefix != "data:image/jpeg;base64" && prefix != "data:image/webp;base64") {
+		return retailprice.ErrConfig
+	}
+	if len(payload) > base64.StdEncoding.EncodedLen((4<<20)-*total) {
+		return retailprice.ErrConfig
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil || len(data) == 0 || len(data) > (4<<20)-*total {
+		return retailprice.ErrConfig
+	}
+	cfg, format, err := decodeImageConfig(data)
+	if err != nil || prefix != "data:image/"+format+";base64" || cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width) > 40_000_000/int64(cfg.Height) {
+		return retailprice.ErrConfig
+	}
+	*total += len(data)
+	if *pictures == nil {
+		*pictures = make(map[int]string)
+	}
+	(*pictures)[len(*pictures)] = uri
+	return nil
 }
 
 type studioVisionKey struct{}

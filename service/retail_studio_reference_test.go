@@ -54,3 +54,22 @@ func TestRetailToolOutputPictures(t *testing.T) {
 		require.Error(t, validateRetailChat(external, map[string]int{png: 1}, true, ""))
 	}
 }
+
+// TestRetailClaudePictures 验证 Magpie 转成的 Claude 历史截图能登记并参与同一媒体校验。
+func TestRetailClaudePictures(t *testing.T) {
+	const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
+	const payload = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
+	raw := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"inspect the screenshots"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + payload + `"}}]},{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"path":"screen.png"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"screenshot"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + payload + `"}}]}]}],"tools":[{"name":"Read","input_schema":{"type":"object"}}]}`)
+
+	require.Error(t, validateRetailChat(raw, nil, false, ""))
+	pictures, err := retailRequestPictures(raw, "/v1/messages")
+	require.NoError(t, err)
+	require.Equal(t, map[int]string{0: png, 1: png}, pictures)
+	require.NoError(t, validateRetailChat(raw, map[string]int{png: 2}, false, ""))
+
+	external := []byte(strings.Replace(string(raw),
+		`"source":{"type":"base64","media_type":"image/png","data":"`+payload+`"}`,
+		`"source":{"type":"url","url":"https://example.com/screen.png"}`, 1))
+	_, err = retailClaudePictures(external)
+	require.Error(t, err)
+}

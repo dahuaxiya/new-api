@@ -165,8 +165,8 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 		return true, retailPriceError(retailprice.ErrConfig)
 	}
 	// 在入站阶段登记经过检查的内嵌图片。出站只消费这份清单，不重新信任转换后的数据。
-	if !imageRequest && responses && !HasStudioVision(c.Request) {
-		pictures, err := retailResponsesPictures(raw)
+	if !imageRequest && !HasStudioVision(c.Request) {
+		pictures, err := retailRequestPictures(raw, c.Request.URL.Path)
 		if err != nil {
 			return true, retailPriceError(err)
 		}
