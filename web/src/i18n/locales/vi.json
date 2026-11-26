@@ -1,5 +1,7 @@
 {
   "translation": {
+    "How are prices calculated?": "Giá được tính như thế nào?",
+    "Prices are billed in yuan and already include the sale multiplier. For USD list prices, multiply the dollar amount directly, without currency conversion. For CNY list prices, multiply the yuan amount directly.": "Giá thanh toán bằng nhân dân tệ đã bao gồm hệ số bán. Với giá niêm yết bằng USD, nhân trực tiếp số tiền với hệ số, không quy đổi tỷ giá. Với giá niêm yết bằng nhân dân tệ, nhân trực tiếp giá đó với hệ số.",
     "No published rate for this group. You can still enter its name.": "Nhóm này chưa có mức giá công bố. Bạn vẫn có thể nhập tên nhóm.",
     "Automatically sync models": "Tự động đồng bộ mô hình",
     "Waiting for first sync": "Đang chờ lần đồng bộ đầu tiên",

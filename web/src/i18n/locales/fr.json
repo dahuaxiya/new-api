@@ -1,5 +1,7 @@
 {
   "translation": {
+    "How are prices calculated?": "Comment les prix sont-ils calculés ?",
+    "Prices are billed in yuan and already include the sale multiplier. For USD list prices, multiply the dollar amount directly, without currency conversion. For CNY list prices, multiply the yuan amount directly.": "Les prix sont facturés en yuans et incluent le coefficient de vente. Pour un tarif en dollars, le coefficient s’applique au montant sans conversion de devise. Pour un tarif en yuans, il s’applique directement au montant en yuans.",
     "No published rate for this group. You can still enter its name.": "Aucun tarif publié pour ce groupe. Vous pouvez saisir son nom.",
     "Automatically sync models": "Synchronisation automatique des modèles",
     "Waiting for first sync": "Première synchronisation en attente",

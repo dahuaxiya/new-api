@@ -1,5 +1,7 @@
 {
   "translation": {
+    "How are prices calculated?": "分組價怎麼算？",
+    "Prices are billed in yuan and already include the sale multiplier. For USD list prices, multiply the dollar amount directly, without currency conversion. For CNY list prices, multiply the yuan amount directly.": "官網標 $2 或 ¥2，都用 2 乘以售價倍率，不用換匯。卡片上的分組價已含倍率，以人民幣結算。",
     "No published rate for this group. You can still enter its name.": "尚未收錄此分組的報價，可以手動輸入組名。",
     "Automatically sync models": "自動同步模型",
     "Waiting for first sync": "等待首次同步",

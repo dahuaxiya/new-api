@@ -21,6 +21,12 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -71,14 +77,18 @@ function RetailGroupNav(props: {
                   {getLobeIcon(brand, 18)}
                 </span>
                 <span className='min-w-0 flex-1'>
-                  <span className='block [overflow-wrap:anywhere]'>{product.name}</span>
+                  <span className='block [overflow-wrap:anywhere]'>
+                    {product.name}
+                  </span>
                   <span className='text-muted-foreground block text-xs font-normal'>
                     {product.models.length} {t('Models')}
                   </span>
                 </span>
                 {factor && (
-                  <span className='text-primary shrink-0 rounded-md bg-primary/5 px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap tabular-nums'>
-                    <span className='sr-only'>{t('Effective sale factor')} </span>
+                  <span className='text-primary bg-primary/5 shrink-0 rounded-md px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap tabular-nums'>
+                    <span className='sr-only'>
+                      {t('Effective sale factor')}{' '}
+                    </span>
                     {factor}
                   </span>
                 )}
@@ -140,6 +150,19 @@ export function RetailGroupPrices(props: { products: Product[] }) {
   const models = selected.models.filter((model) =>
     model.id.toLowerCase().includes(keyword)
   )
+  // Follow the visible cards. Pair the official and selling prices from the same
+  // context band, and keep the server's decimal strings and rounding intact.
+  const example = models.find(
+    (model) =>
+      model.base_price?.official &&
+      model.sale_factor &&
+      model.base_price.tiers.some(
+        (tier) => tier.up_to === model.tiers[0]?.up_to
+      )
+  )
+  const base = example?.base_price?.tiers.find(
+    (tier) => tier.up_to === example.tiers[0]?.up_to
+  )
 
   /** Close the mobile sheet and clear search only when the group changes.
    * @param id ID of a group from the current catalog.
@@ -168,22 +191,61 @@ export function RetailGroupPrices(props: { products: Product[] }) {
       </aside>
       <section aria-label={selected.name} className='min-w-0'>
         <div className='mb-4 flex flex-wrap items-center justify-between gap-3'>
-          <h2 className='flex min-w-0 flex-wrap items-baseline gap-2 text-lg font-semibold tracking-tight [overflow-wrap:anywhere]'>
-            {selected.name}
-            <span className='text-muted-foreground border-s ps-2 text-xs font-normal tabular-nums'>
-              {models.length} {t('Models')}
-            </span>
-            {saleFactor && (
-              <span className='inline-flex items-baseline gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-2 py-1 leading-none whitespace-nowrap'>
-                <span className='text-muted-foreground text-xs leading-none font-medium tracking-normal'>
-                  {t('Effective sale factor')}
-                </span>{' '}
-                <strong className='text-primary text-base leading-none font-semibold tracking-tight tabular-nums'>
-                  {saleFactor}
-                </strong>
+          <div className='flex flex-wrap items-center gap-x-2'>
+            <h2 className='flex min-w-0 flex-wrap items-baseline gap-2 text-lg font-semibold tracking-tight [overflow-wrap:anywhere]'>
+              {selected.name}
+              <span className='text-muted-foreground border-s ps-2 text-xs font-normal tabular-nums'>
+                {models.length} {t('Models')}
               </span>
+              {saleFactor && (
+                <span className='border-primary/20 bg-primary/5 inline-flex items-baseline gap-1.5 rounded-md border px-2 py-1 leading-none whitespace-nowrap'>
+                  <span className='text-muted-foreground text-xs leading-none font-medium tracking-normal'>
+                    {t('Effective sale factor')}
+                  </span>{' '}
+                  <strong className='text-primary text-base leading-none font-semibold tracking-tight tabular-nums'>
+                    {saleFactor}
+                  </strong>
+                </span>
+              )}
+            </h2>
+            {saleFactor && (
+              <Popover key={selected.id}>
+                <PopoverTrigger className='text-muted-foreground hover:text-primary rounded-md px-2 py-2 text-xs underline decoration-dotted underline-offset-4 focus-visible:outline-2'>
+                  {t('How are prices calculated?')}
+                </PopoverTrigger>
+                <PopoverContent
+                  align='start'
+                  sideOffset={6}
+                  collisionPadding={12}
+                  className='w-80 max-w-[calc(100vw-24px)] gap-3 rounded-2xl p-4'
+                >
+                  <PopoverTitle>{t('How are prices calculated?')}</PopoverTitle>
+                  <p className='text-muted-foreground leading-relaxed'>
+                    {t(
+                      'Prices are billed in yuan and already include the sale multiplier. For USD list prices, multiply the dollar amount directly, without currency conversion. For CNY list prices, multiply the yuan amount directly.'
+                    )}
+                  </p>
+                  {example && base && (
+                    <div className='bg-muted/60 rounded-xl p-3'>
+                      <p className='text-muted-foreground text-xs'>
+                        {example.id} · {t('Input')} · {t('Per million tokens')}
+                      </p>
+                      <p className='mt-1.5 text-base tabular-nums'>
+                        {example.base_price?.currency === 'USD' ? '$' : '¥'}
+                        {base.prices.input}{' '}
+                        <span className='text-muted-foreground'>
+                          × {example.sale_factor} ≈
+                        </span>{' '}
+                        <strong className='text-primary'>
+                          ¥{example.tiers[0].prices.input}
+                        </strong>
+                      </p>
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
             )}
-          </h2>
+          </div>
           <div className='flex w-full items-center gap-2 md:w-auto'>
             <Sheet open={sheet} onOpenChange={setSheet}>
               <SheetTrigger

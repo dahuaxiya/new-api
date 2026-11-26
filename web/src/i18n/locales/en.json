@@ -1,5 +1,7 @@
 {
   "translation": {
+    "How are prices calculated?": "How are prices calculated?",
+    "Prices are billed in yuan and already include the sale multiplier. For USD list prices, multiply the dollar amount directly, without currency conversion. For CNY list prices, multiply the yuan amount directly.": "Prices are billed in yuan and already include the sale multiplier. For USD list prices, multiply the dollar amount directly, without currency conversion. For CNY list prices, multiply the yuan amount directly.",
     "No published rate for this group. You can still enter its name.": "No published rate for this group. You can still enter its name.",
     "Automatically sync models": "Automatically sync models",
     "Waiting for first sync": "Waiting for first sync",
