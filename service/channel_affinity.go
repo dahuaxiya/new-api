@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/cachex"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -335,10 +336,19 @@ func extractChannelAffinityValue(c *gin.Context, src operation_setting.ChannelAf
 	}
 }
 
-func buildChannelAffinityCacheKeySuffix(rule operation_setting.ChannelAffinityRule, modelName string, usingGroup string, affinityValue string) string {
-	parts := make([]string, 0, 4)
+// buildChannelAffinityCacheKeySuffix creates a cache key scoped to the calling API key.
+//
+// The token ID is not configurable with the other rule dimensions. Retail API keys
+// can resolve to different products and channel sets while sharing the same
+// UsingGroup, so omitting the key identity lets unrelated sessions overwrite or
+// invalidate each other's channel binding.
+func buildChannelAffinityCacheKeySuffix(rule operation_setting.ChannelAffinityRule, tokenID int, modelName string, usingGroup string, affinityValue string) string {
+	parts := make([]string, 0, 5)
 	if rule.IncludeRuleName && rule.Name != "" {
 		parts = append(parts, rule.Name)
+	}
+	if tokenID > 0 {
+		parts = append(parts, "token="+strconv.Itoa(tokenID))
 	}
 	if rule.IncludeModelName && modelName != "" {
 		parts = append(parts, modelName)
@@ -549,15 +559,22 @@ func ApplyChannelAffinityOverrideTemplate(c *gin.Context, paramOverride map[stri
 func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup string) (int, bool) {
 	setting := operation_setting.GetChannelAffinitySetting()
 	state := RequestPolicy(c)
-	if setting == nil || !setting.Enabled {
+	if c == nil || setting == nil || !setting.Enabled {
+		return 0, false
+	}
+	tokenID := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
+	// Channel affinity is useful only when the authenticated API key is part of
+	// its scope. Failing open without a token would recreate the cross-product
+	// collision this scope is meant to prevent.
+	if tokenID <= 0 {
 		return 0, false
 	}
 	path := ""
-	if c != nil && c.Request != nil && c.Request.URL != nil {
+	if c.Request != nil && c.Request.URL != nil {
 		path = c.Request.URL.Path
 	}
 	userAgent := ""
-	if c != nil && c.Request != nil {
+	if c.Request != nil {
 		userAgent = c.Request.UserAgent()
 	}
 
@@ -591,7 +608,7 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		if ttlSeconds <= 0 {
 			ttlSeconds = setting.DefaultTTLSeconds
 		}
-		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, modelName, usingGroup, affinityValue)
+		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, tokenID, modelName, usingGroup, affinityValue)
 		cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
 		state.SessionMode, state.SessionModeSource = EffectiveSessionMode(setting, rule)
 		state.RuleName = rule.Name

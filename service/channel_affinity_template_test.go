@@ -211,7 +211,7 @@ func TestGetPreferredChannelByAffinity_RequestHeaderKeySource(t *testing.T) {
 	}
 
 	affinityValue := fmt.Sprintf("header-hit-%d", time.Now().UnixNano())
-	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "default", affinityValue)
+	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, 7, "gpt-5", "default", affinityValue)
 
 	cache := getChannelAffinityCache()
 	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9528, time.Minute))
@@ -230,6 +230,7 @@ func TestGetPreferredChannelByAffinity_RequestHeaderKeySource(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(rec)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	ctx.Request.Header.Set("X-Affinity-Key", affinityValue)
+	ctx.Set("token_id", 7)
 
 	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
 	require.True(t, found)
@@ -240,6 +241,66 @@ func TestGetPreferredChannelByAffinity_RequestHeaderKeySource(t *testing.T) {
 	require.Equal(t, "request_header", meta.KeySourceType)
 	require.Equal(t, "X-Affinity-Key", meta.KeySourceKey)
 	require.Equal(t, buildChannelAffinityKeyHint(affinityValue), meta.KeyHint)
+}
+
+func TestGetPreferredChannelByAffinityScopesCacheToAPIKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rule := operation_setting.ChannelAffinityRule{
+		Name:       "api-key-scope",
+		ModelRegex: []string{"^gpt-.*$"},
+		PathRegex:  []string{"/v1/responses"},
+		KeySources: []operation_setting.ChannelAffinityKeySource{
+			{Type: "gjson", Path: "prompt_cache_key"},
+		},
+		IncludeRuleName:   true,
+		IncludeUsingGroup: true,
+	}
+	setting := operation_setting.GetChannelAffinitySetting()
+	previous := *setting
+	t.Cleanup(func() { *setting = previous })
+	setting.Rules = []operation_setting.ChannelAffinityRule{rule}
+
+	affinityValue := fmt.Sprintf("shared-session-%d", time.Now().UnixNano())
+	firstKey := buildChannelAffinityCacheKeySuffix(rule, 7, "gpt-6.2-sol", "retail", affinityValue)
+	secondKey := buildChannelAffinityCacheKeySuffix(rule, 8, "gpt-6.2-sol", "retail", affinityValue)
+	require.NotEqual(t, firstKey, secondKey)
+
+	cache := getChannelAffinityCache()
+	require.NoError(t, cache.SetWithTTL(firstKey, 1007, time.Minute))
+	require.NoError(t, cache.SetWithTTL(secondKey, 1008, time.Minute))
+	t.Cleanup(func() {
+		_, _ = cache.DeleteMany([]string{firstKey, secondKey})
+	})
+
+	for _, tc := range []struct {
+		name        string
+		tokenID     int
+		wantFound   bool
+		wantChannel int
+	}{
+		{name: "first API key", tokenID: 7, wantFound: true, wantChannel: 1007},
+		{name: "second API key", tokenID: 8, wantFound: true, wantChannel: 1008},
+		{name: "missing API key", tokenID: 0, wantFound: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(
+				http.MethodPost,
+				"/v1/responses",
+				strings.NewReader(fmt.Sprintf(`{"prompt_cache_key":"%s"}`, affinityValue)),
+			)
+			if tc.tokenID > 0 {
+				ctx.Set("token_id", tc.tokenID)
+			}
+
+			channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-6.2-sol", "retail")
+			require.Equal(t, tc.wantFound, found)
+			if tc.wantFound {
+				require.Equal(t, tc.wantChannel, channelID)
+			}
+		})
+	}
 }
 
 func TestClearCurrentChannelAffinityCache(t *testing.T) {
@@ -286,7 +347,7 @@ func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 	require.NotNil(t, codexRule)
 
 	affinityValue := fmt.Sprintf("pc-hit-%d", time.Now().UnixNano())
-	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(*codexRule, "gpt-5", "default", affinityValue)
+	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(*codexRule, 7, "gpt-5", "default", affinityValue)
 
 	cache := getChannelAffinityCache()
 	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9527, time.Minute))
@@ -298,6 +359,7 @@ func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(rec)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(fmt.Sprintf(`{"prompt_cache_key":"%s"}`, affinityValue)))
 	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Set("token_id", 7)
 
 	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
 	require.True(t, found)
@@ -418,13 +480,14 @@ func TestSessionRulesInheritOrOverrideGlobalDefault(t *testing.T) {
 				require.NoError(t, err)
 				*setting = snapshot.Affinity
 				key := t.Name()
-				cacheKey := buildChannelAffinityCacheKeySuffix(rule, "test-model", "default", key)
+				cacheKey := buildChannelAffinityCacheKeySuffix(rule, 7, "test-model", "default", key)
 				cache := getChannelAffinityCache()
 				require.NoError(t, cache.SetWithTTL(cacheKey, 1, time.Minute))
 				t.Cleanup(func() { _, err := cache.DeleteMany([]string{cacheKey}); assert.NoError(t, err) })
 				ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 				ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 				ctx.Request.Header.Set("X-Session", key)
+				ctx.Set("token_id", 7)
 				state := RequestPolicy(ctx)
 				channelID, found := GetPreferredChannelByAffinity(ctx, "test-model", "default")
 				assert.Equal(t, expected != "off", found)
