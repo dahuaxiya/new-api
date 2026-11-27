@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
+import { accountPasswordSchema } from '@/lib/password-policy'
+
 // ============================================================================
 // Form Schemas
 // ============================================================================
@@ -37,11 +39,8 @@ export const registerFormSchema = z
         z.string().email('Please enter a valid email address'),
       ])
       .optional(),
-    // Public registration has no MFA yet, so match the server's stronger new-account policy.
-    password: z.string().refine((password) => {
-      const length = [...password].length
-      return length >= 15 && length <= 128
-    }, 'Password must contain between 15 and 128 characters.'),
+    // 复用账户密码策略，避免注册页和服务端的字符长度边界再次分叉。
+    password: accountPasswordSchema,
     confirmPassword: z.string().min(1, 'Please confirm your password'),
   })
   .refine((data) => data.password === data.confirmPassword, {

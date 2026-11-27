@@ -8,12 +8,12 @@ import (
 )
 
 const (
-	MinPasswordLength = 15
+	MinPasswordLength = 8
 	MaxPasswordLength = 128
 )
 
 var (
-	ErrPasswordLength = errors.New("Password must contain between 15 and 128 characters.")
+	ErrPasswordLength = errors.New("Password must contain between 8 and 128 characters.")
 	ErrCommonPassword = errors.New("This password is too common. Choose a different password.")
 )
 
@@ -41,11 +41,11 @@ func loadCommonPasswords() map[string]struct{} {
 	return passwords
 }
 
-// ValidatePassword checks new onboarding passwords without changing their
-// original bytes. Existing logins must not use this new-password policy.
-// All valid Unicode characters, including whitespace, are accepted subject to
-// the 15–128 character limit and exact-match local common-password blocklist.
-// The caller must pass the unchanged password to the account password hasher.
+// ValidatePassword 校验注册密码的 8–128 字符边界和常见密码黑名单。
+// 长度按 Unicode 字符计算；空格及原始编码必须原样传给密码哈希器。
+// 此策略用于新密码，不应用于已有账号的登录验证。
+// @param password 用户输入的密码原文，调用方不得预先去空格或归一化。
+// @return 长度、编码或黑名单校验失败的错误；符合策略时返回 nil。
 func ValidatePassword(password string) error {
 	// Reject oversized input before counting runes; every valid Unicode rune
 	// occupies at most four UTF-8 bytes. No password content enters errors/logs.

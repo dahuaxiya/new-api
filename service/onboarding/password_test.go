@@ -9,8 +9,9 @@ import (
 	"unicode/utf8"
 )
 
-// TestValidatePasswordUnicodeBounds checks character-based limits without
-// trimming, case folding, normalization, or additional composition rules.
+// TestValidatePasswordUnicodeBounds 验证 8–128 个 Unicode 字符的长度边界，
+// 并确保密码原文不会被去空格、大小写转换或 Unicode 归一化。
+// @param t 当前测试上下文。
 func TestValidatePasswordUnicodeBounds(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -18,8 +19,10 @@ func TestValidatePasswordUnicodeBounds(t *testing.T) {
 		want     error
 	}{
 		{name: "empty", password: "", want: ErrPasswordLength},
-		{name: "14_characters", password: strings.Repeat("界", 14), want: ErrPasswordLength},
-		{name: "15_characters", password: strings.Repeat("界", 15)},
+		{name: "7_characters", password: strings.Repeat("界", 7), want: ErrPasswordLength},
+		{name: "8_ascii_characters", password: "Q7!n2@v9"},
+		{name: "8_unicode_characters", password: strings.Repeat("界", 8)},
+		{name: "14_characters", password: strings.Repeat("界", 14)},
 		{name: "128_characters_512_bytes", password: strings.Repeat("🪷", 128)},
 		{name: "129_characters", password: strings.Repeat("界", 129), want: ErrPasswordLength},
 		{name: "oversized_bytes", password: strings.Repeat("🪷", 129), want: ErrPasswordLength},

@@ -25,12 +25,25 @@ describe('public registration password policy', () => {
     const input = {
       username: 'new-user',
       email: 'user@example.com',
-      password: 'old-pass',
-      confirmPassword: 'old-pass',
+      password: 'oldpass',
+      confirmPassword: 'oldpass',
     }
     expect(registerFormSchema.safeParse(input).success).toBe(false)
     expect(loginFormSchema.safeParse(input).success).toBe(true)
   })
+
+  it.each(['Q7!n2@v9', '界'.repeat(8), '界'.repeat(14)])(
+    'accepts registration passwords from 8 characters, including Unicode',
+    (password) => {
+      expect(
+        registerFormSchema.safeParse({
+          username: 'new-user',
+          password,
+          confirmPassword: password,
+        }).success
+      ).toBe(true)
+    }
+  )
 
   it('counts Unicode characters and preserves spaces in a valid passphrase', () => {
     const password = '  明月照松林山川溪水远行人  '

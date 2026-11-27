@@ -581,7 +581,7 @@ export function SignUpForm({
                     <FormLabel>{t('Password')}</FormLabel>
                     <FormControl>
                       <PasswordInput
-                        placeholder={t('Enter password (15–128 characters)')}
+                        placeholder={t('Enter password (8–128 characters)')}
                         autoComplete='new-password'
                         className='[&_input]:h-12 [&_input]:rounded-xl [&_input]:px-4'
                         {...field}
