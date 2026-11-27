@@ -1,5 +1,6 @@
 {
   "translation": {
+    "This changes the route for these call groups: {{groups}}.": "次の呼び出しグループのルートが変更されます：{{groups}}。",
     "How are prices calculated?": "料金の計算方法",
     "Prices are billed in yuan and already include the sale multiplier. For USD list prices, multiply the dollar amount directly, without currency conversion. For CNY list prices, multiply the yuan amount directly.": "表示価格は人民元建てで、販売倍率を含みます。公式価格が米ドル建ての場合は為替換算せず、その数値に倍率を掛けます。人民元建ての場合は元の価格に倍率を掛けます。",
     "No published rate for this group. You can still enter its name.": "このグループの公開レートはありません。名前を直接入力できます。",

@@ -16,14 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { GitFork, KeyRound, Pencil, Search, X } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { StaticDataTable } from '@/components/data-table'
 import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
-import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
   InputGroup,
@@ -37,6 +39,7 @@ import {
   PopoverContent,
 } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import {
   TableBody,
   TableCell,
@@ -44,17 +47,22 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { updateChannelStatus } from '@/features/channels/api'
 import {
   CHANNEL_STATUS,
   CHANNEL_STATUS_LABELS,
 } from '@/features/channels/constants'
-import type {
-  RetailBindingState,
-  RetailPriceBook,
+import { channelsQueryKeys } from '@/features/channels/lib/channel-actions'
+import {
+  getRetailGroupBindings,
+  type RetailBindingState,
+  type RetailPriceBook,
 } from '@/features/channels/retail-pricing-api'
 import { EditLibraryKeyButton } from '@/features/upstream-keys/library'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatNumber } from '@/lib/format'
+import { handleServerError } from '@/lib/handle-server-error'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 type Product = RetailPriceBook['products'][number]
 type DirectoryProps = {
@@ -70,20 +78,27 @@ type DirectoryProps = {
   onEdit: (product: Product, trigger: HTMLElement) => void
 }
 
-/** 从价表取实际请求线路，从渠道取配置开关。定价来源可以不接请求。
- * @param book 正式价表，旧商品可能没有库存编号或绑定记录。
- * @param supply 本次读取的供货配置。未返回的渠道保持未知。
- * @return 按原有商品及线路顺序排列的显示资料。
+/** 按渠道号合并各类供货资料；列表展示与写后核对使用同一份状态来源。
+ * @param supply 当前管理员可见的供货资料，加载失败时无法判断状态。
+ * @return 包含停用线路的渠道索引。
  */
-function directoryGroups(book?: RetailPriceBook, supply?: RetailBindingState) {
-  // 报价渠道包括已停用线路。旧接口只返回 channels 或 routing_channels。
-  const channels = new Map(
+function routeChannels(supply?: RetailBindingState) {
+  return new Map(
     [
       ...(supply?.channels ?? []),
       ...(supply?.routing_channels ?? []),
       ...(supply?.rate_channels ?? []),
     ].map((channel) => [channel.id, channel])
   )
+}
+
+/** 从价表取实际请求线路，从渠道取配置开关。定价来源可以不接请求。
+ * @param book 正式价表，旧商品可能没有库存编号或绑定记录。
+ * @param supply 本次读取的供货配置。未返回的渠道保持未知。
+ * @return 按原有商品及线路顺序排列的显示资料。
+ */
+function directoryGroups(book?: RetailPriceBook, supply?: RetailBindingState) {
+  const channels = routeChannels(supply)
   const keys = new Map(supply?.inventory_keys?.map((key) => [key.id, key]))
   const bindings = new Map(
     book?.group_bindings?.map((item) => [
@@ -117,34 +132,22 @@ function directoryGroups(book?: RetailPriceBook, supply?: RetailBindingState) {
 
 type GroupRow = ReturnType<typeof directoryGroups>[number]
 
-/** 状态只描述该线路的后台开关，包括自动停用和未知值。
- * @param props 后端返回的渠道状态码。
- * @return 带文本的线路状态标识。
+/** 只允许更改服务端已识别的开关状态，包括重新启用自动停用的线路。
+ * @param status 服务端状态，未知或缺失时禁用操作。
+ * @return 管理员是否可以设置该线路的启停状态。
  */
-function RouteStatus(props: { status: number }) {
-  const { t } = useTranslation()
-  const label =
-    CHANNEL_STATUS_LABELS[props.status as keyof typeof CHANNEL_STATUS_LABELS] ??
-    'Unknown'
-  let tone: 'neutral' | 'success' | 'warning' = 'neutral'
-  if (props.status === CHANNEL_STATUS.ENABLED) tone = 'success'
-  if (
-    props.status === CHANNEL_STATUS.AUTO_DISABLED ||
-    props.status === CHANNEL_STATUS.MANUAL_DISABLED
-  ) {
-    tone = 'warning'
-  }
+function canChangeStatus(status?: number): boolean {
   return (
-    <StatusBadge
-      className='gm-status'
-      data-tone={tone}
-      label={t(label)}
-      type='text'
-      showDot
-      copyable={false}
-      variant={tone}
-    />
+    status === CHANNEL_STATUS.ENABLED ||
+    status === CHANNEL_STATUS.MANUAL_DISABLED ||
+    status === CHANNEL_STATUS.AUTO_DISABLED
   )
+}
+
+type SwitchTarget = { channelId: number; enabled: boolean }
+type SwitchControls = {
+  pendingId?: number
+  onToggle: (target: SwitchTarget) => void
 }
 
 /** 同一组的多条线路共享组名和编辑按钮，手机上每条线路的状态仍贴着自己的 Key。
@@ -155,6 +158,7 @@ function ProductRows(props: {
   group: GroupRow
   identity: string
   factor?: string
+  controls: SwitchControls
   onEdit: DirectoryProps['onEdit']
 }) {
   const { t, i18n } = useTranslation()
@@ -279,7 +283,36 @@ function ProductRows(props: {
             {route?.upstream || '—'}
           </TableCell>
           <TableCell className='gm-state'>
-            {route ? <RouteStatus status={route.status} /> : '—'}
+            {route ? (
+              <span className='inline-flex items-center gap-2 whitespace-nowrap'>
+                <Switch
+                  checked={route.status === CHANNEL_STATUS.ENABLED}
+                  disabled={
+                    props.controls.pendingId !== undefined ||
+                    !canChangeStatus(route.status)
+                  }
+                  aria-busy={props.controls.pendingId === route.channelId}
+                  aria-label={`${t('Configured route status')} · ${product.name} · #${route.channelId}`}
+                  onCheckedChange={(enabled) =>
+                    props.controls.onToggle({
+                      channelId: route.channelId,
+                      enabled,
+                    })
+                  }
+                />
+                <span className='text-muted-foreground text-xs'>
+                  {props.controls.pendingId === route.channelId
+                    ? t('Saving...')
+                    : t(
+                        CHANNEL_STATUS_LABELS[
+                          route.status as keyof typeof CHANNEL_STATUS_LABELS
+                        ] ?? 'Unknown'
+                      )}
+                </span>
+              </span>
+            ) : (
+              '—'
+            )}
           </TableCell>
           {index === 0 && (
             <TableCell className='gm-action' rowSpan={lines.length}>
@@ -316,6 +349,73 @@ export function PublishedGroupDirectory(props: DirectoryProps) {
     () => directoryGroups(props.book, props.supply),
     [props.book, props.supply]
   )
+  const client = useQueryClient()
+  const [confirm, setConfirm] = useState<SwitchTarget | null>(null)
+  const statusKey = ['retail-group-bindings', props.identity]
+  const change = useMutation({
+    retry: false,
+    mutationFn: async (target: SwitchTarget) => {
+      const status = target.enabled
+        ? CHANNEL_STATUS.ENABLED
+        : CHANNEL_STATUS.MANUAL_DISABLED
+      requireServerSuccess(await updateChannelStatus(target.channelId, status))
+      // 状态接口的 success 不能区分重复设置和未能持久化；必须回读真实线路。
+      // 取消点击前发起的读，避免它覆盖这次变更，或被 fetchQuery 复用为验收结果。
+      await client.cancelQueries({ queryKey: statusKey, exact: true })
+      const saved = await client.fetchQuery({
+        queryKey: statusKey,
+        queryFn: ({ signal }) => getRetailGroupBindings(signal),
+        staleTime: 0,
+        retry: false,
+      })
+      if (routeChannels(saved).get(target.channelId)?.status !== status) {
+        throw new Error('Failed to update channel')
+      }
+    },
+    onSuccess: (_, target) =>
+      toast.success(
+        t(
+          target.enabled
+            ? 'Channel enabled successfully'
+            : 'Channel disabled successfully'
+        )
+      ),
+    onError: (error) => {
+      handleServerError(error, t('Failed to update channel'))
+      // 网络异常时写入结果不确定；恢复以服务端为准，不自行翻转或重试写请求。
+      void client.invalidateQueries({ queryKey: statusKey, exact: true })
+    },
+    onSettled: () => {
+      for (const key of [
+        channelsQueryKeys.all,
+        ['retail-supplies'],
+        ['retail-key-library'],
+        ['upstream-keys'],
+        ['retail-catalog'],
+        ['retail-studio'],
+      ]) {
+        void client.invalidateQueries({ queryKey: key })
+      }
+    },
+  })
+  // 一个渠道可能供多个分组使用。即使列表已搜索过滤，确认框也要列出所有引用它的分组。
+  const consumers = new Map<number, Set<string>>()
+  for (const group of groups) {
+    for (const route of group.routes) {
+      const names = consumers.get(route.channelId) ?? new Set<string>()
+      names.add(group.product.name)
+      consumers.set(route.channelId, names)
+    }
+  }
+  const controls: SwitchControls = {
+    pendingId: change.isPending ? change.variables.channelId : undefined,
+    onToggle: (target) => {
+      if (change.isPending) return
+      if (!target.enabled || (consumers.get(target.channelId)?.size ?? 0) > 1) {
+        setConfirm(target)
+      } else change.mutate(target)
+    },
+  }
   const query = search.trim().toLowerCase()
   const visible = groups.filter(
     ({ product, routes, sourceID, sourceKey }) =>
@@ -335,6 +435,37 @@ export function PublishedGroupDirectory(props: DirectoryProps) {
   )
   return (
     <section className='gm-directory' aria-label={t('Published call groups')}>
+      {confirm && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setConfirm(null)
+          }}
+          title={`${t(confirm.enabled ? 'Enable' : 'Disable')} · ${t('Channel')} #${confirm.channelId}`}
+          desc={t('This changes the route for these call groups: {{groups}}.', {
+            groups: [...(consumers.get(confirm.channelId) ?? [])].join(', '),
+          })}
+          confirmText={t(confirm.enabled ? 'Enable' : 'Disable')}
+          destructive={!confirm.enabled}
+          handleConfirm={() => {
+            setConfirm(null)
+            // 对话框打开期间可能发生后台刷新；消失、未知或已达目标的线路无需再写。
+            const latest = routeChannels(props.supply).get(
+              confirm.channelId
+            )?.status
+            if (
+              change.isPending ||
+              !consumers.has(confirm.channelId) ||
+              !canChangeStatus(latest)
+            ) {
+              return
+            }
+            if ((latest === CHANNEL_STATUS.ENABLED) !== confirm.enabled) {
+              change.mutate(confirm)
+            }
+          }}
+        />
+      )}
       <header className='gm-directory-head'>
         <div className='gm-directory-title'>
           <span className='gm-directory-mark' aria-hidden>
@@ -439,6 +570,7 @@ export function PublishedGroupDirectory(props: DirectoryProps) {
                 <ProductRows
                   key={group.product.id}
                   group={group}
+                  controls={controls}
                   identity={props.identity}
                   factor={props.multipliers?.[group.product.id]}
                   onEdit={props.onEdit}

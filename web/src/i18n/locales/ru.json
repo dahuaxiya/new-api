@@ -1,5 +1,6 @@
 {
   "translation": {
+    "This changes the route for these call groups: {{groups}}.": "Маршрут изменится для следующих групп вызовов: {{groups}}.",
     "How are prices calculated?": "Как рассчитывается цена?",
     "Prices are billed in yuan and already include the sale multiplier. For USD list prices, multiply the dollar amount directly, without currency conversion. For CNY list prices, multiply the yuan amount directly.": "Цена указана в юанях и уже включает коэффициент группы. Для тарифа в долларах коэффициент применяется к числовому значению без пересчёта по курсу. Для тарифа в юанях он применяется к цене в юанях.",
     "No published rate for this group. You can still enter its name.": "Для этой группы нет опубликованного тарифа. Название можно ввести вручную.",
