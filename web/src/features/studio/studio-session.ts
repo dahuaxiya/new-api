@@ -54,14 +54,37 @@ function read<T>(
   }
 }
 
-/** Recover only the model choices for this signed-in account. */
-export function readSelection(key: string | null) {
-  return read(key, selection) ?? read(key, selection, true)
+/**
+ * 读取账号最近使用的模式，或指定模式自己的分组和模型。
+ * 旧版只有共享选择，仅在模式相符时兼容，避免把聊天分组带入生图。
+ * @param key 当前账号的存储前缀；未登录时不读取。
+ * @param mode 指定聊天或生图；省略时恢复最近使用的模式。
+ * @return 对应模式的选择；尚未选择或存储不可用时为空。
+ */
+export function readSelection(
+  key: string | null,
+  mode?: StudioSelection['mode']
+): StudioSelection | undefined {
+  if (mode) {
+    const scoped = key && `${key}:selection:${mode}`
+    const saved = read(scoped, selection) ?? read(scoped, selection, true)
+    if (saved?.mode === mode) return saved
+  }
+  const saved = read(key, selection) ?? read(key, selection, true)
+  if (!mode || saved?.mode === mode) return saved
 }
 
-/** 当前标签优先使用自己的选择，重新开页时读取同一账号在本机的最近选择。 */
+/**
+ * 分模式保存选择，同时记录最近打开的模式，供刷新和重开页面恢复。
+ * @param key 当前账号的存储前缀；未登录时不写入。
+ * @param value 当前模式的分组和模型，不能覆盖另一模式的选择。
+ * @return 两份选择均写入可用存储时为真，写入失败时为假。
+ */
 export function writeSelection(key: string | null, value: StudioSelection) {
-  return writePreference(key, value)
+  if (!key) return
+  const scoped = writePreference(`${key}:selection:${value.mode}`, value)
+  const recent = writePreference(key, value)
+  return scoped && recent
 }
 
 /** null ID 表示用户明确打开空白会话，缺失指针时才可以从服务器历史找回。 */
@@ -244,11 +267,26 @@ export async function removeLocalHistory(key: string, id: string) {
   else remove()
 }
 
-/** A reload reattaches by UUID. Prefer the full local intent until the server acknowledges it. */
-export function readRunning(key: string | null) {
-  if (!key) return
-  const pointer = read(`${key}:running`, conversation)
-  if (!pointer || pointer.updatedAt < Date.now() - retention) return
-  const intent = read(`${key}:intent`, z.object({ record: conversation }))
-  return intent?.record.id === pointer.id ? intent.record : pointer
+/** 同一标签能同时有多个服务端任务。旧版单任务指针保留到该任务结束。 */
+export function readPendingRuns(key: string | null): Conversation[] {
+  if (!key) return []
+  try {
+    const legacy = `${key}:running`
+    const items = new Map<string, Conversation>()
+    for (const name of Object.keys(sessionStorage)) {
+      if (name !== legacy && !name.startsWith(`${legacy}:`)) continue
+      const record = read(name, conversation)
+      if (record?.running && record.updatedAt > Date.now() - retention) {
+        items.set(record.id, record)
+      }
+    }
+    return [...items.values()]
+  } catch {
+    return [] // 存储不可用时仍可从服务端历史恢复已经受理的任务。
+  }
+}
+
+/** 只有旧版共享指针属于此任务时才允许读取或清除旧版发送意图。 */
+export function ownsLegacyPointer(key: string, id: string) {
+  return read(`${key}:running`, conversation)?.id === id
 }

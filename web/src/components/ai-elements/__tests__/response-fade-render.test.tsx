@@ -35,9 +35,9 @@ describe('Response streaming fade', () => {
   test('wraps newly streamed words when final is false', () => {
     const { rerender } = render(<Response final={false}>Hello</Response>)
 
-    expect(document.querySelectorAll('[data-stream-fade]').length).toBeGreaterThan(
-      0
-    )
+    expect(
+      document.querySelectorAll('[data-stream-fade]').length
+    ).toBeGreaterThan(0)
     expect(screen.getByText('Hello')).toBeTruthy()
 
     rerender(<Response final={false}>Hello world</Response>)
@@ -51,6 +51,22 @@ describe('Response streaming fade', () => {
 
     expect(document.querySelectorAll('[data-stream-fade]')).toHaveLength(0)
     expect(screen.getByText(/Hello world/)).toBeTruthy()
+  })
+
+  test('formats a long HTML reply when streaming ends and when reopened from history', () => {
+    const code = '<main>Example</main>\n'.repeat(1750)
+    const source = `### Instructions\n\n- Save as **index.html**\n\n\`\`\`html\n${code}\`\`\``
+    const view = render(<Response final={false}>{source}</Response>)
+    view.rerender(<Response final>{source}</Response>)
+    expect(screen.getByRole('heading', { name: 'Instructions' })).toBeVisible()
+    expect(screen.getByRole('listitem')).toHaveTextContent('Save as index.html')
+    expect(screen.getByRole('textbox', { name: 'html' })).toBeVisible()
+    expect(view.container.querySelector('main')).toBeNull()
+
+    view.unmount()
+    render(<Response final>{source}</Response>)
+    expect(screen.getByRole('heading', { name: 'Instructions' })).toBeVisible()
+    expect(screen.getByRole('textbox', { name: 'html' })).toBeVisible()
   })
 
   test('does not fade inline code or fenced code blocks', () => {
@@ -74,9 +90,9 @@ describe('Response streaming fade', () => {
   test('does not re-animate words after markdown restructuring around strong', () => {
     vi.spyOn(performance, 'now').mockReturnValue(1000)
     const { rerender } = render(<Response final={false}>**fin</Response>)
-    expect(document.querySelectorAll('[data-stream-fade]').length).toBeGreaterThan(
-      0
-    )
+    expect(
+      document.querySelectorAll('[data-stream-fade]').length
+    ).toBeGreaterThan(0)
 
     vi.spyOn(performance, 'now').mockReturnValue(
       1000 + FADE_DURATION_MS + FADE_STAGGER_MAX_MS + 1
@@ -104,9 +120,9 @@ describe('Response streaming fade', () => {
     const { rerender } = render(
       <Response final={false}>Streaming text</Response>
     )
-    expect(document.querySelectorAll('[data-stream-fade]').length).toBeGreaterThan(
-      0
-    )
+    expect(
+      document.querySelectorAll('[data-stream-fade]').length
+    ).toBeGreaterThan(0)
 
     rerender(<Response final>Streaming text</Response>)
     expect(document.querySelectorAll('[data-stream-fade]')).toHaveLength(0)

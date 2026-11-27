@@ -6417,6 +6417,11 @@
     "The legacy token stops working on {{date}}. Create a new token to replace it.": "Устаревший токен перестанет работать {{date}}. Создайте новый токен ему на замену.",
     "The login session that started this Telegram binding is no longer valid.": "Сеанс входа, из которого была начата привязка Telegram, больше недействителен.",
     "The mapped upstream model(s)": "Сопоставленные upstream модель(и)",
+    "The model requested a tool but returned no reply.": "Модель запросила вызов инструмента, но не вернула текст ответа.",
+    "The model returned no reply.": "Модель не вернула текст ответа.",
+    "Generation was interrupted. Check usage before trying again.": "Генерация прервана. Проверьте расход перед повторной попыткой.",
+    "Generation timed out. Check usage before trying again.": "Время ожидания генерации истекло. Проверьте расход перед повторной попыткой.",
+    "The model stream ended before completion. Check usage before trying again.": "Поток модели завершился до окончания ответа. Проверьте расход перед повторной попыткой.",
     "The model routing configuration could not be verified.": "Не удалось проверить настройки маршрутизации модели.",
     "The model that was requested": "Запрошенная модель",
     "The model you're looking for doesn't exist.": "Модель, которую вы ищете, не существует.",
@@ -8494,6 +8499,9 @@
     "Choose the credentials you will use to sign in.": "Укажите имя пользователя и пароль для входа.",
     "Your address is only used for verification and account recovery.": "Адрес используется только для подтверждения и восстановления аккаунта.",
     "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "Мы отправим 6-значный код для подтверждения этого адреса. Имя пользователя и пароль вы укажете на следующем шаге.",
-    "Suggestions appear as you type after the @ symbol.": "Подсказки появляются по мере ввода после символа @."
+    "Suggestions appear as you type after the @ symbol.": "Подсказки появляются по мере ввода после символа @.",
+    "Cache hit rate": "Доля попаданий в кеш",
+    "Unit price not recorded": "Цена за единицу не записана",
+    "No model found. Enter a model name to search historical logs.": "Модель не найдена. Введите название модели для поиска в истории журналов."
   }
 }

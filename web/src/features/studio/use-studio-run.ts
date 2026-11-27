@@ -16,14 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 
 import { api } from '@/lib/api'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
 import type { StudioForm } from './api'
 import { isStudioMedia, readStudioMedia } from './studio-image'
-import { type Conversation, writeSession } from './studio-session'
+import {
+  type Conversation,
+  ownsLegacyPointer,
+  writeSession,
+} from './studio-session'
 
 export type StudioEntry = Conversation['entries'][number]
 type Intent = Pick<StudioForm, 'maxTokens' | 'size' | 'quality'> & {
@@ -35,20 +39,30 @@ type Intent = Pick<StudioForm, 'maxTokens' | 'size' | 'quality'> & {
 type Cursor = { content: number; reasoning: number }
 const emptyCursor = (): Cursor => ({ content: 0, reasoning: 0 })
 
-/** Follow one durable generation. Unmount only detaches the observer; explicit Stop cancels the worker. */
+type Run = {
+  record: Conversation
+  parent?: string
+  controller: AbortController
+  stopping: boolean
+  reconnecting: boolean
+  reference?: File | string
+}
+
+/** 每次付费请求独立观察；只把所选任务的变化写到屏幕，离开页面不取消服务端生成。 */
 export function useStudioRun(
   initialTurns: StudioEntry[],
   key: string | null,
   initial: Conversation | undefined,
+  pendingAtMount: Conversation[],
+  selected: RefObject<string | undefined>,
   onFinish: (item: Conversation, savedId?: string) => void
 ) {
   const [entries, setEntries] = useState(initialTurns)
   const [sentReference, setSentReference] = useState<File | string>()
   const [busy, setBusy] = useState(Boolean(initial?.running))
   const [reconnecting, setReconnecting] = useState(false)
-  const current = useRef<AbortController | null>(null)
-  const active = useRef('')
-  const stopRequested = useRef(false)
+  const jobs = useRef(new Map<string, Run>())
+  const [pending, setPending] = useState<Run[]>([])
   const finish = useRef(onFinish)
   useEffect(() => {
     finish.current = onFinish
@@ -60,12 +74,19 @@ export function useStudioRun(
     intent?: Intent,
     reference?: File | string
   ) {
-    current.current?.abort()
+    if (jobs.current.has(record.id) || !record.entries.length) return
     const controller = new AbortController()
     const { signal } = controller
-    current.current = controller
-    active.current = record.id
-    stopRequested.current = false
+    const job: Run = {
+      record,
+      parent: intent?.parent,
+      controller,
+      reference,
+      stopping: false,
+      reconnecting: false,
+    }
+    jobs.current.set(record.id, job)
+    setPending([...jobs.current.values()])
     const endpoint = `/api/retail/studio/runs/${record.id}`
     const owner = key?.slice('studio.v1:'.length)
     let accepted = !intent
@@ -78,10 +99,12 @@ export function useStudioRun(
       reasoning: '',
     }
     let previous = record.entries.slice(0, -1)
-    setBusy(true)
-    setEntries(record.entries)
-    // 本地附件只用于当前消息的即时预览，历史记录只保存服务端提供的图片引用。
-    setSentReference(reference)
+    if (selected.current === record.id) {
+      setBusy(true)
+      setReconnecting(false)
+      setEntries(record.entries)
+      setSentReference(reference)
+    }
     let backoff = 0
     let request: Intent | FormData | undefined
     while (!signal.aborted) {
@@ -117,15 +140,20 @@ export function useStudioRun(
           accepted = true
           // Once acknowledged, a tiny pointer suffices even when the image exceeds sessionStorage quota.
           if (signal.aborted) return
-          if (key) writeSession(`${key}:intent`, null)
+          if (key) {
+            writeSession(`${key}:intent:${record.id}`, null)
+            if (ownsLegacyPointer(key, record.id)) {
+              writeSession(`${key}:intent`, null)
+            }
+          }
         }
-        if (stopRequested.current) {
+        if (job.stopping) {
           await api.delete(endpoint, {
             params: { owner },
             signal,
             skipErrorHandler: true,
           })
-          stopRequested.current = false
+          job.stopping = false
         }
         const { data } = await api.get(endpoint, {
           params: cursor,
@@ -146,8 +174,12 @@ export function useStudioRun(
           reasoning: last.reasoning + data.reasoning,
         }
         cursor = { content: data.nextContent, reasoning: data.nextReasoning }
-        setEntries([...previous, last])
-        setReconnecting(false)
+        job.record = { ...record, entries: [...previous, last] }
+        job.reconnecting = false
+        if (selected.current === record.id) {
+          setEntries(job.record.entries)
+          setReconnecting(false)
+        }
         backoff = 0
       } catch (error) {
         if (signal.aborted) return
@@ -167,7 +199,8 @@ export function useStudioRun(
           }
           break
         }
-        setReconnecting(true)
+        job.reconnecting = true
+        if (selected.current === record.id) setReconnecting(true)
         backoff = Math.min(5000, backoff ? 2 * backoff : 800)
       }
       await new Promise((resolve) =>
@@ -181,15 +214,22 @@ export function useStudioRun(
       entries: [...previous, last],
       updatedAt: Date.now(),
     }
-    setEntries(result.entries)
-    // 服务端保存后改用持久引用。上传失败时仍可在当前失败消息里看到原图。
-    if (last.reference) setSentReference(undefined)
-    setBusy(false)
-    setReconnecting(false)
-    active.current = ''
+    jobs.current.delete(record.id)
+    setPending([...jobs.current.values()])
+    // 用户可能已经切到另一会话。旧任务只更新自己的记录，不能清掉当前草稿或停止按钮。
+    if (selected.current === record.id) {
+      setEntries(result.entries)
+      if (last.reference) setSentReference(undefined)
+      setBusy(false)
+      setReconnecting(false)
+    }
     if (key) {
-      writeSession(`${key}:intent`, null)
-      writeSession(`${key}:running`, null)
+      writeSession(`${key}:intent:${record.id}`, null)
+      writeSession(`${key}:running:${record.id}`, null)
+      if (ownsLegacyPointer(key, record.id)) {
+        writeSession(`${key}:intent`, null)
+        writeSession(`${key}:running`, null)
+      }
     }
     // A rejected upload has no server snapshot. Retrying must use the last accepted parent.
     finish.current(result, accepted ? record.id : intent?.parent)
@@ -199,20 +239,31 @@ export function useStudioRun(
     resume.current = follow
   })
   useEffect(() => {
-    if (initial?.running) {
+    const records = [...pendingAtMount]
+    if (initial?.running && !records.some((item) => item.id === initial.id)) {
+      records.push(initial)
+    }
+    const observers = jobs.current
+    for (const record of records) {
       let intent: Intent | undefined
       try {
-        const stored = JSON.parse(
-          sessionStorage.getItem(`${key}:intent`) ?? 'null'
-        )
-        if (stored?.record?.id === initial.id) intent = stored
+        const raw =
+          sessionStorage.getItem(`${key}:intent:${record.id}`) ??
+          (key && ownsLegacyPointer(key, record.id)
+            ? sessionStorage.getItem(`${key}:intent`)
+            : null)
+        const stored = JSON.parse(raw ?? 'null')
+        if (stored?.record?.id === record.id) intent = stored
       } catch {
-        /* The server record can still be read after local storage loss. */
+        /* 缺少发送意图时只读服务端，不重新提交附件或新建 UUID。 */
       }
-      void resume.current(initial, intent)
+      void resume.current(record, intent)
     }
-    return () => current.current?.abort()
-  }, [initial, key])
+    return () => {
+      for (const job of observers.values()) job.controller.abort()
+      observers.clear()
+    }
+  }, [initial, pendingAtMount, key])
   /** Persist a small recovery pointer before sending, plus the original intent where device storage permits it. */
   function send(
     record: Conversation,
@@ -220,7 +271,11 @@ export function useStudioRun(
     parent?: string,
     reference?: File | string
   ) {
-    if (active.current) return
+    // 校验与登记同步执行，快速双击即使发生在 React 重绘前也不会创建第二个付费请求。
+    if (selected.current !== parent || (parent && jobs.current.has(parent))) {
+      return false
+    }
+    selected.current = record.id
     const intent = {
       // Image history and original files are already on the server. Send only the new turn.
       record:
@@ -241,7 +296,7 @@ export function useStudioRun(
         : {}),
     }
     if (key) {
-      writeSession(`${key}:running`, {
+      writeSession(`${key}:running:${record.id}`, {
         ...record,
         entries: record.entries.map((entry) => ({
           ...entry,
@@ -253,7 +308,7 @@ export function useStudioRun(
       })
       // A file remains in memory for same-page retries. After navigation, only resume a claimed job.
       writeSession(
-        `${key}:intent`,
+        `${key}:intent:${record.id}`,
         reference instanceof File ||
           isStudioMedia(reference) ||
           (record.mode === 'text' && reference)
@@ -262,29 +317,40 @@ export function useStudioRun(
       )
     }
     void follow(record, intent, reference)
+    return true
   }
-  /** Archive lookup can attach from a different device; never submit when opening history. */
-  function reset(next: StudioEntry[], item?: Conversation) {
-    if (active.current) return
-    setEntries(next)
-    setSentReference(undefined)
-    if (item?.running) {
-      if (key) {
-        writeSession(`${key}:running`, {
-          ...item,
-          entries: item.entries.map((entry) => ({
-            ...entry,
-            reference: undefined,
-            image: undefined,
-          })),
-        })
-      }
-      void follow(item)
-    }
+  /** 优先使用本标签最新进度；提交回执到达前，历史列表可能仍然指向上一轮。 */
+  function lookup(id?: string | null) {
+    if (!id) return undefined
+    return (
+      jobs.current.get(id) ??
+      [...jobs.current.values()].find((job) => job.parent === id)
+    )?.record
   }
-  /** Acknowledgement can race a stop click: the observer sends cancellation after acceptance. */
+  /** 切换只更换所观察的记录；打开历史不会提交生成请求。 */
+  function reset(item?: Conversation) {
+    selected.current = item?.id
+    const job = item && jobs.current.get(item.id)
+    setEntries(job?.record.entries ?? item?.entries ?? [])
+    setSentReference(job?.reference)
+    setBusy(Boolean(job || item?.running))
+    setReconnecting(job?.reconnecting ?? false)
+    if (item?.running && !job) void follow(item)
+  }
+  /** 只给点击时正在看的任务登记停止意图；即使稍后切换会话也不会取消别的任务。 */
   function stop() {
-    stopRequested.current = true
+    const job = selected.current && jobs.current.get(selected.current)
+    if (job) job.stopping = true
   }
-  return { entries, sentReference, busy, reconnecting, send, reset, stop }
+  return {
+    entries,
+    sentReference,
+    busy,
+    reconnecting,
+    pending,
+    lookup,
+    send,
+    reset,
+    stop,
+  }
 }

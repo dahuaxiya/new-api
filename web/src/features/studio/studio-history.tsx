@@ -49,7 +49,7 @@ type Row = HistoryRow & { local?: Conversation }
 /** 列表只取摘要。打开某条记录时才下载正文和图片，旧版聊天由用户选择是否同步。 */
 export function StudioHistory(props: {
   storageKey: string | null
-  disabled: boolean
+  pending: { record: Conversation; parent?: string }[]
   onSelect: (item: Conversation) => void
   onDelete: (item: HistoryRow) => void
 }) {
@@ -117,7 +117,21 @@ export function StudioHistory(props: {
 
   // 搜索只匹配已加载的标题和分组，筛选时无需下载正文或图片。
   const term = search.trim().toLowerCase()
-  const visibleRows = rows.filter((row) => {
+  // 受理前云端摘要可能还没有新版本。用运行中的记录替换旧父记录，避免继续发送到旧分支。
+  const replaced = new Set(
+    props.pending.flatMap((job) => [job.record.id, job.parent])
+  )
+  const displayed: Row[] = [
+    ...props.pending.map(({ record }) => ({
+      id: record.id,
+      product: record.product,
+      mode: record.mode,
+      updatedAt: record.updatedAt,
+      title: record.entries[0].prompt.slice(0, 100),
+    })),
+    ...rows.filter((row) => !replaced.has(row.id)),
+  ]
+  const visibleRows = displayed.filter((row) => {
     const mode = row.mode ?? 'text'
     return (
       (filter === 'all' || filter === mode) &&
@@ -152,7 +166,7 @@ export function StudioHistory(props: {
             size='sm'
             className='max-md:size-11 max-md:rounded-xl'
             title={title}
-            disabled={props.disabled || !key}
+            disabled={!key}
           />
         }
       >
@@ -222,10 +236,10 @@ export function StudioHistory(props: {
               {t('Loading...')}
             </p>
           )}
-          {!busy && !failed && !rows.length && (
+          {!busy && !failed && !displayed.length && (
             <p className='text-muted-foreground px-2'>{t('No history yet.')}</p>
           )}
-          {!busy && rows.length > 0 && !visibleRows.length && (
+          {!busy && displayed.length > 0 && !visibleRows.length && (
             <p className='text-muted-foreground px-2 py-3'>
               {t('No results found.')}
             </p>
@@ -262,7 +276,11 @@ export function StudioHistory(props: {
                 className='h-auto min-w-0 flex-1 justify-start gap-3 px-2 py-3 text-start hover:bg-transparent'
                 onClick={() =>
                   void perform(async (ticket) => {
-                    const item = row.local ?? (await readCloud(row.id))
+                    const item =
+                      props.pending.find((job) => job.record.id === row.id)
+                        ?.record ??
+                      row.local ??
+                      (await readCloud(row.id))
                     if (ticket !== epoch.current) return
                     props.onSelect(item)
                     setOpen(false)
@@ -279,6 +297,11 @@ export function StudioHistory(props: {
                 <span className='grid min-w-0 flex-1 gap-1'>
                   <span className='truncate'>{row.title}</span>
                   <span className='text-muted-foreground truncate text-xs'>
+                    {replaced.has(row.id) &&
+                      (row.mode === 'image'
+                        ? t('Generating image…')
+                        : t('Responding...'))}
+                    {replaced.has(row.id) && ' · '}
                     {row.product} ·{' '}
                     {formatTimestampToDate(row.updatedAt, 'milliseconds')}
                   </span>
@@ -288,7 +311,7 @@ export function StudioHistory(props: {
                 variant='ghost'
                 size='icon'
                 className='size-11 shrink-0'
-                disabled={busy}
+                disabled={busy || replaced.has(row.id)}
                 aria-label={`${t('Delete')} ${row.title}`}
                 onClick={() => setDeleting(row)}
               >

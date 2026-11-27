@@ -76,7 +76,7 @@ export function StudioResults(props: {
             >
               <StudioUserMessage
                 prompt={item.prompt}
-                onQuoteImage={props.busy ? undefined : props.onQuoteImage}
+                onQuoteImage={props.onQuoteImage}
                 reference={
                   item.reference ??
                   (index === props.entries.length - 1
@@ -107,10 +107,7 @@ export function StudioResults(props: {
                   </div>
                 )}
                 {item.image && (
-                  <StudioResultImage
-                    item={item}
-                    onQuote={props.busy ? undefined : props.onQuoteImage}
-                  />
+                  <StudioResultImage item={item} onQuote={props.onQuoteImage} />
                 )}
                 {props.busy &&
                   index === props.entries.length - 1 &&
@@ -147,9 +144,7 @@ export function StudioResults(props: {
             </article>
           ))}
         </ConversationContent>
-        {!props.busy && (
-          <SelectionQuote scope={transcript} onQuote={props.onQuoteText} />
-        )}
+        <SelectionQuote scope={transcript} onQuote={props.onQuoteText} />
         <ConversationScrollButton
           className='size-11 rounded-full shadow-sm'
           aria-label={t('Scroll to bottom')}

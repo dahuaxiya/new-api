@@ -86,7 +86,7 @@ import {
   migrateHistory,
   readActive,
   readCurrent,
-  readRunning,
+  readPendingRuns,
   readLegacy,
   readSelection,
   writeActive,
@@ -116,14 +116,22 @@ function StudioSession(props: { identity: string }) {
   const [start] = useState(() => {
     const saved = readSelection(storageKey)
     const current = saved && readCurrent(storageKey, saved)
+    const pending = readPendingRuns(storageKey)
+    // 刷新时保持原先所看的会话；后台图片即使还在生成，也不能挤掉另一个会话或空白页。
     const initial =
-      readRunning(storageKey) ??
+      pending.find((item) =>
+        saved
+          ? item.product === saved.product &&
+            (item.mode ?? 'text') === saved.mode &&
+            (current === undefined || current.id === item.id)
+          : true
+      ) ??
       (saved && readActive(storageKey, saved.product, saved.mode))
     const legacy =
       saved?.mode === 'text' && current === undefined
         ? readLegacy(storageKey, saved.product)
         : []
-    return { saved, current, initial, legacy }
+    return { saved, current, initial, legacy, pending }
   })
   const needsRecovery =
     Boolean(storageKey) &&
@@ -167,6 +175,7 @@ function StudioSession(props: { identity: string }) {
         start.initial ??
         (needsRecovery ? (recovery.data ?? undefined) : undefined)
       }
+      pending={start.pending}
       legacy={start.legacy}
     />
   )
@@ -178,6 +187,7 @@ function StudioWorkspace(props: {
   storageKey: string | null
   saved?: StudioSelection
   initial?: Conversation
+  pending: Conversation[]
   legacy: Conversation['entries']
 }) {
   const { t } = useTranslation()
@@ -278,9 +288,14 @@ function StudioWorkspace(props: {
   const [referenceBlocked, setReferenceBlocked] = useState(false)
   const [policyOpen, setPolicyOpen] = useState(false)
   const [openedId, setOpenedId] = useState(0)
-  const [chosenProductId, setChosenProductId] = useState<string | null>(
-    initial?.product ?? saved?.product ?? null
-  )
+  const [chosenProducts, setChosenProducts] = useState(() => {
+    const products = {
+      text: readSelection(storageKey, 'text')?.product,
+      image: readSelection(storageKey, 'image')?.product,
+    }
+    if (initial) products[initial.mode ?? 'text'] = initial.product
+    return products
+  })
   const activeId = useRef(initial?.id)
 
   const form = useForm<StudioForm>({
@@ -344,7 +359,7 @@ function StudioWorkspace(props: {
   const tokenId = openedId || query.data?.studio.token_id || 0
   const policy = query.data?.saved?.policy
   const selectedProductId =
-    chosenProductId ??
+    chosenProducts[mode] ??
     policy?.product_id ??
     query.data?.catalog.products[0]?.id ??
     ''
@@ -379,6 +394,9 @@ function StudioWorkspace(props: {
     form.setValue('outputFormat', 'png')
     form.clearErrors(['size', 'outputCompression'])
   }, [mode, selectedModelId, extendedImage, form])
+  const [draftEpoch, setDraftEpoch] = useState(0)
+  const drafts = useRef(new Map<string, string>())
+  const viewRevision = useRef(0)
   const [storageFailed, setStorageFailed] = useState(false)
   const maxOutput = selected?.max_output
   const preferredLimit = useRef(defaultOutputLimit)
@@ -402,16 +420,19 @@ function StudioWorkspace(props: {
     initial?.entries ?? props.legacy,
     storageKey,
     initial,
+    props.pending,
+    activeId,
     (item, savedId) => {
-      activeId.current = savedId
-      if (savedId === item.id) {
-        remember(item)
-      } else if (
+      const visible = activeId.current === item.id
+      const isCurrent =
         readCurrent(storageKey, {
           mode: item.mode ?? 'text',
           product: item.product,
         })?.id === item.id
-      ) {
+      if (visible) activeId.current = savedId
+      if (savedId === item.id && (visible || isCurrent)) {
+        remember(item)
+      } else if (isCurrent) {
         // The optimistic ID was never accepted. Preserve the previous snapshot for refresh and retry.
         writeCurrent(
           storageKey,
@@ -420,7 +441,7 @@ function StudioWorkspace(props: {
         )
       }
       const last = item.entries.at(-1)
-      if (last?.error && !form.getValues('prompt')) {
+      if (visible && last?.error && !form.getValues('prompt')) {
         form.setValue('prompt', last.prompt)
       }
       void query.refetch()
@@ -483,32 +504,66 @@ function StudioWorkspace(props: {
     setPolicyOpen(open)
     if (!open) void query.refetch()
   }
-  /** 恢复原会话或打开空白编辑区，清除前一会话未发送的附件。 */
-  const restore = (item?: Conversation) => {
+  /** 文本草稿只在本次工作台中按会话保存；切换分组时不把原提示或附件带给另一个模型。 */
+  const restore = (
+    item?: Conversation,
+    nextMode = mode,
+    nextProduct = selectedProductId
+  ) => {
+    const outgoing = activeId.current ?? `${mode}:${selectedProductId}`
+    const incoming = item?.id ?? `${nextMode}:${nextProduct}`
+    const text = form.getValues('prompt')
+    if (text) drafts.current.set(outgoing, text)
+    else drafts.current.delete(outgoing)
+    viewRevision.current++
+    // 未完成的图片校验只能回写原草稿，即使新旧会话使用相同分组和模型。
+    setDraftEpoch((epoch) => epoch + 1)
     setQuotes([])
     clearDocuments()
     changeReference(undefined)
     setReferenceBlocked(false)
-    activeId.current = item?.id
-    run.reset(item?.entries ?? [], item)
-    form.setValue('prompt', '')
+    run.reset(item)
+    form.setValue('prompt', drafts.current.get(incoming) ?? '')
+    // 校验结果属于刚离开的草稿，不能把空输入提示带到另一会话或模式。
+    form.clearErrors('prompt')
   }
   /** Group changes clear local context; every request sends its own immutable selection. */
   const changeProduct = (id: string) => {
-    if (run.busy) return
-    setChosenProductId(id)
+    if (id === selectedProductId) return
+    setChosenProducts((previous) => ({ ...previous, [mode]: id }))
     // Conversation context is local to the chosen group; do not forward old prompts to a different supplier.
-    const item = readActive(storageKey, id, mode)
-    restore(item)
+    const item =
+      run.lookup(readCurrent(storageKey, { product: id, mode })?.id) ??
+      readActive(storageKey, id, mode)
+    restore(item, mode, id)
     form.setValue('model', item?.entries.at(-1)?.model ?? '')
   }
-  /** 聊天与生图分别保留当前打开的记录。 */
+  /** 切换到该模式自己的分组和模型，首次进入时使用默认分组。 */
   const changeMode = (value: unknown) => {
-    if (run.busy || (value !== 'text' && value !== 'image')) return
+    if (value === mode || (value !== 'text' && value !== 'image')) return
+    const saved = readSelection(storageKey, value)
+    const productId =
+      chosenProducts[value] ??
+      policy?.product_id ??
+      query.data?.catalog.products[0]?.id ??
+      ''
+    // 固定两边当前的默认选择，后续修改任一模式的支出保护也不会连带切换另一边。
+    setChosenProducts((previous) => ({
+      ...previous,
+      [mode]: selectedProductId,
+      [value]: productId,
+    }))
     setMode(value)
-    const item = readActive(storageKey, selectedProductId, value)
-    restore(item)
-    form.setValue('model', item?.entries.at(-1)?.model ?? '')
+    const item =
+      run.lookup(
+        readCurrent(storageKey, { product: productId, mode: value })?.id
+      ) ?? readActive(storageKey, productId, value)
+    restore(item, value, productId)
+    form.setValue(
+      'model',
+      item?.entries.at(-1)?.model ??
+        (saved?.product === productId ? saved.model : '')
+    )
   }
   /** Validate both the form and current catalog before sending; the server independently rechecks all limits. */
   const submit = async (input: StudioForm) => {
@@ -591,15 +646,25 @@ function StudioWorkspace(props: {
       running: true,
       entries: [...run.entries, entry],
     }
+    if (!run.send(record, input, parent, sentReference)) return
+    drafts.current.delete(parent ?? `${mode}:${selectedProductId}`)
+    viewRevision.current++
     form.setValue('prompt', '')
     setQuotes([])
     clearDocuments()
     changeReference(undefined)
     if (mobile) setOptionsOpen(false)
-    activeId.current = record.id
     // 标签页在服务器接收后被回收时，仍可用同一个 ID 恢复生成。
     writeCurrent(storageKey, record, record.id)
-    run.send(record, input, parent, sentReference)
+  }
+
+  /** 表单校验是异步的；期间若切换会话或另一份提交已被接收，丢弃旧事件。 */
+  function sendDraft() {
+    const revision = viewRevision.current
+    if (run.busy) return
+    void form.handleSubmit((values) => {
+      if (viewRevision.current === revision) return submit(values)
+    })()
   }
 
   if (query.isPending) return <LoadingState message={t('Loading...')} />
@@ -632,11 +697,7 @@ function StudioWorkspace(props: {
   const generationOptions =
     mode === 'image' ? (
       <div className='flex flex-wrap items-center gap-2'>
-        <NativeSelect
-          aria-label={t('Image size')}
-          disabled={run.busy}
-          {...form.register('size')}
-        >
+        <NativeSelect aria-label={t('Image size')} {...form.register('size')}>
           {selected?.reference_image && (
             <NativeSelectOption value='auto'>{t('Auto')}</NativeSelectOption>
           )}
@@ -674,16 +735,11 @@ function StudioWorkspace(props: {
             aria-label={t('Custom resolution')}
             placeholder='1920x1088'
             className='w-32'
-            disabled={run.busy}
             {...form.register('customSize')}
           />
         )}
 
-        <NativeSelect
-          aria-label={t('Quality')}
-          disabled={run.busy}
-          {...form.register('quality')}
-        >
+        <NativeSelect aria-label={t('Quality')} {...form.register('quality')}>
           {selected?.reference_image && (
             <NativeSelectOption value='auto'>{t('Auto')}</NativeSelectOption>
           )}
@@ -695,7 +751,6 @@ function StudioWorkspace(props: {
           <>
             <NativeSelect
               aria-label={t('Output format')}
-              disabled={run.busy}
               {...form.register('outputFormat')}
             >
               <NativeSelectOption value='png'>PNG</NativeSelectOption>
@@ -710,7 +765,6 @@ function StudioWorkspace(props: {
                 step={1}
                 placeholder='0–100'
                 className='w-24'
-                disabled={run.busy}
                 aria-label={t('Output compression (%)')}
                 {...form.register('outputCompression')}
               />
@@ -739,7 +793,6 @@ function StudioWorkspace(props: {
           type='number'
           min={1}
           max={selected?.max_output ?? 32768}
-          disabled={run.busy}
           aria-invalid={Boolean(form.formState.errors.maxTokens)}
           {...form.register('maxTokens', { valueAsNumber: true })}
           onInput={(event) => {
@@ -760,7 +813,7 @@ function StudioWorkspace(props: {
         <div className='flex shrink-0 items-center gap-0.5 md:gap-1.5'>
           <StudioHistory
             storageKey={storageKey}
-            disabled={run.busy}
+            pending={run.pending}
             onDelete={(item) => {
               const scope = {
                 mode: item.mode ?? 'text',
@@ -774,10 +827,15 @@ function StudioWorkspace(props: {
               }
               if (activeId.current === item.id) restore()
             }}
-            onSelect={(item) => {
+            onSelect={(snapshot) => {
+              const item = run.lookup(snapshot.id) ?? snapshot
+              if (activeId.current === item.id) return
               setMode(item.mode ?? 'text')
-              setChosenProductId(item.product)
-              restore(item)
+              setChosenProducts((previous) => ({
+                ...previous,
+                [item.mode ?? 'text']: item.product,
+              }))
+              restore(item, item.mode ?? 'text', item.product)
               form.setValue('model', item.entries.at(-1)?.model ?? '')
               remember(item)
             }}
@@ -787,7 +845,7 @@ function StudioWorkspace(props: {
             size='sm'
             title={t('Spending protection')}
             className='max-md:size-11 max-md:rounded-xl'
-            disabled={run.busy || setup.isPending || !product}
+            disabled={setup.isPending || !product}
             onClick={() => {
               setup.mutate(selectedProductId)
             }}
@@ -800,7 +858,7 @@ function StudioWorkspace(props: {
             size='sm'
             title={t('New conversation')}
             className='max-md:size-11 max-md:rounded-xl'
-            disabled={run.busy || run.entries.length === 0}
+            disabled={run.entries.length === 0}
             onClick={() => {
               restore()
               if (
@@ -822,19 +880,11 @@ function StudioWorkspace(props: {
       <div className='bg-background shrink-0 border-b px-3 pt-1 pb-2 md:px-6 md:pb-3'>
         <Tabs value={mode} onValueChange={changeMode}>
           <TabsList className='h-9 max-md:w-full' aria-label={t('Mode')}>
-            <TabsTrigger
-              className='max-md:min-h-9'
-              value='text'
-              disabled={run.busy}
-            >
+            <TabsTrigger className='max-md:min-h-9' value='text'>
               <MessageSquare aria-hidden='true' />
               {t('Chat')}
             </TabsTrigger>
-            <TabsTrigger
-              className='max-md:min-h-9'
-              value='image'
-              disabled={run.busy}
-            >
+            <TabsTrigger className='max-md:min-h-9' value='image'>
               <ImageIcon aria-hidden='true' />
               {t('Image generation')}
             </TabsTrigger>
@@ -879,7 +929,10 @@ function StudioWorkspace(props: {
         }
       />
       <form
-        onSubmit={(event) => void form.handleSubmit(submit)(event)}
+        onSubmit={(event) => {
+          event.preventDefault()
+          sendDraft()
+        }}
         className='mx-auto w-full max-w-[52rem] shrink-0 px-2.5 pt-1 pb-2 md:px-6 md:pb-4'
       >
         <div className='bg-background focus-within:border-ring/55 flex flex-col gap-1 rounded-2xl border p-1.5 shadow-sm transition-colors md:gap-1.5 md:p-2'>
@@ -893,7 +946,7 @@ function StudioWorkspace(props: {
             multiple
             accept='text/*,.txt,.md,.csv,.tsv,.json,.jsonl,.yaml,.yml,.toml,.xml,.log,.js,.jsx,.ts,.tsx,.py,.go,.java,.rs,.sql,.sh,.html,.css,.ini,.conf,.diff,.patch'
             aria-label={t('Upload file')}
-            disabled={run.busy || readingDocuments}
+            disabled={readingDocuments}
             onChange={(event) => {
               const files = [...(event.currentTarget.files ?? [])]
               event.currentTarget.value = ''
@@ -954,15 +1007,15 @@ function StudioWorkspace(props: {
             <StudioReference
               ref={selectReference}
               fileInput={fileInput}
-              key={`${selectedProductId}:${model}`}
+              key={`${draftEpoch}:${selectedProductId}:${model}`}
               value={reference}
               onChange={changeReference}
               pins={pins}
               onPins={setPins}
               note={imageNote}
               onNote={setImageNote}
+              disabled={false}
               onBlocked={setReferenceBlocked}
-              disabled={run.busy}
             />
           )}
           {quotes.length > 0 && (
@@ -1004,7 +1057,7 @@ function StudioWorkspace(props: {
           <Textarea
             id='studio-prompt'
             onPaste={(event) => {
-              if (!selectReference.current || run.busy) return
+              if (!selectReference.current) return
               const image = [...event.clipboardData.files].find(
                 (file) =>
                   file.type.startsWith('image/') ||
@@ -1022,6 +1075,7 @@ function StudioWorkspace(props: {
                 event.key !== 'Enter' ||
                 // 手机键盘的回车保留换行，付费发送由明确的发送按钮触发。
                 mobile ||
+                run.busy ||
                 event.shiftKey ||
                 event.ctrlKey ||
                 event.metaKey ||
@@ -1032,7 +1086,7 @@ function StudioWorkspace(props: {
                 return
               }
               event.preventDefault()
-              if (!event.repeat && !run.busy) void form.handleSubmit(submit)()
+              if (!event.repeat) sendDraft()
             }}
             placeholder={t(
               mode === 'image'
@@ -1041,7 +1095,6 @@ function StudioWorkspace(props: {
             )}
             aria-invalid={Boolean(form.formState.errors.prompt)}
             {...form.register('prompt')}
-            disabled={run.busy}
             className='max-h-[18dvh] min-h-11 resize-none border-0 bg-transparent px-2.5 py-2.5 shadow-none focus-visible:ring-0 md:max-h-[32dvh] md:min-h-14 dark:bg-transparent'
           />
           {form.formState.errors.prompt && (
@@ -1061,7 +1114,6 @@ function StudioWorkspace(props: {
                       className='text-muted-foreground rounded-full'
                       aria-label={t('Add')}
                       title={t('Add')}
-                      disabled={run.busy}
                     />
                   }
                 >
@@ -1089,7 +1141,7 @@ function StudioWorkspace(props: {
                   className='text-muted-foreground hover:bg-muted w-full rounded-lg [&_select]:h-9 [&_select]:cursor-pointer [&_select]:truncate [&_select]:border-0 [&_select]:ps-1.5 [&_select]:pe-6 [&_select]:text-xs md:[&_select]:text-sm [&_svg]:end-1 [&_svg]:size-3.5'
                   aria-label={t('Call group')}
                   value={selectedProductId}
-                  disabled={run.busy || !catalog?.products.length}
+                  disabled={!catalog?.products.length}
                   onChange={(event) => changeProduct(event.target.value)}
                 >
                   <NativeSelectOption value=''>
@@ -1106,7 +1158,7 @@ function StudioWorkspace(props: {
                 <NativeSelect
                   className='text-muted-foreground hover:bg-muted w-full rounded-lg [&_select]:h-9 [&_select]:cursor-pointer [&_select]:truncate [&_select]:border-0 [&_select]:ps-1.5 [&_select]:pe-6 [&_select]:text-xs md:[&_select]:text-sm [&_svg]:end-1 [&_svg]:size-3.5'
                   aria-label={t('Model')}
-                  disabled={run.busy || !models.length}
+                  disabled={!models.length}
                   {...form.register('model', {
                     onChange: () => {
                       changeReference(undefined)

@@ -6417,6 +6417,11 @@
     "The legacy token stops working on {{date}}. Create a new token to replace it.": "Token cũ sẽ ngừng hoạt động vào {{date}}. Hãy tạo token mới để thay thế.",
     "The login session that started this Telegram binding is no longer valid.": "Phiên đăng nhập đã bắt đầu liên kết Telegram này không còn hợp lệ.",
     "The mapped upstream model(s)": "Mô hình(s) thượng nguồn được ánh xạ",
+    "The model requested a tool but returned no reply.": "Mô hình yêu cầu gọi công cụ nhưng không trả về nội dung trả lời.",
+    "The model returned no reply.": "Mô hình không trả về nội dung trả lời.",
+    "Generation was interrupted. Check usage before trying again.": "Quá trình tạo đã bị gián đoạn. Hãy kiểm tra mức sử dụng trước khi thử lại.",
+    "Generation timed out. Check usage before trying again.": "Quá trình tạo đã hết thời gian chờ. Hãy kiểm tra mức sử dụng trước khi thử lại.",
+    "The model stream ended before completion. Check usage before trying again.": "Luồng phản hồi của mô hình đã kết thúc trước khi hoàn tất. Hãy kiểm tra mức sử dụng trước khi thử lại.",
     "The model routing configuration could not be verified.": "Không thể xác minh cấu hình định tuyến mô hình.",
     "The model that was requested": "Mô hình đã được yêu cầu",
     "The model you're looking for doesn't exist.": "Mô hình bạn đang tìm kiếm không tồn tại.",
@@ -8494,6 +8499,9 @@
     "Choose the credentials you will use to sign in.": "Chọn tên người dùng và mật khẩu bạn sẽ dùng để đăng nhập.",
     "Your address is only used for verification and account recovery.": "Địa chỉ này chỉ dùng để xác minh và khôi phục tài khoản.",
     "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "Chúng tôi sẽ gửi mã 6 chữ số để xác minh địa chỉ này. Bạn sẽ đặt tên người dùng và mật khẩu ở bước tiếp theo.",
-    "Suggestions appear as you type after the @ symbol.": "Gợi ý xuất hiện khi bạn nhập sau ký tự @."
+    "Suggestions appear as you type after the @ symbol.": "Gợi ý xuất hiện khi bạn nhập sau ký tự @.",
+    "Cache hit rate": "Tỷ lệ trúng bộ nhớ đệm",
+    "Unit price not recorded": "Chưa ghi nhận đơn giá",
+    "No model found. Enter a model name to search historical logs.": "Không tìm thấy mô hình. Nhập tên mô hình để tìm trong nhật ký trước đây."
   }
 }

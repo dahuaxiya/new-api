@@ -322,6 +322,28 @@ it('keeps Enter for new lines on a phone and sends with the button', async () =>
   }
 })
 
+/** Validation belongs to the selected draft and must clear when switching modes. */
+it('clears the previous draft validation when switching modes', async () => {
+  mount(true)
+  fireEvent.change(await screen.findByLabelText('Model'), {
+    target: { value: 'text-model' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  expect(
+    await screen.findByText('Enter a prompt of up to 32,000 characters.')
+  ).toBeVisible()
+  fireEvent.click(screen.getByRole('tab', { name: 'Image generation' }))
+  expect(screen.getByLabelText('Prompt')).toHaveAttribute(
+    'placeholder',
+    'Describe the image you want'
+  )
+  expect(
+    screen.queryByText('Enter a prompt of up to 32,000 characters.')
+  ).toBeNull()
+  expect(streamSend).not.toHaveBeenCalled()
+  expect(imageSend).not.toHaveBeenCalled()
+})
+
 /** First send needs no policy modal; only the real model request initializes defaults. */
 it('sends the first chat directly with its selected group and no setup request', async () => {
   const post = vi.spyOn(api, 'post')
@@ -420,7 +442,7 @@ it('shows the root operator where to configure models without enabling requests'
   expect(post).not.toHaveBeenCalled()
 })
 
-it('filters models by mode, locks a pending image request and displays its downloadable result', async () => {
+it('filters models by mode, lets the user edit the next prompt during generation and displays its downloadable result', async () => {
   let resolve: ((value: string) => void) | undefined
   imageSend.mockImplementationOnce(
     () =>
@@ -441,11 +463,19 @@ it('filters models by mode, locks a pending image request and displays its downl
   })
   fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
   expect(await screen.findByRole('button', { name: 'Stop' })).toBeEnabled()
-  expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute(
+  expect(screen.getByRole('tab', { name: 'Chat' })).not.toHaveAttribute(
     'aria-disabled',
     'true'
   )
-  expect(screen.getByLabelText('Model')).toBeDisabled()
+  expect(screen.getByLabelText('Model')).toBeEnabled()
+  expect(
+    screen.getByRole('button', { name: 'Spending protection' })
+  ).toBeEnabled()
+  expect(screen.getByLabelText('Prompt')).toBeEnabled()
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Next garden' },
+  })
+  fireEvent.keyDown(screen.getByLabelText('Prompt'), { key: 'Enter' })
   expect(imageSend).toHaveBeenCalledTimes(1)
   expect(imageSend.mock.calls[0][0]).toMatchObject({
     model: 'image-model',
@@ -459,6 +489,7 @@ it('filters models by mode, locks a pending image request and displays its downl
       { timeout: 3500 }
     )
   ).toHaveAttribute('src', `data:image/png;base64,${png}`)
+  expect(screen.getByLabelText('Prompt')).toHaveValue('Next garden')
   expect(screen.getByRole('button', { name: 'Download' })).toHaveAttribute(
     'download'
   )
@@ -528,6 +559,41 @@ it('sends a newly selected group without reusing its previous model or saving a 
     'X-Retail-Product': 'premium',
   })
   expect(put.mock.calls.some(([url]) => url.endsWith('/pricing'))).toBe(false)
+})
+
+/** 聊天与生图各自保存分组和模型，首次切换和重开页面均不能串用另一模式的选择。 */
+it('keeps chat and image selections independent across switching and reopening', async () => {
+  // 兼容旧版共享选择时，聊天的 premium 分组只能用于聊天。
+  localStorage.setItem(
+    'studio.v1:1',
+    JSON.stringify({ mode: 'text', product: 'premium', model: 'premium-text' })
+  )
+  const options = { secondGroup: true, automatic: true }
+  const first = mount(true, options)
+  expect(await screen.findByLabelText('Call group')).toHaveValue('premium')
+  expect(screen.getByLabelText('Model')).toHaveValue('premium-text')
+  fireEvent.click(screen.getByRole('tab', { name: 'Image generation' }))
+  expect(screen.getByLabelText('Call group')).toHaveValue('standard')
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'image-model' },
+  })
+  fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
+  expect(screen.getByLabelText('Call group')).toHaveValue('premium')
+  expect(screen.getByLabelText('Model')).toHaveValue('premium-text')
+  fireEvent.click(screen.getByRole('tab', { name: 'Image generation' }))
+  expect(screen.getByLabelText('Call group')).toHaveValue('standard')
+  expect(screen.getByLabelText('Model')).toHaveValue('image-model')
+  first.unmount()
+  sessionStorage.clear()
+  mount(true, options)
+  expect(
+    await screen.findByRole('tab', { name: 'Image generation' })
+  ).toHaveAttribute('aria-selected', 'true')
+  expect(await screen.findByLabelText('Call group')).toHaveValue('standard')
+  expect(screen.getByLabelText('Model')).toHaveValue('image-model')
+  fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
+  expect(screen.getByLabelText('Call group')).toHaveValue('premium')
+  expect(screen.getByLabelText('Model')).toHaveValue('premium-text')
 })
 
 /** The workspace follows the committed group, including changes made inside the policy dialog. */
@@ -1276,4 +1342,112 @@ it('keeps successive generations together until the user starts a new conversati
   ])
   fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
   expect(screen.queryByRole('img', { name: 'Draw a tree' })).toBeNull()
+})
+
+/** 图片在后台完成后，新对话及草稿不变，历史记录仍能打开原图。 */
+it('keeps the selected conversation when a background image completes', async () => {
+  let finish!: (image: string) => void
+  imageSend.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      })
+  )
+  mount(true)
+  fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'image-model' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'First image' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
+  await screen.findByRole('button', { name: 'Stop' })
+  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Second image' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
+  await screen.findByRole('img', { name: 'Second image' })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Unsent draft' },
+  })
+  finish(`data:image/png;base64,${png}`)
+  // 等到后台观察者收到了终态；仅完成上游 Promise 不能证明前端已处理结果。
+  await waitFor(
+    () =>
+      expect(
+        vi
+          .mocked(api.get)
+          .mock.calls.filter(([url]) => url.endsWith('/catalog')).length
+      ).toBeGreaterThanOrEqual(3),
+    { timeout: 3500 }
+  )
+  expect(screen.getByRole('img', { name: 'Second image' })).toBeVisible()
+  expect(screen.queryByText('First image')).toBeNull()
+  expect(screen.getByLabelText('Prompt')).toHaveValue('Unsent draft')
+  fireEvent.click(screen.getByRole('button', { name: 'Studio history' }))
+  fireEvent.click(
+    await within(await screen.findByRole('dialog')).findByRole('button', {
+      name: /^First image/,
+    })
+  )
+  expect(await screen.findByRole('img', { name: 'First image' })).toBeVisible()
+  expect(imageSend).toHaveBeenCalledTimes(2)
+  expect(api.delete).not.toHaveBeenCalled()
+})
+
+/** 刷新时显示当前聊天；从历史重新打开生图后，停止只发给选中的图片任务。 */
+it('resumes two pending runs after refresh and stops only the selected one', async () => {
+  imageSend.mockImplementationOnce(() => new Promise(() => {}))
+  streamSend.mockImplementationOnce(async () => {})
+  const tab = mount(true)
+  fireEvent.click(await screen.findByRole('tab', { name: 'Image generation' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'image-model' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Slow picture' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
+  await screen.findByRole('button', { name: 'Stop' })
+  const imageId = [...server.values()][0].id
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'A picture draft' },
+  })
+  fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
+  expect(screen.getByLabelText('Prompt')).toHaveValue('')
+  fireEvent.click(screen.getByRole('tab', { name: 'Image generation' }))
+  expect(screen.getByLabelText('Prompt')).toHaveValue('A picture draft')
+  fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'text-model' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Separate chat' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await screen.findByRole('button', { name: 'Stop' })
+  tab.unmount()
+  mount(true)
+  expect(await screen.findByText('Separate chat')).toBeVisible()
+  expect(screen.queryByText('Slow picture')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Studio history' }))
+  const history = within(await screen.findByRole('dialog'))
+  const row = await history.findByRole('button', { name: /^Slow picture/ })
+  await waitFor(() => expect(row).toBeEnabled())
+  fireEvent.click(row)
+  fireEvent.click(await screen.findByRole('button', { name: 'Stop' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
+  await waitFor(() => expect(api.delete).toHaveBeenCalledTimes(1), {
+    timeout: 3500,
+  })
+  expect(vi.mocked(api.delete).mock.calls[0][0]).toBe(
+    `/api/retail/studio/runs/${imageId}`
+  )
+  expect(screen.getByText('Separate chat')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
+  expect(imageSend).toHaveBeenCalledTimes(1)
+  expect(streamSend).toHaveBeenCalledTimes(1)
 })

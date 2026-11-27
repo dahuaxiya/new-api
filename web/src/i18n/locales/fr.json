@@ -6417,6 +6417,11 @@
     "The legacy token stops working on {{date}}. Create a new token to replace it.": "L’ancien jeton cessera de fonctionner le {{date}}. Créez un nouveau jeton pour le remplacer.",
     "The login session that started this Telegram binding is no longer valid.": "La session de connexion ayant lancé cette liaison Telegram n’est plus valide.",
     "The mapped upstream model(s)": "Le(s) modèle(s) amont mappé(s)",
+    "The model requested a tool but returned no reply.": "Le modèle a demandé un outil sans fournir de réponse.",
+    "The model returned no reply.": "Le modèle n’a fourni aucune réponse.",
+    "Generation was interrupted. Check usage before trying again.": "La génération a été interrompue. Vérifiez votre consommation avant de réessayer.",
+    "Generation timed out. Check usage before trying again.": "Le délai de génération a été dépassé. Vérifiez votre consommation avant de réessayer.",
+    "The model stream ended before completion. Check usage before trying again.": "Le flux du modèle s’est interrompu avant la fin de la réponse. Vérifiez votre consommation avant de réessayer.",
     "The model routing configuration could not be verified.": "La configuration du routage du modèle n’a pas pu être vérifiée.",
     "The model that was requested": "Le modèle qui a été demandé",
     "The model you're looking for doesn't exist.": "Le modèle que vous recherchez n'existe pas.",
@@ -8494,6 +8499,9 @@
     "Choose the credentials you will use to sign in.": "Choisissez les identifiants que vous utiliserez pour vous connecter.",
     "Your address is only used for verification and account recovery.": "Cette adresse sert uniquement à la vérification et à la récupération du compte.",
     "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "Nous vous enverrons un code à 6 chiffres pour vérifier cette adresse. Vous choisirez ensuite votre nom d'utilisateur et votre mot de passe.",
-    "Suggestions appear as you type after the @ symbol.": "Les suggestions apparaissent au fil de la saisie après le symbole @."
+    "Suggestions appear as you type after the @ symbol.": "Les suggestions apparaissent au fil de la saisie après le symbole @.",
+    "Cache hit rate": "Taux de cache",
+    "Unit price not recorded": "Prix unitaire non enregistré",
+    "No model found. Enter a model name to search historical logs.": "Aucun modèle trouvé. Saisissez un nom de modèle pour rechercher dans les journaux historiques."
   }
 }

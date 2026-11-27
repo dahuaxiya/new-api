@@ -37,6 +37,7 @@ import {
 import type { UsageLog } from '../../data/schema'
 import type { LogOtherData } from '../../types'
 import { useCommonLogsColumns } from '../columns/common-logs-columns'
+import { UsageLogsProvider } from '../usage-logs-provider'
 
 vi.mock('@lobehub/icons', () => ({}))
 vi.hoisted(() => {
@@ -74,10 +75,15 @@ function makeLog(other: LogOtherData, type = 2): UsageLog {
   }
 }
 
+/** Render a real log cell to exercise both the summary and its detail dialog.
+ * @param props Recorded metadata and optional column to inspect.
+ * @return The requested table cell.
+ */
 function DetailPreview(props: {
   other: LogOtherData
   isAdmin: boolean
   type?: number
+  column?: string
 }) {
   const table = useReactTable({
     data: [makeLog(props.other, props.type)],
@@ -87,7 +93,7 @@ function DetailPreview(props: {
   const cell = table
     .getRowModel()
     .rows[0].getAllCells()
-    .find((item) => item.column.id === 'content')
+    .find((item) => item.column.id === (props.column ?? 'content'))
   if (!cell) throw new Error('The log must have a content column')
   return flexRender(cell.column.columnDef.cell, cell.getContext())
 }
@@ -501,3 +507,81 @@ test.each(['missing schema', 'unsupported expression', 'unknown tier'])(
     )
   }
 )
+
+/** Retail snapshots must override obsolete zero ratios for cache-only Anthropic input. */
+test('shows recorded retail CNY prices and cache prices in the preview and details', async () => {
+  const button = renderPreview({
+    retail_currency: 'CNY',
+    retail_billing_status: 'settled',
+    retail_sale_prices: [
+      {
+        up_to: 1000,
+        prices: {
+          input: '2.6',
+          output: '15.6',
+          cache_read: '0.13',
+          cache_write: '3.25',
+          cache_write_1h: '5.2',
+        },
+      },
+    ],
+    model_ratio: 0,
+    completion_ratio: 0,
+    group_ratio: 0,
+    cache_tokens: 300,
+    usage_semantic: 'anthropic',
+  })
+  expect(button).toHaveTextContent('Input ¥2.6/M · Output ¥15.6/M')
+  fireEvent.click(button)
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByText('¥0.13/M')).toBeVisible()
+  expect(within(dialog).queryByText('Group Ratio')).not.toBeInTheDocument()
+})
+
+test('shows unavailable historical retail prices without falling back to zero ratios', () => {
+  const button = renderPreview({
+    retail_billing_status: 'settled',
+    model_ratio: 0,
+    completion_ratio: 0,
+  })
+  expect(button).toHaveTextContent('Unit price not recorded')
+  expect(button).not.toHaveTextContent('$0')
+})
+
+test('shows cache-only input hit rate in the desktop token cell', () => {
+  render(
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={client}>
+        <DetailPreview
+          isAdmin
+          column='prompt_tokens'
+          other={{ usage_semantic: 'anthropic', cache_tokens: 300 }}
+        />
+      </QueryClientProvider>
+    </I18nextProvider>
+  )
+  expect(screen.getByText('Cache hit rate 100%')).toBeVisible()
+})
+
+test('hides retail group and multiplier in the desktop token name cell', () => {
+  render(
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={client}>
+        <UsageLogsProvider>
+          <DetailPreview
+            isAdmin
+            column='token_name'
+            other={{
+              retail_billing_status: 'settled',
+              group: 'retail',
+              group_ratio: 0,
+            }}
+          />
+        </UsageLogsProvider>
+      </QueryClientProvider>
+    </I18nextProvider>
+  )
+  expect(screen.getByText('token')).toBeVisible()
+  expect(screen.queryByText('default')).not.toBeInTheDocument()
+  expect(screen.queryByText('0')).not.toBeInTheDocument()
+})

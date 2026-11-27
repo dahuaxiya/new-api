@@ -64,9 +64,14 @@ async function renderFilter(
   groups: Record<string, { desc: string; ratio: number }> | null = {
     default: { desc: '', ratio: 1 },
     premium: { desc: '', ratio: 2 },
-  }
+  },
+  models: string[] | null = ['gpt-6.2-astra', 'claude-opus-5-5']
 ) {
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    if (url === '/api/user/models') {
+      if (models === null) throw new Error('Models unavailable')
+      return { data: { success: true, data: models } }
+    }
     if (url === '/api/user/self/groups' || url === '/api/group/') {
       if (groups === null) throw new Error('Group loading failed')
       return {
@@ -300,5 +305,95 @@ it('keeps historical auto values editable when auto is the only available group'
   await userEvent.click(screen.getByRole('button', { name: 'Search' }))
   await waitFor(() =>
     expect(router.state.location.search).toMatchObject({ group: 'retired' })
+  )
+})
+
+it('searches and chooses a model from the dropdown before applying the filter', async () => {
+  const router = await renderFilter()
+  const input = screen.getByRole('combobox', { name: 'Model Name' })
+  await userEvent.click(input)
+  await userEvent.type(input, 'astra')
+  await userEvent.click(
+    await screen.findByRole('option', { name: 'gpt-6.2-astra' })
+  )
+  expect(input).toHaveValue('gpt-6.2-astra')
+  expect(router.state.location.search).not.toHaveProperty('model')
+  await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+  await waitFor(() =>
+    expect(router.state.location.search).toMatchObject({
+      model: 'gpt-6.2-astra',
+    })
+  )
+})
+
+it('preserves historical model input and clears it on reset', async () => {
+  const router = await renderFilter('/usage-logs/common?model=retired-model')
+  const input = screen.getByRole('combobox', { name: 'Model Name' })
+  expect(input).toHaveValue('retired-model')
+  await userEvent.clear(input)
+  await userEvent.type(input, 'custom-model')
+  await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+  await waitFor(() =>
+    expect(router.state.location.search).toMatchObject({
+      model: 'custom-model',
+    })
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
+  await waitFor(() => expect(input).toHaveValue(''))
+})
+
+it('selects a model with the keyboard and applies it only after Search', async () => {
+  const router = await renderFilter()
+  const input = screen.getByRole('combobox', { name: 'Model Name' })
+  await userEvent.click(input)
+  await userEvent.type(input, 'astra')
+  await screen.findByRole('option', { name: 'gpt-6.2-astra' })
+  await userEvent.keyboard('{ArrowDown}{Enter}')
+  expect(input).toHaveValue('gpt-6.2-astra')
+  expect(input).toHaveAttribute('aria-expanded', 'false')
+  expect(router.state.location.search).not.toHaveProperty('model')
+  await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+  await waitFor(() =>
+    expect(router.state.location.search).toMatchObject({
+      model: 'gpt-6.2-astra',
+    })
+  )
+})
+
+it('keeps custom model searches usable when model choices fail to load', async () => {
+  const router = await renderFilter('/usage-logs/common', {}, null)
+  const input = screen.getByRole('combobox', { name: 'Model Name' })
+  await userEvent.type(input, 'retired-model')
+  await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+  await waitFor(() =>
+    expect(router.state.location.search).toMatchObject({
+      model: 'retired-model',
+    })
+  )
+})
+
+it('selects and applies a model inside the mobile filter drawer', async () => {
+  Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', {
+    configurable: true,
+    value: vi.fn(),
+  })
+  const originalMatchMedia = window.matchMedia
+  vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+    ...originalMatchMedia(query),
+    matches: query === '(max-width: 640px)',
+  }))
+  const router = await renderFilter()
+  const dialog = screen.getByRole('dialog')
+  await userEvent.click(
+    within(dialog).getByRole('combobox', { name: 'Model Name' })
+  )
+  await userEvent.click(
+    await within(dialog).findByRole('option', { name: 'gpt-6.2-astra' })
+  )
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Search' }))
+  await waitFor(() =>
+    expect(router.state.location.search).toMatchObject({
+      model: 'gpt-6.2-astra',
+    })
   )
 })

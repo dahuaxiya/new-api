@@ -337,3 +337,22 @@ it('shows loading placeholders without displaying stale log fields', () => {
     screen.queryByRole('button', { name: /^Model:/ })
   ).not.toBeInTheDocument()
 })
+
+it('shows the cache hit rate and hides retail group and ratio in mobile logs', () => {
+  renderLogs({
+    logs: [
+      {
+        ...log,
+        group: 'retail',
+        other: JSON.stringify({
+          cache_tokens: 300,
+          retail_billing_status: 'settled',
+          group_ratio: 0,
+        }),
+      },
+    ],
+  })
+  expect(screen.getByText('Cache hit rate 25%')).toBeVisible()
+  expect(screen.queryByText('retail')).not.toBeInTheDocument()
+  expect(screen.queryByText(/Group Ratio/)).not.toBeInTheDocument()
+})

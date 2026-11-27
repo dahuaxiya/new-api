@@ -63,7 +63,12 @@ import { pluginUsageSchema } from '@/features/pricing/lib/plugin-pricing'
 import { PolicyDecisionRecord } from '@/features/system-settings/request-policies/decision-record'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
-import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
+import {
+  formatLogQuota,
+  formatTokens,
+  formatUseTime,
+  formatPercent,
+} from '@/lib/format'
 import { translateServerText } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
@@ -84,6 +89,11 @@ import {
   renderAuditContent,
   renderLogContent,
 } from '../../lib/format'
+import {
+  isRetailLog,
+  logCacheHitRate,
+  retailLogPriceEntries,
+} from '../../lib/log-billing'
 import { buildQuotaAuditOperation } from '../../lib/quota-audit-operation'
 import {
   getLogTypeConfig,
@@ -165,6 +175,10 @@ function quotaSaturationKindLabel(
   return t('Invalid (NaN)')
 }
 
+/** Show recorded retail tariffs in their settlement currency and legacy billing for other logs.
+ * @param props Historical usage metadata and the viewer's administrative visibility.
+ * @return Price rows and the recorded total cost.
+ */
 function BillingBreakdown(props: {
   log: UsageLog
   other: LogOtherData
@@ -172,6 +186,7 @@ function BillingBreakdown(props: {
 }) {
   const { t } = useTranslation()
   const { log, other, isAdmin } = props
+  const retail = isRetailLog(other)
   const isPerCall = isPerCallBilling(other.model_price)
   const isClaude = other.claude === true
   const isTieredExpr = other.billing_mode === 'tiered_expr'
@@ -182,7 +197,14 @@ function BillingBreakdown(props: {
   const fmtPrice = (usd: number) => formatBillingCurrencyFromUSD(usd, priceOpts)
   const baseInputUSD = other.model_ratio != null ? other.model_ratio * 2.0 : 0
 
-  if (isTieredExpr) {
+  if (retail) {
+    const prices = retailLogPriceEntries(log, other)
+    rows.push(
+      ...(prices.length
+        ? prices.map((entry) => ({ label: t(entry.label), value: entry.value }))
+        : [{ label: t('Model Price'), value: t('Unit price not recorded') }])
+    )
+  } else if (isTieredExpr) {
     rows.push({
       label: t('Billing Mode'),
       value: t('Dynamic Pricing'),
@@ -233,14 +255,14 @@ function BillingBreakdown(props: {
   const userGR = other.user_group_ratio
   const isUserGR = userGR != null && Number.isFinite(userGR) && userGR !== -1
   const effectiveGR = isUserGR ? userGR : other.group_ratio
-  if (effectiveGR != null && Number.isFinite(effectiveGR)) {
+  if (!retail && effectiveGR != null && Number.isFinite(effectiveGR)) {
     rows.push({
       label: isUserGR ? t('User Exclusive Ratio') : t('Group Ratio'),
       value: `${formatRatio(effectiveGR)}x`,
     })
   }
 
-  if (!isTieredExpr && isClaude && hasAnyCacheTokens(other)) {
+  if (!retail && !isTieredExpr && isClaude && hasAnyCacheTokens(other)) {
     if (other.cache_ratio != null && other.cache_ratio !== 1) {
       rows.push({
         label: t('Cache Read'),
@@ -276,7 +298,7 @@ function BillingBreakdown(props: {
     }
   }
 
-  if (!isTieredExpr) {
+  if (!retail && !isTieredExpr) {
     if (other.audio_ratio != null && other.audio_ratio !== 1) {
       rows.push({
         label: t('Audio input'),
@@ -302,28 +324,32 @@ function BillingBreakdown(props: {
     }
   }
 
-  if (other.web_search && other.web_search_call_count) {
+  if (!retail && other.web_search && other.web_search_call_count) {
     rows.push({
       label: t('Web Search'),
       value: `${other.web_search_call_count}x${other.web_search_price ? ` (${fmtPrice(other.web_search_price)})` : ''}`,
     })
   }
 
-  if (other.file_search && other.file_search_call_count) {
+  if (!retail && other.file_search && other.file_search_call_count) {
     rows.push({
       label: t('File Search'),
       value: `${other.file_search_call_count}x${other.file_search_price ? ` (${fmtPrice(other.file_search_price)})` : ''}`,
     })
   }
 
-  if (other.image_generation_call && other.image_generation_call_price) {
+  if (
+    !retail &&
+    other.image_generation_call &&
+    other.image_generation_call_price
+  ) {
     rows.push({
       label: t('Image Generation'),
       value: fmtPrice(other.image_generation_call_price),
     })
   }
 
-  if (other.audio_input_seperate_price && other.audio_input_price) {
+  if (!retail && other.audio_input_seperate_price && other.audio_input_price) {
     rows.push({
       label: t('Audio Input Price'),
       value: fmtPrice(other.audio_input_price),
@@ -373,6 +399,10 @@ function BillingBreakdown(props: {
   )
 }
 
+/** Display recorded token categories and cache reads as a share of the full input context.
+ * @param props Historical usage and provider semantic markers.
+ * @return Token detail rows, or nothing when no usage was recorded.
+ */
 function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
   const { t } = useTranslation()
   const { log, other } = props
@@ -383,7 +413,14 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
   const cacheWrite = other.cache_creation_tokens || 0
   const cacheWrite5m = other.cache_creation_tokens_5m || 0
   const cacheWrite1h = other.cache_creation_tokens_1h || 0
-  const hasTokens = promptTokens > 0 || completionTokens > 0
+  const cacheHitRate = logCacheHitRate(log, other)
+  const hasTokens =
+    promptTokens > 0 ||
+    completionTokens > 0 ||
+    cacheRead > 0 ||
+    cacheWrite > 0 ||
+    cacheWrite5m > 0 ||
+    cacheWrite1h > 0
 
   if (!hasTokens) return null
 
@@ -394,6 +431,13 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
     label: t('Output Tokens'),
     value: completionTokens.toLocaleString(),
   })
+
+  if (cacheHitRate != null) {
+    rows.push({
+      label: t('Cache hit rate'),
+      value: formatPercent(cacheHitRate),
+    })
+  }
 
   if (cacheRead > 0) {
     rows.push({

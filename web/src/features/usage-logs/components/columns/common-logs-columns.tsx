@@ -49,7 +49,11 @@ import { taskUsageUnitLabel } from '@/features/pricing/lib/task-price-display'
 import type { BillingUsageSchema } from '@/features/pricing/types'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
-import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
+import {
+  formatLogQuota,
+  formatTimestampToDate,
+  formatPercent,
+} from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -67,6 +71,11 @@ import {
   renderAuditContent,
   renderLogContent,
 } from '../../lib/format'
+import {
+  isRetailLog,
+  logCacheHitRate,
+  retailLogPriceEntries,
+} from '../../lib/log-billing'
 import {
   isDisplayableLogType,
   isTimingLogType,
@@ -131,6 +140,14 @@ function buildDetailSegments(
   return [...adminSegments, ...segments]
 }
 
+/** Build a log summary from recorded billing metadata, preserving the snapshot currency.
+ * @param log Historical log and usage counts used to select its price tier.
+ * @param other Parsed metadata, or null for older records without details.
+ * @param t Translation function for user-visible labels.
+ * @param language Interface language used by existing billing previews.
+ * @param usageSchema Optional task schema for dynamic billing summaries.
+ * @return Summary segments shown by the details button.
+ */
 function buildTypeDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
@@ -168,6 +185,24 @@ function buildTypeDetailSegments(
   }
 
   if (!other) return []
+
+  if (isRetailLog(other)) {
+    const prices = retailLogPriceEntries(log, other)
+    return prices.length > 0
+      ? [
+          {
+            text: prices
+              .slice(0, 2)
+              .map((entry) => `${t(entry.label)} ${entry.value}`)
+              .join(' · '),
+          },
+          ...prices.slice(2).map((entry) => ({
+            text: `${t(entry.label)} ${entry.value}`,
+            muted: true,
+          })),
+        ]
+      : [{ text: t('Unit price not recorded'), muted: true }]
+  }
 
   const segments: DetailSegment[] = []
 
@@ -341,7 +376,12 @@ function buildTypeDetailSegments(
   return segments
 }
 
-/** 构建个人与管理员共用日志列；推理强度只展示日志实录，不推测模型默认值。 */
+/** 构建个人与管理员共用日志列，按历史日志展示缓存率与计费价格。
+ * @param isAdmin 是否展示管理员可见的用户和渠道信息。
+ * @param isRoot 是否展示仅根管理员可操作的内容。
+ * @param showBillingSource 是否展示计费来源列。
+ * @return 共用日志列，保留非零售日志的分组倍率展示。
+ */
 export function useCommonLogsColumns(
   isAdmin: boolean,
   isRoot: boolean,
@@ -646,7 +686,7 @@ export function useCommonLogsColumns(
                 )}
               </Tooltip>
             </TooltipProvider>
-            {(group || groupRatio != null) && (
+            {!isRetailLog(other) && (group || groupRatio != null) && (
               <span className='block max-w-full truncate text-xs leading-none'>
                 {group ? (
                   <GroupBadge
@@ -758,10 +798,20 @@ export function useCommonLogsColumns(
 
           const promptTokens = log.prompt_tokens || 0
           const completionTokens = log.completion_tokens || 0
-          if (promptTokens === 0 && completionTokens === 0) {
+          if (
+            promptTokens === 0 &&
+            completionTokens === 0 &&
+            !(
+              (other?.cache_tokens ?? 0) > 0 ||
+              (other?.cache_creation_tokens ?? 0) > 0 ||
+              (other?.cache_creation_tokens_5m ?? 0) > 0 ||
+              (other?.cache_creation_tokens_1h ?? 0) > 0
+            )
+          ) {
             return <span className='text-muted-foreground text-xs'>-</span>
           }
 
+          const cacheHitRate = logCacheHitRate(log, other)
           const cacheReadTokens = other?.cache_tokens || 0
           const cacheWrite5m = other?.cache_creation_tokens_5m || 0
           const cacheWrite1h = other?.cache_creation_tokens_1h || 0
@@ -776,6 +826,11 @@ export function useCommonLogsColumns(
                 {promptTokens.toLocaleString()} /{' '}
                 {completionTokens.toLocaleString()}
               </span>
+              {cacheHitRate != null && (
+                <span className='text-muted-foreground text-[11px]'>
+                  {t('Cache hit rate')} {formatPercent(cacheHitRate)}
+                </span>
+              )}
               {(cacheReadTokens > 0 || cacheWriteTokens > 0) && (
                 <div className='flex items-center gap-1 text-[11px]'>
                   {cacheReadTokens > 0 && (

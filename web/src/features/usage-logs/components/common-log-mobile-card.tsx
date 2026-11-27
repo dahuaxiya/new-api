@@ -29,10 +29,15 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import dayjs from '@/lib/dayjs'
-import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
+import {
+  formatLogQuota,
+  formatTimestampToDate,
+  formatPercent,
+} from '@/lib/format'
 
 import type { UsageLog } from '../data/schema'
 import { formatModelName, logTokenName, parseLogOther } from '../lib/format'
+import { isRetailLog, logCacheHitRate } from '../lib/log-billing'
 import {
   getLogTypeConfig,
   isDisplayableLogType,
@@ -60,6 +65,8 @@ type LogField = {
 /**
  * Mobile summaries use tappable fields; desktop tooltip cells cannot reveal full text on touch.
  * Reasoning effort reuses the visible desktop cell so missing values and column preferences agree.
+ * @param props Recorded log and visible cells control the fields available on mobile.
+ * @return Mobile log summary with cache rate and applicable group metadata.
  */
 export function CommonLogMobileCard<TData>(props: {
   log: UsageLog
@@ -74,6 +81,8 @@ export function CommonLogMobileCard<TData>(props: {
   const timing = isTimingLogType(log.type)
   const model = formatModelName(log)
   const config = getLogTypeConfig(log.type)
+  const retail = isRetailLog(other)
+  const cacheHitRate = logCacheHitRate(log, other)
   const group = log.group || other?.group || ''
   const groupRatio =
     other?.user_group_ratio != null && other.user_group_ratio !== -1
@@ -116,7 +125,8 @@ export function CommonLogMobileCard<TData>(props: {
     group: {
       label: t('Group'),
       value: group,
-      visible: displayable && props.cells.has('token_name') && !!group,
+      visible:
+        !retail && displayable && props.cells.has('token_name') && !!group,
       sensitive: true,
     },
   }
@@ -293,7 +303,8 @@ export function CommonLogMobileCard<TData>(props: {
               </div>
             )
           })}
-          {groupRatio != null &&
+          {!retail &&
+            groupRatio != null &&
             groupRatio !== 1 &&
             Number.isFinite(groupRatio) &&
             props.cells.has('token_name') && (
@@ -317,6 +328,11 @@ export function CommonLogMobileCard<TData>(props: {
               {log.completion_tokens.toLocaleString()}
             </span>
           </span>
+          {cacheHitRate != null && (
+            <span>
+              {t('Cache hit rate')} {formatPercent(cacheHitRate)}
+            </span>
+          )}
           {cacheRead > 0 && (
             <span>
               {t('Cache')} ↓ {cacheRead.toLocaleString()}

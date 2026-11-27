@@ -6417,6 +6417,11 @@
     "The legacy token stops working on {{date}}. Create a new token to replace it.": "旧形式のトークンは {{date}} に使用できなくなります。新しいトークンを作成して置き換えてください。",
     "The login session that started this Telegram binding is no longer valid.": "この Telegram 連携を開始したログインセッションは無効になりました。",
     "The mapped upstream model(s)": "マッピングされたアップストリームモデル",
+    "The model requested a tool but returned no reply.": "モデルはツールの呼び出しを要求しましたが、返信本文を返しませんでした。",
+    "The model returned no reply.": "モデルは返信本文を返しませんでした。",
+    "Generation was interrupted. Check usage before trying again.": "生成が中断されました。再試行する前に使用量を確認してください。",
+    "Generation timed out. Check usage before trying again.": "生成がタイムアウトしました。再試行する前に使用量を確認してください。",
+    "The model stream ended before completion. Check usage before trying again.": "応答が完了する前にモデルのストリームが終了しました。再試行する前に使用量を確認してください。",
     "The model routing configuration could not be verified.": "モデルのルーティング設定を検証できませんでした。",
     "The model that was requested": "リクエストされたモデル",
     "The model you're looking for doesn't exist.": "お探しのモデルは存在しません。",
@@ -8494,6 +8499,9 @@
     "Choose the credentials you will use to sign in.": "ログインに使用するユーザー名とパスワードを設定してください。",
     "Your address is only used for verification and account recovery.": "このメールアドレスは本人確認とアカウント復旧にのみ使用します。",
     "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "このメールアドレスに6桁の認証コードを送信します。ユーザー名とパスワードは次の画面で設定します。",
-    "Suggestions appear as you type after the @ symbol.": "@ の後にドメインを入力すると候補が表示されます。"
+    "Suggestions appear as you type after the @ symbol.": "@ の後にドメインを入力すると候補が表示されます。",
+    "Cache hit rate": "キャッシュヒット率",
+    "Unit price not recorded": "単価の記録なし",
+    "No model found. Enter a model name to search historical logs.": "該当するモデルがありません。モデル名を入力して過去のログを検索できます。"
   }
 }

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /**
  * Type definitions for usage logs
  */
+import type { RetailTier } from '@/features/channels/retail-pricing-api'
 import type { RequestRuleTrace } from '@/features/pricing/lib/billing-expr'
 import type { PolicyEvent } from '@/features/system-settings/request-policies/api'
 
@@ -191,6 +192,12 @@ export interface LogOtherData {
   cache_creation_tokens?: number
   cache_creation_tokens_5m?: number
   cache_creation_tokens_1h?: number
+  // Retail settlement freezes these CNY tariffs so historical logs survive price-book changes.
+  retail_currency?: string
+  retail_billing_status?: string
+  retail_price_version?: number
+  retail_sale_prices?: RetailTier[]
+  usage_semantic?: string
   claude?: boolean
   model_ratio?: number
   completion_ratio?: number

@@ -6417,6 +6417,11 @@
     "The legacy token stops working on {{date}}. Create a new token to replace it.": "The legacy token stops working on {{date}}. Create a new token to replace it.",
     "The login session that started this Telegram binding is no longer valid.": "The login session that started this Telegram binding is no longer valid.",
     "The mapped upstream model(s)": "The mapped upstream model(s)",
+    "The model requested a tool but returned no reply.": "The model requested a tool but returned no reply.",
+    "The model returned no reply.": "The model returned no reply.",
+    "Generation was interrupted. Check usage before trying again.": "Generation was interrupted. Check usage before trying again.",
+    "Generation timed out. Check usage before trying again.": "Generation timed out. Check usage before trying again.",
+    "The model stream ended before completion. Check usage before trying again.": "The model stream ended before completion. Check usage before trying again.",
     "The model routing configuration could not be verified.": "The model routing configuration could not be verified.",
     "The model that was requested": "The model that was requested",
     "The model you're looking for doesn't exist.": "The model you're looking for doesn't exist.",
@@ -8494,6 +8499,9 @@
     "Choose the credentials you will use to sign in.": "Choose the credentials you will use to sign in.",
     "Your address is only used for verification and account recovery.": "Your address is only used for verification and account recovery.",
     "We'll email you a 6-digit code to verify this address. You'll set your username and password next.": "We'll email you a 6-digit code to verify this address. You'll set your username and password next.",
-    "Suggestions appear as you type after the @ symbol.": "Suggestions appear as you type after the @ symbol."
+    "Suggestions appear as you type after the @ symbol.": "Suggestions appear as you type after the @ symbol.",
+    "Cache hit rate": "Cache hit rate",
+    "Unit price not recorded": "Unit price not recorded",
+    "No model found. Enter a model name to search historical logs.": "No model found. Enter a model name to search historical logs."
   }
 }

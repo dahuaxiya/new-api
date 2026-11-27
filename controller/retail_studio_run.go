@@ -30,7 +30,7 @@ var studioRuns sync.Map
 var studioSlots = make(chan struct{}, 12)
 var studioUploadSlots = make(chan struct{}, 8)
 
-const interruptedRun = "Stopped. Check usage before trying again."
+const interruptedRun = "Generation was interrupted. Check usage before trying again."
 
 type studioIntent struct {
 	Record            studioHistoryRecord `json:"record"`
@@ -52,10 +52,14 @@ type studioFrame struct {
 	Success *bool  `json:"success"`
 	Message string `json:"message"`
 	Choices []struct {
-		Delta struct {
+		FinishReason string `json:"finish_reason"`
+		Delta        struct {
 			Content   string `json:"content"`
 			Reasoning string `json:"reasoning_content"`
 			Alternate string `json:"reasoning"`
+			// Studio has no tool executor. Detect the call without retaining its arguments.
+			ToolCalls    []struct{} `json:"tool_calls"`
+			FunctionCall *struct{}  `json:"function_call"`
 		} `json:"delta"`
 	} `json:"choices"`
 	Error *struct {
@@ -409,14 +413,23 @@ func (p *studioPipe) WriteHeader(n int) {
 func (p *studioPipe) Write(b []byte) (int, error) { return p.w.Write(b) }
 func (p *studioPipe) Flush()                      {}
 
-// execute archives the result even when no browser is connected. A worker failure is terminal
-// because upstream acceptance or billing may already have happened.
+// execute archives the result even when no browser is connected. A finished chat needs visible
+// text; reasoning and tool arguments are not answers. Cancellation is checked before cleanup so
+// a disconnect or empty reply cannot be mislabeled as an explicit stop. Never redispatch a paid run.
 func (w *studioWorker) execute(relay http.Handler, req *http.Request, dir, key string, lock *sync.Mutex, row *studioHistoryRecord) {
 	last := &row.Entries[len(row.Entries)-1]
 	var err error
 	defer func() {
 		if recover() != nil {
 			err = errors.New(interruptedRun)
+		}
+		// Inspect the generation context before canceling our own resources. This context
+		// is detached from the browser, so cancellation here represents an explicit stop.
+		switch req.Context().Err() {
+		case context.Canceled:
+			err = common.NewMessage("Stopped. Check usage before trying again.")
+		case context.DeadlineExceeded:
+			err = common.NewMessage("Generation timed out. Check usage before trying again.")
 		}
 		w.cancel()
 		last.Content = w.content.String()
@@ -477,6 +490,7 @@ func (w *studioWorker) execute(relay http.Handler, req *http.Request, dir, key s
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 8192), 2<<20)
 	done := false
+	toolRequested := false
 	checkpoint := time.Now()
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -511,7 +525,12 @@ func (w *studioWorker) execute(relay http.Handler, req *http.Request, dir, key s
 		if len(frame.Choices) == 0 {
 			continue
 		}
-		delta := frame.Choices[0].Delta
+		choice := frame.Choices[0]
+		delta := choice.Delta
+		// Some suppliers send the tool request and its finish reason in separate frames.
+		if len(delta.ToolCalls) > 0 || delta.FunctionCall != nil || choice.FinishReason == "tool_calls" || choice.FinishReason == "function_call" {
+			toolRequested = true
+		}
 		w.mu.Lock()
 		w.content.WriteString(delta.Content)
 		if delta.Reasoning != "" {
@@ -538,8 +557,17 @@ func (w *studioWorker) execute(relay http.Handler, req *http.Request, dir, key s
 		}
 	}
 	err = scanner.Err()
-	if req.Context().Err() != nil || !done || w.content.Len()+w.reasoning.Len() == 0 {
+	if err != nil {
 		err = errors.New(interruptedRun)
+	} else if !done {
+		err = common.NewMessage("The model stream ended before completion. Check usage before trying again.")
+	} else if strings.TrimSpace(w.content.String()) == "" {
+		// Only classify a cleanly terminated stream. A disconnect must keep its original failure.
+		if toolRequested {
+			err = common.NewMessage("The model requested a tool but returned no reply.")
+		} else {
+			err = common.NewMessage("The model returned no reply.")
+		}
 	}
 }
 

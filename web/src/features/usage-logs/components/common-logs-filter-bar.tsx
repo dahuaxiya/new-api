@@ -41,7 +41,7 @@ import {
 } from '@/components/ui/tooltip'
 import { getGroups } from '@/features/users/api'
 import { useMediaQuery } from '@/hooks'
-import { getUserGroups } from '@/lib/api'
+import { getUserModels, getUserGroups } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
@@ -116,6 +116,10 @@ interface CommonLogsFilterBarProps<TData> {
   table: Table<TData>
 }
 
+/** Edit log filters locally, including historical model names, until search is applied.
+ * @param props Table rows provide model choices alongside the caller's available models.
+ * @return Shared desktop toolbar and mobile filter drawer.
+ */
 export function CommonLogsFilterBar<TData>(
   props: CommonLogsFilterBarProps<TData>
 ) {
@@ -137,6 +141,28 @@ export function CommonLogsFilterBar<TData>(
     queryFn: async () => requireServerSuccess(await getUserGroups()),
     enabled: !isAdmin,
   })
+  const { data: models } = useQuery({
+    queryKey: ['usage-log-model-options'],
+    queryFn: async () => requireServerSuccess(await getUserModels()),
+    staleTime: 60_000,
+  })
+  // Include models on the current page so retired models can still be chosen from historical logs.
+  const modelRows = props.table.getCoreRowModel().rows
+  const modelOptions = useMemo(() => {
+    const modelNames = modelRows
+      .map((row) => (row.original as { model_name?: string }).model_name)
+      .filter(
+        (name): name is string => typeof name === 'string' && name.length > 0
+      )
+    return [
+      ...new Set([
+        ...(Array.isArray(models?.data) ? models.data : []),
+        ...modelNames,
+      ]),
+    ]
+      .sort()
+      .map((model) => ({ label: model, value: model }))
+  }, [models, modelRows])
   const groupOptions = useMemo(() => {
     const groups = isAdmin
       ? (adminGroups?.data ?? [])
@@ -336,10 +362,17 @@ export function CommonLogsFilterBar<TData>(
   )
   const modelFilter = (
     <LogsFilterField>
-      <LogsFilterInput
+      <Combobox
+        options={modelOptions}
+        allowCustomValue
+        aria-label={t('Model Name')}
         placeholder={t('Model Name')}
+        emptyText={t(
+          'No model found. Enter a model name to search historical logs.'
+        )}
+        className='h-8 min-w-0 text-sm leading-5'
         value={filters.model || ''}
-        onChange={(e) => handleChange('model', e.target.value)}
+        onValueChange={(value) => handleChange('model', value ?? '')}
         onKeyDown={handleKeyDown}
       />
     </LogsFilterField>

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,6 +22,73 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
+
+// TestStudioChatResult replays a split Gemini tool call and checks the saved result that a
+// reconnecting browser reads. A missing stream terminator must take precedence over tool hints.
+func TestStudioChatResult(t *testing.T) {
+	const plan = `{"choices":[{"delta":{"reasoning_content":"plan"}}]}`
+	const call = `{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"private-argument"}}]}}]}`
+	const finish = `{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`
+	const text = `{"choices":[{"delta":{"content":"<p>ok</p>"}}]}`
+	const whitespace = `{"choices":[{"delta":{"content":" \n"}}]}`
+	const toolError = "The model requested a tool but returned no reply."
+	for _, tc := range []struct {
+		name                string
+		frames              []string
+		wantBody, wantError string
+		contextError        error
+		panicRelay          bool
+	}{
+		{name: "captured shape", frames: []string{plan, call, finish, "[DONE]"}, wantError: toolError},
+		{name: "tool delta only", frames: []string{plan, call, "[DONE]"}, wantError: toolError},
+		{name: "tool finish only", frames: []string{plan, finish, "[DONE]"}, wantError: toolError},
+		{name: "reasoning and whitespace", frames: []string{plan, whitespace, "[DONE]"}, wantBody: " \n", wantError: "The model returned no reply."},
+		{name: "visible answer", frames: []string{plan, call, text, "[DONE]"}, wantBody: "<p>ok</p>"},
+		{name: "empty reply with terminator", frames: []string{"[DONE]"}, wantError: "The model returned no reply."},
+		{name: "lost connection preserves partial answer", frames: []string{plan, text}, wantBody: "<p>ok</p>", wantError: "The model stream ended before completion. Check usage before trying again."},
+		{name: "explicit stop", frames: []string{plan}, contextError: context.Canceled, wantError: "Stopped. Check usage before trying again."},
+		{name: "generation deadline", frames: []string{plan}, contextError: context.DeadlineExceeded, wantError: "Generation timed out. Check usage before trying again."},
+		{name: "relay panic", frames: []string{plan}, panicRelay: true, wantError: "Generation was interrupted. Check usage before trying again."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, id := t.TempDir(), uuid.NewString()
+			ctx, cancel := context.WithCancel(context.Background())
+			if tc.contextError == context.DeadlineExceeded {
+				cancel()
+				ctx, cancel = context.WithDeadline(context.Background(), time.Unix(1, 0))
+			} else if tc.contextError == context.Canceled {
+				cancel()
+			}
+			defer cancel()
+			worker := studioWorker{cancel: cancel}
+			row := studioHistoryRecord{ID: id, Mode: "text", Entries: []studioHistoryEntry{{ID: 1, Prompt: "test", Model: "test"}}}
+			relay := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				for _, frame := range tc.frames {
+					io.WriteString(w, "data: "+frame+"\n\n")
+				}
+				if tc.panicRelay {
+					panic("test relay failure")
+				}
+			})
+			studioSlots <- struct{}{}
+			worker.execute(relay, httptest.NewRequestWithContext(ctx, http.MethodPost, "/", nil), dir, filepath.Join(dir, id), &sync.Mutex{}, &row)
+			raw, err := os.ReadFile(filepath.Join(dir, id+".record"))
+			require.NoError(t, err)
+			_, snapshot, ok := bytes.Cut(raw, []byte("\n"))
+			require.True(t, ok)
+			var saved studioHistoryRecord
+			require.NoError(t, common.Unmarshal(snapshot, &saved))
+			entry := saved.Entries[0]
+			require.Equal(t, tc.wantError, entry.Error)
+			require.Equal(t, tc.wantError == "", entry.Complete)
+			require.Equal(t, tc.wantBody, entry.Content)
+			if tc.name != "empty reply with terminator" {
+				require.Equal(t, "plan", entry.Reasoning)
+			}
+			require.NotContains(t, string(raw), "private-argument")
+		})
+	}
+}
 
 // TestStudioRunDetached verifies lost acknowledgements, Unicode cursor replay, explicit cancellation
 // and byte-identical image retrieval against a deterministic, non-billable HTTP relay.
@@ -113,7 +181,7 @@ func TestStudioRunDetached(t *testing.T) {
 				require.True(t, last.Complete)
 			}
 			if mode == "stop" {
-				require.NotEmpty(t, last.Error)
+				require.Equal(t, "Stopped. Check usage before trying again.", last.Error)
 				require.False(t, last.Complete)
 			}
 			require.Equal(t, 200, request(ctx, "POST", 1, "").Code)
