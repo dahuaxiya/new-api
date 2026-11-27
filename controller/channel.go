@@ -24,6 +24,8 @@ import (
 	"github.com/QuantumNous/new-api/setting/retail_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"gorm.io/gorm"
 )
 
@@ -1545,7 +1547,7 @@ func GetTagModels(c *gin.Context) {
 //	suffix         - string appended to the original name (default "_copy")
 //	reset_balance  - bool, when true will reset balance & used_quota to 0 (default true)
 //
-// CopyChannel duplicates channel settings. A copy of a retail supply starts disabled and requires its own credential.
+// A retail supply copy starts disabled and needs its own credential and verified image models.
 func CopyChannel(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -1577,6 +1579,16 @@ func CopyChannel(c *gin.Context) {
 	// clone channel
 	clone := *origin // shallow copy is sufficient as we will overwrite primitives
 	clone.Id = 0     // let DB auto-generate
+	// A copied channel is a different procurement route even when its public model names match.
+	// Remove only the capability: unknown channel settings belong to the template as before.
+	if clone.Setting != nil && gjson.Get(*clone.Setting, "retail_chat_image_models").Exists() {
+		settings, err := sjson.Delete(*clone.Setting, "retail_chat_image_models")
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		clone.Setting = &settings
+	}
 	cfg, cfgErr := retail_setting.Load()
 	// Generic copy can turn a root into a new independent channel. Clear credentials before insertion,
 	// including legacy inline tokens. If the registry cannot be read, copying settings is still safe,

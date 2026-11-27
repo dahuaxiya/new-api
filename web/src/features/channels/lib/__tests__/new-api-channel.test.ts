@@ -32,6 +32,7 @@ import {
   channelFormSchema,
   transformChannelToFormDefaults,
   transformFormDataToCreatePayload,
+  transformFormDataToUpdatePayload,
 } from '../channel-form'
 import {
   getChannelPluginExtensions,
@@ -53,6 +54,20 @@ function newAPIForm(baseUrl: string) {
 }
 
 describe('New API channel', () => {
+  test('editing retains verified Chat image models but a new channel starts without them', () => {
+    const form = channelFormSchema.parse({
+      ...newAPIForm('https://gateway.example'),
+      setting: JSON.stringify({ retail_chat_image_models: ['verified-model'] }),
+    })
+    expect(
+      JSON.parse(transformFormDataToUpdatePayload(form, 7).setting ?? '{}')
+        .retail_chat_image_models
+    ).toEqual(['verified-model'])
+    expect(
+      JSON.parse(transformFormDataToCreatePayload(form).channel.setting ?? '{}')
+    ).not.toHaveProperty('retail_chat_image_models')
+  })
+
   test('registers selection, ordering, model discovery, and icon metadata', () => {
     const option = CHANNEL_TYPE_OPTIONS.find(
       (item) => item.value === CHANNEL_TYPE_NEW_API

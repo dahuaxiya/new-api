@@ -168,6 +168,7 @@ func TestCopyRetailSiteWithoutKey(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.AuditLog{}, &model.Log{}))
 	site := model.Channel{Name: "original", Type: constant.ChannelTypeOpenAI, Group: "retail", Key: "synthetic-credential", Models: "example", Status: common.ChannelStatusEnabled}
+	site.SetSetting(dto.ChannelSettings{RetailChatImageModels: []string{"example"}})
 	require.NoError(t, site.Insert())
 	path := filepath.Join(t.TempDir(), "supply.json")
 	require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf(`{"enabled":true,"group":"retail","supplies":[{"channel_id":%d,"kind":"reseller"}]}`, site.Id)), 0600))
@@ -181,6 +182,7 @@ func TestCopyRetailSiteWithoutKey(t *testing.T) {
 	var clone model.Channel
 	require.NoError(t, db.Where("name = ?", "original_copy").First(&clone).Error)
 	require.Empty(t, clone.Key)
+	require.Empty(t, clone.GetSetting().RetailChatImageModels)
 	require.Zero(t, clone.RetailKeyID)
 	require.Equal(t, common.ChannelStatusManuallyDisabled, clone.Status)
 	// A broken registry cannot establish custody. Keep the copy operation available as a disabled template.

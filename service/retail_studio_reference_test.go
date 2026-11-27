@@ -55,6 +55,26 @@ func TestRetailToolOutputPictures(t *testing.T) {
 	}
 }
 
+// TestRetailChatPictureBoundary verifies the original media is counted, and unsupported sources never reach dispatch.
+func TestRetailChatPictureBoundary(t *testing.T) {
+	const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
+	const image = `{"type":"image_url","image_url":{"url":"` + png + `"}}`
+	const raw = `{"messages":[{"role":"user","content":[` + image + `,` + image + `]}]}`
+	images, err := retailChatPictures([]byte(raw), true)
+	require.NoError(t, err)
+	require.Equal(t, map[int]string{0: png, 1: png}, images)
+	// Removing or replacing just one occurrence invalidates the outbound request.
+	for _, changed := range []string{strings.Replace(raw, image+",", "", 1), strings.Replace(raw, png, "https://example.com/image.png", 1)} {
+		require.Error(t, validateRetailChat([]byte(changed), map[string]int{png: 2}, false, ""))
+	}
+	for _, source := range []string{"https://example.com/image.png", "data:image/png;base64,broken", "file:///image.png"} {
+		_, err := retailChatPictures([]byte(strings.Replace(raw, png, source, 1)), true)
+		var field retailFieldError
+		require.ErrorAs(t, err, &field)
+		require.Equal(t, "messages.0.content.0.image_url.url", field.field)
+	}
+}
+
 // TestRetailClaudePictures 验证 Magpie 转成的 Claude 历史截图能登记并参与同一媒体校验。
 func TestRetailClaudePictures(t *testing.T) {
 	const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
@@ -62,7 +82,7 @@ func TestRetailClaudePictures(t *testing.T) {
 	raw := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"inspect the screenshots"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + payload + `"}}]},{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"path":"screen.png"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"screenshot"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + payload + `"}}]}]}],"tools":[{"name":"Read","input_schema":{"type":"object"}}]}`)
 
 	require.Error(t, validateRetailChat(raw, nil, false, ""))
-	pictures, err := retailRequestPictures(raw, "/v1/messages")
+	pictures, err := retailRequestPictures(raw, "/v1/messages", false)
 	require.NoError(t, err)
 	require.Equal(t, map[int]string{0: png, 1: png}, pictures)
 	require.NoError(t, validateRetailChat(raw, map[string]int{png: 2}, false, ""))

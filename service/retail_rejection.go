@@ -73,6 +73,8 @@ func retailRejection(c *gin.Context, stage, rule string, err error) *types.NewAP
 		rule, param = field.rule, field.field
 		status, code, key := http.StatusBadRequest, "invalid_value", i18n.MsgRetailFieldInvalid
 		switch rule {
+		case "chat_image_input_unavailable":
+			code, key = "unsupported_parameter", i18n.MsgRetailChatImageUnavailable
 		case "unsupported_parameter", "unsupported_content_type", "unsupported_tool":
 			code, key = "unsupported_parameter", i18n.MsgRetailFieldUnsupported
 		case "body_too_large":

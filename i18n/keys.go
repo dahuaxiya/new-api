@@ -12,6 +12,7 @@ const (
 	MsgRetailUnavailable          = "retail.unavailable"
 	MsgRetailEndpointUnsupported  = "retail.endpoint_unsupported"
 	MsgRetailFieldInvalid         = "retail.field_invalid"
+	MsgRetailChatImageUnavailable = "retail.chat_image_unavailable"
 	MsgRetailFieldUnsupported     = "retail.field_unsupported"
 	MsgRetailBodyTooLarge         = "retail.body_too_large"
 	MsgRetailSiteValidationFailed = "retail.site_validation_failed"

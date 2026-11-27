@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -169,10 +170,11 @@ func retailResponsesPictures(raw []byte) (map[int]string, error) {
 	return pictures, nil
 }
 
-// retailRequestPictures 按入站协议登记内嵌图片，供统一媒体校验消费。
-// Responses 与 Claude Messages 共用字节和像素上限；其他协议仍走各自原有的校验规则。
-func retailRequestPictures(raw []byte, path string) (map[int]string, error) {
+// retailRequestPictures 按入站协议登记内嵌图片；Chat 的许可来自已选渠道，不由客户端声明。
+func retailRequestPictures(raw []byte, path string, allowChatImages bool) (map[int]string, error) {
 	switch {
+	case path == "/v1/chat/completions":
+		return retailChatPictures(raw, allowChatImages)
 	case strings.HasSuffix(path, "/responses"):
 		return retailResponsesPictures(raw)
 	case path == "/v1/messages":
@@ -181,6 +183,52 @@ func retailRequestPictures(raw []byte, path string) (map[int]string, error) {
 	default:
 		return nil, nil
 	}
+}
+
+// retailChatPictures 只登记标准用户消息中的 image_url；拒绝时只返回字段位置，不记录图片内容。
+func retailChatPictures(raw []byte, allowed bool) (map[int]string, error) {
+	var pictures map[int]string
+	total := 0
+	for _, msg := range gjson.GetBytes(raw, "messages").Array() {
+		parts := msg.Get("content")
+		if !parts.IsArray() {
+			continue
+		}
+		for _, part := range parts.Array() {
+			if part.Get("type").Str != "image_url" {
+				continue
+			}
+			// 未确认的线路在解析图片前拒绝。文本消息不需要任何图片能力。
+			if !allowed {
+				return nil, retailFieldError{"chat_image_input_unavailable", retailItemField(raw, part, "")}
+			}
+			if msg.Get("role").Str != "user" {
+				return nil, retailFieldError{"unsupported_content_type", retailItemField(raw, part, "")}
+			}
+			// 透传渠道可能保留额外字段，只接受 Chat 图片块定义的 url 和可选 detail。
+			image := part.Get("image_url")
+			detail := image.Get("detail")
+			fieldCount := 1
+			if detail.Exists() {
+				fieldCount++
+			}
+			if !image.IsObject() || len(part.Map()) != 2 || len(image.Map()) != fieldCount || image.Get("url").Type != gjson.String {
+				return nil, retailFieldError{"image_source_format", retailItemField(raw, part, "image_url")}
+			}
+			if detail.Exists() && detail.Str != "low" && detail.Str != "high" && detail.Str != "auto" && detail.Str != "original" {
+				return nil, retailFieldError{"image_detail", retailItemField(raw, part, "image_url.detail")}
+			}
+			if err := registerRetailPicture(&pictures, &total, part.Get("image_url.url").Str); err != nil {
+				var field retailFieldError
+				if errors.As(err, &field) {
+					field.field = retailItemField(raw, part, "image_url.url")
+					return nil, field
+				}
+				return nil, err
+			}
+		}
+	}
+	return pictures, nil
 }
 
 // retailClaudePictures 登记 Claude Messages 历史和工具结果中的内嵌图片。

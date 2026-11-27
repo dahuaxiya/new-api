@@ -2,6 +2,7 @@
 retail.unavailable: "Retail API is unavailable"
 retail.endpoint_unsupported: "This endpoint is not available for retail API keys"
 retail.field_invalid: "Invalid value or format for {{.Field}}."
+retail.chat_image_unavailable: "Image input is not enabled on this model route. Remove the image at {{.Field}} or use a route that accepts images."
 retail.field_unsupported: "This setting for {{.Field}} is unsupported. Remove or change it."
 retail.body_too_large: "Request exceeds the body size limit. Shorten the input and retry."
 retail.site_validation_failed: "The site could not validate this request for forwarding. Contact the administrator with the request ID."

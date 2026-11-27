@@ -105,6 +105,9 @@ func TestRetailHTTPRelay(t *testing.T) {
 	common.RetryTimes = 3
 	t.Cleanup(func() { constant.StreamingTimeout, common.RetryTimes = oldTimeout, oldRetry })
 	const reference = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+	// 复现现场的第八条消息、第二个内容块；允许和拒绝场景发送同一张图片。
+	chatImage := `{"model":"gpt-4o","max_tokens":20,"messages":[` + strings.Repeat(`{"role":"user","content":"hello"},`, 7) + `{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"` + reference + `","detail":"low"}}]}]}`
+	const chatImageResult = `{"id":"chat-image","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"prompt_tokens_details":{"image_tokens":4},"completion_tokens":2,"total_tokens":12}}`
 	const imageBody = `{"model":"gpt-4o","input":[{"role":"user","content":[{"type":"input_image","detail":"low","image_url":"` + reference + `"}]}],"tools":[{"type":"image_generation"}],"tool_choice":{"type":"image_generation"},"max_output_tokens":20`
 	const item = `{"type":"image_generation_call","id":"ig-1","status":"completed","result":"iVBORw0KGgo="}`
 	const usage = `"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}`
@@ -138,6 +141,8 @@ func TestRetailHTTPRelay(t *testing.T) {
 			{"image_media_input", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":9,"image_tokens":1}}}`, types.RelayFormatOpenAIImage, 1, false},
 			{"image_no_payload", "/v1/images/generations", `{"model":"gpt-4o","prompt":"a tree","n":1}`, `{"data":[{"revised_prompt":"tree"}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"text_tokens":10,"image_tokens":0}}}`, types.RelayFormatOpenAIImage, 1, false},
 			{"chat", "/v1/chat/completions", `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"max_tokens":20}`, `{"id":"chat-1","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`, types.RelayFormatOpenAI, 1, true},
+			{"chat_image_allowed", "/v1/chat/completions", chatImage, chatImageResult, types.RelayFormatOpenAI, 1, true},
+			{"chat_image_unavailable", "/v1/chat/completions", chatImage, chatImageResult, types.RelayFormatOpenAI, 1, false},
 			{"tool_search_compat_idle", "/v1/responses", compatBody, compatDone, types.RelayFormatOpenAIResponses, 1, true},
 			{"tool_search_claude_used", "/v1/responses", claudeSearch, claudeResult, types.RelayFormatOpenAIResponses, 14, true},
 			{"tool_search_claude_stream", "/v1/responses", strings.Replace(claudeSearch, `"max_output_tokens"`, `"stream":true,"max_output_tokens"`, 1), claudeSearchStream, types.RelayFormatOpenAIResponses, 14, true},
@@ -185,6 +190,9 @@ func TestRetailHTTPRelay(t *testing.T) {
 		} {
 			t.Run(fmt.Sprintf("%s/guarded_%t", scenario.name, priced), func(t *testing.T) {
 				groupCase := strings.HasPrefix(scenario.name, "group_output_")
+				if strings.HasPrefix(scenario.name, "chat_image_") && !priced {
+					t.Skip("image capability is scoped to priced retail routes")
+				}
 				groupFailed := strings.HasPrefix(scenario.name, "group_failed_")
 				if (groupCase || groupFailed || scenario.name == "magpie_claude_history" || scenario.name == "budget_output_default") && !priced {
 					t.Skip("group pricing requires a tariff")
@@ -239,6 +247,13 @@ func TestRetailHTTPRelay(t *testing.T) {
 				var publishDuringCall func() error
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					hit := hits.Add(1)
+					if scenario.name == "chat_image_allowed" {
+						body, err := io.ReadAll(r.Body)
+						if err != nil || gjson.GetBytes(body, "messages.7.content.1.image_url.url").Str != reference || gjson.GetBytes(body, "model").Str != "vision-canary" {
+							http.Error(w, "missing original Chat image", 400)
+							return
+						}
+					}
 					if scenario.name == "magpie_claude_history" {
 						raw, err := io.ReadAll(r.Body)
 						if err != nil || !strings.Contains(gjson.GetBytes(raw, "messages.1.content").String(), "orchid-42") || gjson.GetBytes(raw, "messages.1.role").Str != "assistant" || bytes.Contains(raw, []byte("magpie_reasoning")) {
@@ -328,6 +343,13 @@ func TestRetailHTTPRelay(t *testing.T) {
 				}))
 				t.Cleanup(upstream.Close)
 				channel := model.Channel{Name: "retail-upstream", Key: "test-upstream-key", Status: 1, Type: scenario.channelType, Group: "retail", Models: "gpt-4o", BaseURL: &upstream.URL, Priority: common.GetPointer(int64(10))}
+				if scenario.name == "chat_image_allowed" {
+					// 对外别名与实际模型不同，确认能力匹配的确使用价表映射。
+					channel.ModelMapping = common.GetPointer(`{"gpt-4o":"vision-canary"}`)
+					setting := channel.GetSetting()
+					setting.RetailChatImageModels = []string{"vision-canary"}
+					channel.SetSetting(setting)
+				}
 				if strings.HasPrefix(scenario.name, "tool_search_compat_") {
 					setting := channel.GetSetting()
 					setting.RetailSearchStreamLimit = true
@@ -337,6 +359,12 @@ func TestRetailHTTPRelay(t *testing.T) {
 				require.NoError(t, model.DB.Create(&model.Ability{ChannelId: channel.Id, Model: "gpt-4o", Group: "retail", Enabled: true, Priority: channel.Priority}).Error)
 				backup := channel
 				backup.Id, backup.Priority = 0, common.GetPointer(int64(0))
+				if scenario.name == "chat_image_unavailable" {
+					// 备用渠道允许同名模型，不应让主渠道继承图片许可。
+					setting := backup.GetSetting()
+					setting.RetailChatImageModels = []string{"gpt-4o"}
+					backup.SetSetting(setting)
+				}
 				require.NoError(t, model.DB.Create(&backup).Error)
 				require.NoError(t, model.DB.Create(&model.Ability{ChannelId: backup.Id, Model: "gpt-4o", Group: "retail", Enabled: true, Priority: backup.Priority}).Error)
 				// 未登记渠道即使优先级更高也不能命中，覆盖普通选路和重试的白名单约束。
@@ -360,6 +388,9 @@ func TestRetailHTTPRelay(t *testing.T) {
 					}
 					book.Products[0].UserGroups = []string{user.Group}
 					book.Products[0].Routes[0].ChannelID = channel.Id
+					if scenario.name == "chat_image_allowed" {
+						book.Products[0].Routes[0].Models["gpt-4o"] = "vision-canary"
+					}
 					second := book.Products[0].Routes[0]
 					second.ChannelID = backup.Id
 					book.Products[0].Routes = append(book.Products[0].Routes, second)
@@ -395,8 +426,21 @@ func TestRetailHTTPRelay(t *testing.T) {
 				req := httptest.NewRequest("POST", scenario.path, strings.NewReader(scenario.body))
 				req.Header.Set("Authorization", "Bearer sk-"+token.Key)
 				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Accept-Language", "zh-CN")
 				recorder := httptest.NewRecorder()
 				engine.ServeHTTP(recorder, req)
+				if scenario.name == "chat_image_unavailable" {
+					require.Equal(t, http.StatusBadRequest, recorder.Code)
+					reply := gjson.Parse(recorder.Body.String()).Get("error")
+					require.Equal(t, "unsupported_parameter", reply.Get("code").Str)
+					require.Equal(t, "messages.7.content.1", reply.Get("param").Str)
+					require.Contains(t, reply.Get("message").Str, "未开放图片输入")
+					require.Zero(t, hits.Load())
+					var reservations int64
+					require.NoError(t, model.DB.Model(&model.RetailCharge{}).Count(&reservations).Error)
+					require.Zero(t, reservations)
+					return
+				}
 				require.Equal(t, wantStatus, recorder.Code, recorder.Body.String())
 				require.Equal(t, wantHits, hits.Load())
 				if scenario.name == "tool_search_claude_stream" {

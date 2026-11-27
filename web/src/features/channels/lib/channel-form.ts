@@ -654,9 +654,13 @@ export function transformChannelToFormDefaults(
 }
 
 /**
- * Build the setting JSON string from form extra settings
+ * Build the setting JSON string from form extra settings. Only edits may carry
+ * forward the exact Chat image models that were verified for this channel.
  */
-export function buildSettingJSON(formData: ChannelFormValues): string {
+export function buildSettingJSON(
+  formData: ChannelFormValues,
+  preserveImageModels = false
+): string {
   const settingObj: Record<string, unknown> = {
     task_plugin_key:
       formData.type === CHANNEL_TYPE_TASK_PLUGIN
@@ -694,6 +698,18 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
   }
   if (formData.tls_insecure_skip_verify === true) {
     settingObj.tls_insecure_skip_verify = true
+  }
+
+  // The form does not edit this operator-managed list. Copy just that field on
+  // updates; creating channels from a template must not copy its capability.
+  if (preserveImageModels && formData.setting) {
+    const saved = parseOptionalJson(formData.setting)
+    if (
+      isJsonObjectValue(saved) &&
+      Array.isArray(saved.retail_chat_image_models)
+    ) {
+      settingObj.retail_chat_image_models = saved.retail_chat_image_models
+    }
   }
 
   return JSON.stringify(settingObj)
@@ -933,7 +949,7 @@ export function transformFormDataToUpdatePayload(
     status_code_mapping: formData.status_code_mapping || null,
     tag: formData.tag || null,
     remark: formData.remark || '',
-    setting: buildSettingJSON(formData),
+    setting: buildSettingJSON(formData, true),
     param_override: formData.param_override || null,
     header_override: formData.header_override || null,
     settings: buildSettingsJSON(formData),

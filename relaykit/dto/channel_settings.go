@@ -12,6 +12,9 @@ import (
 )
 
 type ChannelSettings struct {
+	// RetailChatImageModels lists the exact upstream models verified for Chat image input on this credential.
+	// An empty list grants nothing; model aliases and other channels do not inherit this capability.
+	RetailChatImageModels []string `json:"retail_chat_image_models,omitempty"`
 	// RetailSearchStreamLimit enables a metered SSE fallback for suppliers rejecting max_tool_calls.
 	RetailSearchStreamLimit bool `json:"retail_search_stream_limit,omitempty"`
 	// StudioImageEditJSON selects JSON only for a supplier that cannot accept multipart image edits.

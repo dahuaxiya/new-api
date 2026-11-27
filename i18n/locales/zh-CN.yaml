@@ -2,6 +2,7 @@
 retail.unavailable: "余额计费 API 暂不可用"
 retail.endpoint_unsupported: "此接口暂不支持余额计费 API 密钥"
 retail.field_invalid: "{{.Field}} 的值或格式不符合请求要求。"
+retail.chat_image_unavailable: "当前模型线路未开放图片输入。请移除 {{.Field}} 中的图片，或改用支持图片的线路。"
 retail.field_unsupported: "当前接口不支持 {{.Field}} 的这项设置，请移除或更换。"
 retail.body_too_large: "请求体超过大小上限，请缩短输入后重试。"
 retail.site_validation_failed: "站点无法完成本次转发校验，请联系管理员并提供请求 ID。"

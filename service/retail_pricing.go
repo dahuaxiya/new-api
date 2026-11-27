@@ -170,12 +170,26 @@ func PrepareRetailPricing(c *gin.Context, info *relaycommon.RelayInfo) (bool, *t
 	}
 	// 在入站阶段登记经过检查的内嵌图片。出站只消费这份清单，不重新信任转换后的数据。
 	if !imageRequest && !HasStudioVision(c.Request) {
-		pictures, err := retailRequestPictures(raw, c.Request.URL.Path)
+		path := c.Request.URL.Path
+		visionChannel := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+		allowChatImages := false
+		if path == "/v1/chat/completions" {
+			// 两条线路可出售同名模型。只按当前渠道配置和这次报价对应的实际模型判断。
+			setting, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+			if len(setting.RetailChatImageModels) != 0 {
+				_, mapped := retailDispatchModels(book, quote.ProductID, visionChannel, quote.Model.ID)
+				allowChatImages = mapped != "" && slices.Contains(setting.RetailChatImageModels, mapped)
+			}
+		}
+		pictures, err := retailRequestPictures(raw, path, allowChatImages)
 		if err != nil {
 			return true, retailRejection(c, "input", "register_media", err)
 		}
 		if len(pictures) > 0 {
 			c.Request = c.Request.WithContext(WithStudioVision(c.Request.Context(), pictures))
+			if path == "/v1/chat/completions" {
+				c.Set("retail_chat_image_channel", visionChannel)
+			}
 		}
 	}
 	if err := validateRetailRequest(c, raw, quote.Model.Kind, c.Request.URL.Path, false); err != nil {
@@ -291,6 +305,22 @@ func retailDispatchOriginMatches(book retailprice.Book, channel int, destination
 	return origin != "" && destination != nil && destination.Scheme == "https" && destination.User == nil && strings.EqualFold("https://"+destination.Host, origin)
 }
 
+// retailDispatchModels resolves the rate source and the exact upstream model bound by this product's route.
+// A missing route returns an empty model so neither image admission nor dispatch can use a guessed alias.
+func retailDispatchModels(book retailprice.Book, productID string, channelID int, modelID string) (int, string) {
+	for _, product := range book.Products {
+		if product.ID == productID {
+			for _, route := range product.Routes {
+				if route.ChannelID == channelID {
+					return product.RateSourceChannelID, route.Models[modelID]
+				}
+			}
+			return product.RateSourceChannelID, ""
+		}
+	}
+	return 0, ""
+}
+
 // GuardRetailUpstream validates the final serialized body after model/parameter overrides, immediately before I/O.
 // Rates must still support the original sale quote; publishing a new version never reprices this request.
 func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
@@ -344,16 +374,13 @@ func GuardRetailUpstream(c *gin.Context, req *http.Request, info *relaycommon.Re
 			}
 		}
 	}
-	upstreamModel := ""
-	rateSourceID := 0
-	for _, product := range book.Products {
-		if product.ID == quote.ProductID {
-			rateSourceID = product.RateSourceChannelID
-			for _, route := range product.Routes {
-				if route.ChannelID == info.ChannelId {
-					upstreamModel = route.Models[quote.Model.ID]
-				}
-			}
+	rateSourceID, upstreamModel := retailDispatchModels(book, quote.ProductID, info.ChannelId, quote.Model.ID)
+	if channelID := c.GetInt("retail_chat_image_channel"); channelID != 0 {
+		// 只有这些出站协议会逐张核对已登记图片；更换渠道或转换成其他协议不能继承许可。
+		path := req.URL.Path
+		if channelID != info.ChannelId || !slices.Contains(info.ChannelSetting.RetailChatImageModels, upstreamModel) ||
+			!(strings.HasSuffix(path, "/chat/completions") || strings.HasSuffix(path, "/responses") || strings.HasSuffix(path, "/messages")) {
+			return retailRejection(c, "dispatch", "chat_image_route_changed", retailprice.ErrAccess)
 		}
 	}
 	reader, err := req.GetBody()
