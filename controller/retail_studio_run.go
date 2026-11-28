@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/retailprice"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/shirou/gopsutil/disk"
@@ -33,18 +35,20 @@ var studioUploadSlots = make(chan struct{}, 8)
 const interruptedRun = "Generation was interrupted. Check usage before trying again."
 
 type studioIntent struct {
-	Record            studioHistoryRecord `json:"record"`
-	Parent            string              `json:"parent"`
-	MaxTokens         int                 `json:"maxTokens"`
-	Size              string              `json:"size"`
-	Quality           string              `json:"quality"`
-	OutputFormat      string              `json:"outputFormat,omitempty"`
-	OutputCompression *int                `json:"outputCompression,omitempty"`
+	Record            studioHistoryRecord       `json:"record"`
+	Parent            string                    `json:"parent"`
+	MaxTokens         int                       `json:"maxTokens"`
+	Size              string                    `json:"size"`
+	Quality           string                    `json:"quality"`
+	OutputFormat      string                    `json:"outputFormat,omitempty"`
+	OutputCompression *int                      `json:"outputCompression,omitempty"`
+	Video             *retailprice.VideoRequest `json:"video,omitempty"`
 	uploadedReference bool
 	chatImages        map[int]string
 }
 type studioWorker struct {
 	cancel             context.CancelFunc
+	video              bool
 	mu                 sync.Mutex
 	content, reasoning strings.Builder
 }
@@ -67,8 +71,9 @@ type studioFrame struct {
 	} `json:"error"`
 }
 
-// studioRunRequest reconstructs only supported chat/image parameters. Routing and wallet checks
-// are still enforced by the original paid relay, including the owner's current group and budget.
+// studioRunRequest rebuilds supported chat, image and video inputs from the validated intent.
+// Chat and image use the paid relay. Video uses a separate asynchronous worker with frozen pricing
+// and wallet reservations, while retaining the owner's product, group and budget restrictions.
 func studioRunRequest(in *studioIntent) (string, []byte, error) {
 	row := &in.Record
 	if row.Product == "" || len(row.Product) > 256 || len(row.Entries) == 0 {
@@ -82,11 +87,22 @@ func studioRunRequest(in *studioIntent) (string, []byte, error) {
 	last.Reasoning = ""
 	last.Error = ""
 	last.Image = ""
+	last.Video = ""
 	last.Complete = false
 	path := "/api/retail/studio/"
 	body := gin.H{"model": last.Model}
 	switch row.Mode {
+	case "video":
+		// 视频为独立的无状态生成，不允许旧会话或附件改变本轮已确认的规格。
+		if len(row.Entries) != 1 || in.Parent != "" || in.uploadedReference || last.Reference != "" || in.Video == nil || in.Video.Validate() != nil || in.Video.Duration > relaycommon.MaxTaskDurationSeconds || len(last.Prompt) > 32000 || (last.Model != "grok-imagine-video" && last.Model != "grok-imagine-video-1.5") || (last.Model == "grok-imagine-video" && in.Video.Resolution == "1080p") {
+			return "", nil, errors.New("invalid video options")
+		}
+		body["prompt"] = last.Prompt
+		path += "videos/generations"
 	case "text":
+		if in.Video != nil {
+			return "", nil, errors.New("unexpected video options")
+		}
 		if in.MaxTokens < 1 || in.MaxTokens > 32768 {
 			return "", nil, errors.New("invalid output limit")
 		}
@@ -112,6 +128,9 @@ func studioRunRequest(in *studioIntent) (string, []byte, error) {
 		body["max_tokens"] = in.MaxTokens
 		path += "chat/completions"
 	case "image":
+		if in.Video != nil {
+			return "", nil, errors.New("unexpected video options")
+		}
 		if len(row.Entries) != 1 || !safeStudioRaster(last.Reference) || (in.uploadedReference && (last.Reference != "" || !service.RetailReferenceModel(last.Model))) {
 			return "", nil, errors.New("invalid reference")
 		}
@@ -375,8 +394,13 @@ func StartStudioRun(relay http.Handler) gin.HandlerFunc {
 		} else if in.Record.Mode == "image" && in.uploadedReference {
 			ctx = service.WithStudioReference(ctx, key+".reference")
 		}
-		worker := &studioWorker{cancel: cancel}
+		worker := &studioWorker{cancel: cancel, video: in.Record.Mode == "video"}
 		studioRuns.Store(key, worker)
+		if in.Record.Mode == "video" {
+			go worker.executeVideo(ctx, owner, dir, key, lock, &in.Record, in.Video)
+			c.JSON(202, gin.H{"success": true})
+			return
+		}
 		// Never retain gin.Context or forward arbitrary request headers to the nested relay.
 		req := c.Request.Clone(ctx)
 		req.Method = http.MethodPost
@@ -721,13 +745,17 @@ func GetStudioRun(c *gin.Context) {
 	defer f.Close()
 	r := bufio.NewReader(f)
 	head, err := readStudioHistoryHead(r)
-	if err != nil || head.expired(time.Now()) {
+	if err != nil || studioRecordExpired(head, key, time.Now()) {
 		historyError(c, 404)
 		return
 	}
 	var row studioHistoryRecord
 	if common.DecodeJson(r, &row) != nil || len(row.Entries) == 0 {
 		historyError(c, 500)
+		return
+	}
+	if row.Mode == "video" && resumeStudioVideo(c.GetInt("id"), key, &row) {
+		c.JSON(200, gin.H{"running": true, "content": "", "reasoning": "", "nextContent": 0, "nextReasoning": 0})
 		return
 	}
 	if row.Running {
@@ -737,7 +765,7 @@ func GetStudioRun(c *gin.Context) {
 	c.JSON(200, gin.H{"running": false, "record": row})
 }
 
-// StopStudioRun cancels only the owner's running generation; an ordinary reader disconnect has no effect.
+// StopStudioRun 只取消当前账号的聊天和图片任务。视频上游没有已验证的取消协议，取消本地轮询不能释放预留。
 func StopStudioRun(c *gin.Context) {
 	id := c.Param("id")
 	if !historyID(id) || c.Query("owner") != fmt.Sprint(c.GetInt("id")) {
@@ -745,7 +773,12 @@ func StopStudioRun(c *gin.Context) {
 		return
 	}
 	if value, ok := studioRuns.Load(filepath.Join(studioOwnerDir(c), id)); ok {
-		value.(*studioWorker).cancel()
+		worker := value.(*studioWorker)
+		if worker.video {
+			historyError(c, 409)
+			return
+		}
+		worker.cancel()
 	}
 	c.JSON(200, gin.H{"success": true})
 }

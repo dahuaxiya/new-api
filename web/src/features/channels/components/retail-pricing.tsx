@@ -626,14 +626,11 @@ function RetailPricingEditor(props: {
   )
 }
 
-/** Show the full calculated tariff both in the optional preview and the publication review. */
+/** 展示发布复核的完整售价，视频按分辨率逐项标明每秒价格。 */
 export function SellingPricePreview(props: { rows: RetailPricePreview[] }) {
   const { t } = useTranslation()
   return (
     <div className='space-y-4' aria-live='polite'>
-      <p className='text-sm font-medium'>
-        {t('Selling prices · CNY per million tokens')}
-      </p>
       {props.rows.length === 0 && (
         <p className='text-muted-foreground text-sm'>
           {t('No products configured')}
@@ -649,6 +646,20 @@ export function SellingPricePreview(props: { rows: RetailPricePreview[] }) {
           </p>
           {!row.available && (
             <Badge variant='warning'>{t('Unavailable or expired')}</Badge>
+          )}
+          {row.video && (
+            <div className='flex flex-wrap gap-4 text-sm'>
+              {Object.entries(row.video.prices).map(([resolution, price]) => (
+                <span key={resolution}>
+                  {resolution} · ¥{price} / {t('second')}
+                </span>
+              ))}
+            </div>
+          )}
+          {!row.video && (
+            <p className='text-sm font-medium'>
+              {t('Selling prices · CNY per million tokens')}
+            </p>
           )}
           {row.tiers?.map((tier) => (
             <div

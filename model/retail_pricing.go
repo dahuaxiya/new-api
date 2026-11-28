@@ -286,7 +286,7 @@ func putRetailKeyPolicy(tx *gorm.DB, userID, tokenID int, expected int64, policy
 
 // RetailQuote constructs a customer quote from a fresh book and verified public supply candidates.
 func RetailQuote(userID, tokenID int, modelName string, outputLimit int, eligible []int, productIDs ...string) (*retailprice.Quote, error) {
-	return retailQuote(userID, tokenID, modelName, outputLimit, 0, eligible, productIDs...)
+	return retailQuote(userID, tokenID, modelName, outputLimit, 0, nil, eligible, productIDs...)
 }
 
 // RetailQuoteWithInput includes the request's measured input size in the wallet
@@ -296,10 +296,16 @@ func RetailQuoteWithInput(userID, tokenID int, modelName string, outputLimit, in
 	if inputTokens <= 0 {
 		return nil, retailprice.ErrBudget
 	}
-	return retailQuote(userID, tokenID, modelName, outputLimit, inputTokens, eligible, productIDs...)
+	return retailQuote(userID, tokenID, modelName, outputLimit, inputTokens, nil, eligible, productIDs...)
 }
 
-func retailQuote(userID, tokenID int, modelName string, outputLimit, inputTokens int, eligible []int, productIDs ...string) (*retailprice.Quote, error) {
+// RetailVideoQuote 在现有零售身份和供货授权下获取视频报价，不接受客户端自报价格。
+func RetailVideoQuote(userID, tokenID int, modelName string, video retailprice.VideoRequest, eligible []int, product string) (*retailprice.Quote, error) {
+	return retailQuote(userID, tokenID, modelName, 0, 0, &video, eligible, product)
+}
+
+// retailQuote 从当前价表和用户权限构建报价，各模态只共享授权和选路规则。
+func retailQuote(userID, tokenID int, modelName string, outputLimit, inputTokens int, video *retailprice.VideoRequest, eligible []int, productIDs ...string) (*retailprice.Quote, error) {
 	book, version, err := GetQuotableRetailPriceBook()
 	if err != nil {
 		return nil, err
@@ -340,6 +346,9 @@ func retailQuote(userID, tokenID int, modelName string, outputLimit, inputTokens
 	for _, p := range book.Products {
 		if p.ID == policy.ProductID {
 			now := time.Now().Unix()
+			if video != nil {
+				return book.MakeVideoQuote(version, user.Group, policy, modelName, *video, targets.Eligible(p, modelName), now)
+			}
 			if inputTokens > 0 {
 				return book.MakeQuote(version, user.Group, policy, modelName, outputLimit, targets.Eligible(p, modelName), now, inputTokens)
 			}
@@ -420,12 +429,21 @@ func ReservePricedRetailCharge(id string, userID, tokenID int, quote *retailpric
 		if err := checkRetailRateAccess(tx, &book); err != nil {
 			return err
 		}
-		fresh, err := book.MakeQuote(state.Version, user.Group, policy, quote.Model.ID, quote.OutputLimit, quote.Channels, time.Now().Unix(), quote.ReservedInputTokens)
+		var fresh *retailprice.Quote
+		if quote.Video != nil {
+			fresh, err = book.MakeVideoQuote(state.Version, user.Group, policy, quote.Model.ID, *quote.Video, quote.Channels, time.Now().Unix())
+		} else {
+			fresh, err = book.MakeQuote(state.Version, user.Group, policy, quote.Model.ID, quote.OutputLimit, quote.Channels, time.Now().Unix(), quote.ReservedInputTokens)
+		}
 		if err != nil {
 			return err
 		}
 		// 在报价与预留之间失去授权的供货方必须重新选路，避免后续沿用旧的候选集合。
 		if !slices.Equal(fresh.Channels, quote.Channels) {
+			return ErrRetailPriceConflict
+		}
+		// 视频预扣必须等于重新报价金额，防止参数与冻结金额之间发生漂移。
+		if quote.Video != nil && (fresh.ReservedCNY != quote.ReservedCNY || fresh.VideoUnitCNY != quote.VideoUnitCNY || fresh.VideoModel != quote.VideoModel) {
 			return ErrRetailPriceConflict
 		}
 		if fresh.ProductID != quote.ProductID || fresh.EstimatedTextHold != quote.EstimatedTextHold {

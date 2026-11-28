@@ -48,6 +48,7 @@ type studioHistoryEntry struct {
 	Complete  bool   `json:"complete"`
 	Error     string `json:"error,omitempty"`
 	Image     string `json:"image,omitempty"`
+	Video     string `json:"video,omitempty"`
 	Reference string `json:"reference,omitempty"`
 }
 type studioHistoryRecord struct {
@@ -88,6 +89,11 @@ func (head studioHistoryHead) expired(now time.Time) bool {
 	return head.UpdatedAt <= now.Add(-studioHistoryRetention).UnixMilli()
 }
 
+// studioRecordExpired 保持待核账视频可见且可恢复，防止正常保留期结束后用户无法追查预留金额。
+func studioRecordExpired(head studioHistoryHead, key string, now time.Time) bool {
+	return head.expired(now) && !(head.Mode == "video" && studioVideoAccountingPending(key))
+}
+
 // purgeStudioOwner drops expired records and abandoned uploads even for accounts that never sign in again.
 func purgeStudioOwner(dir string, owner int, now time.Time) error {
 	lock := &historyLocks[owner%len(historyLocks)]
@@ -109,7 +115,7 @@ func purgeStudioOwner(dir string, owner int, now time.Time) error {
 				var head studioHistoryHead
 				head, err = readStudioHistoryHead(bufio.NewReader(f))
 				f.Close()
-				expired = err == nil && head.expired(now)
+				expired = err == nil && studioRecordExpired(head, strings.TrimSuffix(path, ".record"), now)
 			}
 		} else if item.Type().IsRegular() && strings.HasSuffix(item.Name(), ".run") {
 			var info os.FileInfo
@@ -204,7 +210,7 @@ func ListStudioHistory(c *gin.Context) {
 			historyError(c, 500)
 			return
 		}
-		if head.expired(time.Now()) {
+		if studioRecordExpired(head, filepath.Join(dir, strings.TrimSuffix(item.Name(), ".record")), time.Now()) {
 			continue
 		}
 		rows = append(rows, head)
@@ -232,7 +238,7 @@ func ReadStudioHistory(c *gin.Context) {
 		historyError(c, 500)
 		return
 	}
-	if head.expired(time.Now()) {
+	if studioRecordExpired(head, filepath.Join(studioOwnerDir(c), id), time.Now()) {
 		historyError(c, 404)
 		return
 	}
@@ -260,6 +266,10 @@ func DeleteStudioHistory(c *gin.Context) {
 		return
 	}
 	err := deleteStudioRecord(filepath.Join(studioOwnerDir(c), id))
+	if errors.Is(err, errStudioVideoAccountingPending) {
+		historyError(c, 409)
+		return
+	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		historyError(c, 500)
 		return

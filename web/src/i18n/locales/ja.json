@@ -8502,6 +8502,19 @@
     "Suggestions appear as you type after the @ symbol.": "@ の後にドメインを入力すると候補が表示されます。",
     "Cache hit rate": "キャッシュヒット率",
     "Unit price not recorded": "単価の記録なし",
-    "No model found. Enter a model name to search historical logs.": "該当するモデルがありません。モデル名を入力して過去のログを検索できます。"
+    "No model found. Enter a model name to search historical logs.": "該当するモデルがありません。モデル名を入力して過去のログを検索できます。",
+    "Aspect ratio": "アスペクト比",
+    "Could not load the video. Retry to download the existing file.": "動画を読み込めませんでした。生成済みファイルの取得を再試行してください。",
+    "Duration (seconds)": "長さ（秒）",
+    "Select a supported video duration and resolution.": "対応する動画の長さと解像度を選択してください。",
+    "Video generation": "動画生成",
+    "Video resolution": "動画の解像度",
+    "Describe the video you want": "生成したい動画を説明してください",
+    "Generate video": "動画を生成",
+    "Generating video…": "動画を生成中…",
+    "The video is complete, but its file is unavailable. Open this record later to retry retrieval.": "動画は生成済みですが、ファイルを取得できません。後でこの履歴を開いて再試行してください。",
+    "Video submission could not be confirmed. Check usage before trying again.": "動画リクエストの受付を確認できません。再試行する前に利用状況を確認してください。",
+    "The video is still processing. Open this record later to continue checking.": "動画を生成中です。後でこの履歴を開いて進捗を確認してください。",
+    "The video could not be delivered. Funds remain reserved while the charge is checked.": "動画をお届けできませんでした。料金の確認が完了するまで金額は確保されたままです。"
   }
 }

@@ -8502,6 +8502,19 @@
     "Suggestions appear as you type after the @ symbol.": "Suggestions appear as you type after the @ symbol.",
     "Cache hit rate": "Cache hit rate",
     "Unit price not recorded": "Unit price not recorded",
-    "No model found. Enter a model name to search historical logs.": "No model found. Enter a model name to search historical logs."
+    "No model found. Enter a model name to search historical logs.": "No model found. Enter a model name to search historical logs.",
+    "Aspect ratio": "Aspect ratio",
+    "Could not load the video. Retry to download the existing file.": "Could not load the video. Retry to download the existing file.",
+    "Duration (seconds)": "Duration (seconds)",
+    "Select a supported video duration and resolution.": "Select a supported video duration and resolution.",
+    "Video generation": "Video generation",
+    "Video resolution": "Video resolution",
+    "Describe the video you want": "Describe the video you want",
+    "Generate video": "Generate video",
+    "Generating video…": "Generating video…",
+    "The video is complete, but its file is unavailable. Open this record later to retry retrieval.": "The video is complete, but its file is unavailable. Open this record later to retry retrieval.",
+    "Video submission could not be confirmed. Check usage before trying again.": "Video submission could not be confirmed. Check usage before trying again.",
+    "The video is still processing. Open this record later to continue checking.": "The video is still processing. Open this record later to continue checking.",
+    "The video could not be delivered. Funds remain reserved while the charge is checked.": "The video could not be delivered. Funds remain reserved while the charge is checked."
   }
 }

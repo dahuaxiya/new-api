@@ -16,7 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Download, ImageIcon, LoaderCircle, MessageSquare } from 'lucide-react'
+import {
+  Download,
+  ImageIcon,
+  LoaderCircle,
+  MessageSquare,
+  Video,
+} from 'lucide-react'
 import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -40,7 +46,7 @@ export function StudioResults(props: {
   busy: boolean
   onQuoteText: (text: string) => void
   onQuoteImage?: (source: File | string) => void
-  mode: 'text' | 'image'
+  mode: 'text' | 'image' | 'video'
 }) {
   const { t } = useTranslation()
   const transcript = useRef<HTMLDivElement>(null)
@@ -56,16 +62,24 @@ export function StudioResults(props: {
           {props.entries.length === 0 && (
             <div className='m-auto grid justify-items-center gap-3 px-2 py-4 text-center'>
               <div className='bg-background text-foreground/75 grid size-11 place-items-center rounded-2xl border shadow-xs md:size-14'>
-                {props.mode === 'image' ? (
+                {props.mode === 'video' && (
+                  <Video className='size-5' aria-hidden='true' />
+                )}
+                {props.mode === 'image' && (
                   <ImageIcon className='size-5' aria-hidden='true' />
-                ) : (
+                )}
+                {props.mode === 'text' && (
                   <MessageSquare className='size-5' aria-hidden='true' />
                 )}
               </div>
               <h2 className='text-foreground/90 text-base font-medium tracking-tight md:text-2xl'>
-                {props.mode === 'image'
-                  ? t('Describe the image you want')
-                  : t('What would you like to work on?')}
+                {t(
+                  {
+                    text: 'What would you like to work on?',
+                    image: 'Describe the image you want',
+                    video: 'Describe the video you want',
+                  }[props.mode]
+                )}
               </h2>
             </div>
           )}
@@ -109,10 +123,12 @@ export function StudioResults(props: {
                 {item.image && (
                   <StudioResultImage item={item} onQuote={props.onQuoteImage} />
                 )}
+                {item.video && <StudioResultVideo item={item} />}
                 {props.busy &&
                   index === props.entries.length - 1 &&
                   !item.content &&
-                  !item.image && (
+                  !item.image &&
+                  !item.video && (
                     <p
                       role='status'
                       className='text-muted-foreground flex items-center gap-2 text-sm'
@@ -122,9 +138,11 @@ export function StudioResults(props: {
                         aria-hidden='true'
                       />
                       {t(
-                        props.mode === 'image'
-                          ? 'Generating image…'
-                          : 'Responding...'
+                        {
+                          text: 'Responding...',
+                          image: 'Generating image…',
+                          video: 'Generating video…',
+                        }[props.mode]
                       )}
                     </p>
                   )}
@@ -219,6 +237,48 @@ function StudioResultImage(props: {
         render={
           <a href={url} download={`luobocode-${props.item.id}.${format}`} />
         }
+      >
+        <Download aria-hidden='true' />
+        {t('Download')}
+      </Button>
+    </div>
+  )
+}
+
+/** 使用账号鉴权读取视频，再用可撤销的本地 URL 播放和下载，链接中不包含访问凭据。
+ * @param props 已由服务器验证并存储的私有视频记录。
+ * @return 带播放控件和原始 MP4 下载的结果，读取期间显示加载状态。
+ */
+function StudioResultVideo(props: { item: StudioEntry }) {
+  const { t } = useTranslation()
+  const { url, failed, retry } = useStudioImage(props.item.video)
+  if (failed) {
+    return (
+      <div className='space-y-3'>
+        <p role='alert'>
+          {t('Could not load the video. Retry to download the existing file.')}
+        </p>
+        <Button variant='outline' size='sm' onClick={retry}>
+          {t('Retry')}
+        </Button>
+      </div>
+    )
+  }
+  if (!url) return <p role='status'>{t('Loading...')}</p>
+  // 项目现有媒体组件只支持图片，原生 video 提供键盘操作、音量和全屏控件。
+  return (
+    <div className='space-y-3'>
+      <video
+        src={url}
+        controls
+        preload='metadata'
+        aria-label={props.item.prompt}
+        className='max-h-[58dvh] max-w-full rounded-xl'
+      />
+      <Button
+        variant='outline'
+        size='sm'
+        render={<a href={url} download={`luobocode-${props.item.id}.mp4`} />}
       >
         <Download aria-hidden='true' />
         {t('Download')}

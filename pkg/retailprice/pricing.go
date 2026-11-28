@@ -5,6 +5,7 @@ package retailprice
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
 	"slices"
@@ -67,15 +68,37 @@ type Tier struct {
 type Model struct {
 	PriceMode string `json:"price_mode,omitempty"` // Empty for historical imports, official after verification, manual for overrides.
 	// Kind distinguishes text completion from text-only image generation. Empty preserves existing books.
-	Kind          string `json:"kind,omitempty"`
-	ID            string `json:"id"`
-	OfficialModel string `json:"official_model"`
-	Currency      string `json:"currency"`
-	Source        string `json:"source"`
-	VerifiedAt    int64  `json:"verified_at"`
-	ValidUntil    int64  `json:"valid_until"`
-	MaxOutput     int    `json:"max_output"`
-	Tiers         []Tier `json:"tiers"`
+	Kind          string       `json:"kind,omitempty"`
+	ID            string       `json:"id"`
+	OfficialModel string       `json:"official_model"`
+	Currency      string       `json:"currency"`
+	Source        string       `json:"source"`
+	VerifiedAt    int64        `json:"verified_at"`
+	ValidUntil    int64        `json:"valid_until"`
+	MaxOutput     int          `json:"max_output"`
+	Tiers         []Tier       `json:"tiers"`
+	Video         *VideoTariff `json:"video,omitempty"`
+}
+
+// VideoTariff 保存按分辨率计价的每秒价格，独立于 Token 阶梯。
+type VideoTariff struct {
+	MaxDuration int               `json:"max_duration"`
+	Prices      map[string]string `json:"prices"`
+}
+
+// VideoRequest 是服务端验证并冻结的单次视频规格。
+type VideoRequest struct {
+	Duration    int    `json:"duration"`
+	Resolution  string `json:"resolution"`
+	AspectRatio string `json:"aspect_ratio"`
+}
+
+// Validate 将视频参数限制在已核实的 Grok 协议范围内，禁止未知规格参与计费。
+func (v VideoRequest) Validate() error {
+	if v.Duration < 1 || v.Duration > 15 || !slices.Contains([]string{"480p", "720p", "1080p"}, v.Resolution) || !slices.Contains([]string{"16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"}, v.AspectRatio) {
+		return ErrUsage
+	}
+	return nil
 }
 
 // Rate is an account-specific upstream group multiplier, imported independently of official tariffs.
@@ -168,6 +191,10 @@ type KeyPolicy struct {
 
 // Quote freezes customer prices and the wallet conversion before procurement.
 type Quote struct {
+	Video        *VideoRequest `json:"video,omitempty"`
+	VideoUnitCNY string        `json:"video_unit_cny,omitempty"`
+	// VideoModel 固定首选线路的上游名称，后台恢复不再读取可能已修改的模型映射。
+	VideoModel string `json:"video_model,omitempty"`
 	// SaleFactor retains the unrounded group multiplier until optional tool fees are frozen.
 	SaleFactor decimal.Decimal `json:"-"`
 	// GroupMultiplier is the group rate before margin and fees. Search freezes this at quotation time.
@@ -239,14 +266,29 @@ func (b Book) Validate(now int64) error {
 		if m.PriceMode != "" && m.PriceMode != "official" && m.PriceMode != "manual" {
 			return ConfigRule("model_price_mode")
 		}
-		if m.Kind != "" && m.Kind != "text" && m.Kind != "image" {
+		if m.Kind != "" && m.Kind != "text" && m.Kind != "image" && m.Kind != "video" {
 			return ConfigRule("model_kind")
 		}
 		u, err := url.Parse(m.Source)
-		if !idPattern.MatchString(m.ID) || !idPattern.MatchString(m.OfficialModel) || models[m.ID] || (m.Currency != "USD" && m.Currency != "CNY") || err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || m.VerifiedAt <= 0 || m.VerifiedAt > now+30 || m.ValidUntil <= m.VerifiedAt || m.ValidUntil-m.VerifiedAt > 366*86400 || m.MaxOutput < 1 || m.MaxOutput > 1000000 || len(m.Tiers) == 0 || len(m.Tiers) > 10 {
+		if !idPattern.MatchString(m.ID) || !idPattern.MatchString(m.OfficialModel) || models[m.ID] || (m.Currency != "USD" && m.Currency != "CNY") || err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || m.VerifiedAt <= 0 || m.VerifiedAt > now+30 || m.ValidUntil <= m.VerifiedAt || m.ValidUntil-m.VerifiedAt > 366*86400 {
 			return ConfigRule("model_definition")
 		}
 		models[m.ID] = true
+		if m.Kind == "video" {
+			if m.Video == nil || m.Video.MaxDuration < 1 || m.Video.MaxDuration > 15 || len(m.Video.Prices) == 0 || len(m.Video.Prices) > 3 || len(m.Tiers) != 0 || m.MaxOutput != 0 {
+				return ConfigRule("video_tariff")
+			}
+			for resolution, raw := range m.Video.Prices {
+				price, err := Amount(raw)
+				if !slices.Contains([]string{"480p", "720p", "1080p"}, resolution) || err != nil || !price.IsPositive() {
+					return ConfigRule("video_price")
+				}
+			}
+			continue
+		}
+		if m.Video != nil || m.MaxOutput < 1 || m.MaxOutput > 1000000 || len(m.Tiers) == 0 || len(m.Tiers) > 10 {
+			return ConfigRule("text_tariff")
+		}
 		last := 0
 		for _, tier := range m.Tiers {
 			if tier.UpTo <= last || tier.UpTo > 2000000 {
@@ -389,6 +431,45 @@ func (b Book) AnchoredSaleFactor(product Product) (PublicRate, decimal.Decimal, 
 // MakeQuote freezes the selected group's tariff before routing. Anchored groups
 // admit all routes that can serve that tariff. Historical groups keep cheapest-route pricing.
 func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName string, outputLimit int, eligible []int, now int64, inputTokens ...int) (*Quote, error) {
+	return b.makeQuote(version, group, key, modelName, outputLimit, eligible, now, nil, inputTokens...)
+}
+
+// MakeVideoQuote 按明确的视频规格报价，复用商品授权与采购选路，拒绝旧 Token 价格上限策略。
+func (b Book) MakeVideoQuote(version int64, group string, key KeyPolicy, modelName string, video VideoRequest, eligible []int, now int64) (*Quote, error) {
+	if video.Validate() != nil || (!key.StudioCurrent && !key.GroupCurrent) {
+		return nil, ErrAccess
+	}
+	return b.makeQuote(version, group, key, modelName, 0, eligible, now, &video)
+}
+
+// MakeCatalogQuote 为服务端目录和上架复核生成展示报价，视频必须逐项复核全部分辨率。
+// 此方法使用当前分组价，不代表用户已同意扣费，实际请求仍须调用对应的运行时报价方法。
+func (b Book) MakeCatalogQuote(version int64, group string, key KeyPolicy, official Model, eligible []int, now int64) (*Quote, *VideoTariff, error) {
+	if official.Kind != "video" || official.Video == nil {
+		quote, err := b.MakeQuote(version, group, key, official.ID, 1, eligible, now)
+		return quote, nil, err
+	}
+	// 目录展示只复用商品身份，不能把文字价格上限或 Studio 策略混入分组当前价策略。
+	key = KeyPolicy{ProductID: key.ProductID, GroupCurrent: true}
+	tariff := &VideoTariff{MaxDuration: official.Video.MaxDuration, Prices: map[string]string{}}
+	var quote *Quote
+	// 排序保证展示和发布摘要稳定。任一规格失败都拒绝整项预览，避免确认时漏掉价格。
+	for _, resolution := range slices.Sorted(maps.Keys(official.Video.Prices)) {
+		candidate, err := b.MakeVideoQuote(version, group, key, official.ID, VideoRequest{Duration: 1, Resolution: resolution, AspectRatio: "16:9"}, eligible, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		quote = candidate
+		tariff.Prices[resolution] = candidate.VideoUnitCNY
+	}
+	if quote == nil {
+		return nil, nil, ErrConfig
+	}
+	return quote, tariff, nil
+}
+
+// makeQuote 在同一套授权与选路结果上冻结各模态价格，避免视频套用 Token 预留逻辑。
+func (b Book) makeQuote(version int64, group string, key KeyPolicy, modelName string, outputLimit int, eligible []int, now int64, video *VideoRequest, inputTokens ...int) (*Quote, error) {
 	// Persisted state is still an input boundary: corrupted or partially restored
 	// catalogs must fail closed before indexing tiers or evaluating a cost floor.
 	if err := b.Validate(now); err != nil {
@@ -412,6 +493,12 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 	if product == nil || official == nil || !product.AllowsGroup(group) {
 		return nil, ErrAccess
 	}
+	if (official.Kind == "video") != (video != nil) {
+		return nil, ErrAccess
+	}
+	if video != nil && (official.Video == nil || video.Duration > official.Video.MaxDuration || official.Video.Prices[video.Resolution] == "") {
+		return nil, ErrUsage
+	}
 	if official.ValidUntil <= now {
 		return nil, ErrExpired
 	}
@@ -424,10 +511,10 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 	if !ok && !key.StudioCurrent && !key.GroupCurrent {
 		return nil, ErrAccess
 	}
-	if outputLimit <= 0 {
+	if video == nil && outputLimit <= 0 {
 		return nil, ErrBudget
 	}
-	if outputLimit > official.MaxOutput {
+	if video == nil && outputLimit > official.MaxOutput {
 		return nil, &OutputLimitError{MaxOutput: official.MaxOutput}
 	}
 	var saleFactor decimal.Decimal
@@ -505,6 +592,23 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 		return nil, ErrExpired
 	}
 	quote := &Quote{SaleFactor: saleFactor, GroupMultiplier: groupMultiplier, Version: version, ProductID: product.ID, Model: *official, WalletCNYPerUnit: b.WalletCNYPerUnit, ValidUntil: expires, OutputLimit: outputLimit, Channels: channels}
+	if video != nil {
+		for _, route := range product.Routes {
+			if route.ChannelID == channels[0] {
+				quote.VideoModel = route.Models[modelName]
+				break
+			}
+		}
+		unit, _ := Amount(official.Video.Prices[video.Resolution])
+		unit = unit.Mul(saleFactor).RoundCeil(8)
+		reserve := unit.Mul(decimal.NewFromInt(int64(video.Duration))).RoundCeil(8)
+		limit, _ := Amount(key.MaxRequestCNY)
+		if !key.GroupCurrent && reserve.GreaterThan(limit) {
+			return nil, ErrBudget
+		}
+		quote.Video, quote.VideoUnitCNY, quote.ReservedCNY = video, unit.String(), reserve.String()
+		return quote, nil
+	}
 	maxInput, maxOutput := decimal.Zero, decimal.Zero
 	for _, tier := range official.Tiers {
 		values := make([]string, 5)
@@ -589,7 +693,22 @@ func (b Book) MakeQuote(version int64, group string, key KeyPolicy, modelName st
 // Charge evaluates normalized text/cache counts using the accepted CNY schedule.
 // Caller must not feed provider estimates or non-text modalities into this contract.
 func (q Quote) Charge(context int, counts [5]int) (decimal.Decimal, error) {
+	if q.Video != nil || q.Model.Kind == "video" {
+		return decimal.Zero, ErrUsage
+	}
 	return q.charge(context, counts, 0, 0)
+}
+
+// ChargeVideo 只接受上游确认的完成时长，超过预留规格时保留预扣并交人工核对。
+func (q Quote) ChargeVideo(seconds int) (decimal.Decimal, error) {
+	if q.Video == nil || q.Video.Validate() != nil || q.Model.Kind != "video" || seconds < 1 || seconds > q.Video.Duration {
+		return decimal.Zero, ErrUsage
+	}
+	unit, err := Amount(q.VideoUnitCNY)
+	if err != nil || !unit.IsPositive() {
+		return decimal.Zero, ErrUsage
+	}
+	return unit.Mul(decimal.NewFromInt(int64(seconds))).RoundCeil(8), nil
 }
 
 // ChargeImage prices image input separately from text using the published GPT Image ratio

@@ -749,6 +749,39 @@ func TestRetailGroupLaunchDatabases(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, nextVersion, sameVersion)
 
+			// 视频没有 Token 阶梯，仍须通过真实上架事务确认每个分辨率的售价并保存供货线路。
+			video := retailprice.Model{ID: "grok-imagine-video", OfficialModel: "grok-imagine-video",
+				Kind: "video", PriceMode: "manual", Currency: "USD", Source: "https://aixingxing.pro/api/pricing",
+				VerifiedAt: now - 30, ValidUntil: now + 3600,
+				Video: &retailprice.VideoTariff{MaxDuration: 15, Prices: map[string]string{"480p": "0.10", "720p": "0.12"}}}
+			saved.Models = append(saved.Models, video)
+			nextVersion, err = PublishRetailPriceBook(nextVersion, saved, nil, 1)
+			require.NoError(t, err)
+			videoLaunch := RetailGroupLaunch{Version: nextVersion, Site: site.Id, Group: "grok-ultra",
+				Upstream: "b", Models: []string{video.ID}, Key: "new-grok-key", Margin: &margin}
+			videoPreview, err := LaunchRetailGroup(ctx, videoLaunch, 1)
+			require.NoError(t, err)
+			require.NotEmpty(t, videoPreview.Review)
+			require.Len(t, videoPreview.Rows, 1)
+			require.Empty(t, videoPreview.Rows[0].Reason)
+			require.Empty(t, videoPreview.Rows[0].Tiers)
+			require.Equal(t, &retailprice.VideoTariff{MaxDuration: 15,
+				Prices: map[string]string{"480p": "0.0625", "720p": "0.075"}}, videoPreview.Rows[0].Video)
+			videoLaunch.Review = videoPreview.Review
+			videoResult, err := LaunchRetailGroup(ctx, videoLaunch, 1)
+			require.NoError(t, err)
+			require.True(t, videoResult.Applied)
+			saved, nextVersion, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			videoProduct := saved.Products[len(saved.Products)-1]
+			targets, err = RetailDisplayTargets()
+			require.NoError(t, err)
+			videoQuote, err := saved.MakeVideoQuote(nextVersion, videoProduct.BindingGroup,
+				retailprice.KeyPolicy{GroupCurrent: true, ProductID: videoProduct.ID}, video.ID,
+				retailprice.VideoRequest{Duration: 2, Resolution: "720p", AspectRatio: "16:9"},
+				targets.Eligible(videoProduct, video.ID), now)
+			require.NoError(t, err)
+			require.Equal(t, "0.15", videoQuote.ReservedCNY)
 		})
 	}
 }

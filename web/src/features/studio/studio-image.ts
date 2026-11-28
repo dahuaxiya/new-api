@@ -21,7 +21,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 
 const mediaPath =
-  /^\/api\/retail\/studio\/media\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/(?:(?:reference|result)(?:-(?:0|[1-9]\d*))?|chat-(?:0|[1-9]\d*))$/
+  /^\/api\/retail\/studio\/media\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/(?:(?:reference|result)(?:-(?:0|[1-9]\d*))?|chat-(?:0|[1-9]\d*)|video)$/
 
 /** Only request same-origin media links with the server's fixed UUID and role shape. */
 export function isStudioMedia(value?: File | string): value is string {
@@ -44,6 +44,16 @@ export async function readStudioMedia(
 
 /** Use revocable object URLs for original files and authenticated media while retaining old data URLs. */
 export function useStudioImage(source?: File | string) {
+  const [attempt, setAttempt] = useState(0)
+  const [failure, setFailure] = useState<{
+    source: File | string
+    attempt: number
+  }>()
+  /** 仅重试读取原有私有文件，调用方不会因此重新创建付费任务。 */
+  function retry(): void {
+    setAttempt((value) => value + 1)
+  }
+  const failed = failure?.source === source && failure?.attempt === attempt
   const [loaded, setLoaded] = useState<{
     source: File | string
     url: string
@@ -67,13 +77,13 @@ export function useStudioImage(source?: File | string) {
         setLoaded({ source, url, format })
       })
       .catch(() => {
-        // The API client reports failed authenticated downloads; selection remains usable.
+        if (!abort.signal.aborted) setFailure({ source, attempt })
       })
     return () => {
       abort.abort()
       if (url) URL.revokeObjectURL(url)
     }
-  }, [source])
+  }, [source, attempt])
   if (
     typeof source === 'string' &&
     /^data:image\/(png|jpeg|webp);base64,/.test(source)
@@ -81,9 +91,11 @@ export function useStudioImage(source?: File | string) {
     return {
       url: source,
       format: source.slice('data:image/'.length, source.indexOf(';')),
+      failed: false,
+      retry,
     }
   }
   return loaded && loaded.source === source
-    ? loaded
-    : { url: undefined, format: undefined }
+    ? { ...loaded, failed: false, retry }
+    : { url: undefined, format: undefined, failed, retry }
 }

@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { z } from 'zod'
 
 const selection = z.object({
-  mode: z.enum(['text', 'image']),
+  mode: z.enum(['text', 'image', 'video']),
   product: z.string(),
   model: z.string(),
 })
@@ -35,6 +35,7 @@ const turns = z.array(
     complete: z.boolean(),
     error: z.string().optional(),
     image: z.string().optional(),
+    video: z.string().optional(),
     reference: z.string().optional(),
   })
 )
@@ -122,7 +123,7 @@ function writePreference(key: string | null, value: unknown) {
 
 export const conversation = z.object({
   running: z.boolean().optional(),
-  mode: z.enum(['text', 'image']).optional(),
+  mode: z.enum(['text', 'image', 'video']).optional(),
   id: z.string(),
   product: z.string(),
   updatedAt: z.number(),
@@ -146,7 +147,7 @@ export function readActive(
   mode: StudioSelection['mode'] = 'text'
 ) {
   const current = read(
-    key && `${key}:${mode === 'text' ? 'chat' : 'image'}:${product}`,
+    key && `${key}:${mode === 'text' ? 'chat' : mode}:${product}`,
     conversation
   )
   const pointer = readCurrent(key, { mode, product })
@@ -163,7 +164,8 @@ export function readActive(
 /** 在当前标签缓存正文，收回标签后可用持久化 ID 从服务器恢复。 */
 export function writeActive(key: string | null, item: Conversation) {
   return writeSession(
-    key && `${key}:${item.mode === 'image' ? 'image' : 'chat'}:${item.product}`,
+    key &&
+      `${key}:${!item.mode || item.mode === 'text' ? 'chat' : item.mode}:${item.product}`,
     item
   )
 }

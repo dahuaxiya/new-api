@@ -8502,6 +8502,19 @@
     "Suggestions appear as you type after the @ symbol.": "Gợi ý xuất hiện khi bạn nhập sau ký tự @.",
     "Cache hit rate": "Tỷ lệ trúng bộ nhớ đệm",
     "Unit price not recorded": "Chưa ghi nhận đơn giá",
-    "No model found. Enter a model name to search historical logs.": "Không tìm thấy mô hình. Nhập tên mô hình để tìm trong nhật ký trước đây."
+    "No model found. Enter a model name to search historical logs.": "Không tìm thấy mô hình. Nhập tên mô hình để tìm trong nhật ký trước đây.",
+    "Aspect ratio": "Tỷ lệ khung hình",
+    "Could not load the video. Retry to download the existing file.": "Không tải được video. Hãy thử tải lại tệp đã tạo.",
+    "Duration (seconds)": "Thời lượng (giây)",
+    "Select a supported video duration and resolution.": "Chọn thời lượng và độ phân giải được hỗ trợ.",
+    "Video generation": "Tạo video",
+    "Video resolution": "Độ phân giải video",
+    "Describe the video you want": "Mô tả video bạn muốn tạo",
+    "Generate video": "Tạo video",
+    "Generating video…": "Đang tạo video…",
+    "The video is complete, but its file is unavailable. Open this record later to retry retrieval.": "Video đã tạo xong nhưng chưa tải được tệp. Hãy mở lại bản ghi này sau để thử lại.",
+    "Video submission could not be confirmed. Check usage before trying again.": "Chưa xác nhận được yêu cầu tạo video. Hãy kiểm tra mức sử dụng trước khi thử lại.",
+    "The video is still processing. Open this record later to continue checking.": "Video vẫn đang được tạo. Hãy mở lại bản ghi này sau để kiểm tra tiến độ.",
+    "The video could not be delivered. Funds remain reserved while the charge is checked.": "Không thể trả video. Số tiền vẫn được giữ trong khi kiểm tra phí."
   }
 }

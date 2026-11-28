@@ -112,12 +112,18 @@ func storeStudioImage(path string, data []byte) error {
 	return os.Rename(f.Name(), path)
 }
 
-// deleteStudioRecord hides a record first and then cleans up its attachments. The sweep retries orphan cleanup.
+var errStudioVideoAccountingPending = errors.New("video accounting is pending")
+
+// deleteStudioRecord 隐藏记录后清理附件；未结算视频必须保留恢复凭据，清理程序稍后重试。
 func deleteStudioRecord(key string) error {
+	// 未结算任务必须保留恢复凭据，删除历史和定期清理均遵守此约束。
+	if studioVideoAccountingPending(key) {
+		return errStudioVideoAccountingPending
+	}
 	if err := os.Remove(key + ".record"); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	err := errors.Join(removeStudioMedia(key+".reference"), removeStudioMedia(key+".result"))
+	err := errors.Join(removeStudioMedia(key+".reference"), removeStudioMedia(key+".result"), removeStudioMedia(key+".video"), removeStudioMedia(key+".video-state"))
 	// Enumerate this UUID's attachment names even after a partially committed run.
 	for _, prefix := range []string{"chat", "result", "reference"} {
 		matches, globErr := filepath.Glob(key + "." + prefix + "-*")
@@ -143,7 +149,7 @@ func ReadStudioMedia(c *gin.Context) {
 	id, role := c.Param("id"), c.Param("role")
 	index, parseErr := strconv.Atoi(strings.TrimPrefix(role, "chat-"))
 	chat := parseErr == nil && index >= 0 && role == studioChatRole(index)
-	if !historyID(id) || (!chat && !studioImageRole(role)) {
+	if !historyID(id) || (!chat && !studioImageRole(role) && role != "video") {
 		historyError(c, 404)
 		return
 	}
@@ -155,7 +161,7 @@ func ReadStudioMedia(c *gin.Context) {
 	}
 	head, err := readStudioHistoryHead(bufio.NewReader(record))
 	record.Close()
-	if err != nil || head.expired(time.Now()) || (chat && head.Mode != "text") || (!chat && head.Mode != "image") {
+	if err != nil || studioRecordExpired(head, key, time.Now()) || (chat && head.Mode != "text") || (!chat && role != "video" && head.Mode != "image") || (role == "video" && head.Mode != "video") {
 		historyError(c, 404)
 		return
 	}
@@ -166,11 +172,23 @@ func ReadStudioMedia(c *gin.Context) {
 	}
 	defer f.Close()
 	mimeType, err := studioMediaType(f)
+	if role == "video" {
+		var signature [512]byte
+		n, readErr := f.ReadAt(signature[:], 0)
+		mimeType = http.DetectContentType(signature[:n])
+		err = readErr
+		if errors.Is(err, io.EOF) {
+			err = nil
+		}
+		if mimeType != "video/mp4" {
+			err = errStudioMedia
+		}
+	}
 	if err != nil {
 		historyError(c, 404)
 		return
 	}
-	ext := strings.TrimPrefix(mimeType, "image/")
+	ext := strings.TrimPrefix(strings.TrimPrefix(mimeType, "image/"), "video/")
 	c.Header("Content-Type", mimeType)
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": role + "." + ext}))

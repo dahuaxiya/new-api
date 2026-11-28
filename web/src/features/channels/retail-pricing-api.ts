@@ -64,7 +64,7 @@ export type RetailPriceBook = {
   buffer_bps: number
   models: Array<{
     id: string
-    kind?: 'text' | 'image' | ''
+    kind?: 'text' | 'image' | 'video' | ''
     price_mode?: 'official' | 'manual'
     official_model: string
     currency: 'USD' | 'CNY'
@@ -73,6 +73,7 @@ export type RetailPriceBook = {
     valid_until: number
     max_output: number
     tiers: RetailTier[]
+    video?: { max_duration: number; prices: Record<string, string> }
   }>
   products: Array<{
     id: string
@@ -271,6 +272,7 @@ export type RetailPricePreview = {
   model: string
   available: boolean
   tiers?: RetailTier[]
+  video?: { max_duration: number; prices: Record<string, string> }
   valid_until?: number
 }
 export type RetailCatalog = {
@@ -281,13 +283,15 @@ export type RetailCatalog = {
     name: string
     models: Array<{
       id: string
-      kind?: 'text' | 'image' | ''
+      kind?: 'text' | 'image' | 'video' | ''
       official_model: string
       currency: 'CNY'
       tiers: RetailTier[]
+      video?: { max_duration: number; prices: Record<string, string> }
       base_price?: {
         currency: 'USD' | 'CNY'
         tiers: RetailTier[]
+        video?: { max_duration: number; prices: Record<string, string> }
         official: boolean
       }
       sale_factor?: string
@@ -465,6 +469,7 @@ export type RetailLaunchReview = {
   rows: Array<{
     model: string
     tiers?: RetailTier[]
+    video?: RetailPricePreview['video']
     reason?: string
     channels?: number[]
   }>

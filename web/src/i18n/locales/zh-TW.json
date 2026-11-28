@@ -8535,6 +8535,19 @@
     "Suggestions appear as you type after the @ symbol.": "輸入 @ 後的網域時會顯示電子郵件建議。",
     "Cache hit rate": "快取命中率",
     "Unit price not recorded": "未記錄單價",
-    "No model found. Enter a model name to search historical logs.": "沒有符合的模型，可輸入模型名稱查詢歷史日誌。"
+    "No model found. Enter a model name to search historical logs.": "沒有符合的模型，可輸入模型名稱查詢歷史日誌。",
+    "Aspect ratio": "畫面比例",
+    "Could not load the video. Retry to download the existing file.": "影片載入失敗，請重試下載已生成的檔案",
+    "Duration (seconds)": "時長（秒）",
+    "Select a supported video duration and resolution.": "請選擇支援的影片時長和解析度",
+    "Video generation": "影片生成",
+    "Video resolution": "影片解析度",
+    "Describe the video you want": "描述你想生成的影片",
+    "Generate video": "生成影片",
+    "Generating video…": "正在生成影片…",
+    "The video is complete, but its file is unavailable. Open this record later to retry retrieval.": "影片已生成，暫時無法取得檔案，請稍後開啟此紀錄重試",
+    "Video submission could not be confirmed. Check usage before trying again.": "暫時無法確認影片請求是否已受理，請先查看用量再重試",
+    "The video is still processing. Open this record later to continue checking.": "影片仍在生成，請稍後開啟此紀錄查看進度",
+    "The video could not be delivered. Funds remain reserved while the charge is checked.": "影片暫時無法交付，費用待核對，預留金額尚未釋放"
   }
 }

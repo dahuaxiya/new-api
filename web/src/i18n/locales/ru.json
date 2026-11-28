@@ -8502,6 +8502,19 @@
     "Suggestions appear as you type after the @ symbol.": "Подсказки появляются по мере ввода после символа @.",
     "Cache hit rate": "Доля попаданий в кеш",
     "Unit price not recorded": "Цена за единицу не записана",
-    "No model found. Enter a model name to search historical logs.": "Модель не найдена. Введите название модели для поиска в истории журналов."
+    "No model found. Enter a model name to search historical logs.": "Модель не найдена. Введите название модели для поиска в истории журналов.",
+    "Aspect ratio": "Соотношение сторон",
+    "Could not load the video. Retry to download the existing file.": "Не удалось загрузить видео. Повторите загрузку готового файла.",
+    "Duration (seconds)": "Длительность (секунды)",
+    "Select a supported video duration and resolution.": "Выберите поддерживаемые длительность и разрешение.",
+    "Video generation": "Генерация видео",
+    "Video resolution": "Разрешение видео",
+    "Describe the video you want": "Опишите желаемое видео",
+    "Generate video": "Создать видео",
+    "Generating video…": "Создание видео…",
+    "The video is complete, but its file is unavailable. Open this record later to retry retrieval.": "Видео готово, но файл недоступен. Откройте эту запись позже для повторной загрузки.",
+    "Video submission could not be confirmed. Check usage before trying again.": "Не удалось подтвердить отправку. Проверьте расход перед повторной попыткой.",
+    "The video is still processing. Open this record later to continue checking.": "Видео ещё создаётся. Откройте эту запись позже для проверки статуса.",
+    "The video could not be delivered. Funds remain reserved while the charge is checked.": "Не удалось получить видео. Средства зарезервированы до проверки списания."
   }
 }

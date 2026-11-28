@@ -29,7 +29,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { RetailPricing } from '../retail-pricing'
+import { RetailPricing, SellingPricePreview } from '../retail-pricing'
 
 const clients: QueryClient[] = []
 const book = {
@@ -76,6 +76,30 @@ afterEach(() => {
   clients.splice(0).forEach((client) => client.clear())
   vi.restoreAllMocks()
   useAuthStore.getState().auth.reset()
+})
+
+/** 视频复核必须展示所有分辨率的每秒售价，不能显示成每百万 token。 */
+it('shows every video resolution and its per-second selling price', () => {
+  render(
+    <SellingPricePreview
+      rows={[
+        {
+          product: 'Grok Ultra',
+          model: 'grok-imagine-video',
+          available: true,
+          video: {
+            max_duration: 15,
+            prices: { '480p': '0.15', '720p': '0.18' },
+          },
+        },
+      ]}
+    />
+  )
+  expect(screen.getByText('480p · ¥0.15 / second')).toBeInTheDocument()
+  expect(screen.getByText('720p · ¥0.18 / second')).toBeInTheDocument()
+  expect(
+    screen.queryByText('Selling prices · CNY per million tokens')
+  ).not.toBeInTheDocument()
 })
 
 /** 空草稿可以预览，但不能再被描述为可用价表发布。 */

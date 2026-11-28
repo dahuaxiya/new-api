@@ -77,6 +77,7 @@ function mount(
     secondGroup?: boolean
     automatic?: boolean
     basicImage?: boolean
+    video?: boolean
   } = {}
 ) {
   useAuthStore.getState().auth.setUser({
@@ -116,6 +117,10 @@ function mount(
         entry.complete = true
         copy.running = false
       })
+    } else if (copy.mode === 'video') {
+      entry.video = `/api/retail/studio/media/${copy.id}/video`
+      entry.complete = true
+      copy.running = false
     } else {
       const messages = copy.entries
         .filter((e) => e === entry || (e.complete && !e.error))
@@ -184,6 +189,9 @@ function mount(
       }
     }
     if (url.includes('/studio/media/')) {
+      if (url.endsWith('/video')) {
+        return { data: new Blob(['video'], { type: 'video/mp4' }) }
+      }
       return {
         data: new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], {
           type: 'image/png',
@@ -261,6 +269,40 @@ function mount(
                     },
                   ]
                 : []),
+              ...(options.video
+                ? [
+                    {
+                      id: 'ultra',
+                      name: 'Grok Ultra',
+                      models: [
+                        {
+                          id: 'grok-imagine-video',
+                          kind: 'video',
+                          tiers: [],
+                          max_output: 0,
+                          video: {
+                            max_duration: 15,
+                            prices: { '480p': '0.1', '720p': '0.2' },
+                          },
+                        },
+                        {
+                          id: 'grok-imagine-video-1.5',
+                          kind: 'video',
+                          tiers: [],
+                          max_output: 0,
+                          video: {
+                            max_duration: 15,
+                            prices: {
+                              '480p': '0.1',
+                              '720p': '0.2',
+                              '1080p': '0.3',
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  ]
+                : []),
             ],
       }
     }
@@ -301,6 +343,79 @@ afterEach(() => {
   streamSend.mockClear()
   imageSend.mockClear()
   useAuthStore.getState().auth.reset()
+})
+
+/** 视频按所选规格发送一次，并通过鉴权后的本地文件播放和下载。 */
+it('generates a video with selected duration and restores the chat model when switching back', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:video-result')
+  mount(true, { video: true })
+  fireEvent.change(await screen.findByLabelText('Model'), {
+    target: { value: 'text-model' },
+  })
+  fireEvent.click(screen.getByRole('tab', { name: 'Video generation' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'grok-imagine-video' },
+  })
+  fireEvent.change(screen.getByLabelText('Duration (seconds)'), {
+    target: { value: '3' },
+  })
+  fireEvent.change(screen.getByLabelText('Video resolution'), {
+    target: { value: '720p' },
+  })
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Carrot on a desk' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate video' }))
+  await waitFor(() =>
+    expect(screen.getByLabelText('Carrot on a desk')).toHaveAttribute(
+      'src',
+      'blob:video-result'
+    )
+  )
+  expect(screen.getByRole('button', { name: 'Download' })).toHaveAttribute(
+    'download',
+    expect.stringMatching(/\.mp4$/)
+  )
+  const submitted = vi
+    .mocked(api.post)
+    .mock.calls.find(([url]) => url.includes('/runs/'))?.[1]
+  expect(submitted).toMatchObject({
+    video: { duration: 3, resolution: '720p', aspect_ratio: '16:9' },
+    record: { mode: 'video', product: 'ultra' },
+  })
+  fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
+  await waitFor(() =>
+    expect(screen.getByLabelText('Model')).toHaveValue('text-model')
+  )
+})
+
+/** 模型切换后，旧型号不支持的分辨率必须自动回到可提交规格。 */
+it('resets 1080p when switching from Grok 1.5 to the original video model', async () => {
+  mount(true, { video: true })
+  await screen.findByLabelText('Model')
+  fireEvent.click(screen.getByRole('tab', { name: 'Video generation' }))
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'grok-imagine-video-1.5' },
+  })
+  fireEvent.change(screen.getByLabelText('Video resolution'), {
+    target: { value: '1080p' },
+  })
+  fireEvent.change(screen.getByLabelText('Model'), {
+    target: { value: 'grok-imagine-video' },
+  })
+  await waitFor(() =>
+    expect(screen.getByLabelText('Video resolution')).toHaveValue('480p')
+  )
+  fireEvent.change(screen.getByLabelText('Prompt'), {
+    target: { value: 'Carrot on a desk' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate video' }))
+  await waitFor(() => {
+    const submitted = vi
+      .mocked(api.post)
+      .mock.calls.find(([url]) => url.includes('/runs/'))?.[1]
+    expect(submitted).toMatchObject({ video: { resolution: '480p' } })
+  })
 })
 
 /** 窄屏回车保留换行，只有显式点击发送才能启动付费对话。 */
@@ -1288,10 +1403,9 @@ it('pastes a reference image without replacing the prompt or intercepting text',
   fireEvent.change(prompt, { target: { value: 'Describe this picture' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(streamSend).toHaveBeenCalledOnce())
-  const chatUpload = vi
-    .mocked(api.post)
-    .mock.calls.filter(([url]) => url.includes('/runs/'))
-    .at(-1)?.[1]
+  const chatUpload = [...vi.mocked(api.post).mock.calls]
+    .reverse()
+    .find(([url]) => url.includes('/runs/'))?.[1]
   expect(chatUpload).toBeInstanceOf(FormData)
   expect((chatUpload as FormData).get('image')).toBeInstanceOf(Blob)
   expect(
@@ -1310,10 +1424,9 @@ it('pastes a reference image without replacing the prompt or intercepting text',
 
   fireEvent.click(screen.getByRole('button', { name: 'Generate image' }))
   await screen.findByRole('img', { name: 'Make the background blue' })
-  const payload = vi
-    .mocked(api.post)
-    .mock.calls.filter(([url]) => url.includes('/runs/'))
-    .at(-1)?.[1]
+  const payload = [...vi.mocked(api.post).mock.calls]
+    .reverse()
+    .find(([url]) => url.includes('/runs/'))?.[1]
   expect(payload).toBeInstanceOf(FormData)
   const reference = (payload as FormData).get('image') as File
   expect(reference.type).toBe('image/webp')

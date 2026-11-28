@@ -33,6 +33,7 @@ export type StudioEntry = Conversation['entries'][number]
 type Intent = Pick<StudioForm, 'maxTokens' | 'size' | 'quality'> & {
   record: Conversation
   parent?: string
+  video?: { duration: number; resolution: string; aspect_ratio: string }
   outputFormat?: StudioForm['outputFormat']
   outputCompression?: number
 }
@@ -204,7 +205,7 @@ export function useStudioRun(
         backoff = Math.min(5000, backoff ? 2 * backoff : 800)
       }
       await new Promise((resolve) =>
-        setTimeout(resolve, backoff || (record.mode === 'image' ? 1600 : 650))
+        setTimeout(resolve, backoff || (record.mode === 'text' ? 650 : 2000))
       )
     }
     if (signal.aborted) return
@@ -240,7 +241,13 @@ export function useStudioRun(
   })
   useEffect(() => {
     const records = [...pendingAtMount]
-    if (initial?.running && !records.some((item) => item.id === initial.id)) {
+    // 文件下载失败的视频仍有已受理任务，刷新后继续查询同一 UUID。
+    if (
+      initial &&
+      (initial.running ||
+        (initial.mode === 'video' && !initial.entries.at(-1)?.complete)) &&
+      !records.some((item) => item.id === initial.id)
+    ) {
       records.push(initial)
     }
     const observers = jobs.current
@@ -279,13 +286,23 @@ export function useStudioRun(
     const intent = {
       // Image history and original files are already on the server. Send only the new turn.
       record:
-        record.mode === 'image'
+        record.mode !== 'text'
           ? { ...record, entries: record.entries.slice(-1) }
           : record,
-      parent,
+      // 视频每次生成独立记录，旧任务不会作为续聊父记录被覆盖。
+      parent: record.mode === 'video' ? undefined : parent,
       maxTokens: input.maxTokens,
       size: input.size,
       quality: input.quality,
+      ...(record.mode === 'video'
+        ? {
+            video: {
+              duration: input.videoDuration ?? 1,
+              resolution: input.videoResolution ?? '480p',
+              aspect_ratio: input.videoAspectRatio ?? '16:9',
+            },
+          }
+        : {}),
       ...(record.mode === 'image'
         ? {
             outputFormat: input.outputFormat,
@@ -335,7 +352,15 @@ export function useStudioRun(
     setSentReference(job?.reference)
     setBusy(Boolean(job || item?.running))
     setReconnecting(job?.reconnecting ?? false)
-    if (item?.running && !job) void follow(item)
+    // 已受理视频只恢复原任务查询，取回文件失败也可以再次打开继续读取。
+    if (
+      item &&
+      !job &&
+      (item.running ||
+        (item.mode === 'video' && !item.entries.at(-1)?.complete))
+    ) {
+      void follow(item)
+    }
   }
   /** 只给点击时正在看的任务登记停止意图；即使稍后切换会话也不会取消别的任务。 */
   function stop() {

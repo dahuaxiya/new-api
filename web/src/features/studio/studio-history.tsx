@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { History, ImageIcon, MessageSquare, Search, Trash2 } from 'lucide-react'
+import {
+  History,
+  ImageIcon,
+  MessageSquare,
+  Search,
+  Trash2,
+  Video,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -55,7 +62,9 @@ export function StudioHistory(props: {
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'text' | 'image'>('all')
+  const [filter, setFilter] = useState<'all' | 'text' | 'image' | 'video'>(
+    'all'
+  )
   const [search, setSearch] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
@@ -202,6 +211,7 @@ export function StudioHistory(props: {
                 ['all', t('All')],
                 ['text', t('Chat')],
                 ['image', t('Image generation')],
+                ['video', t('Video generation')],
               ] as const
             ).map(([value, label]) => (
               <Button
@@ -288,9 +298,9 @@ export function StudioHistory(props: {
                 }
               >
                 <span className='bg-muted grid size-9 shrink-0 place-items-center rounded-lg'>
-                  {row.mode === 'image' ? (
-                    <ImageIcon aria-hidden='true' />
-                  ) : (
+                  {row.mode === 'image' && <ImageIcon aria-hidden='true' />}
+                  {row.mode === 'video' && <Video aria-hidden='true' />}
+                  {(!row.mode || row.mode === 'text') && (
                     <MessageSquare aria-hidden='true' />
                   )}
                 </span>
@@ -298,9 +308,13 @@ export function StudioHistory(props: {
                   <span className='truncate'>{row.title}</span>
                   <span className='text-muted-foreground truncate text-xs'>
                     {replaced.has(row.id) &&
-                      (row.mode === 'image'
-                        ? t('Generating image…')
-                        : t('Responding...'))}
+                      t(
+                        {
+                          image: 'Generating image…',
+                          video: 'Generating video…',
+                          text: 'Responding...',
+                        }[row.mode ?? 'text']
+                      )}
                     {replaced.has(row.id) && ' · '}
                     {row.product} ·{' '}
                     {formatTimestampToDate(row.updatedAt, 'milliseconds')}

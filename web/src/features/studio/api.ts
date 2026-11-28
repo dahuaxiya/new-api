@@ -47,6 +47,11 @@ export const studioFormSchema = z.object({
   outputFormat: z.enum(['png', 'jpeg', 'webp']),
   outputCompression: z.string(),
   quality: z.enum(['auto', 'low', 'medium', 'high']),
+  videoDuration: z.number().int().min(1).max(15).optional(),
+  videoResolution: z.enum(['480p', '720p', '1080p']).optional(),
+  videoAspectRatio: z
+    .enum(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3'])
+    .optional(),
 })
 export type StudioForm = z.infer<typeof studioFormSchema>
 

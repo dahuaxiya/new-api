@@ -158,12 +158,12 @@ func PreviewRetailPricing(c *gin.Context) {
 			if !product.Public {
 				group = product.UserGroups[0]
 			}
-			quote, err := input.Book.MakeQuote(0, group, policy, official.ID, 1, targets.Eligible(product, official.ID), time.Now().Unix())
+			quote, video, err := input.Book.MakeCatalogQuote(0, group, policy, official, targets.Eligible(product, official.ID), time.Now().Unix())
 			if err != nil {
 				rows = append(rows, gin.H{"product": product.Name, "model": official.ID, "available": false})
 				continue
 			}
-			rows = append(rows, gin.H{"product": product.Name, "model": official.ID, "available": true, "tiers": quote.Sale, "valid_until": quote.ValidUntil})
+			rows = append(rows, gin.H{"product": product.Name, "model": official.ID, "available": true, "tiers": quote.Sale, "video": video, "valid_until": quote.ValidUntil})
 		}
 	}
 	c.JSON(200, gin.H{"success": true, "data": rows})
@@ -263,16 +263,24 @@ func GetRetailCatalog(c *gin.Context) {
 			// Synthetic generous caps are only for displaying a price, never a persisted user consent.
 			ceiling := retailprice.Prices{Input: "99999999", Output: "99999999", CacheRead: "99999999", CacheWrite: "99999999", CacheWrite1h: "99999999"}
 			policy := retailprice.KeyPolicy{ProductID: p.ID, AcceptFloating: true, Caps: map[string]retailprice.Prices{official.ID: ceiling}, MaxRequestCNY: "99999999", DailyBudgetCNY: "99999999"}
-			quote, err := book.MakeQuote(version, user.Group, policy, official.ID, 1, targets.Eligible(p, official.ID), time.Now().Unix())
-			if err != nil {
+			quote, video, quoteErr := book.MakeCatalogQuote(version, user.Group, policy, official, targets.Eligible(p, official.ID), time.Now().Unix())
+			if quoteErr != nil {
 				continue
+			}
+			sale, base := quote.Sale, quote.Model.Tiers
+			// 前端共用模型目录，视频没有 Token 阶梯也必须保持数组契约。
+			if sale == nil {
+				sale = []retailprice.Tier{}
+			}
+			if base == nil {
+				base = []retailprice.Tier{}
 			}
 			// Use the same quote for both columns. Only publish the effective sale factor;
 			// the underlying route multiplier, fees and procurement data stay private.
 			models = append(models, gin.H{
 				"id": official.ID, "kind": official.Kind, "official_model": official.OfficialModel,
-				"currency": "CNY", "tiers": quote.Sale, "sale_factor": quote.SaleFactor.String(),
-				"base_price":  gin.H{"currency": quote.Model.Currency, "tiers": quote.Model.Tiers, "official": quote.Model.PriceMode == "official"},
+				"currency": "CNY", "tiers": sale, "video": video, "sale_factor": quote.SaleFactor.String(),
+				"base_price":  gin.H{"currency": quote.Model.Currency, "tiers": base, "official": quote.Model.PriceMode == "official", "video": quote.Model.Video},
 				"valid_until": quote.ValidUntil, "max_output": official.MaxOutput,
 				"reference_image": official.Kind == "image" && service.RetailReferenceModel(official.ID),
 			})

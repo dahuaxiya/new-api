@@ -21,6 +21,57 @@ func fixture(t *testing.T) (retailprice.Book, retailprice.KeyPolicy) {
 	return book, retailprice.KeyPolicy{ProductID: "standard", AcceptFloating: true, Caps: map[string]retailprice.Prices{"gpt-4o": cap}, MaxRequestCNY: "10", DailyBudgetCNY: "10"}
 }
 
+// TestVideoQuoteFreezesBoundedUsage 验证视频选路、按秒预留及恢复报价的数量边界。
+func TestVideoQuoteFreezesBoundedUsage(t *testing.T) {
+	book, key := fixture(t)
+	book.Models[0].Kind, book.Models[0].MaxOutput, book.Models[0].Tiers = "video", 0, nil
+	book.Models[0].Video = &retailprice.VideoTariff{MaxDuration: 15, Prices: map[string]string{"480p": "0.4", "720p": "0.6"}}
+	book.Products[0].Routes[0].Models["gpt-4o"] = "grok-imagine-video"
+	key.StudioCurrent = true
+	require.NoError(t, book.Validate(2))
+	spec := retailprice.VideoRequest{Duration: 5, Resolution: "480p", AspectRatio: "16:9"}
+	quote, err := book.MakeVideoQuote(1, "default", key, "gpt-4o", spec, []int{101}, 2)
+	require.NoError(t, err)
+	require.Equal(t, "grok-imagine-video", quote.VideoModel)
+	require.Equal(t, "0.12", quote.VideoUnitCNY)
+	require.Equal(t, "0.6", quote.ReservedCNY)
+	// 上架预览须复核全部分辨率，不能因文字阶梯为空将视频误判为缺价。
+	catalogQuote, tariff, err := book.MakeCatalogQuote(1, "default", key, book.Models[0], []int{101}, 2)
+	require.NoError(t, err)
+	require.Empty(t, catalogQuote.Sale)
+	require.Equal(t, map[string]string{"480p": "0.12", "720p": "0.18"}, tariff.Prices)
+	require.Equal(t, 15, tariff.MaxDuration)
+	// 序列化后的冻结报价用于重启恢复，后续价表修改不能影响这一笔费用。
+	raw, err := common.Marshal(quote)
+	require.NoError(t, err)
+	var frozen retailprice.Quote
+	require.NoError(t, common.Unmarshal(raw, &frozen))
+	book.Models[0].Video.Prices["480p"] = "9"
+	amount, err := frozen.ChargeVideo(3)
+	require.NoError(t, err)
+	require.Equal(t, "0.36", amount.String())
+	for _, duration := range []int{-1, 0, 6, 1000000} {
+		_, err = frozen.ChargeVideo(duration)
+		require.ErrorIs(t, err, retailprice.ErrUsage)
+	}
+	_, err = frozen.Charge(1, [5]int{1, 1})
+	require.ErrorIs(t, err, retailprice.ErrUsage)
+	for _, spec := range []retailprice.VideoRequest{
+		{Duration: 16, Resolution: "480p", AspectRatio: "16:9"},
+		{Duration: 1, Resolution: "1080p", AspectRatio: "16:9"},
+		{Duration: 1, Resolution: "720p", AspectRatio: "free"},
+	} {
+		_, err = book.MakeVideoQuote(1, "default", key, "gpt-4o", spec, []int{101}, 2)
+		require.Error(t, err)
+	}
+	frozen.Video.Duration = 1000000
+	_, err = frozen.ChargeVideo(1000000)
+	require.ErrorIs(t, err, retailprice.ErrUsage)
+	key.MaxRequestCNY = "0.1"
+	_, err = book.MakeVideoQuote(1, "default", key, "gpt-4o", spec, []int{101}, 2)
+	require.ErrorIs(t, err, retailprice.ErrBudget)
+}
+
 // TestCurrencyAndProfitFloor verifies native CNY and numeric USD have no additional FX conversion.
 func TestCurrencyAndProfitFloor(t *testing.T) {
 	for _, currency := range []string{"USD", "CNY"} {
@@ -201,6 +252,16 @@ func TestDraftAddsSavedOfficialTariffToNewGroup(t *testing.T) {
 		require.Equal(t, "model_mapping_conflict", result.Excluded[0].Reason)
 	}
 	supplies[1].Mapping = ""
+	// 管理员保存并核验的视频价表也应通过相同入口生成分组路由。
+	videoBook := book
+	video := price
+	video.Kind, video.MaxOutput, video.Tiers = "video", 0, nil
+	video.Video = &retailprice.VideoTariff{MaxDuration: 15, Prices: map[string]string{"480p": "0.1", "720p": "0.12"}}
+	videoBook.Models = []retailprice.Model{video}
+	videoDraft := retailprice.GenerateOfficialDraft(videoBook, supplies, now)
+	require.Empty(t, videoDraft.Excluded)
+	require.Len(t, videoDraft.Book.Products, 2)
+	require.Equal(t, video.Video, videoDraft.Book.Models[0].Video)
 	book.Models[0].OfficialModel = "other-upstream"
 	require.Empty(t, retailprice.GenerateOfficialDraft(book, supplies, now).Book.Products)
 	// An expired saved override also wins over a still-valid bundled tariff.

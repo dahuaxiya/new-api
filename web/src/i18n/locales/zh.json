@@ -8535,6 +8535,19 @@
     "Suggestions appear as you type after the @ symbol.": "输入 @ 后的域名时会显示邮箱建议。",
     "Cache hit rate": "缓存命中率",
     "Unit price not recorded": "未记录单价",
-    "No model found. Enter a model name to search historical logs.": "没有匹配的模型，可输入模型名称查询历史日志。"
+    "No model found. Enter a model name to search historical logs.": "没有匹配的模型，可输入模型名称查询历史日志。",
+    "Aspect ratio": "画面比例",
+    "Could not load the video. Retry to download the existing file.": "视频加载失败，请重试下载已生成的文件",
+    "Duration (seconds)": "时长（秒）",
+    "Select a supported video duration and resolution.": "请选择支持的视频时长和分辨率",
+    "Video generation": "视频生成",
+    "Video resolution": "视频分辨率",
+    "Describe the video you want": "描述你想生成的视频",
+    "Generate video": "生成视频",
+    "Generating video…": "正在生成视频…",
+    "The video is complete, but its file is unavailable. Open this record later to retry retrieval.": "视频已生成，文件暂时无法获取，请稍后打开此记录重试",
+    "Video submission could not be confirmed. Check usage before trying again.": "暂时无法确认视频请求是否已受理，请先查看用量再重试",
+    "The video is still processing. Open this record later to continue checking.": "视频仍在生成，请稍后打开此记录查看进度",
+    "The video could not be delivered. Funds remain reserved while the charge is checked.": "视频暂时无法交付，费用待核对，预留金额尚未释放"
   }
 }

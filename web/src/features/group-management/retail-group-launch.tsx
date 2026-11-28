@@ -872,7 +872,7 @@ function LaunchForm({
                 <dd>
                   {formatNumber(
                     preview.result.rows.filter(
-                      (r) => r.tiers?.length && !r.reason
+                      (r) => (r.tiers?.length || r.video) && !r.reason
                     ).length
                   )}
                 </dd>
@@ -920,7 +920,7 @@ function LaunchForm({
               {preview.result.review && (
                 <SellingPricePreview
                   rows={preview.result.rows
-                    .filter((r) => r.tiers)
+                    .filter((r) => r.tiers?.length || r.video)
                     .map((r) => ({ ...r, product: group, available: true }))}
                 />
               )}
@@ -1258,7 +1258,7 @@ function InventoryLaunchForm({
             </p>
             <SellingPricePreview
               rows={review.result.rows
-                .filter((row) => row.tiers)
+                .filter((row) => row.tiers?.length || row.video)
                 .map((row) => ({ ...row, product: name, available: true }))}
             />
             {review.result.rows

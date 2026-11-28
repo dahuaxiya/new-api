@@ -16,6 +16,84 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestRetailVideoDatabases 在真实三方言验证视频预留、重复恢复结算、退款和消费日志去重。
+func TestRetailVideoDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := useVM2APIEnrollmentDatabase(t, dialect)
+			require.NoError(t, migrateDB())
+			require.NoError(t, db.AutoMigrate(&Log{}))
+			user := User{Username: "video-user", AffCode: "video", Group: "default", Status: 1, Quota: 1000000}
+			require.NoError(t, db.Create(&user).Error)
+			t.Setenv("SITE_MODE", "retail")
+			token, err := RetailStudioToken(user.Id, true)
+			require.NoError(t, err)
+			channel := Channel{Id: 101, Type: 1, Group: "retail", Status: 1, Models: "grok-imagine-video", Key: "test-only"}
+			require.NoError(t, channel.Insert())
+			cfg := filepath.Join(t.TempDir(), "retail.json")
+			require.NoError(t, os.WriteFile(cfg, []byte(`{"enabled":true,"group":"retail","supplies":[{"channel_id":101,"kind":"reseller"}]}`), 0600))
+			t.Setenv("RETAIL_RELAY_CONFIG", cfg)
+			raw, err := os.ReadFile("../pkg/retailprice/testdata/book.json")
+			require.NoError(t, err)
+			var book retailprice.Book
+			require.NoError(t, common.Unmarshal(raw, &book))
+			now := time.Now().Unix()
+			video := &book.Models[0]
+			video.ID, video.Kind, video.MaxOutput, video.Tiers = "grok-imagine-video", "video", 0, nil
+			video.Video = &retailprice.VideoTariff{MaxDuration: 15, Prices: map[string]string{"480p": "0.4"}}
+			video.VerifiedAt, video.ValidUntil = now, now+86400
+			book.Rates[0].VerifiedAt, book.Rates[0].ValidUntil = now, now+3600
+			book.Products[0].Routes[0].Models = map[string]string{video.ID: video.ID}
+			_, err = PublishRetailPriceBook(0, book, nil, 1)
+			require.NoError(t, err)
+			token, err = RetailStudioToken(user.Id, true, "standard")
+			require.NoError(t, err)
+			spec := retailprice.VideoRequest{Duration: 5, Resolution: "480p", AspectRatio: "16:9"}
+			quote, err := RetailVideoQuote(user.Id, token.Id, video.ID, spec, []int{101}, "standard")
+			require.NoError(t, err)
+			originalWallet := user.Quota
+			_, err = ReservePricedRetailCharge("video-settle", user.Id, token.Id, quote)
+			require.NoError(t, err)
+			amount, err := quote.ChargeVideo(3)
+			require.NoError(t, err)
+			quota, _, err := RetailCNYQuota(amount, quote.WalletCNYPerUnit)
+			require.NoError(t, err)
+			for range 2 {
+				require.NoError(t, ChangeRetailCharge("video-settle", user.Id, token.Id, quota, "settled"))
+			}
+			require.Error(t, ChangeRetailCharge("video-settle", user.Id, token.Id, 0, "refunded"))
+			require.NoError(t, db.First(&user, user.Id).Error)
+			require.Equal(t, originalWallet-quota, user.Quota)
+			quote, err = RetailVideoQuote(user.Id, token.Id, video.ID, spec, []int{101}, "standard")
+			require.NoError(t, err)
+			_, err = ReservePricedRetailCharge("video-refund", user.Id, token.Id, quote)
+			require.NoError(t, err)
+			for range 2 {
+				require.NoError(t, ChangeRetailCharge("video-refund", user.Id, token.Id, 0, "refunded"))
+			}
+			require.NoError(t, db.First(&user, user.Id).Error)
+			require.Equal(t, originalWallet-quota, user.Quota)
+			// 同一个任务的日志写入成功后重启，仍按持久请求号识别，避免重复展示消费。
+			oldConsume, oldExport := common.LogConsumeEnabled, common.DataExportEnabled
+			common.LogConsumeEnabled, common.DataExportEnabled = true, false
+			t.Cleanup(func() { common.LogConsumeEnabled, common.DataExportEnabled = oldConsume, oldExport })
+			params := RecordTaskBillingLogParams{UserId: user.Id, LogType: LogTypeConsume, TokenId: token.Id, ModelName: video.ID, Quota: quota, RequestId: "studio-video/test", UpstreamRequestId: "task-test", Other: NewLogOther()}
+			for range 2 {
+				require.NoError(t, RecordTaskBillingLog(params))
+			}
+			var count int64
+			require.NoError(t, db.Model(&Log{}).Where("request_id = ?", params.RequestId).Count(&count).Error)
+			require.EqualValues(t, 1, count)
+			// 冻结金额相同也不能更换上游模型名。
+			quote, err = RetailVideoQuote(user.Id, token.Id, video.ID, spec, []int{101}, "standard")
+			require.NoError(t, err)
+			quote.VideoModel = "wrong-model"
+			_, err = ReservePricedRetailCharge("video-mapping", user.Id, token.Id, quote)
+			require.ErrorIs(t, err, ErrRetailPriceConflict)
+		})
+	}
+}
+
 // TestRetailDatabases 在真实三方言验证发布版升级、权限隔离、并发预留、退款与支付幂等。
 func TestRetailDatabases(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {

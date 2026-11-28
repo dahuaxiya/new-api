@@ -8502,6 +8502,19 @@
     "Suggestions appear as you type after the @ symbol.": "Les suggestions apparaissent au fil de la saisie après le symbole @.",
     "Cache hit rate": "Taux de cache",
     "Unit price not recorded": "Prix unitaire non enregistré",
-    "No model found. Enter a model name to search historical logs.": "Aucun modèle trouvé. Saisissez un nom de modèle pour rechercher dans les journaux historiques."
+    "No model found. Enter a model name to search historical logs.": "Aucun modèle trouvé. Saisissez un nom de modèle pour rechercher dans les journaux historiques.",
+    "Aspect ratio": "Format d’image",
+    "Could not load the video. Retry to download the existing file.": "Impossible de charger la vidéo. Réessayez le téléchargement.",
+    "Duration (seconds)": "Durée (secondes)",
+    "Select a supported video duration and resolution.": "Choisissez une durée et une résolution prises en charge.",
+    "Video generation": "Génération de vidéo",
+    "Video resolution": "Résolution vidéo",
+    "Describe the video you want": "Décrivez la vidéo souhaitée",
+    "Generate video": "Générer une vidéo",
+    "Generating video…": "Génération de la vidéo…",
+    "The video is complete, but its file is unavailable. Open this record later to retry retrieval.": "La vidéo est prête, mais le fichier est indisponible. Rouvrez cette entrée plus tard pour réessayer.",
+    "Video submission could not be confirmed. Check usage before trying again.": "Impossible de confirmer l’envoi. Consultez votre consommation avant de réessayer.",
+    "The video is still processing. Open this record later to continue checking.": "La vidéo est en cours de génération. Rouvrez cette entrée plus tard pour consulter son état.",
+    "The video could not be delivered. Funds remain reserved while the charge is checked.": "La vidéo n’a pas pu être livrée. Les fonds restent réservés pendant la vérification des frais."
   }
 }

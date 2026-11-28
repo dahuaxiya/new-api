@@ -412,11 +412,26 @@ type RecordTaskBillingLogParams struct {
 	Group     string
 	Other     *LogOther
 	NodeName  string // 任务发起节点；为空时回退当前节点
+	// RequestId 非空时由调用方串行化同一任务，用于崩溃恢复后的日志去重。
+	RequestId         string
+	UpstreamRequestId string
 }
 
-func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
+// RecordTaskBillingLog 写入任务消费日志并返回存储错误。指定 RequestId 的调用方
+// 必须串行处理同一任务，保证“查重后写入”与恢复过程不会并发执行。
+func RecordTaskBillingLog(params RecordTaskBillingLogParams) error {
 	if params.LogType == LogTypeConsume && !common.LogConsumeEnabled {
-		return
+		return nil
+	}
+	if params.RequestId != "" {
+		var count int64
+		if err := LOG_DB.Model(&Log{}).Where("request_id = ? AND user_id = ? AND type = ?", params.RequestId, params.UserId, params.LogType).Count(&count).Error; err != nil {
+			return err
+		}
+		// 日志写入成功、私有状态落盘前发生崩溃时，恢复仍使用同一请求号。
+		if count > 0 {
+			return nil
+		}
 	}
 	username, _ := GetUsernameById(params.UserId, false)
 	tokenName := ""
@@ -428,22 +443,25 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	createdAt := common.GetTimestamp()
 	other := params.Other
 	log := &Log{
-		UserId:    params.UserId,
-		Username:  username,
-		CreatedAt: createdAt,
-		Type:      params.LogType,
-		Content:   other.setContent(params.Content),
-		TokenName: tokenName,
-		ModelName: params.ModelName,
-		Quota:     params.Quota,
-		ChannelId: params.ChannelId,
-		TokenId:   params.TokenId,
-		Group:     params.Group,
-		Other:     other.JSONString(),
+		UserId:            params.UserId,
+		Username:          username,
+		CreatedAt:         createdAt,
+		Type:              params.LogType,
+		Content:           other.setContent(params.Content),
+		TokenName:         tokenName,
+		ModelName:         params.ModelName,
+		Quota:             params.Quota,
+		ChannelId:         params.ChannelId,
+		TokenId:           params.TokenId,
+		Group:             params.Group,
+		Other:             other.JSONString(),
+		RequestId:         params.RequestId,
+		UpstreamRequestId: params.UpstreamRequestId,
 	}
 	err := createLog(log)
 	if err != nil {
 		common.SysLog(common.LogText("failed to record task billing log: %s", err.Error()))
+		return err
 	}
 	if params.LogType == LogTypeConsume && common.DataExportEnabled {
 		nodeName := params.NodeName
@@ -462,6 +480,7 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 			NodeName:  nodeName,
 		})
 	}
+	return nil
 }
 
 // LogFilter is the usage-log search shared by the log list and the log export.

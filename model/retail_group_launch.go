@@ -46,10 +46,11 @@ type RetailLaunchRoute struct {
 }
 
 type RetailLaunchRow struct {
-	Model    string             `json:"model"`
-	Tiers    []retailprice.Tier `json:"tiers,omitempty"`
-	Reason   string             `json:"reason,omitempty"`
-	Channels []int              `json:"channels,omitempty"`
+	Model    string                   `json:"model"`
+	Tiers    []retailprice.Tier       `json:"tiers,omitempty"`
+	Video    *retailprice.VideoTariff `json:"video,omitempty"`
+	Reason   string                   `json:"reason,omitempty"`
+	Channels []int                    `json:"channels,omitempty"`
 }
 type RetailLaunchResult struct {
 	Applied             bool              `json:"applied"` // Set after the outer transaction commits; previews can also carry a review digest.
@@ -309,9 +310,14 @@ func launchRetailGroupIn(db *gorm.DB, ctx context.Context, in RetailGroupLaunch,
 			for _, name := range slices.Sorted(maps.Keys(names)) {
 				row := RetailLaunchRow{Model: name, Reason: skipped[name]}
 				if product != nil {
-					q, err := book.MakeQuote(in.Version, in.Group, retailprice.KeyPolicy{GroupCurrent: true, ProductID: product.ID}, name, 1, targets.Eligible(*product, name), now)
+					officialIndex := slices.IndexFunc(book.Models, func(m retailprice.Model) bool { return m.ID == name })
+					if officialIndex < 0 {
+						out.Rows = append(out.Rows, row)
+						continue
+					}
+					q, video, err := book.MakeCatalogQuote(in.Version, in.Group, retailprice.KeyPolicy{GroupCurrent: true, ProductID: product.ID}, book.Models[officialIndex], targets.Eligible(*product, name), now)
 					if err == nil {
-						row.Reason, row.Tiers, row.Channels = "", q.Sale, q.Channels
+						row.Reason, row.Tiers, row.Video, row.Channels = "", q.Sale, video, q.Channels
 						// Preview creates a provisional channel ID. Use the same placeholder in the
 						// review digest and response because rolled-back sequences can advance.
 						for i, channel := range row.Channels {
@@ -326,7 +332,7 @@ func launchRetailGroupIn(db *gorm.DB, ctx context.Context, in RetailGroupLaunch,
 						count++
 					}
 				}
-				if row.Reason == "" && len(row.Tiers) == 0 {
+				if row.Reason == "" && len(row.Tiers) == 0 && row.Video == nil {
 					row.Reason = "supply_unavailable"
 				}
 				out.Rows = append(out.Rows, row)

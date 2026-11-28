@@ -131,7 +131,7 @@ func GenerateOfficialDraft(book Book, supplies []CatalogSupply, now int64) Offic
 				continue
 			}
 			official, ok := known[name]
-			if !ok || official.OfficialModel != name || (official.Kind != "text" && official.Kind != "image") || official.VerifiedAt > now || official.ValidUntil <= now {
+			if !ok || official.OfficialModel != name || (official.Kind != "text" && official.Kind != "image" && official.Kind != "video") || official.VerifiedAt > now || official.ValidUntil <= now {
 				result.Excluded = append(result.Excluded, CatalogExclusion{binding.ChannelID, name, "official_price_missing_or_expired"})
 				continue
 			}

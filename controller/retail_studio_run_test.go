@@ -18,10 +18,142 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/retailprice"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
+
+// TestStudioVideoValidation 拒绝无法计价的规格、旧会话和参考附件，保留合法视频入口。
+func TestStudioVideoValidation(t *testing.T) {
+	for _, scenario := range []string{"valid", "high-resolution", "zero", "oversized", "aspect", "model", "parent", "reference", "upload"} {
+		t.Run(scenario, func(t *testing.T) {
+			in := studioIntent{
+				Record: studioHistoryRecord{Mode: "video", Product: "ultra", Entries: []studioHistoryEntry{{Prompt: "A carrot", Model: "grok-imagine-video"}}},
+				Video:  &retailprice.VideoRequest{Duration: 1, Resolution: "480p", AspectRatio: "16:9"},
+			}
+			switch scenario {
+			case "high-resolution":
+				in.Video.Resolution = "1080p"
+			case "zero":
+				in.Video.Duration = 0
+			case "oversized":
+				in.Video.Duration = 16
+			case "aspect":
+				in.Video.AspectRatio = "invalid"
+			case "model":
+				in.Record.Entries[0].Model = "chat-model"
+			case "parent":
+				in.Parent = uuid.NewString()
+			case "reference":
+				in.Record.Entries[0].Reference = "data:image/png;base64,example"
+			case "upload":
+				in.uploadedReference = true
+			}
+			path, _, err := studioRunRequest(&in)
+			if scenario == "valid" {
+				require.NoError(t, err)
+				require.Equal(t, "/api/retail/studio/videos/generations", path)
+				in.Record.Entries[0].Model, in.Video.Resolution = "grok-imagine-video-1.5", "1080p"
+				_, _, err = studioRunRequest(&in)
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+// TestStudioVideoRecovery 覆盖待核账记录保护和文件已完成、公开快照尚未提交时的恢复。
+func TestStudioVideoRecovery(t *testing.T) {
+	dir, id := t.TempDir(), uuid.NewString()
+	key := filepath.Join(dir, id)
+	row := studioHistoryRecord{ID: id, Mode: "video", Running: true, UpdatedAt: time.Now().UnixMilli(), Entries: []studioHistoryEntry{{ID: 1, Prompt: "A carrot"}}}
+	require.NoError(t, storeStudioRecord(dir, &row))
+	state := studioVideoState{TaskID: "task_existing", Phase: "review"}
+	require.NoError(t, storeStudioVideoState(key, &state))
+	require.False(t, resumeStudioVideo(1, key, &row))
+	require.ErrorIs(t, deleteStudioRecord(key), errStudioVideoAccountingPending)
+	expiredHead := studioHistoryHead{Mode: "video", UpdatedAt: time.Now().Add(-2 * studioHistoryRetention).UnixMilli()}
+	require.False(t, studioRecordExpired(expiredHead, key, time.Now()))
+	_, err := os.Stat(key + ".record")
+	require.NoError(t, err)
+	for _, phase := range []string{"accepted", "completed", "submitting", "settled"} {
+		state.Phase = phase
+		require.NoError(t, storeStudioVideoState(key, &state))
+		require.ErrorIs(t, deleteStudioRecord(key), errStudioVideoAccountingPending)
+	}
+	state.Phase = "finished"
+	require.NoError(t, storeStudioVideoState(key, &state))
+	require.True(t, studioRecordExpired(expiredHead, key, time.Now()))
+	require.NoError(t, storeStudioImage(key+".video", []byte("existing verified file")))
+	require.False(t, resumeStudioVideo(1, key, &row))
+	require.False(t, row.Running)
+	require.True(t, row.Entries[0].Complete)
+	require.Equal(t, studioMediaPrefix+id+"/video", row.Entries[0].Video)
+	require.NoError(t, deleteStudioRecord(key))
+	_, err = os.Stat(key + ".video-state")
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// TestStudioVideoMedia 验证先查询制品列表，再携访问凭证下载同源 MP4，失败时保留已保存文件。
+func TestStudioVideoMedia(t *testing.T) {
+	setupSecurityEnrollmentTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.GPTHostingBinding{}))
+	base := "https://aixingxing.pro"
+	require.NoError(t, model.DB.Create(&model.Channel{Id: 101, Name: "video", Type: 1, BaseURL: &base, Key: "test-only", Status: common.ChannelStatusEnabled}).Error)
+	previous := studioVideoClient
+	t.Cleanup(func() { studioVideoClient = previous })
+	key := filepath.Join(t.TempDir(), uuid.NewString())
+	calls := 0
+	body, status := "\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom", http.StatusOK
+	contentPath := "/v1/tasks/task_existing/artifacts/video/content"
+	contentURL := base + contentPath + "?access=test-capability"
+	listedTask := "task_existing"
+	studioVideoClient = &http.Client{Transport: retailPublicRatesTestTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		require.Equal(t, "aixingxing.pro", r.URL.Host)
+		require.Equal(t, "Bearer test-only", r.Header.Get("Authorization"))
+		if r.URL.Path == "/v1/tasks/task_existing/artifacts" {
+			listing, err := common.Marshal(gin.H{"task_id": listedTask, "artifacts": []taskArtifactResponse{{Key: "video", Type: "video", MimeType: "video/mp4", ContentURL: contentURL}}})
+			require.NoError(t, err)
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(listing))}, nil
+		}
+		require.Equal(t, contentPath, r.URL.Path)
+		require.Equal(t, "test-capability", r.URL.Query().Get("access"))
+		return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	require.Error(t, storeStudioVideoFile(context.Background(), key, 101, "../other"))
+	require.Zero(t, calls)
+	for _, target := range []string{"https://evil.example" + contentPath, "//evil.example" + contentPath, "http://aixingxing.pro" + contentPath, "/v1/tasks/task_other/artifacts/video/content", "/v1/videos/id/content", "/admin"} {
+		contentURL = target
+		before := calls
+		require.Error(t, storeStudioVideoFile(context.Background(), key, 101, "task_existing"))
+		require.Equal(t, before+1, calls)
+	}
+	contentURL = base + contentPath + "?access=test-capability"
+	listedTask = "task_other"
+	require.Error(t, storeStudioVideoFile(context.Background(), key, 101, "task_existing"))
+	listedTask = "task_existing"
+	require.NoError(t, storeStudioVideoFile(context.Background(), key, 101, "task_existing"))
+	saved, err := os.ReadFile(key + ".video")
+	require.NoError(t, err)
+	require.Equal(t, body, string(saved))
+	for _, failure := range []string{"html", "redirect", "oversized"} {
+		body, status = "<html>not a video</html>", http.StatusOK
+		if failure == "redirect" {
+			status = http.StatusFound
+		}
+		if failure == "oversized" {
+			body = strings.Repeat("x", (76<<20)+1)
+		}
+		require.Error(t, storeStudioVideoFile(context.Background(), key, 101, "task_existing"))
+		current, err := os.ReadFile(key + ".video")
+		require.NoError(t, err)
+		require.Equal(t, saved, current)
+	}
+}
 
 // TestStudioChatResult replays a split Gemini tool call and checks the saved result that a
 // reconnecting browser reads. A missing stream terminator must take precedence over tool hints.

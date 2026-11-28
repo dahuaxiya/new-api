@@ -29,6 +29,7 @@ import {
   Plus,
   SlidersHorizontal,
   Square,
+  Video,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
@@ -193,7 +194,7 @@ function StudioWorkspace(props: {
   const { t } = useTranslation()
   const isRoot = useAuthStore((s) => s.auth.user?.role === ROLE.SUPER_ADMIN)
   const { storageKey, saved, initial } = props
-  const [mode, setMode] = useState<'text' | 'image'>(
+  const [mode, setMode] = useState<StudioSelection['mode']>(
     initial?.mode ?? saved?.mode ?? 'text'
   )
   const mobile = useIsMobile()
@@ -292,6 +293,7 @@ function StudioWorkspace(props: {
     const products = {
       text: readSelection(storageKey, 'text')?.product,
       image: readSelection(storageKey, 'image')?.product,
+      video: readSelection(storageKey, 'video')?.product,
     }
     if (initial) products[initial.mode ?? 'text'] = initial.product
     return products
@@ -321,6 +323,9 @@ function StudioWorkspace(props: {
       ),
     defaultValues: {
       prompt: '',
+      videoDuration: 1,
+      videoResolution: '480p',
+      videoAspectRatio: '16:9',
       model:
         (!initial?.running && saved?.model) ||
         initial?.entries.at(-1)?.model ||
@@ -360,16 +365,18 @@ function StudioWorkspace(props: {
   const policy = query.data?.saved?.policy
   const selectedProductId =
     chosenProducts[mode] ??
-    policy?.product_id ??
+    (mode === 'video'
+      ? query.data?.catalog.products.find((group) =>
+          group.models.some((model) => model.kind === 'video')
+        )?.id
+      : policy?.product_id) ??
     query.data?.catalog.products[0]?.id ??
     ''
   const product = query.data?.catalog.products.find(
     (item) => item.id === selectedProductId
   )
   const models =
-    product?.models.filter(
-      (item) => (item.kind === 'image') === (mode === 'image')
-    ) ?? []
+    product?.models.filter((item) => (item.kind || 'text') === mode) ?? []
   const imageSize = useWatch({ control: form.control, name: 'size' })
   const outputFormat = useWatch({
     control: form.control,
@@ -380,6 +387,20 @@ function StudioWorkspace(props: {
   const extendedImage = selected?.reference_image === true
   const canAttachImage = Boolean(selected && (mode === 'text' || extendedImage))
   const selectedModelId = selected?.id
+  const selectedVideo = selected?.video
+  useEffect(() => {
+    if (mode !== 'video' || !selectedVideo) return
+    // 两个 Grok 视频型号的分辨率不同，切换型号后清掉不可提交的旧规格。
+    if (!selectedVideo.prices[form.getValues('videoResolution') ?? '480p']) {
+      const resolution = (['480p', '720p', '1080p'] as const).find(
+        (value) => selectedVideo.prices[value]
+      )
+      form.setValue('videoResolution', resolution)
+    }
+    if ((form.getValues('videoDuration') ?? 1) > selectedVideo.max_duration) {
+      form.setValue('videoDuration', selectedVideo.max_duration)
+    }
+  }, [mode, selectedVideo, form])
   useEffect(() => {
     if (mode !== 'image' || !selectedModelId || extendedImage) return
     // Synchronize the form after its current options become unavailable.
@@ -540,11 +561,20 @@ function StudioWorkspace(props: {
   }
   /** 切换到该模式自己的分组和模型，首次进入时使用默认分组。 */
   const changeMode = (value: unknown) => {
-    if (value === mode || (value !== 'text' && value !== 'image')) return
+    if (
+      value === mode ||
+      (value !== 'text' && value !== 'image' && value !== 'video')
+    ) {
+      return
+    }
     const saved = readSelection(storageKey, value)
     const productId =
       chosenProducts[value] ??
-      policy?.product_id ??
+      (value === 'video'
+        ? query.data?.catalog.products.find((group) =>
+            group.models.some((model) => model.kind === 'video')
+          )?.id
+        : policy?.product_id) ??
       query.data?.catalog.products[0]?.id ??
       ''
     // 固定两边当前的默认选择，后续修改任一模式的支出保护也不会连带切换另一边。
@@ -581,6 +611,18 @@ function StudioWorkspace(props: {
       setOptionsOpen(true)
       form.setError('maxTokens', {
         message: t('Output limit exceeds this model limit'),
+      })
+      return
+    }
+    if (
+      mode === 'video' &&
+      (!selected.video ||
+        !selected.video.prices[input.videoResolution ?? '480p'] ||
+        (input.videoDuration ?? 1) > selected.video.max_duration)
+    ) {
+      setOptionsOpen(true)
+      form.setError('videoDuration', {
+        message: t('Select a supported video duration and resolution.'),
       })
       return
     }
@@ -644,7 +686,7 @@ function StudioWorkspace(props: {
       mode,
       updatedAt: Date.now(),
       running: true,
-      entries: [...run.entries, entry],
+      entries: mode === 'video' ? [entry] : [...run.entries, entry],
     }
     if (!run.send(record, input, parent, sentReference)) return
     drafts.current.delete(parent ?? `${mode}:${selectedProductId}`)
@@ -694,116 +736,162 @@ function StudioWorkspace(props: {
     </Button>
   )
   // 手机端将参数放到浮层中，展开时也能给对话结果保留原有高度。
-  const generationOptions =
-    mode === 'image' ? (
+  let generationOptions
+  if (mode === 'video') {
+    generationOptions = (
       <div className='flex flex-wrap items-center gap-2'>
-        <NativeSelect aria-label={t('Image size')} {...form.register('size')}>
-          {selected?.reference_image && (
-            <NativeSelectOption value='auto'>{t('Auto')}</NativeSelectOption>
-          )}
-          <NativeSelectOption value='1024x1024'>
-            1:1 · 1024 × 1024
-          </NativeSelectOption>
-          <NativeSelectOption value='1024x1536'>
-            2:3 · 1024 × 1536
-          </NativeSelectOption>
-          <NativeSelectOption value='1536x1024'>
-            3:2 · 1536 × 1024
-          </NativeSelectOption>
-          {selected?.reference_image && (
-            <>
-              <NativeSelectOption value='1536x1152'>
-                4:3 · 1536 × 1152
+        <Label htmlFor='studio-video-duration'>{t('Duration (seconds)')}</Label>
+        <Input
+          id='studio-video-duration'
+          className='w-20'
+          type='number'
+          min={1}
+          max={selected?.video?.max_duration ?? 15}
+          {...form.register('videoDuration', { valueAsNumber: true })}
+        />
+        <NativeSelect
+          aria-label={t('Video resolution')}
+          {...form.register('videoResolution')}
+        >
+          {Object.keys(selected?.video?.prices ?? { '480p': '' }).map(
+            (resolution) => (
+              <NativeSelectOption key={resolution} value={resolution}>
+                {resolution}
               </NativeSelectOption>
-              <NativeSelectOption value='1152x1536'>
-                3:4 · 1152 × 1536
-              </NativeSelectOption>
-              <NativeSelectOption value='1536x864'>
-                16:9 · 1536 × 864
-              </NativeSelectOption>
-              <NativeSelectOption value='864x1536'>
-                9:16 · 864 × 1536
-              </NativeSelectOption>
-              <NativeSelectOption value='custom'>
-                {t('Custom')}
-              </NativeSelectOption>
-            </>
+            )
           )}
         </NativeSelect>
-        {extendedImage && imageSize === 'custom' && (
-          <Input
-            aria-label={t('Custom resolution')}
-            placeholder='1920x1088'
-            className='w-32'
-            {...form.register('customSize')}
-          />
-        )}
-
-        <NativeSelect aria-label={t('Quality')} {...form.register('quality')}>
-          {selected?.reference_image && (
-            <NativeSelectOption value='auto'>{t('Auto')}</NativeSelectOption>
-          )}
-          <NativeSelectOption value='low'>{t('Low')}</NativeSelectOption>
-          <NativeSelectOption value='medium'>{t('Medium')}</NativeSelectOption>
-          <NativeSelectOption value='high'>{t('High')}</NativeSelectOption>
+        <NativeSelect
+          aria-label={t('Aspect ratio')}
+          {...form.register('videoAspectRatio')}
+        >
+          {['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3'].map((ratio) => (
+            <NativeSelectOption key={ratio} value={ratio}>
+              {ratio}
+            </NativeSelectOption>
+          ))}
         </NativeSelect>
-        {selected?.reference_image && (
-          <>
-            <NativeSelect
-              aria-label={t('Output format')}
-              {...form.register('outputFormat')}
-            >
-              <NativeSelectOption value='png'>PNG</NativeSelectOption>
-              <NativeSelectOption value='jpeg'>JPEG</NativeSelectOption>
-              <NativeSelectOption value='webp'>WebP</NativeSelectOption>
-            </NativeSelect>
-            {outputFormat !== 'png' && (
-              <Input
-                type='number'
-                min={0}
-                max={100}
-                step={1}
-                placeholder='0–100'
-                className='w-24'
-                aria-label={t('Output compression (%)')}
-                {...form.register('outputCompression')}
-              />
-            )}
-          </>
-        )}
-        {(form.formState.errors.size ||
-          form.formState.errors.outputCompression) && (
+        {form.formState.errors.videoDuration && (
           <p role='alert' className='text-destructive w-full text-sm'>
-            {form.formState.errors.size?.message ||
-              form.formState.errors.outputCompression?.message}
+            {t('Select a supported video duration and resolution.')}
           </p>
         )}
       </div>
-    ) : (
-      <div className='flex items-center gap-2'>
-        <Label
-          htmlFor='studio-output'
-          className='text-muted-foreground text-xs'
-        >
-          {t('Max output tokens')}
-        </Label>
-        <Input
-          id='studio-output'
-          className='w-24'
-          type='number'
-          min={1}
-          max={selected?.max_output ?? 32768}
-          aria-invalid={Boolean(form.formState.errors.maxTokens)}
-          {...form.register('maxTokens', { valueAsNumber: true })}
-          onInput={(event) => {
-            const value = event.currentTarget.valueAsNumber
-            if (value >= 1 && value <= 32768) {
-              preferredLimit.current = value
-            }
-          }}
-        />
-      </div>
     )
+  } else {
+    generationOptions =
+      mode === 'image' ? (
+        <div className='flex flex-wrap items-center gap-2'>
+          <NativeSelect aria-label={t('Image size')} {...form.register('size')}>
+            {selected?.reference_image && (
+              <NativeSelectOption value='auto'>{t('Auto')}</NativeSelectOption>
+            )}
+            <NativeSelectOption value='1024x1024'>
+              1:1 · 1024 × 1024
+            </NativeSelectOption>
+            <NativeSelectOption value='1024x1536'>
+              2:3 · 1024 × 1536
+            </NativeSelectOption>
+            <NativeSelectOption value='1536x1024'>
+              3:2 · 1536 × 1024
+            </NativeSelectOption>
+            {selected?.reference_image && (
+              <>
+                <NativeSelectOption value='1536x1152'>
+                  4:3 · 1536 × 1152
+                </NativeSelectOption>
+                <NativeSelectOption value='1152x1536'>
+                  3:4 · 1152 × 1536
+                </NativeSelectOption>
+                <NativeSelectOption value='1536x864'>
+                  16:9 · 1536 × 864
+                </NativeSelectOption>
+                <NativeSelectOption value='864x1536'>
+                  9:16 · 864 × 1536
+                </NativeSelectOption>
+                <NativeSelectOption value='custom'>
+                  {t('Custom')}
+                </NativeSelectOption>
+              </>
+            )}
+          </NativeSelect>
+          {extendedImage && imageSize === 'custom' && (
+            <Input
+              aria-label={t('Custom resolution')}
+              placeholder='1920x1088'
+              className='w-32'
+              {...form.register('customSize')}
+            />
+          )}
+
+          <NativeSelect aria-label={t('Quality')} {...form.register('quality')}>
+            {selected?.reference_image && (
+              <NativeSelectOption value='auto'>{t('Auto')}</NativeSelectOption>
+            )}
+            <NativeSelectOption value='low'>{t('Low')}</NativeSelectOption>
+            <NativeSelectOption value='medium'>
+              {t('Medium')}
+            </NativeSelectOption>
+            <NativeSelectOption value='high'>{t('High')}</NativeSelectOption>
+          </NativeSelect>
+          {selected?.reference_image && (
+            <>
+              <NativeSelect
+                aria-label={t('Output format')}
+                {...form.register('outputFormat')}
+              >
+                <NativeSelectOption value='png'>PNG</NativeSelectOption>
+                <NativeSelectOption value='jpeg'>JPEG</NativeSelectOption>
+                <NativeSelectOption value='webp'>WebP</NativeSelectOption>
+              </NativeSelect>
+              {outputFormat !== 'png' && (
+                <Input
+                  type='number'
+                  min={0}
+                  max={100}
+                  step={1}
+                  placeholder='0–100'
+                  className='w-24'
+                  aria-label={t('Output compression (%)')}
+                  {...form.register('outputCompression')}
+                />
+              )}
+            </>
+          )}
+          {(form.formState.errors.size ||
+            form.formState.errors.outputCompression) && (
+            <p role='alert' className='text-destructive w-full text-sm'>
+              {form.formState.errors.size?.message ||
+                form.formState.errors.outputCompression?.message}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className='flex items-center gap-2'>
+          <Label
+            htmlFor='studio-output'
+            className='text-muted-foreground text-xs'
+          >
+            {t('Max output tokens')}
+          </Label>
+          <Input
+            id='studio-output'
+            className='w-24'
+            type='number'
+            min={1}
+            max={selected?.max_output ?? 32768}
+            aria-invalid={Boolean(form.formState.errors.maxTokens)}
+            {...form.register('maxTokens', { valueAsNumber: true })}
+            onInput={(event) => {
+              const value = event.currentTarget.valueAsNumber
+              if (value >= 1 && value <= 32768) {
+                preferredLimit.current = value
+              }
+            }}
+          />
+        </div>
+      )
+  }
   return (
     <section className='bg-muted/25 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'>
       <header className='bg-background flex shrink-0 items-center justify-between gap-1 px-3 pt-1.5 pb-0.5 md:px-6 md:pt-3'>
@@ -887,6 +975,10 @@ function StudioWorkspace(props: {
             <TabsTrigger className='max-md:min-h-9' value='image'>
               <ImageIcon aria-hidden='true' />
               {t('Image generation')}
+            </TabsTrigger>
+            <TabsTrigger className='max-md:min-h-9' value='video'>
+              <Video aria-hidden='true' />
+              {t('Video generation')}
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -1089,9 +1181,11 @@ function StudioWorkspace(props: {
               if (!event.repeat) sendDraft()
             }}
             placeholder={t(
-              mode === 'image'
-                ? 'Describe the image you want'
-                : 'Write a message'
+              {
+                text: 'Write a message',
+                image: 'Describe the image you want',
+                video: 'Describe the video you want',
+              }[mode]
             )}
             aria-invalid={Boolean(form.formState.errors.prompt)}
             {...form.register('prompt')}
@@ -1196,28 +1290,48 @@ function StudioWorkspace(props: {
                 {selected && (
                   <PopoverContent className='w-64 p-3' align='end'>
                     <PopoverTitle>{selected.id}</PopoverTitle>
-                    <dl className='grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 tabular-nums'>
-                      <dt>{t('Input')}</dt>
-                      <dd>¥{selected.tiers[0].prices.input}</dd>
-                      {reference && selected.reference_image && (
-                        <>
-                          <dt>{t('Image input')}</dt>
-                          <dd>
-                            ¥
-                            {Number(
-                              (
-                                Number(selected.tiers[0].prices.input) * 1.6
-                              ).toFixed(9)
-                            )}
-                          </dd>
-                        </>
-                      )}
-                      <dt>{t(mode === 'image' ? 'Image output' : 'Output')}</dt>
-                      <dd>¥{selected.tiers[0].prices.output}</dd>
-                    </dl>
-                    <p className='text-muted-foreground text-end text-xs'>
-                      / 1M Tokens
-                    </p>
+                    {selected.video && (
+                      <dl className='grid grid-cols-[1fr_auto] gap-2 tabular-nums'>
+                        {Object.entries(selected.video.prices).map(
+                          ([resolution, price]) => (
+                            <div key={resolution} className='contents'>
+                              <dt>{resolution}</dt>
+                              <dd>
+                                ¥{price} / {t('second')}
+                              </dd>
+                            </div>
+                          )
+                        )}
+                      </dl>
+                    )}
+                    {!selected.video && selected.tiers[0] && (
+                      <>
+                        <dl className='grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 tabular-nums'>
+                          <dt>{t('Input')}</dt>
+                          <dd>¥{selected.tiers[0].prices.input}</dd>
+                          {reference && selected.reference_image && (
+                            <>
+                              <dt>{t('Image input')}</dt>
+                              <dd>
+                                ¥
+                                {Number(
+                                  (
+                                    Number(selected.tiers[0].prices.input) * 1.6
+                                  ).toFixed(9)
+                                )}
+                              </dd>
+                            </>
+                          )}
+                          <dt>
+                            {t(mode === 'image' ? 'Image output' : 'Output')}
+                          </dt>
+                          <dd>¥{selected.tiers[0].prices.output}</dd>
+                        </dl>
+                        <p className='text-muted-foreground text-end text-xs'>
+                          / 1M Tokens
+                        </p>
+                      </>
+                    )}
                   </PopoverContent>
                 )}
               </Popover>
@@ -1255,11 +1369,25 @@ function StudioWorkspace(props: {
               <Button
                 type='button'
                 className='size-9 rounded-full'
-                title={t('Stopping may still incur charges.')}
+                title={t(
+                  mode === 'video'
+                    ? 'Generating video…'
+                    : 'Stopping may still incur charges.'
+                )}
+                disabled={mode === 'video'}
                 onClick={run.stop}
               >
-                <Square aria-hidden='true' />
-                <span className='sr-only'>{t('Stop')}</span>
+                {mode === 'video' ? (
+                  <LoaderCircle
+                    className='motion-safe:animate-spin'
+                    aria-hidden='true'
+                  />
+                ) : (
+                  <Square aria-hidden='true' />
+                )}
+                <span className='sr-only'>
+                  {t(mode === 'video' ? 'Generating video…' : 'Stop')}
+                </span>
               </Button>
             ) : (
               <Button
@@ -1274,7 +1402,13 @@ function StudioWorkspace(props: {
               >
                 <ArrowUp aria-hidden='true' />
                 <span className='sr-only'>
-                  {t(mode === 'image' ? 'Generate image' : 'Send')}
+                  {t(
+                    {
+                      text: 'Send',
+                      image: 'Generate image',
+                      video: 'Generate video',
+                    }[mode]
+                  )}
                 </span>
               </Button>
             )}
