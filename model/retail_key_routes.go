@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/retailprice"
@@ -77,6 +78,10 @@ func LaunchRetailGroupKeys(ctx context.Context, in RetailGroupLaunch, actor int,
 		if price.Version != in.Version {
 			return ErrRetailPriceConflict
 		}
+		var book retailprice.Book
+		if err := common.UnmarshalJsonStr(price.Payload, &book); err != nil {
+			return retailprice.ErrConfig
+		}
 		eligible, err := RetailRateSiteChannels(tx)
 		if err != nil {
 			return err
@@ -90,7 +95,7 @@ func LaunchRetailGroupKeys(ctx context.Context, in RetailGroupLaunch, actor int,
 			}) {
 				return ErrRetailPriceConflict
 			}
-			channel, created, err := selection.resolveRoute(tx, ctx, eligible, index == 0 && in.PricingOnly)
+			channel, created, err := selection.resolveRoute(tx, ctx, eligible, index == 0 && in.PricingOnly, book.Models)
 			if err != nil {
 				return err
 			}
@@ -120,9 +125,9 @@ func LaunchRetailGroupKeys(ctx context.Context, in RetailGroupLaunch, actor int,
 	return result, err
 }
 
-// resolveRoute reuses a single same-site reference or takes over an identical inline credential.
-// A new inventory Key gets one backing channel shared by all consuming products. Disabled channels require explicit reactivation.
-func (selection retailKeySelection) resolveRoute(tx *gorm.DB, ctx context.Context, eligible []RetailBindingChannel, pricingOnly bool) (int, bool, error) {
+// resolveRoute 复用同站点同凭据的唯一线路，新库存凭据创建共享线路，停用线路须先显式启用。
+// catalog 必须来自当前已锁定价格版本，仅用于保留管理员已登记且报价有效的视频模型。
+func (selection retailKeySelection) resolveRoute(tx *gorm.DB, ctx context.Context, eligible []RetailBindingChannel, pricingOnly bool, catalog []retailprice.Model) (int, bool, error) {
 	key := selection.key
 	secret, err := key.secret()
 	if err != nil {
@@ -168,7 +173,24 @@ func (selection retailKeySelection) resolveRoute(tx *gorm.DB, ctx context.Contex
 	}
 	updates := map[string]any{"retail_key_id": key.ID, "retail_key_target": channel.supplyTarget(), "key": "", "status": channel.Status}
 	if !pricingOnly {
-		channel.Models = strings.Join(selection.models, ",")
+		models := slices.Clone(selection.models)
+		registered := channel.GetModels()
+		now := time.Now().Unix()
+		// 部分供应商的 /v1/models 省略异步视频模型。仅保留本线路人工登记并有有效手工报价的模型，
+		// 避免一次目录读取覆盖已核实的视频能力，也不借此恢复普通模型或添加其他凭据的模型。
+		for _, tariff := range catalog {
+			if tariff.Kind == "video" && tariff.PriceMode == "manual" && tariff.Video != nil &&
+				tariff.ID == tariff.OfficialModel && tariff.VerifiedAt <= now && tariff.ValidUntil > now &&
+				slices.Contains(registered, tariff.ID) {
+				models = append(models, tariff.ID)
+			}
+		}
+		slices.Sort(models)
+		models = slices.Compact(models)
+		channel.Models = strings.Join(models, ",")
+		if len(models) > 500 || len(channel.Models) > 16000 {
+			return 0, false, ErrRetailSupplyGroupIncomplete
+		}
 		updates["models"] = channel.Models
 	}
 	if err := tx.Table("channels").Where("id = ?", channel.Id).Updates(updates).Error; err != nil {

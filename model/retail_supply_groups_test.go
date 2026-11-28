@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -754,26 +755,55 @@ func TestRetailGroupLaunchDatabases(t *testing.T) {
 				Kind: "video", PriceMode: "manual", Currency: "USD", Source: "https://aixingxing.pro/api/pricing",
 				VerifiedAt: now - 30, ValidUntil: now + 3600,
 				Video: &retailprice.VideoTariff{MaxDuration: 15, Prices: map[string]string{"480p": "0.10", "720p": "0.12"}}}
-			saved.Models = append(saved.Models, video)
+			expiredVideo := video
+			expiredVideo.ID, expiredVideo.OfficialModel = "expired-video", "expired-video"
+			expiredVideo.VerifiedAt, expiredVideo.ValidUntil = now-3600, now-1
+			saved.Models = append(saved.Models, video, expiredVideo)
 			nextVersion, err = PublishRetailPriceBook(nextVersion, saved, nil, 1)
 			require.NoError(t, err)
-			videoLaunch := RetailGroupLaunch{Version: nextVersion, Site: site.Id, Group: "grok-ultra",
-				Upstream: "b", Models: []string{video.ID}, Key: "new-grok-key", Margin: &margin}
-			videoPreview, err := LaunchRetailGroup(ctx, videoLaunch, 1)
+			// 使用管理 API 实际调用的库存流程。供应商目录只返回图片时，已登记视频仍可上架，
+			// 过期视频、缺报价模型以及已从目录消失的普通模型均不能被顺带保留。
+			t.Setenv("CRYPTO_SECRET", "video-inventory-test")
+			library, err := ReadRetailKeyLibrary(ctx)
+			require.NoError(t, err)
+			upstream := "b"
+			videoKey, err := EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "create", Stamp: library.Stamp,
+				OwnerSiteID: site.Id, Name: "Grok Ultra", Key: "new-grok-key", UpstreamGroup: &upstream}, 1)
+			require.NoError(t, err)
+			library, err = ReadRetailKeyLibrary(ctx)
+			require.NoError(t, err)
+			_, err = EditRetailKeyLibrary(ctx, RetailLibraryEdit{Action: "add_route", Stamp: library.Stamp,
+				ID: videoKey, Channel: site.Id, Destination: endpoint, Name: "Grok Ultra",
+				Models: strings.Join([]string{video.ID, expiredVideo.ID, tracked.ID, "unpriced-video"}, ",")}, 1)
+			require.NoError(t, err)
+			_, nextVersion, err = GetRetailPriceBook()
+			require.NoError(t, err)
+			videoLaunch := RetailGroupLaunch{Version: nextVersion, Group: "grok-ultra",
+				LibraryID: videoKey, Margin: &margin}
+			discoverVideos := func(_ context.Context, _ int, base, secret string) ([]string, error) {
+				require.Equal(t, endpoint, base)
+				require.Equal(t, "new-grok-key", secret)
+				return []string{"provider-image-only"}, nil
+			}
+			videoPreview, err := LaunchRetailGroupKeys(ctx, videoLaunch, 1, discoverVideos)
 			require.NoError(t, err)
 			require.NotEmpty(t, videoPreview.Review)
-			require.Len(t, videoPreview.Rows, 1)
+			require.Len(t, videoPreview.Rows, 2)
+			require.Equal(t, video.ID, videoPreview.Rows[0].Model)
 			require.Empty(t, videoPreview.Rows[0].Reason)
 			require.Empty(t, videoPreview.Rows[0].Tiers)
 			require.Equal(t, &retailprice.VideoTariff{MaxDuration: 15,
 				Prices: map[string]string{"480p": "0.0625", "720p": "0.075"}}, videoPreview.Rows[0].Video)
 			videoLaunch.Review = videoPreview.Review
-			videoResult, err := LaunchRetailGroup(ctx, videoLaunch, 1)
+			videoResult, err := LaunchRetailGroupKeys(ctx, videoLaunch, 1, discoverVideos)
 			require.NoError(t, err)
 			require.True(t, videoResult.Applied)
 			saved, nextVersion, err = GetRetailPriceBook()
 			require.NoError(t, err)
 			videoProduct := saved.Products[len(saved.Products)-1]
+			var videoChannel Channel
+			require.NoError(t, db.First(&videoChannel, videoProduct.Routes[0].ChannelID).Error)
+			require.Equal(t, "grok-imagine-video,provider-image-only", videoChannel.Models)
 			targets, err = RetailDisplayTargets()
 			require.NoError(t, err)
 			videoQuote, err := saved.MakeVideoQuote(nextVersion, videoProduct.BindingGroup,
